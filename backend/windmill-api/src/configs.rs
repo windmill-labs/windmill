@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -18,6 +18,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
+    utils::Pagination,
     worker::MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
     DB,
 };
@@ -172,7 +173,7 @@ async fn update_config(
 
     let mut tx = db.begin().await?;
     sqlx::query!(
-        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
+        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
         &name,
         config
     )
@@ -239,11 +240,19 @@ struct AutoscalingEvent {
 async fn list_autoscaling_events(
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
+    Query(mut pagination): Query<Pagination>,
 ) -> error::JsonResult<Vec<AutoscalingEvent>> {
+    if pagination.per_page.is_none() {
+        pagination.per_page = Some(5);
+    }
+    let (per_page, offset) = windmill_common::utils::paginate(pagination);
+
     let events = sqlx::query_as!(
         AutoscalingEvent,
-        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
-        worker_group
+        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+        worker_group,
+        per_page as i64,
+        offset as i64
     )
     .fetch_all(&db)
     .await?;
@@ -263,8 +272,7 @@ async fn native_kubernetes_autoscaling_healthcheck(
 }
 
 #[cfg(not(all(feature = "enterprise", feature = "private")))]
-async fn native_kubernetes_autoscaling_healthcheck(
-) -> Result<(), error::Error> {
+async fn native_kubernetes_autoscaling_healthcheck() -> Result<(), error::Error> {
     Err(error::Error::BadRequest(
         "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
     ))

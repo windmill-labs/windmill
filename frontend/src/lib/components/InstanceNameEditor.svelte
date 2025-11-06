@@ -7,6 +7,7 @@
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import TextInput from './text_input/TextInput.svelte'
 
 	export let value: string | undefined
 	export let email: string
@@ -54,28 +55,32 @@
 				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
 			{/if}
 			<label class="block text-primary">
-				<div class="pb-2 text-sm font-semibold text-primary">Name</div>
+				<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
 				<div class="flex w-full">
-					<input
-						type="text"
-						bind:value
-						class="!w-auto grow"
-						on:click|stopPropagation={() => {}}
-						on:keydown|stopPropagation
-						on:keypress|stopPropagation={({ key }) => {
-							if (key === 'Enter') {
-								saveName()
+					<TextInput
+						inputProps={{
+							onclick: (e) => {
+								e.stopPropagation()
+							},
+							onkeydown: (e) => {
+								e.stopPropagation()
+							},
+							onkeypress: ({ key }) => {
+								if (key === 'Enter') {
+									saveName()
+								}
 							}
 						}}
+						bind:value
 					/>
 				</div>
 				<Button
-					size="xs"
-					color="blue"
+					unifiedSize="md"
+					variant="default"
 					buttonType="button"
 					btnClasses="mt-2 "
 					aria-label="Save ID"
-					on:click={() => {
+					onclick={() => {
 						saveName()
 					}}
 				>
@@ -83,7 +88,7 @@
 				</Button>
 			</label>
 			<label class="block text-primary">
-				<div class="pb-2 text-sm font-semibold text-primary">Password</div>
+				<div class="pb-1 text-xs font-semibold text-emphasis">Password</div>
 				<div class="flex w-full">
 					<input
 						type="password"
@@ -99,8 +104,8 @@
 					/>
 				</div>
 				<Button
-					size="xs"
-					color="blue"
+					unifiedSize="md"
+					variant="default"
 					buttonType="button"
 					btnClasses="mt-2 "
 					aria-label="Save ID"
@@ -112,11 +117,7 @@
 				</Button>
 			</label>
 			<label class="block text-primary">
-				<div class="pb-2 text-sm font-semibold text-primary">Login type</div>
-				<div class="text-xs text-secondary mb-2">
-					Must match exact SSO name, "password" or "saml". Examples: password, google, saml,
-					microsoft
-				</div>
+				<div class="mb-1 text-xs font-semibold text-emphasis">Login type</div>
 
 				<div class="flex w-full">
 					<input
@@ -132,9 +133,13 @@
 						}}
 					/>
 				</div>
+				<div class="text-2xs text-secondary mb-1">
+					Must match exact SSO name, "password" or "saml". Examples: password, google, saml,
+					microsoft
+				</div>
 				<Button
-					size="xs"
-					color="blue"
+					unifiedSize="md"
+					variant="default"
 					buttonType="button"
 					btnClasses="mt-2 "
 					aria-label="Save login type"

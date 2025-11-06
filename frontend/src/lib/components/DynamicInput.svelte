@@ -36,14 +36,16 @@
 
 	let { value = $bindable(), helperScript, format, otherArgs: otherArgs }: Props = $props()
 
-	const [inputType, entrypoint] = format.includes('-') ? format.split('-', 2) : [format, '']
+	let [inputType, entrypoint] = $derived(format.includes('-') ? format.split('-', 2) : [format, ''])
 
-	const isMultiple = inputType === 'dynmultiselect'
-	const isSelect = inputType === 'dynselect' || inputType === 'dynmultiselect'
+	let isMultiple = $derived(inputType === 'dynmultiselect')
+	let isSelect = $derived(inputType === 'dynselect' || inputType === 'dynmultiselect')
 
-	if (isMultiple && value === undefined) {
-		value = []
-	}
+	$effect.pre(() => {
+		if (isMultiple && value === undefined) {
+			value = []
+		}
+	})
 
 	let resultJobLoader: JobLoader | undefined = $state()
 	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
@@ -84,22 +86,12 @@
 					reject(error)
 				}
 			}
-			helperScript?.type == 'inline'
-				? resultJobLoader?.runPreview(
-						helperScript?.path ?? 'NO_PATH',
-						helperScript.code,
-						helperScript.lang,
-						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-						undefined,
-						undefined,
-						undefined,
-						cb
-					)
-				: resultJobLoader?.runScriptByHash(
-						helperScript?.hash ?? 'NO_HASH',
-						{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-						cb
-					)
+			resultJobLoader?.runDynamicInputScript(
+				entrypoint,
+				helperScript!,
+				{ ...otherArgs, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+				cb
+			)
 		})
 	}
 
@@ -107,7 +99,7 @@
 
 	$effect(() => {
 		if (_items.value && value !== undefined && isSelect) {
-			if (isMultiple && Array.isArray(value)) {
+			if (isMultiple && Array.isArray(value) && Array.isArray(_items.value)) {
 				const availableValues = new Set(_items.value.map((x) => x.value))
 				const filteredValue = value.filter((v) => availableValues.has(v))
 				if (filteredValue.length !== value.length) {
@@ -123,7 +115,7 @@
 
 	let lastArgs = $state.snapshot(otherArgs)
 
-	let timeout: NodeJS.Timeout | undefined = $state()
+	let timeout: number | undefined = $state()
 	let nargs = $state($state.snapshot(otherArgs))
 	$effect(() => {
 		otherArgs
@@ -179,7 +171,7 @@
 	</div>
 {:else}
 	<div class="flex flex-col gap-1 w-full">
-		<div class="text-xs text-tertiary"
+		<div class="text-xs text-primary"
 			>Dynamic input ({inputType}) is not available in this mode, write value directly</div
 		>
 		{#await import('$lib/components/JsonEditor.svelte')}

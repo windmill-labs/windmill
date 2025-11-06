@@ -8,7 +8,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script, DraftService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -34,13 +34,15 @@
 		Pen,
 		Share,
 		Trash,
-		History
+		History,
+		Globe2
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { scriptToHubUrl } from '$lib/hub'
 
 	interface Props {
 		script: Script & { canWrite: boolean; use_codebase: boolean }
@@ -144,7 +146,7 @@
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
 		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={12} height={12} />
+			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
 	{/snippet}
 
@@ -162,9 +164,9 @@
 						<Button
 							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
 							startIcon={{ icon: Pen }}
 							href="{base}/scripts/edit/{script.path}"
 						>
@@ -176,9 +178,9 @@
 						<Button
 							aiId={`fork-script-button-${script.summary ?? script.path}`}
 							aiDescription={`Fork the script ${script.summary ?? script.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href="{base}/scripts/add?template={script.path}"
 						>
@@ -298,6 +300,29 @@
 						icon: Copy,
 						action: () => {
 							copyToClipboard(script.path)
+						}
+					},
+					{
+						displayName: 'Publish to Hub',
+						icon: Globe2,
+						action: async () => {
+							const scriptData = await ScriptService.getScriptByPath({
+								workspace: $workspaceStore!,
+								path: script.path
+							})
+							window.open(
+								scriptToHubUrl(
+									scriptData.content,
+									scriptData.summary,
+									scriptData.description ?? '',
+									scriptData.kind,
+									scriptData.language,
+									scriptData.schema,
+									scriptData.lock ?? '',
+									$hubBaseUrlStore
+								).toString(),
+								'_blank'
+							)
 						}
 					},
 					{

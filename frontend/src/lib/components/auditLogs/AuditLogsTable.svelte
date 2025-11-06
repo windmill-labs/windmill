@@ -4,7 +4,7 @@
 	import { displayDate } from '$lib/utils'
 	import { onMount, tick } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ListFilter, ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, ListFilterPlus } from 'lucide-svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { twMerge } from 'tailwind-merge'
 
@@ -18,6 +18,7 @@
 		selectedId?: number | undefined
 		usernameFilter?: string | undefined
 		resourceFilter?: string | undefined
+		showWorkspace?: boolean
 		onselect?: (id: number) => void
 	}
 
@@ -31,6 +32,7 @@
 		selectedId = undefined,
 		usernameFilter = $bindable(),
 		resourceFilter = $bindable(),
+		showWorkspace = false,
 		onselect
 	}: Props = $props()
 
@@ -125,12 +127,15 @@
 <div class="divide-y min-w-[640px] h-full" id="audit-logs-table-wrapper">
 	<div bind:clientHeight={headerHeight}>
 		<div
-			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold"
+			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-2xs font-normal text-primary"
 		>
 			<div class="w-1/12">ID</div>
-			<div class="w-3/12">Timestamp</div>
-			<div class="w-3/12">Username</div>
-			<div class="w-3/12">Operation</div>
+			<div class={showWorkspace ? 'w-2/12' : 'w-3/12'}>Timestamp</div>
+			<div class={showWorkspace ? 'w-2/12' : 'w-3/12'}>Username</div>
+			{#if showWorkspace}
+				<div class="w-2/12">Workspace</div>
+			{/if}
+			<div class={showWorkspace ? 'w-2/12' : 'w-3/12'}>Operation</div>
 			<div class="w-2/12">Resource</div>
 		</div>
 	</div>
@@ -141,7 +146,12 @@
 			width="100%"
 			height={tableHeight - headerHeight - footerHeight}
 			itemCount={flatLogs?.length ?? 0}
-			itemSize={42}
+			itemSize={(index) => {
+				if (flatLogs?.[index]?.type === 'date') {
+					return 33
+				}
+				return 42
+			}}
 			overscanCount={20}
 			{stickyIndices}
 			scrollToAlignment="center"
@@ -154,7 +164,9 @@
 
 						{#if logOrDate}
 							{#if logOrDate?.type === 'date'}
-								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+								<div
+									class="bg-surface-secondary py-2 border-b font-normal text-primary text-xs pl-5"
+								>
 									{logOrDate.date}
 								</div>
 							{:else}
@@ -163,6 +175,7 @@
 								<div
 									class={twMerge(
 										'flex flex-row items-center h-full w-full px-2 py-1 hover:bg-surface-hover cursor-pointer',
+										'text-primary text-xs',
 										logOrDate.log.id === selectedId ? 'bg-blue-50 dark:bg-blue-900/50' : ''
 									)}
 									role="button"
@@ -174,10 +187,10 @@
 									<div class="w-1/12 text-xs truncate">
 										{logOrDate.log.id}
 									</div>
-									<div class="w-3/12 text-xs">
+									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										{displayDate(logOrDate.log.timestamp)}
 									</div>
-									<div class="w-3/12 text-xs">
+									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										<div class="flex flex-row gap-2 items-center">
 											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
 												{logOrDate.log.username}
@@ -186,20 +199,28 @@
 												{/if}
 											</div>
 											<Button
-												color="light"
-												size="xs2"
+												variant="subtle"
+												unifiedSize="sm"
 												iconOnly
-												startIcon={{ icon: ListFilter }}
+												startIcon={{ icon: ListFilterPlus }}
 												on:click={() => {
 													usernameFilter = logOrDate.log.username
 												}}
 											/>
 										</div>
 									</div>
-									<div class="w-3/12 text-xs">
+									{#if showWorkspace}
+										<div class="w-2/12 text-xs">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
+												{logOrDate.log.workspace_id}
+											</div>
+										</div>
+									{/if}
+									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										<div class="flex flex-row gap-1">
 											<Badge
-												on:click={() => {
+												clickable
+												onclick={() => {
 													actionKind = logOrDate.log.action_kind.toLocaleLowerCase()
 												}}
 												color={kindToBadgeColor(logOrDate.log.action_kind)}
@@ -207,7 +228,8 @@
 												{logOrDate.log.action_kind}
 											</Badge>
 											<Badge
-												on:click={() => {
+												clickable
+												onclick={() => {
 													operation = logOrDate.log.operation
 												}}
 											>
@@ -221,10 +243,10 @@
 												{logOrDate.log.resource}
 											</div>
 											<Button
-												color="light"
-												size="xs2"
+												variant="subtle"
+												unifiedSize="sm"
 												iconOnly
-												startIcon={{ icon: ListFilter }}
+												startIcon={{ icon: ListFilterPlus }}
 												on:click={() => {
 													resourceFilter = logOrDate.log.resource
 												}}
@@ -249,11 +271,14 @@
 		</VirtualList>
 	{/if}
 	<!-- Pagination footer - always visible -->
-	<div class="flex flex-row justify-between items-center p-2 bg-surface-primary border-t">
+	<div
+		class="flex flex-row justify-between items-center p-2 bg-surface-primary border-t"
+		style:height={`${footerHeight}px`}
+	>
 		<div class="flex flex-row gap-2 items-center">
 			<Button
-				color="light"
-				size="xs2"
+				variant="subtle"
+				unifiedSize="sm"
 				startIcon={{ icon: ChevronLeft }}
 				on:click={() => {
 					pageIndex = (pageIndex ?? 1) - 1
@@ -264,8 +289,8 @@
 			</Button>
 			<span class="text-xs text-secondary px-2">Page {pageIndex}</span>
 			<Button
-				color="light"
-				size="xs2"
+				variant="subtle"
+				unifiedSize="sm"
 				endIcon={{ icon: ChevronRight }}
 				on:click={() => {
 					pageIndex = (pageIndex ?? 1) + 1
@@ -277,10 +302,7 @@
 		</div>
 		<div class="flex flex-row gap-2 items-center">
 			<span class="text-xs text-secondary">Per page:</span>
-			<select
-				bind:value={perPage}
-				class="text-xs bg-transparent border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
-			>
+			<select bind:value={perPage} class="text-xs border rounded-md px-2 py-1">
 				<option value={25}>25</option>
 				<option value={100}>100</option>
 				<option value={1000}>1000</option>

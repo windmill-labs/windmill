@@ -2,7 +2,6 @@
 	import { run } from 'svelte/legacy'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { writable } from 'svelte/store'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { HiddenRunnable, JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
@@ -52,11 +51,11 @@
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
-	let runnables = writable(initRunnables)
+	let runnables = $state(initRunnables)
 
 	let files: Record<string, string> | undefined = $state(initFiles)
 
-	let draftTimeout: NodeJS.Timeout | undefined = undefined
+	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
 		draftTimeout && clearTimeout(draftTimeout)
 		draftTimeout = setTimeout(() => {
@@ -65,7 +64,7 @@
 					path != '' ? `rawapp-${path}` : 'rawapp',
 					encodeState({
 						files,
-						runnables: $runnables
+						runnables: runnables
 					})
 				)
 			} catch (err) {
@@ -97,7 +96,7 @@
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setRunnables',
-				dts: genWmillTs($runnables)
+				dts: genWmillTs(runnables)
 			},
 			'*'
 		)
@@ -129,7 +128,7 @@
 
 	let darkMode: boolean = $state(false)
 	run(() => {
-		$runnables && files && saveFrontendDraft()
+		runnables && files && saveFrontendDraft()
 	})
 	run(() => {
 		iframe?.addEventListener('load', () => {
@@ -140,7 +139,7 @@
 		iframe && iframeLoaded && initFiles && populateFiles()
 	})
 	run(() => {
-		iframe && iframeLoaded && $runnables && populateRunnables()
+		iframe && iframeLoaded && runnables && populateRunnables()
 	})
 </script>
 
@@ -153,7 +152,7 @@
 	{iframe}
 	bind:jobs
 	bind:jobsById
-	runnables={$runnables}
+	{runnables}
 	{path}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">

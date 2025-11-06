@@ -3,6 +3,8 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { selectOptions } from './apps/editor/component'
+	import Select from './select/Select.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		min: number | undefined
@@ -44,7 +46,11 @@
 					options={{ right: 'Enabled' }}
 					size="xs"
 				/>
-			{/snippet} <input type="number" bind:value={min} disabled={!minChecked} />
+			{/snippet}
+			<TextInput
+				inputProps={{ type: 'number', disabled: !minChecked }}
+				bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
+			/>
 		</Label>
 
 		<Label label="Max" class="w-full col-span-1 ">
@@ -68,31 +74,41 @@
 					size="xs"
 				/>
 			{/snippet}
-			<input type="number" bind:value={max} disabled={!maxChecked} />
+			<TextInput
+				inputProps={{ type: 'number', disabled: !maxChecked }}
+				bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
+			/>
 		</Label>
 	</div>
-	<div class="grid grid-cols-3 gap-4">
-		<Label label="Currency" class="w-full col-span-2">
+	<div class="flex gap-2">
+		<Label label="Currency">
 			{#snippet header()}
 				<Tooltip light small>
 					Select a currency to display the number in. If a currency is selected, you can also select
 					a locale to format the number according to that locale.
 				</Tooltip>
 			{/snippet}
-			<select bind:value={currency}>
-				<option value={undefined}> No currency </option>
-				{#each selectOptions.currencyOptions as c}
-					<option value={c}>{c}</option>
-				{/each}
-			</select>
+			<Select
+				bind:value={
+					() => currency,
+					(v) => {
+						currency = v
+						if (!v) currencyLocale = undefined
+					}
+				}
+				items={selectOptions.currencyOptions.map((c) => ({ label: c, value: c }))}
+				placeholder="No currency"
+				clearable
+			/>
 		</Label>
 		<Label label="Currency locale" class="w-full">
-			<select bind:value={currencyLocale} disabled={!currency}>
-				<option value={undefined}> No locale </option>
-				{#each selectOptions.localeOptions as c}
-					<option value={c}>{c}</option>
-				{/each}
-			</select>
+			<Select
+				bind:value={currencyLocale}
+				items={selectOptions.localeOptions.map((c) => ({ label: c, value: c }))}
+				placeholder="No locale"
+				disabled={!currency}
+				clearable
+			/>
 		</Label>
 	</div>
 </div>

@@ -6,7 +6,7 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
-	import { generateRandomString, type DynamicInput } from '$lib/utils'
+	import { generateRandomString, readFieldsRecursively, type DynamicInput } from '$lib/utils'
 	interface Props {
 		schema: Schema
 		args?: Record<string, any>
@@ -25,6 +25,7 @@
 		helperScript?: DynamicInput.HelperScript
 		className?: string
 		dndType?: string
+		lightHeaderFont?: boolean
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		isValid = $bindable(true),
 		noVariablePicker = false,
 		className = '',
-		dndType = generateRandomString()
+		dndType = generateRandomString(),
+		lightHeaderFont
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -91,7 +93,8 @@
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
-		schema && dragDisabledState && untrack(() => updateItems())
+		readFieldsRecursively(schema)
+		dragDisabledState && untrack(() => updateItems())
 	})
 </script>
 
@@ -135,10 +138,11 @@
 	{shouldDispatchChanges}
 	bind:isValid
 	{noVariablePicker}
+	{lightHeaderFont}
 >
 	{#snippet actions()}
 		{#if !disableDnd}
-			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
+			<div class="w-4 h-6 cursor-move ml-2 handle mt-[9px]" aria-label="drag-handle" use:dragHandle>
 				<GripVertical size={16} />
 			</div>
 		{/if}

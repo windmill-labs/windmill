@@ -84,7 +84,9 @@
 		}
 	})
 
-	const isLastMessageTool = $derived(messages.length > 0 && messages[messages.length - 1].role === 'tool')
+	const isLastMessageTool = $derived(
+		messages.length > 0 && messages[messages.length - 1].role === 'tool'
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -113,7 +115,7 @@
 				<svelte:fragment slot="content" let:close>
 					<div class="p-1 overflow-y-auto max-h-[300px]">
 						{#if pastChats.length === 0}
-							<div class="text-center text-tertiary text-xs">No history</div>
+							<div class="text-center text-primary text-xs">No history</div>
 						{:else}
 							<div class="flex flex-col">
 								{#each pastChats as chat}
@@ -134,8 +136,7 @@
 											iconOnly
 											size="xs2"
 											btnClasses="!p-1"
-											color="light"
-											variant="border"
+											variant="default"
 											startIcon={{ icon: X }}
 											on:click={() => {
 												deletePastChat(chat.id)
@@ -203,8 +204,7 @@
 				<Button
 					startIcon={{ icon: Loader2, classes: 'animate-spin' }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={() => {
 						cancel()
 					}}
@@ -217,8 +217,7 @@
 				<Button
 					startIcon={{ icon: CheckIcon }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
 					on:click={() => {
 						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
@@ -229,8 +228,7 @@
 				<Button
 					startIcon={{ icon: XIcon }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 					on:click={() => {
 						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
@@ -257,7 +255,7 @@
 					<ChatQuickActions {askAi} {diffMode} />
 				{/if}
 				{#if disabled}
-					<div class="text-tertiary text-xs my-2 px-2">
+					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>
 				{:else}

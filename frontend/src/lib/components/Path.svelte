@@ -36,6 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -94,7 +95,7 @@
 		}
 	})
 
-	let inputP: HTMLInputElement | undefined = $state(undefined)
+	let inputP: TextInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -210,7 +211,7 @@
 		validateName(meta) && validatePath(path, kind)
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
 		if (validateTimeout) {
@@ -393,7 +394,7 @@
 </script>
 
 <div>
-	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 pb-0 mb-1">
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
@@ -420,10 +421,7 @@
 							<ToggleButton
 								icon={User}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="user"
-								position="left"
 								label="User"
 								{item}
 							/>
@@ -431,10 +429,7 @@
 							<ToggleButton
 								icon={Folder}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="folder"
-								position="right"
 								label="Folder"
 								{item}
 							/>
@@ -443,20 +438,21 @@
 				</div>
 			{/if}
 			{#if !hideUser}
-				<div class="text-xl">/</div>
+				<div class="text-sm text-secondary">/</div>
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
-						<input
+						<TextInput
 							class="!w-36"
-							type="text"
 							bind:value={meta.owner}
-							placeholder={$userStore?.username ?? ''}
-							disabled={disabled ||
-								!($superadmin || ($userStore?.is_admin ?? false)) ||
-								disableEditing}
-							onkeydown={setDirty}
+							inputProps={{
+								type: 'text',
+								placeholder: $userStore?.username ?? '',
+								onkeydown: setDirty,
+								disabled:
+									disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing
+							}}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
@@ -465,32 +461,32 @@
 					</label>
 				{/if}
 			</div>
-			<span class="text-xl">/</span>
+			<div class="text-sm text-secondary">/</div>
 			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					disabled={disabled || disableEditing}
-					type="text"
-					id="path"
-					{autofocus}
+				<TextInput
 					bind:this={inputP}
-					autocomplete="off"
-					onkeyup={handleKeyUp}
 					bind:value={meta.name}
-					placeholder={namePlaceholder}
-					class={error === ''
-						? ''
-						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+					{error}
+					inputProps={{
+						disabled: disabled || disableEditing,
+						type: 'text',
+						id: 'path',
+						autofocus,
+						autocomplete: 'off',
+						onkeyup: handleKeyUp,
+						placeholder: namePlaceholder
+					}}
 				/>
 			</label>
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full mt-4">
+	<div class="flex flex-col w-full mt-2">
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+				class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
 			>
 				Full path
 			</Badge>
@@ -574,8 +570,7 @@
 			and resources (having the same path) are automatically moved together.
 			<div class="flex pt-2">
 				<Button
-					variant="border"
-					color="dark"
+					variant="default"
 					on:click={() => {
 						openSearchWithPrefilledText('#')
 					}}

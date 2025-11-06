@@ -13,12 +13,20 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		ArrowRight,
+		CornerDownLeft,
+		Loader2,
+		Play,
+		RefreshCw,
+		X
+	} from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
@@ -30,6 +38,7 @@
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -85,9 +94,9 @@
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
-	export function test() {
+	export async function test(): Promise<string | undefined> {
 		renderCount++
-		runPreview(previewArgs.val, undefined)
+		return await runPreview(previewArgs.val, undefined)
 	}
 
 	const {
@@ -108,6 +117,7 @@
 	let currentJobId: string | undefined = $state(undefined)
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 	let flowProgressBar: FlowProgressBar | undefined = $state(undefined)
+	let loadingHistory = $state(false)
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
@@ -130,6 +140,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
+		let newJobId: string | undefined = undefined
 		if (stepHistoryLoader?.flowJobInitial !== false) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
@@ -137,7 +148,8 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
 				savedArgs = $state.snapshot(previewArgs.val)
@@ -150,6 +162,7 @@
 			jobId = undefined
 		}
 		schemaFormWithArgPicker?.refreshHistory()
+		return newJobId
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -286,8 +299,8 @@
 					on:click={() => dispatch('close')}
 					startIcon={{ icon: X }}
 					iconOnly
-					size="sm"
-					color="light"
+					unifiedSize="md"
+					variant="default"
 					btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
 				/>
 			</div>
@@ -295,11 +308,12 @@
 			{#if isRunning}
 				<div class="mx-auto">
 					<Button
-						color="red"
+						variant="accent"
+						destructive
 						on:click={async () => {
 							cancelTest()
 						}}
-						size="sm"
+						unifiedSize="md"
 						btnClasses="w-full max-w-lg"
 						loading={true}
 						clickableWhileLoading
@@ -308,13 +322,12 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="grow justify-center flex flex-row gap-4">
+				<div class="grow justify-center flex flex-row gap-2">
 					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
 						{#if selectedJobStepType == 'single'}
 							<Button
-								size="xs"
-								color="light"
-								variant="border"
+								unifiedSize="md"
+								variant="default"
 								title={`Re-start this flow from step ${selectedJobStep} (included).`}
 								on:click={() => {
 									runPreview(previewArgs.val, {
@@ -338,8 +351,7 @@
 								{#snippet button()}
 									<Button
 										title={`Re-start this flow from step ${selectedJobStep} (included).`}
-										variant="border"
-										color="blue"
+										variant="default"
 										startIcon={{ icon: RefreshCw }}
 										on:click={() => {
 											runPreview(previewArgs.val, {
@@ -405,25 +417,26 @@
 							</Popover>
 						{/if}
 					{/if}
-					<Button
-						variant="contained"
-						startIcon={{ icon: isRunning ? RefreshCw : Play }}
-						color="dark"
-						size="sm"
-						btnClasses="w-full max-w-lg"
-						on:click={() => runPreview(previewArgs.val, undefined)}
-						id="flow-editor-test-flow-drawer"
-						shortCut={{ Icon: CornerDownLeft }}
-					>
-						{#if previewMode == 'upTo'}
-							Test up to
-							<Badge baseClass="ml-1" color="indigo">
-								{$selectedId}
-							</Badge>
-						{:else}
-							Test flow
-						{/if}
-					</Button>
+					{#if !flowStore.val.value?.chat_input_enabled}
+						<Button
+							variant="accent"
+							startIcon={{ icon: isRunning ? RefreshCw : Play }}
+							size="sm"
+							btnClasses="w-full max-w-lg"
+							on:click={() => runPreview(previewArgs.val, undefined)}
+							id="flow-editor-test-flow-drawer"
+							shortCut={{ Icon: CornerDownLeft }}
+						>
+							{#if previewMode == 'upTo'}
+								Test up to
+								<Badge baseClass="ml-1" color="indigo">
+									{$selectedId}
+								</Badge>
+							{:else}
+								Test flow
+							{/if}
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -448,81 +461,95 @@
 		onscroll={(e) => handleScroll()}
 	>
 		{#if render}
-			<div class="border-b">
-				<SchemaFormWithArgPicker
-					bind:this={schemaFormWithArgPicker}
-					runnableId={$initialPathStore}
-					stablePathForCaptures={$initialPathStore || fakeInitialPath}
-					runnableType={'FlowPath'}
-					previewArgs={previewArgs.val}
-					on:openTriggers
-					on:select={(e) => {
-						selectInput(e.detail.payload, e.detail?.type)
-					}}
-					{isValid}
-					{jsonView}
-				>
-					<div class="w-full flex flex-row justify-between">
-						<InputSelectedBadge
-							onReject={() => schemaFormWithArgPicker?.resetSelected()}
-							{inputSelected}
-						/>
-						<div class="flex flex-row gap-2">
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
-									refresh()
-								}}
+			{#if flowStore.val.value?.chat_input_enabled}
+				<div class="flex flex-row justify-center w-full">
+					<FlowChatInterface
+						onRunFlow={async (userMessage, _conversationId) => {
+							await runPreview({ user_message: userMessage }, undefined)
+							return jobId ?? ''
+						}}
+						createConversation={async () => {
+							const newConversationId = crypto.randomUUID()
+							return newConversationId
+						}}
+					/>
+				</div>
+			{:else}
+				<div class="border-b">
+					<SchemaFormWithArgPicker
+						bind:this={schemaFormWithArgPicker}
+						runnableId={$initialPathStore}
+						stablePathForCaptures={$initialPathStore || fakeInitialPath}
+						runnableType={'FlowPath'}
+						previewArgs={previewArgs.val}
+						on:openTriggers
+						on:select={(e) => {
+							selectInput(e.detail.payload, e.detail?.type)
+						}}
+						{isValid}
+						{jsonView}
+					>
+						<div class="w-full flex flex-row justify-between">
+							<InputSelectedBadge
+								onReject={() => schemaFormWithArgPicker?.resetSelected()}
+								{inputSelected}
 							/>
-						</div>
-					</div>
-					{#if jsonView}
-						<div class="py-2" style="height: {Math.max(schemaHeight, 100)}px" data-schema-picker>
-							<JsonInputs
-								bind:this={jsonEditor}
-								on:select={(e) => {
-									if (e.detail) {
-										previewArgs.val = e.detail
-									}
-								}}
-								updateOnBlur={false}
-								placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-							/>
-						</div>
-					{:else}
-						{#key renderCount}
-							<div bind:clientHeight={schemaHeight} class="min-h-[40vh]">
-								<SchemaForm
-									noVariablePicker
-									compact
-									schema={flowStore.val.schema}
-									bind:args={previewArgs.val}
-									on:change={() => {
-										savedArgs = $state.snapshot(previewArgs.val)
+							<div class="flex flex-row gap-2">
+								<Toggle
+									bind:checked={jsonView}
+									size="xs"
+									options={{
+										right: 'JSON',
+										rightTooltip: 'Fill args from JSON'
 									}}
-									bind:isValid
-									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-									flowStore.val.schema?.['x-windmill-dyn-select-lang']
-										? {
-												type: 'inline',
-												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
-											}
-										: undefined}
+									lightMode
+									on:change={(e) => {
+										jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
+										refresh()
+									}}
 								/>
 							</div>
-						{/key}
-					{/if}
-				</SchemaFormWithArgPicker>
-			</div>
+						</div>
+						{#if jsonView}
+							<div class="py-2" style="height: {Math.max(schemaHeight, 100)}px" data-schema-picker>
+								<JsonInputs
+									bind:this={jsonEditor}
+									on:select={(e) => {
+										if (e.detail) {
+											previewArgs.val = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
+							</div>
+						{:else}
+							{#key renderCount}
+								<div bind:clientHeight={schemaHeight} class="min-h-[40vh]">
+									<SchemaForm
+										noVariablePicker
+										compact
+										schema={flowStore.val.schema}
+										bind:args={previewArgs.val}
+										on:change={() => {
+											savedArgs = $state.snapshot(previewArgs.val)
+										}}
+										bind:isValid
+										helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
+										flowStore.val.schema?.['x-windmill-dyn-select-lang']
+											? {
+													source: 'inline',
+													code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
+													lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
+												}
+											: undefined}
+									/>
+								</div>
+							{/key}
+						{/if}
+					</SchemaFormWithArgPicker>
+				</div>
+			{/if}
 		{/if}
 		<div class="pt-4 flex flex-col grow relative">
 			<div
@@ -546,6 +573,7 @@
 							currentJobId = undefined
 						}}
 						path={$initialPathStore == '' ? $pathStore : $initialPathStore}
+						bind:loading={loadingHistory}
 					/>
 				{/if}
 			</div>
@@ -573,7 +601,7 @@
 					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
-					bind:flowStateStore={flowStateStore.val}
+					bind:flowState={flowStateStore.val}
 					{jobId}
 					onDone={() => {
 						isRunning = false
@@ -586,8 +614,12 @@
 					{render}
 					{customUi}
 				/>
+			{:else if loadingHistory}
+				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
+					<Loader2 class="animate-spin" /> <span> Loading history... </span>
+				</div>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

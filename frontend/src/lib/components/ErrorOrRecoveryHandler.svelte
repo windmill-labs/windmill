@@ -20,11 +20,11 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ErrorHandler, ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
+	import type { ErrorHandler } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
-	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -58,14 +58,13 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip,
+		customTabTooltip
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
-	let isFetching: boolean = $state(false)
-	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
 	let teams_team_name: string | undefined = $state(undefined)
+	let teams_team_id: string | undefined = $state(undefined)
 
 	let workspaceConnectedToSlack: boolean | undefined = $state(undefined)
 	let workspaceConnectedToTeams: boolean | undefined = $state(undefined)
@@ -85,7 +84,6 @@
 	}
 
 	async function loadTeamsResources() {
-		isFetching = true
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
 			workspaceConnectedToTeams = true
@@ -94,11 +92,8 @@
 		}
 		if (workspaceConnectedToTeams) {
 			teams_team_name = settings.teams_team_name
-			teams_channels = await WorkspaceService.listAvailableTeamsChannels({
-				workspace: $workspaceStore!
-			})
+			teams_team_id = settings.teams_team_id
 		}
-		isFetching = false
 	}
 
 	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {
@@ -136,7 +131,7 @@
 						workspace: $workspaceStore!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after 5s'
+							reason: 'Slack message not sent after 10s'
 						}
 					})
 				} catch (err) {
@@ -144,7 +139,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 	}
 
@@ -329,18 +324,15 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
-		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
-		<Tab value="email" disabled={!isEditable}>Email</Tab>
-		<Tab value="custom" disabled={!isEditable}>
-			Custom
-			{@render customTabTooltip?.()}
-		</Tab>
+		<Tab value="slack" disabled={!isEditable} label="Slack" />
+		<Tab value="teams" disabled={!isEditable} label="Teams" />
+		<Tab value="email" disabled={!isEditable} label="Email" />
+		<Tab value="custom" disabled={!isEditable} label="Custom" extra={customTabTooltip} />
 	</Tabs>
 </div>
 
 {#if handlerSelected === 'custom'}
-	<div class="flex flex-row mb-2">
+	<div class="flex flex-row mb-6">
 		<ScriptPicker
 			disabled={!isEditable || !$enterpriseLicense}
 			kinds={['script', 'failure']}
@@ -353,8 +345,8 @@
 
 		{#if !handlerPath}
 			<Button
-				btnClasses="ml-4 mt-2"
-				color="dark"
+				btnClasses="ml-4 whitespace-nowrap"
+				variant="default"
 				size="xs"
 				href={customScriptTemplate}
 				disabled={!isEditable}
@@ -365,7 +357,7 @@
 		{/if}
 	</div>
 	{#if showScriptHelpText}
-		<div class="text-xs">
+		<div class="text-2xs text-secondary">
 			Example of error handler scripts can be found on <a
 				target="_blank"
 				href="{$hubBaseUrlStore}/failures"
@@ -375,7 +367,7 @@
 		</div>
 	{/if}
 	{#if handlerPath}
-		<p class="font-semibold text-sm mt-4 mb-2">Extra arguments</p>
+		<p class="font-semibold text-xs mt-6 mb-1">Extra arguments</p>
 		{#await import('$lib/components/SchemaForm.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -439,21 +431,16 @@
 							href="{base}/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadSlackResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadSlackResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center"
-				color="dark"
+				btnClasses="w-32 text-center whitespace-nowrap"
+				variant="default"
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
-				size="xs">Send test message</Button
+				unifiedSize="md">Send test message</Button
 			>
 			{#if connectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
@@ -498,7 +485,7 @@
 		<div class="w-2/3 flex flex-col gap-2">
 			<div class="flex flex-row items-center gap-2">
 				<div class="pt-1 flex-shrink-0">
-					<MsTeamsIcon height="24px" width="24px" />
+					<MsTeamsIcon size={24} />
 				</div>
 				<p class="text-sm">Teams Channel</p>
 			</div>
@@ -507,24 +494,23 @@
 				<ChannelSelector
 					containerClass="flex-grow"
 					minWidth="200px"
-					placeholder="Select Teams channel"
-					channels={teams_channels}
+					placeholder="Search Teams channels"
+					teamId={teams_team_id}
 					bind:selectedChannel={
 						() =>
 							handlerExtraArgs['channel']
-								? teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel'])
+								? {
+										channel_id: handlerExtraArgs['channel'],
+										channel_name: handlerExtraArgs['channel_name']
+									}
 								: undefined,
-						(channel) => (handlerExtraArgs['channel'] = channel?.channel_id)
+						(channel) => {
+							handlerExtraArgs['channel'] = channel?.channel_id
+							handlerExtraArgs['channel_name'] = channel?.channel_name
+						}
 					}
+					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 				/>
-				<div class="flex-shrink-0">
-					<button
-						onclick={loadTeamsResources}
-						class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover"
-					>
-						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-					</button>
-				</div>
 			</div>
 		</div>
 		<div class="flex flex-row gap-2 pb-4">
@@ -553,19 +539,14 @@
 							>workspace settings</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadTeamsResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadTeamsResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center mt-2"
-				color="dark"
+				btnClasses="w-32 text-center mt-2 whitespace-nowrap"
+				variant="default"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button
 			>
@@ -621,7 +602,7 @@
 				class="w-full"
 			/>
 			{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
-				<span class="text-sm text-tertiary">
+				<span class="text-sm text-primary">
 					{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
 						EMAIL_RECIPIENTS_KEY
 					]?.length === 1

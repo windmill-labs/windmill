@@ -17,8 +17,8 @@
 	import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
-
-	let schema: Schema | undefined = $state(undefined)
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	type FieldMetadata = {
 		type: string
@@ -68,13 +68,13 @@
 			return typ
 		}
 	}
-	async function builtSchema(fields: FieldMetadata[], dbType: DbType) {
+	async function buildSchema(): Promise<Schema> {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
 		await init(wasmUrl)
 
-		fields.forEach((field) => {
+		fields?.forEach((field) => {
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
@@ -96,6 +96,12 @@
 					schemaProperty.default = field.defaultValue
 				}
 			}
+			if (field.type === 'timestamp without time zone' || field.type === 'timestamp') {
+				schemaProperty.format = 'naive-date-time'
+			}
+			if (field.type === 'timestamp with time zone' || field.type === 'timestamptz') {
+				schemaProperty.format = 'date-time'
+			}
 
 			properties[field.name] = schemaProperty
 
@@ -109,12 +115,12 @@
 			}
 		})
 
-		schema = {
+		return {
 			$schema: 'http://json-schema.org/draft-07/schema#',
 			type: 'object',
 			properties,
 			required
-		} as Schema
+		}
 	}
 
 	interface Props {
@@ -134,8 +140,10 @@
 	let fields = $derived(
 		columnDefs
 			?.filter((t) => {
-				const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
-
+				const shouldFilter =
+					t.isidentity === ColumnIdentity.Always ||
+					t?.hideInsert === true ||
+					t.defaultvalue?.startsWith('nextval(') // exclude postgres serial/auto increment fields
 				return !shouldFilter
 			})
 			.map((column) => {
@@ -154,9 +162,11 @@
 				}
 			}) as FieldMetadata[] | undefined
 	)
+
+	let schemaPromise = usePromise(buildSchema)
+	let schema = $derived(schemaPromise.value)
 	$effect(() => {
-		;[fields, dbType]
-		untrack(() => builtSchema(fields ?? [], dbType))
+		fields && dbType && untrack(() => schemaPromise.refresh())
 	})
 	$effect(() => {
 		if (schema) {
@@ -171,5 +181,31 @@
 </script>
 
 {#if schema}
-	<SchemaForm onlyMaskPassword {schema} bind:args />
+	<SchemaForm onlyMaskPassword {schema} bind:args>
+		{#snippet actions({ item })}
+			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if !disabled}
+				<Toggle
+					options={{ right: 'NULL' }}
+					class="pl-2"
+					textClass="text-primary"
+					bind:checked={
+						() => args[item.id] === null,
+						(v) => {
+							if (!schema?.properties[item.id]) return
+							if (v) {
+								schema.properties[item.id].nullable = true
+								schema.properties[item.id].disabled = true
+								args[item.id] = null
+							} else {
+								delete schema.properties[item.id].disabled
+								delete schema.properties[item.id].nullable
+								args[item.id] = schema.properties[item.id].default ?? ''
+							}
+						}
+					}
+				/>
+			{/if}
+		{/snippet}
+	</SchemaForm>
 {/if}

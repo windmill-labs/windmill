@@ -137,10 +137,10 @@
 			{#each steps as [_args, filter, m], index (m.id + index)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
-						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">
+						<p class="text-sm font-bold sticky w-full top-0 z-10 inline-flex items-center">
 							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
 							<Badge large color="indigo">{m.id}</Badge>
-						</h2>
+						</p>
 
 						<InputTransformSchemaForm
 							noDynamicToggle

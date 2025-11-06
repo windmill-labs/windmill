@@ -35,7 +35,7 @@
 		isInitialSetup = false,
 		requiresMigration = false,
 		actions = undefined,
-		useIndividualBranch = false,
+		useIndividualBranch = false
 	} = $props()
 
 	// Component state
@@ -107,8 +107,6 @@
 	function capitalize(str: string) {
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
-
-
 </script>
 
 <div class="rounded-lg shadow-sm border p-0 w-full">
@@ -119,11 +117,14 @@
 			<span class="font-semibold text-sm">Git Sync filter settings</span>
 			{#if isLegacyRepo}
 				<Tooltip>
-					This repository uses legacy configuration format and inherits settings from workspace-level defaults. Excluded types are filtered out from inherited types. Save to migrate to the new format.
+					This repository uses legacy configuration format and inherits settings from
+					workspace-level defaults. Excluded types are filtered out from inherited types. Save to
+					migrate to the new format.
 				</Tooltip>
 			{:else if !isEditable}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml">
-					These settings are controlled by the wmill.yaml file in your git repository. Click "Pull from repo" to check for settings drift and pull settings from repo.
+					These settings are controlled by the wmill.yaml file in your git repository. Click "Pull
+					from repo" to check for settings drift and pull settings from repo.
 				</Tooltip>
 			{/if}
 		</div>
@@ -174,8 +175,8 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-32">
 					<div class="flex flex-col gap-2">
 						<Tabs bind:selected={filtersTab}>
-							<Tab value="includes">Includes</Tab>
-							<Tab value="excludes">Excludes</Tab>
+							<Tab value="includes" label="Includes"></Tab>
+							<Tab value="excludes" label="Excludes"></Tab>
 						</Tabs>
 
 						{#if filtersTab === 'includes'}
@@ -336,7 +337,7 @@
 				</div>
 			</div>
 			<div class="mt-6 p-2 border-t">
-				<div class="text-xs text-tertiary mb-2">
+				<div class="text-xs text-primary mb-2">
 					{isInitialSetup ? 'Configure initial sync settings' : 'Review migration settings'}
 				</div>
 			</div>
@@ -350,11 +351,13 @@
 							{#if include_path.length > 0}
 								<div class="flex flex-wrap gap-1 text-xs">
 									{#each include_path as path}
-										<span class="bg-surface-secondary text-primary rounded-full px-2 py-1">{path}</span>
+										<span class="bg-surface-secondary text-primary rounded-full px-2 py-1"
+											>{path}</span
+										>
 									{/each}
 								</div>
 							{:else}
-								<div class="text-tertiary text-xs">No include paths configured</div>
+								<div class="text-primary text-xs">No include paths configured</div>
 							{/if}
 						</div>
 
@@ -367,7 +370,7 @@
 									{/each}
 								</div>
 							{:else}
-								<div class="text-tertiary text-xs">No exclude paths configured</div>
+								<div class="text-primary text-xs">No exclude paths configured</div>
 							{/if}
 						</div>
 					</div>
@@ -380,7 +383,7 @@
 									<div class={enabled ? 'text-green-600' : 'text-gray-400'}>
 										{enabled ? '✓' : '✗'}
 									</div>
-									<span class={enabled ? 'text-primary' : 'text-tertiary'}>
+									<span class={enabled ? 'text-primary' : 'text-primary'}>
 										{capitalize(key)}
 									</span>
 								</div>
@@ -400,11 +403,11 @@
 				<div class="border-t pt-2 mt-4">
 					<button
 						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-						onclick={() => showCliInstructions = !showCliInstructions}
+						onclick={() => (showCliInstructions = !showCliInstructions)}
 					>
 						<Terminal size={16} />
 						<span>Update settings with CLI</span>
-						<Edit3 size={14} class="text-tertiary" />
+						<Edit3 size={14} class="text-primary" />
 						{#if showCliInstructions}
 							<ChevronUp size={16} />
 						{:else}
@@ -414,11 +417,20 @@
 
 					{#if showCliInstructions}
 						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
-							<div class="text-xs text-tertiary mb-2">
-								These filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
-								To modify them, edit the file in your repository, commit the changes, and sync using the commands below. Learn more about <a href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml" target="_blank" rel="noopener noreferrer">the wmill.yaml format</a>
+							<div class="text-xs text-primary mb-2">
+								These filter settings are sourced from the <code
+									class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code
+								>
+								file in your git repository. To modify them, edit the file in your repository, commit
+								the changes, and sync using the commands below. Learn more about
+								<a
+									href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml"
+									target="_blank"
+									rel="noopener noreferrer">the wmill.yaml format</a
+								>
 							</div>
-							<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
+							<pre
+								class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
 # Make sure your repo is up to date
 git pull
 
@@ -432,15 +444,22 @@ git push
 
 # Push changes to workspace or click the pull settings button above{#if useIndividualBranch}
 wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre>
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
+							>
 							{#if useIndividualBranch}
-								<div class="text-xs text-tertiary mt-3">
+								<div class="text-xs text-primary mt-3">
 									<div class="font-medium mb-1">Promotion Mode Configuration:</div>
-									<div>You can add promotion-specific overrides in your <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file:</div>
-									<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto">git_branches:
+									<div
+										>You can add promotion-specific overrides in your <code
+											class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code
+										> file:</div
+									>
+									<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
+										>gitBranches:
   main:
     promotionOverrides:
-      # Add your promotion-specific settings here</pre>
+      # Add your promotion-specific settings here</pre
+									>
 								</div>
 							{/if}
 						</div>

@@ -13,6 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { Output } from '../../rx'
 	import ResolveNavbarItemPath from './ResolveNavbarItemPath.svelte'
+	import { urlParamsToObject } from '$lib/utils'
 
 	interface Props {
 		navbarItem: NavbarItem
@@ -83,7 +84,7 @@
 					const hash = url.hash
 					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
 					$worldStore.outputsById['ctx'].query.set(
-						Object.fromEntries(new URLSearchParams(queryParams).entries())
+						urlParamsToObject(new URLSearchParams(queryParams))
 					)
 					$worldStore.outputsById['ctx'].hash.set(hash.substring(1))
 
@@ -169,6 +170,7 @@
 			size="xs"
 			disabled={resolvedDisabled}
 			btnClasses={orientation === 'vertical' ? '!justify-start !whitespace-normal !text-left' : ''}
+			variant="contained"
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}

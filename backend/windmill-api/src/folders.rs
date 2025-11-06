@@ -202,6 +202,7 @@ async fn create_folder(
         ));
     }
 
+    if let Err(e) = 
     sqlx::query_as!(
         Folder,
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
@@ -214,7 +215,38 @@ async fn create_folder(
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await {
+        let exists_for_user = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2 AND $3 = ANY(owners))",
+            ng.name,
+            w_id,
+            authed.username
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)",
+            ng.name,
+            w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !exists_for_user && exists {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "Folder '{}' already exists in workspace '{}' but you do not have permission to read to it", ng.name, w_id
+            )));
+        }  else if exists {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "Folder '{}' already exists in workspace '{}'", ng.name, w_id
+            )));
+        } else {
+            return Err(windmill_common::error::Error::InternalErr(format!(
+                "Failed to create folder: {}", e
+            )));
+        }
+    }
 
     audit_log(
         &mut *tx,
@@ -329,6 +361,11 @@ async fn update_folder(
         );
     }
     if let Some(extra_perms) = ng.extra_perms {
+        if !extra_perms.is_object() {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "extra_perms must be an object, received {}", extra_perms.to_string()
+            )));
+        }
         sqlb.set(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),

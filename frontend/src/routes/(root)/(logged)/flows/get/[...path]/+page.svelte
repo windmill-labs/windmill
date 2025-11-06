@@ -8,7 +8,7 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -17,6 +17,8 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
+	import FlowConversationsSidebar from '$lib/components/flows/conversations/FlowConversationsSidebar.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -75,7 +77,7 @@
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
 
-	let intervalId: NodeJS.Timeout | undefined = undefined
+	let intervalId: number | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -197,13 +199,27 @@
 		}
 	}
 
+	async function runFlowForChat(userMessage: string, conversationId: string): Promise<string> {
+		const run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			memoryId: conversationId,
+			requestBody: { user_message: userMessage },
+			skipPreprocessor: true
+		})
+		return run
+	}
+
 	let args: Record<string, any> | undefined = $state(undefined)
 
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
@@ -222,7 +238,7 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
-					color: 'light',
+					variant: 'subtle',
 					size: 'xs',
 					startIcon: GitFork
 				}
@@ -238,7 +254,7 @@
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -246,12 +262,9 @@
 		buttons.push({
 			label: `History`,
 			buttonProps: {
-				onClick: () => {
-					flowHistory?.open()
-				},
-
+				onClick: () => flowHistory?.open(),
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: History
 			}
 		})
@@ -269,9 +282,8 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-
 					size: 'xs',
-					color: 'light',
+					variant: 'accent',
 					startIcon: Columns
 				}
 			})
@@ -280,9 +292,8 @@
 				label: 'Edit',
 				buttonProps: {
 					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'contained',
+					variant: 'accent-secondary',
 					size: 'xs',
-					color: 'dark',
 					disabled: !can_write,
 					startIcon: Pen
 				}
@@ -381,11 +392,68 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
-
+	let flowChatInterface: FlowChatInterface | undefined = $state(undefined)
+	let flowConversationsSidebar: FlowConversationsSidebar | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
+	let selectedConversationId: string | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
+
+	async function handleNewConversation({ clearMessages = true }: { clearMessages?: boolean }) {
+		const newConversationId = crypto.randomUUID()
+
+		// Add the new conversation to the sidebar (returns id of draft or new conversation)
+		if (flowConversationsSidebar) {
+			const actualConversationId = await flowConversationsSidebar.addNewConversation(
+				newConversationId,
+				$userStore?.username || 'anonymous'
+			)
+			selectedConversationId = actualConversationId
+		} else {
+			selectedConversationId = newConversationId
+		}
+
+		// Clear messages in the chat interface
+		if (flowChatInterface && clearMessages) {
+			flowChatInterface.clearMessages()
+		}
+
+		flowChatInterface?.focusInput()
+
+		return newConversationId
+	}
+
+	async function handleSelectConversation(conversationId: string, isDraft?: boolean) {
+		selectedConversationId = conversationId
+		// Load conversation messages into chat interface
+		if (flowChatInterface) {
+			if (isDraft) {
+				// For draft conversations, just clear messages (don't try to load from backend)
+				flowChatInterface.clearMessages()
+			} else {
+				// For persisted conversations, load messages from backend
+				await flowChatInterface.loadConversationMessages(conversationId)
+			}
+		}
+	}
+
+	async function refreshConversations() {
+		if (flowConversationsSidebar) {
+			await flowConversationsSidebar.refreshConversations()
+		}
+	}
+
+	function handleDeleteConversation(conversationId: string) {
+		if (selectedConversationId === conversationId) {
+			selectedConversationId = undefined
+			// Clear chat interface since we deleted the selected conversation
+			if (flowChatInterface) {
+				flowChatInterface.clearMessages()
+			}
+		}
+	}
+
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
@@ -407,6 +475,16 @@
 		}
 	})
 	let mainButtons = $derived(getMainButtons(flow, args))
+	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flow?.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -426,6 +504,8 @@
 <DetailPageLayout
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
+	forceSmallScreen={chatInputEnabled}
+	isChatMode={chatInputEnabled}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -499,8 +579,12 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex-col flex h-full justify-between">
-				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
+			<div class="flex flex-col h-full justify-between">
+				<div
+					class="w-full {chatInputEnabled
+						? 'p-3 flex flex-col h-full'
+						: 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
+				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
 					{/if}
@@ -525,90 +609,116 @@
 						</div>
 					{/if}
 
-					<div class="flex flex-col align-left">
-						<div class="flex flex-row justify-between">
-							<InputSelectedBadge
-								onReject={() => {
-									savedInputsV2?.resetSelected()
-								}}
-								{inputSelected}
+					{#if chatInputEnabled}
+						<!-- Chat Layout with Sidebar -->
+						<div
+							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
+						>
+							<FlowConversationsSidebar
+								bind:this={flowConversationsSidebar}
+								flowPath={flow?.path ?? ''}
+								{selectedConversationId}
+								onNewConversation={handleNewConversation}
+								onSelectConversation={handleSelectConversation}
+								onDeleteConversation={handleDeleteConversation}
 							/>
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
+							<FlowChatInterface
+								bind:this={flowChatInterface}
+								onRunFlow={runFlowForChat}
+								useStreaming={shouldUseStreaming}
+								{refreshConversations}
+								conversationId={selectedConversationId}
+								{deploymentInProgress}
+								createConversation={handleNewConversation}
+								{path}
+							/>
+						</div>
+					{:else}
+						<!-- Normal Mode: Form Layout -->
+						<div class="flex flex-col align-left">
+							<div class="flex flex-row justify-between">
+								<InputSelectedBadge
+									onReject={() => {
+										savedInputsV2?.resetSelected()
+									}}
+									{inputSelected}
+								/>
+								<Toggle
+									bind:checked={jsonView}
+									size="xs"
+									options={{
+										right: 'JSON',
+										rightTooltip: 'Fill args from JSON'
+									}}
+									lightMode
+									on:change={(e) => {
+										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+									}}
+								/>
+							</div>
+
+							{#if flow.schema?.prompt_for_ai !== undefined}
+								<AIFormAssistant
+									instructions={flow.schema?.prompt_for_ai as string}
+									onEditInstructions={() => {
+										goto(`/flows/edit/${flow?.path}`)
+									}}
+									runnableType="flow"
+								/>
+							{/if}
+
+							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								viewKeybinding
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={flow}
+								runAction={runFlow}
+								bind:args
+								bind:this={runForm}
+								{jsonView}
 							/>
 						</div>
 
-						{#if flow.schema?.prompt_for_ai !== undefined}
-							<AIFormAssistant
-								instructions={flow.schema?.prompt_for_ai as string}
-								onEditInstructions={() => {
-									goto(`/flows/edit/${flow?.path}`)
-								}}
-								runnableType="flow"
-							/>
+						<div class="py-10"></div>
+
+						{#if !emptyString(flow.summary)}
+							<div>
+								<span class="text-primary text-xs">{flow.path}</span>
+							</div>
 						{/if}
-
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={flow}
-							runAction={runFlow}
-							bind:args
-							bind:this={runForm}
-							{jsonView}
-						/>
-					</div>
-
-					<div class="py-10"></div>
-
-					{#if !emptyString(flow.summary)}
-						<div class="mb-2">
-							<span class="!text-tertiary">{flow.path}</span>
-						</div>
-					{/if}
-					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-tertiary">
+						<span class="text-2xs text-secondary">
 							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 						</span>
+					{/if}
+				</div>
+				{#if !chatInputEnabled}
+					<div class="mt-8">
+						<FlowGraphViewer
+							triggerNode={true}
+							download
+							{flow}
+							overflowAuto
+							noSide={true}
+							on:select={(e) => {
+								if (e.detail) {
+									stepDetail = e.detail
+									rightPaneSelected = 'flow_step'
+								} else {
+									stepDetail = undefined
+									rightPaneSelected = 'saved_inputs'
+								}
+							}}
+							on:triggerDetail={(e) => {
+								rightPaneSelected = 'triggers'
+							}}
+						/>
 					</div>
-				</div>
-				<div class="mt-8">
-					<FlowGraphViewer
-						triggerNode={true}
-						download
-						{flow}
-						overflowAuto
-						noSide={true}
-						on:select={(e) => {
-							if (e.detail) {
-								stepDetail = e.detail
-								rightPaneSelected = 'flow_step'
-							} else {
-								stepDetail = undefined
-								rightPaneSelected = 'saved_inputs'
-							}
-						}}
-						on:triggerDetail={(e) => {
-							rightPaneSelected = 'triggers'
-						}}
-					/>
-				</div>
+				{/if}
 			</div>
 		{/if}
 	{/snippet}
@@ -622,6 +732,10 @@
 			args={args ?? {}}
 			bind:inputSelected
 			on:selected_args={(e) => {
+				if (chatInputEnabled) {
+					flowChatInterface?.fillInputMessage(e.detail.user_message)
+					return
+				}
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 			}}

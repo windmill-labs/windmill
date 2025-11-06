@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n    SELECT usr.email, usage.executions\n        FROM usr, LATERAL (\n            SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions\n                FROM v2_job_completed c JOIN v2_job j USING (id)\n                WHERE j.workspace_id = $1\n                AND j.kind NOT IN ('flow', 'flowpreview', 'flownode')\n                AND j.permissioned_as_email = usr.email\n                AND now() - '1 week'::interval < j.created_at\n            ) usage\n        WHERE workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "executions",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "edd57b3d59ddc21b99212b5fabd4a8b793c4ae618a04220b3609c8c3c168f8fd"
+}

@@ -20,6 +20,7 @@
 	}
 
 	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
+	let flowdiffMode: 'yaml' | 'graph' = $state('yaml')
 
 	let contentType = $derived.by(() => {
 		if (!data || !diffType) return undefined
@@ -30,14 +31,16 @@
 				? 'metadata'
 				: undefined
 	})
+
 	let diffViewer: Drawer | undefined = $state(undefined)
 
 	interface Props {
 		restoreDeployed?: () => Promise<void>
 		restoreDraft?: () => Promise<void>
+		isFlow?: boolean
 	}
 
-	let { restoreDeployed = async () => {}, restoreDraft = async () => {} }: Props = $props()
+	let { restoreDeployed = undefined, restoreDraft = undefined, isFlow = false }: Props = $props()
 
 	let data:
 		| {
@@ -136,35 +139,38 @@
 			{#if diffType && data}
 				<Tabs bind:selected={diffType} wrapperClass="shrink-0">
 					{#if data.mode === 'simple'}
-						<Tab value="custom">{data.title}</Tab>
+						<Tab value="custom" label={data.title} />
 					{:else}
-						<Tab value="deployed" disabled={!data.deployed}
-							>{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}</Tab
-						>
-						<Tab value="draft" disabled={!data.draft}
-							>{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}</Tab
-						>
+						<Tab
+							value="deployed"
+							disabled={!data.deployed}
+							label="{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}"
+						/>
+
+						<Tab
+							value="draft"
+							disabled={!data.draft}
+							label="{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}"
+						/>
 					{/if}
 				</Tabs>
 			{/if}
 			{#if data?.mode === 'normal'}
 				{#if diffType === 'draft'}
 					<Button
-						size="xs"
-						color="light"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						wrapperClasses="self-start"
-						on:click={restoreDraft}
+						onClick={restoreDraft}
 						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
 						>Restore to latest saved draft</Button
 					>
 				{:else if diffType === 'deployed'}
 					<Button
-						size="xs"
-						color="light"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						wrapperClasses="self-start"
-						on:click={restoreDeployed}
+						onClick={restoreDeployed}
 						disabled={!data.draft &&
 							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
 					>
@@ -195,12 +201,16 @@
 					<div class="flex flex-col h-full gap-4">
 						{#if data.current.content !== undefined}
 							<Tabs bind:selected={contentType}>
-								<Tab value="content" disabled={content === data.current.content}
-									>Content{content === data.current.content ? ' (no changes)' : ''}</Tab
-								>
-								<Tab value="metadata" disabled={metadata === data.current.metadata}
-									>Metadata{metadata === data.current.metadata ? ' (no changes)' : ''}</Tab
-								>
+								<Tab
+									value="content"
+									disabled={content === data.current.content}
+									label={`Content${content === data.current.content ? ' (no changes)' : ''}`}
+								/>
+								<Tab
+									value="metadata"
+									disabled={metadata === data.current.metadata}
+									label={`Metadata${metadata === data.current.metadata ? ' (no changes)' : ''}`}
+								/>
 							</Tabs>
 						{/if}
 						<div class="flex-1">
@@ -221,19 +231,50 @@
 										/>
 									{/await}
 								{:else if contentType === 'metadata'}
-									{#await import('$lib/components/DiffEditor.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default
-											open={true}
-											automaticLayout
-											className="h-full"
-											defaultLang="yaml"
-											defaultOriginal={metadata}
-											defaultModified={data.current.metadata}
-											readOnly
-										/>
-									{/await}
+									{#if isFlow}
+										<Tabs bind:selected={flowdiffMode}>
+											<Tab value="yaml" label={`YAML`} />
+											<Tab value="graph" label={`Graph`} />
+										</Tabs>
+										{#if flowdiffMode === 'yaml'}
+											{#await import('$lib/components/DiffEditor.svelte')}
+												<Loader2 class="animate-spin" />
+											{:then Module}
+												<Module.default
+													open={true}
+													automaticLayout
+													className="h-full"
+													defaultLang="yaml"
+													defaultOriginal={metadata}
+													defaultModified={data.current.metadata}
+													readOnly
+												/>
+											{/await}
+										{:else if flowdiffMode === 'graph'}
+											{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
+												<Loader2 class="animate-spin" />
+											{:then Module}
+												<Module.default
+													beforeYaml={metadata ?? ''}
+													afterYaml={data.current.metadata}
+												/>
+											{/await}
+										{/if}
+									{:else}
+										{#await import('$lib/components/DiffEditor.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												open={true}
+												automaticLayout
+												className="h-full"
+												defaultLang="yaml"
+												defaultOriginal={metadata}
+												defaultModified={data.current.metadata}
+												readOnly
+											/>
+										{/await}
+									{/if}
 								{/if}
 							{/key}
 						</div>
@@ -256,8 +297,8 @@
 		{#snippet actions()}
 			{#if data?.button}
 				<Button
-					color="light"
-					on:click={() => {
+					variant="subtle"
+					onClick={() => {
 						if (data?.button) {
 							data.button.onClick()
 							diffViewer?.closeDrawer()

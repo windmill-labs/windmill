@@ -6,7 +6,7 @@
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { importFlowStore } from '$lib/components/flows/flowStore'
+	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
 
@@ -27,12 +27,11 @@
 	<Button
 		aiId="flows-create-actions-flow"
 		aiDescription="Create a new flow"
-		size="sm"
-		spacingSize="xl"
+		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
 		href="{base}/flows/add?nodraft=true"
-		color="marine"
+		variant="accent"
 		dropdownItems={[
 			{
 				label: 'Import from YAML',

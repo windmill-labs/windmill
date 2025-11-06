@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
@@ -11,6 +11,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -23,6 +24,8 @@
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
 		class?: string
+		helperScript?: DynamicInputTypes.HelperScript
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -35,7 +38,9 @@
 		noDynamicToggle = false,
 		pickableProperties = undefined,
 		enableAi = false,
-		class: clazz = ''
+		class: clazz = '',
+		helperScript = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -78,9 +83,9 @@
 	})
 </script>
 
-<div class="w-full {clazz}">
+<div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="px-0.5 pt-0.5">
+		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys
@@ -99,7 +104,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="pt-2 relative">
+				<ResizeTransitionWrapper class="mt-6" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -115,12 +120,17 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						{helperScript}
+						{isAgentTool}
+						otherArgs={Object.fromEntries(
+							Object.entries(args ?? {}).filter(([key]) => key !== argName)
+						)}
 					/>
-				</div>
+				</ResizeTransitionWrapper>
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-tertiary text-sm">No inputs</div>
+		<div class="text-primary text-xs mt-2">No inputs</div>
 	{/if}
 </div>
 
@@ -142,8 +152,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
 			<Button
-				variant="border"
-				color="blue"
+				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

@@ -86,7 +86,7 @@
 	let loading = false
 	let captureTable: CaptureTable | undefined = undefined
 	let historicInputs: HistoricInputs | undefined = undefined
-	$: selectedTab, (dropdownItems = getDropdownItems())
+	$: (selectedTab, (dropdownItems = getDropdownItems()))
 
 	let inputPanelSize = 70
 </script>
@@ -111,7 +111,7 @@
 						<FlowInputEditor title="History">
 							<svelete:fragment slot="action">
 								<div class="center-center">
-									<RefreshButton {loading} on:click={() => historicInputs?.refresh()} />
+									<RefreshButton {loading} onClick={() => historicInputs?.refresh()} />
 								</div>
 							</svelete:fragment>
 							<HistoricInputs

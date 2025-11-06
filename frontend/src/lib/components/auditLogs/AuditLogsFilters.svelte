@@ -260,6 +260,9 @@
 		USERS_ADD_GLOBAL: 'users.add_global',
 		USERS_IMPERSONATE: 'users.impersonate',
 		USERS_LEAVE_WORKSPACE: 'users.leave_workspace',
+		USERS_SCIM_CREATE: 'users.scim_create',
+		USERS_SCIM_DELETE: 'users.scim_delete',
+		USERS_SCIM_UPDATE: 'users.scim_update',
 		OAUTH_LOGIN: 'oauth.login',
 		OAUTH_LOGIN_FAILURE: 'oauth.login_failure',
 		OAUTH_SIGNUP: 'oauth.signup',
@@ -287,6 +290,9 @@
 		IGROUP_DELETE: 'igroup.delete',
 		IGROUP_ADDUSER: 'igroup.adduser',
 		IGROUP_REMOVEUSER: 'igroup.removeuser',
+		INSTANCE_GROUPS_SCIM_CREATE: 'instance_groups.scim_create',
+		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
+		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
@@ -316,10 +322,10 @@
 	})
 </script>
 
-<div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-center gap-10 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative w-full">
-			<span class="text-xs absolute -top-4">Scope</span>
+			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
 				on:selected={({ detail }) => {
@@ -350,7 +356,7 @@
 		</div>
 	{/if}
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">From</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
 		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
 			clearable
@@ -366,7 +372,7 @@
 		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">To</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
 		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
 			clearable
@@ -383,7 +389,7 @@
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Username</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
 		<select bind:value={username}>
 			{#if usernames}
 				{#if $userStore?.is_admin || $userStore?.is_super_admin}
@@ -400,7 +406,7 @@
 		</select>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Resource</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
@@ -409,22 +415,24 @@
 			items={safeSelectItems(['all', ...(resources.value ?? [])])}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
+			class="w-full"
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Operation</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
 			bind:value={operation}
-			items={['all', ...Object.keys(operations)].map((r) => ({ value: r, label: r }))}
+			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
+			class="w-full"
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Action</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
 
 		<select class="!truncate" bind:value={actionKind}>
 			<option selected value="all">all</option>
@@ -436,8 +444,7 @@
 
 	<div class="flex flex-row gap-1">
 		<Button
-			variant="contained"
-			color="light"
+			variant="subtle"
 			on:click={() => {
 				after = undefined
 				before = undefined
@@ -449,17 +456,16 @@
 				resource = 'all'
 				scope = undefined
 			}}
-			size="xs"
+			unifiedSize="md"
 		>
 			Clear filters
 		</Button>
 		<Button
-			variant="contained"
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				refresh++
 			}}
-			size="xs"
+			unifiedSize="md"
 		>
 			<div class="flex flex-row gap-1 items-center">
 				{#if loading}

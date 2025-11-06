@@ -50,28 +50,28 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
-    jobs::QueuedJob,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
-        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
+        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -79,11 +79,12 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
-use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
+use windmill_queue::{SameWorkerPayload, cancel_job,  get_queued_job_v2};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -283,6 +284,8 @@ pub async fn initial_load(
         reload_smtp_config(db).await;
     }
 
+    reload_hub_api_secret_setting(&conn).await;
+
     if server_mode {
         reload_retention_period_setting(&conn).await;
         reload_request_size(&conn).await;
@@ -298,6 +301,8 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
+        reload_powershell_repo_url_setting(&conn).await;
+        reload_powershell_repo_pat_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
@@ -867,6 +872,16 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting audit log on CE: {:?}", e);
     }
 
+    if let Err(e) = sqlx::query_scalar!(
+        "DELETE FROM autoscaling_event WHERE applied_at <= now() - ($1::bigint::text || ' s')::interval",
+        30 * 24 * 60 * 60, // 30 days
+    )
+    .fetch_all(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )
@@ -949,6 +964,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
                                     .await
                             {
                                 tracing::error!("Error deleting job: {:?}", e);
+                            }
+
+                            // should already be deleted but just in case
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
+                                &deleted_jobs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting job result stream: {:?}", e);
                             }
                         }
                     }
@@ -1104,6 +1130,26 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_powershell_repo_url_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        POWERSHELL_REPO_URL_SETTING,
+        "POWERSHELL_REPO_URL",
+        POWERSHELL_REPO_URL.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_powershell_repo_pat_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        POWERSHELL_REPO_PAT_SETTING,
+        "POWERSHELL_REPO_PAT",
+        POWERSHELL_REPO_PAT.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_maven_repos_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1136,6 +1182,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
         windmill_common::global_settings::RUBY_REPOS_SETTING,
         "RUBY_REPOS",
         windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_hub_api_secret_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        HUB_API_SECRET_SETTING,
+        "HUB_API_SECRET",
+        HUB_API_SECRET.clone(),
     )
     .await;
 }
@@ -1475,7 +1531,7 @@ pub struct MonitorIteration {
 
 impl MonitorIteration {
     pub fn should_run(&self, period: u8) -> bool {
-        self.iter % (period as u64) == self.rd_shift as u64
+        (self.iter + self.rd_shift as u64) % (period as u64) == 0
     }
 }
 
@@ -1531,6 +1587,17 @@ pub async fn monitor_db(
             }
         }
     };
+
+    let cleanup_debounce_keys_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
+                    tracing::error!("Error cleaning up debounce keys: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1632,7 +1699,8 @@ pub async fn monitor_db(
     };
 
     let update_min_worker_version_f = async {
-        update_min_version(conn).await;
+        #[cfg(not(feature = "test_job_debouncing"))]
+        windmill_common::worker::update_min_version(conn).await;
     };
 
     join!(
@@ -1649,12 +1717,13 @@ pub async fn monitor_db(
         update_min_worker_version_f,
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
+        cleanup_debounce_keys_f,
         cleanup_worker_group_stats_f,
     );
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, concurrency_key, log_file, metrics")
         .execute(db)
         .await?;
     Ok(())
@@ -1977,7 +2046,7 @@ async fn cancel_stale_job(
 
 const RESTART_LIMIT: i32 = 3;
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_name: &str) {
     let mut zombie_jobs_uuid_restart_limit_reached = vec![];
 
     if *RESTART_ZOMBIE_JOBS {
@@ -1990,7 +2059,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id
                 WHERE ping < now() - ($1 || ' seconds')::interval
                     AND running = true
-                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
+                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
@@ -2104,7 +2173,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
             "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
-    AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
         .await
@@ -2150,24 +2219,18 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             );
         }
 
-        let jobs = sqlx::query_as::<_, QueuedJob>(
-            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
-        )
-        .bind(&timeouts[..])
-        .fetch_all(db)
-        .await
-        .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-        .unwrap_or_default();
 
-        jobs
+        timeouts
     };
 
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
+        sqlx::query_scalar!("SELECT j.id
+             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+             WHERE r.ping < now() - ($1 || ' seconds')::interval
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false", 
+             ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await
         .ok()
@@ -2190,14 +2253,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
-    )
-    .bind(&zombie_jobs_uuid_restart_limit_reached[..])
-    .fetch_all(db)
-    .await
-    .ok()
-    .unwrap_or_else(|| vec![]);
 
     let timeouts = non_restartable_jobs
         .into_iter()
@@ -2208,7 +2263,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 .map(|x| (x, ErrorMessage::SameWorker)),
         )
         .chain(
-            zombie_jobs_restart_limit_reached
+            zombie_jobs_uuid_restart_limit_reached
                 .into_iter()
                 .map(|x| (x, ErrorMessage::RestartLimit)),
         )
@@ -2219,7 +2274,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 
-    for (job, error_kind) in timeouts {
+    for (job_id, error_kind) in timeouts {
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) =
             mpsc::channel::<SameWorkerPayload>(1);
@@ -2228,6 +2283,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let (send_result_never_used, _send_result_rx_never_used) =
             JobCompletedSender::new_never_used();
 
+        let job = get_queued_job_v2(db, &job_id).await;
+        if let Err(e) = job {
+            tracing::error!("Error getting queued job: {:?}", e);
+            continue;
+        }
+        if let Some(job) = job.unwrap() {
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
             && job.permissioned_as != job.created_by
         {
@@ -2241,7 +2302,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &job.permissioned_as,
             &label,
             *SCRIPT_TOKEN_EXPIRY,
-            &job.email,
+            &job.permissioned_as_email,
             &job.id,
             None,
             Some(format!("handle_zombie_jobs")),
@@ -2256,31 +2317,31 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             None,
         );
 
-        let last_ping = job.last_ping.clone();
         let error_message = format!(
-            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?})",
-            last_ping
-                .map(|x| x.to_string())
-                .unwrap_or_else(|| "no ping".to_string()),
+            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
+            job.last_ping.unwrap_or_default(),
             *ZOMBIE_JOB_TIMEOUT,
-            error_kind.to_string()
+            error_kind.to_string(),
+            job.worker.clone().unwrap_or_default(),
         );
+        let memory_peak = job.memory_peak.unwrap_or(0);
         let _ = handle_job_error(
             db,
             &client,
-            &MiniPulledJob::from(&job),
-            0,
+            &windmill_queue::MiniCompletedJob::from(job),
+            memory_peak,
             None,
             error::Error::ExecutionErr(error_message),
             true,
             Some(&same_worker_tx_never_used),
             "",
-            worker_name,
+            node_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
             &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
+    }
     }
 }
 
@@ -2358,6 +2419,7 @@ async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
 WITH rows_to_delete AS (
     SELECT concurrency_id
     FROM concurrency_counter
+    
     WHERE job_uuids = '{}'::jsonb
     FOR UPDATE SKIP LOCKED
 )
@@ -2386,13 +2448,13 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
         SELECT
-            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
-            flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM v2_as_queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
-            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
-            AND canceled = false
+            j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
+            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?"
+        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+        WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
+            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+            AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
+            AND q.canceled_by IS NULL
             
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
@@ -2667,7 +2729,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
     let secret = rd_string(32);
     sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2",
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
         JWT_SECRET_SETTING,
         serde_json::to_value(&secret).unwrap()
     ).execute(db).await?;
@@ -2693,5 +2755,31 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let mut l = JWT_SECRET.write().await;
     *l = jwt_secret;
 
+    Ok(())
+}
+
+async fn cleanup_debounce_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM debounce_key
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING key,job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    tracing::debug!("Cleaning up debounce keys");
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} debounce keys", result.len());
+        for row in result {
+            tracing::info!(
+                "Debounce key cleaned up: key: {}, job_id: {:?}",
+                row.key,
+                row.job_id
+            );
+        }
+    }
     Ok(())
 }

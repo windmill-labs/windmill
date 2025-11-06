@@ -1,72 +1,6 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-	import processStdContent from '$lib/process.d.ts.txt?raw'
-
-	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
-
-	languages.typescript.typescriptDefaults.setModeConfiguration({
-		completionItems: true,
-		hovers: true,
-		documentSymbols: true,
-		definitions: true,
-		references: true,
-		documentHighlights: true,
-		rename: true,
-		diagnostics: true,
-		documentRangeFormattingEdits: true,
-		signatureHelp: true,
-		onTypeFormattingEdits: true,
-		codeActions: true,
-		inlayHints: true
-	})
-
-	// languages.typescript.javascriptDefaults.setEagerModelSync(true)
-	languages.typescript.typescriptDefaults.setEagerModelSync(true)
-
-	// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-	// 	noSemanticValidation: false,
-	// 	noSyntaxValidation: false,
-	// 	noSuggestionDiagnostics: false,
-	// 	diagnosticCodesToIgnore: [1108]
-	// })
-
-	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108, 7006, 7034, 7019, 7005]
-	})
-
-	languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		completionItems: true,
-		hovers: true,
-		documentSymbols: true,
-		definitions: true,
-		references: true,
-		documentHighlights: true,
-		rename: true,
-		diagnostics: true,
-		documentRangeFormattingEdits: true,
-		signatureHelp: true,
-		onTypeFormattingEdits: true,
-		codeActions: true,
-		inlayHints: true,
-		checkJs: true,
-		allowJs: true,
-		noUnusedLocals: true,
-		strict: true,
-		noLib: false,
-		allowImportingTsExtensions: true,
-		allowSyntheticDefaultImports: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
-		jsx: languages.typescript.JsxEmit.React
-	})
 </script>
 
 <script lang="ts">
@@ -96,7 +30,6 @@
 	import {
 		dbSchemas,
 		type DBSchema,
-		copilotInfo,
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
@@ -109,7 +42,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -156,6 +93,8 @@
 	import type { Selection } from 'monaco-editor'
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
+	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
+	import { copilotInfo } from '$lib/aiStore'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -237,7 +176,7 @@
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
-	let websocketInterval: NodeJS.Timeout | undefined
+	let websocketInterval: number | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
@@ -316,6 +255,12 @@
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })
+		}
+	}
+
+	export function insertAtCurrentLine(code: string): void {
+		if (editor) {
+			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0)
 		}
 	}
 
@@ -551,12 +496,18 @@
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
-			if (lang === 'graphql' && dbSchema === undefined) {
-				await getDbSchemas(lang, resourcePath, $workspaceStore, $dbSchemas, (e) => {
-					console.error('error getting graphql db schema', e)
-				})
-				dbSchema = $dbSchemas[resourcePath]
+			if (dbSchema === undefined) {
+				if (lang === 'graphql') {
+					await getDbSchemas('graphql', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error('error getting graphql db schema', e)
+					})
+				} else if (lang === 'sql') {
+					await getDbSchemas(scriptLang ?? '', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error(`error getting SQL (${scriptLang}) db schema`, e)
+					})
+				}
 			}
+			dbSchema = $dbSchemas[resourcePath]
 		} else {
 			dbSchema = undefined
 		}
@@ -1128,7 +1079,9 @@
 		}
 	}
 
-	let pathTimeout: NodeJS.Timeout | undefined = undefined
+	let pathTimeout: number | undefined = undefined
+
+	let yPadding = MONACO_Y_PADDING
 
 	function getHostname() {
 		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -1255,8 +1208,9 @@
 		}
 	}
 
-	let timeoutModel: NodeJS.Timeout | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
+		setMonacoTypescriptOptions()
 		console.log('path', uri)
 
 		try {
@@ -1313,7 +1267,8 @@
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
-				folding
+				folding,
+				padding: { bottom: yPadding, top: yPadding }
 			})
 			if (key && editorPositionMap?.[key]) {
 				editor.setPosition(editorPositionMap[key])
@@ -1328,7 +1283,7 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
-		let ataModel: NodeJS.Timeout | undefined = undefined
+		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
@@ -1605,7 +1560,7 @@
 
 	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
 
-	let loadTimeout: NodeJS.Timeout | undefined = undefined
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
 			if (loadAsync) {
@@ -1741,8 +1696,8 @@
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
-			monacoBinding && monacoBinding.destroy()
 			untrack(() => {
+				monacoBinding && monacoBinding.destroy()
 				monacoBinding = new MonacoBinding(
 					yContent,
 					model!,
@@ -1772,7 +1727,7 @@
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
-		<FakeMonacoPlaceHolder {code} />
+		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>

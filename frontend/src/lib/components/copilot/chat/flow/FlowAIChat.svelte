@@ -17,6 +17,7 @@
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
 
 	let {
 		flowModuleSchemaMap
@@ -99,8 +100,10 @@
 			}
 		},
 		rejectAllModuleActions() {
-			for (const id of Object.keys(affectedModules)) {
-				this.revertModuleAction(id)
+			// Do it in reverse to revert nested modules first then parents
+			const ids = Object.keys(affectedModules)
+			for (let i = ids.length - 1; i >= 0; i--) {
+				this.revertModuleAction(ids[i])
 			}
 			affectedModules = {}
 		},
@@ -265,7 +268,7 @@
 
 			const indexToInsertAt = index + 1
 
-			let newModules: FlowModule[] | undefined = undefined
+			let newModules: FlowModule[] | AgentTool[] | undefined = undefined
 			switch (step.type) {
 				case 'rawscript': {
 					const inlineScript = {
@@ -531,7 +534,10 @@
 				} else if (module.value.parallel || opts.parallel === true) {
 					// Only set parallelism if parallel is enabled
 					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
-					module.value.parallelism = n
+					module.value.parallelism = {
+						type: 'static',
+						value: n
+					}
 				}
 			}
 

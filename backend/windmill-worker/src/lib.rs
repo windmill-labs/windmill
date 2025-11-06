@@ -9,6 +9,7 @@ mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
+mod pwsh_executor;
 
 #[cfg(feature = "java")]
 mod java_executor;
@@ -16,6 +17,7 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
+mod ai;
 mod ai_executor;
 mod bun_executor;
 pub mod common;
@@ -35,6 +37,10 @@ pub mod job_logger;
 pub mod job_logger_ee;
 mod job_logger_oss;
 mod js_eval;
+pub mod memory_common;
+#[cfg(feature = "private")]
+pub mod memory_ee;
+pub mod memory_oss;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
 #[cfg(feature = "nu")]
@@ -56,6 +62,7 @@ pub mod result_processor;
 mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
+pub mod scoped_dependency_map;
 mod universal_pkg_installer;
 mod worker;
 mod worker_flow;

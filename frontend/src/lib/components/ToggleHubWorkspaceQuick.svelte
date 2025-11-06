@@ -13,9 +13,9 @@
 <div class="max-w-min">
 	<ToggleButtonGroup id="flow-editor-flow-providers" bind:selected>
 		{#snippet children({ item })}
-			<ToggleButton value="all" label="All" light small {item} />
-			<ToggleButton value="hub" icon={WindmillIcon2} label="Hub" light small {item} />
-			<ToggleButton value="workspace" icon={Building} label="Workspace" light small {item} />
+			<ToggleButton size="sm" value="all" label="All" {item} />
+			<ToggleButton size="sm" value="hub" icon={WindmillIcon2} label="Hub" {item} />
+			<ToggleButton size="sm" value="workspace" icon={Building} label="Workspace" {item} />
 		{/snippet}
 	</ToggleButtonGroup>
 </div>

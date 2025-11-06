@@ -27,7 +27,13 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		encodeState,
+		getModifierKey,
+		sendUserToast,
+		urlParamsToObject
+	} from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -115,7 +121,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
+		query: urlParamsToObject(new URL(window.location.href).searchParams),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
@@ -212,7 +218,7 @@
 		stylePanel: () => StylePanel
 	})
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function saveFrontendDraft() {
 		timeout && clearTimeout(timeout)
@@ -475,7 +481,7 @@
 		}
 	}
 
-	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let runnableJobEnterTimeout: number | undefined = $state(undefined)
 	let stillInJobEnter = $state(false)
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
@@ -796,7 +802,7 @@
 		untrack(() => setGridPanelSize($componentActive))
 	})
 	$effect(() => {
-		$connectingInput.opened, untrack(() => updatePannelInConnecting())
+		;($connectingInput.opened, untrack(() => updatePannelInConnecting()))
 	})
 	$effect(() => {
 		forceDeactivatePanzoom = isModifierKeyPressed && handMode
@@ -1022,15 +1028,15 @@
 															<span class="ml-2">Exit</span>
 														</div>
 														<div>
-															<span class="float-left text-tertiary-inverse"
+															<span class="float-left text-primary-inverse"
 																>hold {getModifierKey()}</span
 															>
 															<br />
-															<span class="float-left text-tertiary-inverse">click & drag</span>
+															<span class="float-left text-primary-inverse">click & drag</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">scroll</span>
+															<span class="float-left text-primary-inverse">scroll</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">esc</span>
+															<span class="float-left text-primary-inverse">esc</span>
 														</div>
 													</div>
 												{/snippet}
@@ -1053,7 +1059,7 @@
 
 									<div id="app-editor-top-level-drawer"></div>
 									<div
-										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#374457_1px,transparent_1px)] [background-size:16px_16px]"
 									></div>
 
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1102,8 +1108,7 @@
 														smaller screens.
 													</div>
 													<Button
-														color="light"
-														variant="border"
+														variant="default"
 														size="xs"
 														on:click={() => {
 															$appStore.mobileViewOnSmallerScreens = true
@@ -1152,7 +1157,12 @@
 						<div class="relative flex flex-col h-full"></div>
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								bind:clientWidth={$runnableJob.width}
+								class="relative flex flex-col h-full"
+								onkeydown={(e) => e.stopPropagation()}
+							>
 								<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}
@@ -1160,7 +1170,6 @@
 										{/snippet}
 										<Tab
 											value="insert"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1169,11 +1178,8 @@
 												}
 											}}
 											id="app-editor-component-library-tab"
-										>
-											<div class="m-1 center-center">
-												<Plus size={18} />
-											</div>
-										</Tab>
+											icon={Plus}
+										></Tab>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}
@@ -1181,7 +1187,6 @@
 										{/snippet}
 										<Tab
 											value="settings"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1189,11 +1194,8 @@
 													selectedTab = 'settings'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Component size={18} />
-											</div>
-										</Tab>
+											icon={Component}
+										/>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}
@@ -1201,7 +1203,6 @@
 										{/snippet}
 										<Tab
 											value="css"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if (!$cssEditorOpen) {
@@ -1209,11 +1210,8 @@
 													selectedTab = 'css'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Paintbrush size={18} />
-											</div>
-										</Tab>
+											icon={Paintbrush}
+										/>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
 										<HideButton on:click={() => hideRightPanel()} direction="right" />
@@ -1275,8 +1273,7 @@
 			class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 		>
 			<Button
-				variant="border"
-				color="blue"
+				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

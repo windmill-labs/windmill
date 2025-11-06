@@ -19,9 +19,12 @@
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: placement }} contentClasses="p-4">
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: placement }}
+	contentClasses="p-4 max-h-[80vh] overflow-y-auto"
+>
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true}>
+		<Button variant="default" unifiedSize="md" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Default tags&nbsp;<Tooltip light
 					>Scripts and steps that have not been specifically assigned tags will use a default tag

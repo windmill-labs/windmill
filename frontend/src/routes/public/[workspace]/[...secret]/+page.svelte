@@ -21,12 +21,13 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { page } from '$app/state'
+	import { urlParamsToObject } from '$lib/utils'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
-	let notExists = false
-	let noPermission = false
+	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let notExists = $state(false)
+	let noPermission = $state(false)
 
-	let jwtError = false
+	let jwtError = $state(false)
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	function parseSecret(secret: string): { secret: string; jwt: string } {
@@ -65,7 +66,9 @@
 
 	async function loadUser() {
 		if (parsedSecret.jwt) {
-			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
+			const token = 'jwt_ext_' + parsedSecret.jwt
+			OpenAPI.TOKEN = token
+			setContext<{ token?: string }>('AuthToken', { token })
 			jwtError = false
 		}
 		try {
@@ -97,12 +100,12 @@
 		? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
 		: ''}"
 >
-	<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
+	<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>
 </div>
 
-<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
+<div class="z-50 text-2xs text-primary absolute top-3 left-2"
 	>{#if $userStore}
 		<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
 	{:else}<UserRoundX size={14} />{/if}
@@ -151,7 +154,7 @@
 					name: $userStore?.name,
 					groups: $userStore?.groups,
 					username: $userStore?.username,
-					query: Object.fromEntries(page.url.searchParams.entries()),
+					query: urlParamsToObject(page.url.searchParams),
 					hash: page.url.hash.substring(1)
 				}}
 				workspace={page.params.workspace}

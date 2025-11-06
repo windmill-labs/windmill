@@ -5,30 +5,21 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, type DbType } from './utils'
+	import { type ColumnDef } from './utils'
 	import { getCountInput } from './queries/count'
+	import type { DbInput } from '$lib/components/dbOps'
 
 	interface Props {
 		id: string
 		table: string | undefined
-		resource: string | undefined
 		renderCount: number
 		quicksearch: string
-		resourceType: string
 		columnDefs: ColumnDef[]
 		whereClause: string | undefined
+		dbInput: DbInput
 	}
 
-	let {
-		id,
-		table,
-		resource,
-		renderCount,
-		quicksearch,
-		resourceType,
-		columnDefs,
-		whereClause
-	}: Props = $props()
+	let { id, table, renderCount, quicksearch, dbInput, columnDefs, whereClause }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -66,16 +57,20 @@
 			}
 		}
 
-		if (table != undefined && resource !== undefined) {
+		if (
+			table != undefined &&
+			((dbInput.type == 'ducklake' && dbInput.ducklake !== undefined) ||
+				(dbInput.type == 'database' && dbInput.resourcePath !== undefined))
+		) {
 			renderCountLast = renderCount
 			lastTableCount = table
 			quicksearchLast = quicksearch
-			await getCount(resource, table, quicksearch)
+			await getCount(dbInput, table, quicksearch)
 		}
 	}
 
-	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountInput(resource, table, resourceType as DbType, localColumnDefs, whereClause)
+	async function getCount(dbInput: DbInput, table: string, quicksearch: string) {
+		input = getCountInput(dbInput, table, localColumnDefs, whereClause)
 
 		await tick()
 

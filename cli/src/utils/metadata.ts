@@ -20,8 +20,17 @@ import {
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
-import { FSFSElement, findCodebase, yamlOptions } from "../commands/sync/sync.ts";
-import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
+import {
+  FSFSElement,
+  findCodebase,
+  yamlOptions,
+} from "../commands/sync/sync.ts";
+import {
+  generateHash,
+  readInlinePathSync,
+  getHeaders,
+  writeIfChanged,
+} from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "../commands/flow/flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
@@ -77,7 +86,6 @@ async function generateFlowHash(
         [, reqs] =
           Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
       }
-
       // Embed lock into hash
       hashes[f.path] = await generateHash(
         (await f.getContentText()) + (reqs ?? "")
@@ -175,8 +183,8 @@ export async function generateFlowLockInternal(
       folder + SEP!,
       SEP,
       changedScripts,
-      (path: string, newPath: string) => Deno.renameSync(path, newPath),
-      (path: string) => Deno.removeSync(path)
+      // (path: string, newPath: string) => Deno.renameSync(path, newPath),
+      // (path: string) => Deno.removeSync(path)
     );
 
     //removeChangedLocks
@@ -191,26 +199,21 @@ export async function generateFlowLockInternal(
       flowValue.value.modules,
       {},
       SEP,
-      opts.defaultTs,
+      opts.defaultTs
     );
-    inlineScripts
-      .filter((s) => s.path.endsWith(".lock"))
-      .forEach((s) => {
-        Deno.writeTextFileSync(
-          Deno.cwd() + SEP + folder + SEP + s.path,
-          s.content
-        );
-      });
+    inlineScripts.forEach((s) => {
+      writeIfChanged(Deno.cwd() + SEP + folder + SEP + s.path, s.content);
+    });
 
     // Overwrite `flow.yaml` with the new lockfile references
-    await Deno.writeTextFile(
+    writeIfChanged(
       Deno.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(flowValue as Record<string, any>)
     );
   }
 
   hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
-
+  await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
   }
@@ -243,29 +246,22 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+
+  const metadataWithType = await parseMetadataFile(
+    remotePath,
+    undefined,
+  );
+
+  // read script content
+  const scriptContent = await Deno.readTextFile(scriptPath);
+  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  
   const rrLang = languagesWithRawReqsSupport.find(
     (l) => language == l.language
   );
 
   const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
 
-  if (rawReqs && rrLang) {
-    log.info(
-      (await blueColor())(
-        `Found raw requirements (${rrLang.rrFilename}) for ${scriptPath}, using it`
-      )
-    );
-  }
-  const metadataWithType = await parseMetadataFile(
-    remotePath,
-    undefined,
-    globalDeps,
-    codebases
-  );
-
-  // read script content
-  const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
 
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
 
@@ -382,6 +378,10 @@ async function updateScriptLock(
   ) {
     return;
   }
+
+  if (rawDeps) {
+    log.info(`Generating script lock for ${remotePath} with raw deps`);
+  }
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const extraHeaders = getHeaders();
@@ -432,7 +432,9 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch (e) {
+        log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
+      }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -516,7 +518,9 @@ export async function updateFlow(
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch {
+      responseText = "";
+    }
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
     );
@@ -538,16 +542,24 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
-    const { parse_python } = await import("../../wasm/py/windmill_parser_wasm.js");
+    const { parse_python } = await import(
+      "../../wasm/py/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
-    const { parse_deno } = await import("../../wasm/ts/windmill_parser_wasm.js");
+    const { parse_deno } = await import(
+      "../../wasm/ts/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "bun") {
-    const { parse_deno } = await import("../../wasm/ts/windmill_parser_wasm.js");
+    const { parse_deno } = await import(
+      "../../wasm/ts/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "deno") {
-    const { parse_deno } = await import("../../wasm/ts/windmill_parser_wasm.js");
+    const { parse_deno } = await import(
+      "../../wasm/ts/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "go") {
     const { parse_go } = await import("../../wasm/go/windmill_parser_wasm.js");
@@ -599,7 +611,9 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "postgresql") {
-    const { parse_sql } = await import("../../wasm/regex/windmill_parser_wasm.js");
+    const { parse_sql } = await import(
+      "../../wasm/regex/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_sql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "postgresql" } },
@@ -620,7 +634,9 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "bash") {
-    const { parse_bash } = await import("../../wasm/regex/windmill_parser_wasm.js");
+    const { parse_bash } = await import(
+      "../../wasm/regex/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
     const { parse_powershell } = await import(
@@ -628,10 +644,14 @@ export async function inferSchema(
     );
     inferedSchema = JSON.parse(parse_powershell(content));
   } else if (language === "php") {
-    const { parse_php } = await import("../../wasm/php/windmill_parser_wasm.js");
+    const { parse_php } = await import(
+      "../../wasm/php/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
-    const { parse_rust } = await import("../../wasm/rust/windmill_parser_wasm.js");
+    const { parse_rust } = await import(
+      "../../wasm/rust/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
     const { parse_csharp } = await import(
@@ -647,12 +667,16 @@ export async function inferSchema(
     );
     inferedSchema = JSON.parse(parse_ansible(content));
   } else if (language === "java") {
-    const { parse_java } = await import("../../wasm/java/windmill_parser_wasm.js");
+    const { parse_java } = await import(
+      "../../wasm/java/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_java(content));
   } else if (language === "ruby") {
-    const { parse_ruby } = await import("../../wasm/ruby/windmill_parser_wasm.js");
+    const { parse_ruby } = await import(
+      "../../wasm/ruby/windmill_parser_wasm.js"
+    );
     inferedSchema = JSON.parse(parse_ruby(content));
-  	// for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -743,10 +767,11 @@ export async function parseMetadataFile(
         path: string;
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
+        globalDeps: GlobalDeps;
+        codebases: SyncCodebase[]
       })
     | undefined,
-  globalDeps: GlobalDeps,
-  codebases: SyncCodebase[]
+
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -777,11 +802,17 @@ export async function parseMetadataFile(
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
+      const lockPath = scriptPath + ".script.lock";
+      scriptInitialMetadata.lock = "!inline " + lockPath;
       const scriptInitialMetadataYaml = yamlStringify(
         scriptInitialMetadata as Record<string, any>,
         yamlOptions
       );
+
       await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
+        createNew: true,
+      });
+      await Deno.writeTextFile(lockPath, "", {
         createNew: true,
       });
 
@@ -798,8 +829,8 @@ export async function parseMetadataFile(
             generateMetadataIfMissing,
             false,
             false,
-            globalDeps,
-            codebases,
+            generateMetadataIfMissing.globalDeps,
+            generateMetadataIfMissing.codebases,
             false
           );
           scriptInitialMetadata = (await yamlParseFile(
@@ -889,6 +920,32 @@ export async function generateScriptHash(
   );
 }
 
+export async function clearGlobalLock(path: string): Promise<void> {
+  const conf = await readLockfile();
+  if (!conf?.locks) {
+    conf.locks = {};
+  }
+  const isV2 = conf?.version == "v2";
+
+  if (isV2) {
+    // Remove the specific v2 lock entry
+    const key = v2LockPath(path);
+    if (conf.locks) {
+      Object.keys(conf.locks).forEach((k) => {
+        if (conf.locks) {
+          if (k.startsWith(key)) {
+            delete conf.locks[k];
+          }
+        }
+      });
+    }
+    await Deno.writeTextFile(
+      WMILL_LOCKFILE,
+      yamlStringify(conf as Record<string, any>, yamlOptions)
+    );
+  }
+}
+
 export async function updateMetadataGlobalLock(
   path: string,
   hash: string,
@@ -901,7 +958,7 @@ export async function updateMetadataGlobalLock(
   const isV2 = conf?.version == "v2";
 
   if (isV2) {
-    conf.locks[v2LockPath(path, hash)] = hash;
+    conf.locks[v2LockPath(path, subpath)] = hash;
   } else {
     if (subpath) {
       let prev: any = conf.locks[path];

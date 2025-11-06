@@ -8,17 +8,11 @@
 
 	interface Props {
 		placement?: 'bottom-end' | 'top-end'
-		color?: 'nord' | 'dark'
+		variant?: 'default' | 'accent'
 		disabled?: boolean
-		showWorkspaceRestriction?: boolean
 	}
 
-	let {
-		placement = 'bottom-end',
-		color = 'dark',
-		disabled = false,
-		showWorkspaceRestriction = false
-	}: Props = $props()
+	let { placement = 'bottom-end', variant = 'default', disabled = false }: Props = $props()
 </script>
 
 <Popover
@@ -28,7 +22,7 @@
 	usePointerDownOutside
 >
 	{#snippet trigger()}
-		<Button {color} size="xs" nonCaptureEvent={true} {disabled}>
+		<Button {variant} unifiedSize="md" nonCaptureEvent={true} {disabled}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Custom tags&nbsp;<Tooltip light
 					>Tags are assigned to scripts and flows. Workers only accept jobs that correspond to their
@@ -40,6 +34,6 @@
 		</Button>
 	{/snippet}
 	{#snippet content()}
-		<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
+		<AssignableTagsInner on:refresh />
 	{/snippet}
 </Popover>

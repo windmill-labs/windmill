@@ -110,8 +110,7 @@
 	/>
 	<Button
 		disabled={!can_write || disabled}
-		variant="border"
-		color="light"
+		variant="default"
 		wrapperClasses="self-stretch"
 		on:click={listDatabasePublication}
 		startIcon={{ icon: RefreshCw }}
@@ -119,17 +118,15 @@
 	/>
 	<Button
 		loading={updatingPublication}
-		color="light"
 		size="xs"
-		variant="border"
+		variant="default"
 		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
 		loading={deletingPublication}
-		color="light"
 		size="xs"
-		variant="border"
+		variant="default"
 		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={deletePublication}>Delete</Button
 	>

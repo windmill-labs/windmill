@@ -247,7 +247,7 @@ pub async fn resolve<'a>(
 
     if let Connection::Sql(db) = conn {
         sqlx::query!(
-        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
         req_hash,
             lock.clone(),
         )
@@ -534,6 +534,7 @@ async fn compile<'a>(
             false,
             &mut Some(occupancy_metrics),
             None,
+            None,
         )
         .await?;
 
@@ -717,6 +718,7 @@ async fn run<'a>(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

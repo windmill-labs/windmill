@@ -14,25 +14,39 @@
 	import type { GetInitialAndModifiedValues } from './unsavedTypes'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let additionalExitAction: () => void = () => {}
-	let savedValue: Value | undefined = undefined
-	let modifiedValue: Value | undefined = undefined
+	interface Props {
+		getInitialAndModifiedValues?: GetInitialAndModifiedValues
+		diffDrawer?: DiffDrawer | undefined
+		additionalExitAction?: () => void
+		triggerOnSearchParamsChange?: boolean
+		onDiscardChanges?: () => void
+		tabMode?: boolean
+	}
 
-	let bypassBeforeNavigate = false
-	let open = false
-	let goingTo: URL | undefined = undefined
+	let {
+		getInitialAndModifiedValues = undefined,
+		diffDrawer = undefined,
+		additionalExitAction = () => {},
+		triggerOnSearchParamsChange = false,
+		onDiscardChanges = undefined,
+		tabMode = false
+	}: Props = $props()
+	let savedValue: Value | undefined = $state(undefined)
+	let modifiedValue: Value | undefined = $state(undefined)
+
+	let bypassBeforeNavigate = $state(false)
+	let open = $state(false)
+	let goingTo: URL | undefined = $state(undefined)
 
 	beforeNavigate(async (newNavigationState) => {
 		if (
 			!bypassBeforeNavigate &&
 			getInitialAndModifiedValues &&
 			newNavigationState.to &&
-			newNavigationState.to.url != $page.url &&
-			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
+			((newNavigationState.to.url != $page.url &&
+				newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname) ||
+				(triggerOnSearchParamsChange && newNavigationState.to.url.search != $page.url.search))
 		) {
-			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
 
 			const state = getInitialAndModifiedValues?.()
@@ -54,7 +68,9 @@
 					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
 					orderedJsonStringify(replaceFalseWithUndefined(current))
 				) {
-					bypassBeforeNavigate = true
+					if (!tabMode) {
+						bypassBeforeNavigate = true
+					}
 					additionalExitAction?.()
 				} else {
 					await openModal()
@@ -86,6 +102,9 @@
 		open = false
 	}}
 	on:confirmed={() => {
+		open = false
+		// Discard changes before navigating
+		onDiscardChanges?.()
 		if (goingTo) {
 			bypassBeforeNavigate = true
 			additionalExitAction?.()
@@ -98,8 +117,7 @@
 		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
-				color="light"
-				variant="border"
+				variant="default"
 				size="xs"
 				on:click={() => {
 					if (!savedValue || !modifiedValue) {

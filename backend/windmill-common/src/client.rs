@@ -39,8 +39,8 @@ impl AuthedClient {
             .send()
             .await
             .map_err(|e| {
-                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e}");
-                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e}")
+                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e:#?}");
+                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e:#?}")
             })
     }
 
@@ -204,6 +204,44 @@ impl AuthedClient {
         match response.status().as_u16() {
             200u16 => Ok(()),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
+    }
+
+    pub async fn download_s3_file(
+        &self,
+        workspace_id: &str,
+        file_key: &str,
+        storage: Option<String>,
+    ) -> anyhow::Result<bytes::Bytes> {
+        let mut query = vec![("file_key", file_key.to_string())];
+        if let Some(storage) = storage {
+            query.push(("storage", storage));
+        }
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .get(&format!(
+                "{}/api/w/{}/job_helpers/download_s3_file",
+                self.base_internal_url, workspace_id
+            ))
+            .query(&query)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            )
+            .send()
+            .await
+            .context("Failed to send download_s3_file request")
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(response
+                .bytes()
+                .await
+                .context("Failed to read response bytes")?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
 }

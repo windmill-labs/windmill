@@ -286,13 +286,17 @@ async fn create_igroup(
     Extension(db): Extension<DB>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
+    use uuid::Uuid;
+
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let id = Uuid::new_v4().to_string();
     sqlx::query!(
-        "INSERT INTO instance_group (name, summary) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         ng.name,
         ng.summary,
+        id,
     )
     .execute(&mut *tx)
     .await?;
@@ -629,6 +633,20 @@ async fn add_user_igroup(
         Some([("email", email.as_str())].into()),
     )
     .await?;
+
+    // Sync user to workspaces configured with this instance group
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        use crate::workspaces_ee::auto_add_user;
+        let workspaces = sqlx::query!("SELECT workspace_id, auto_add_instance_groups_roles FROM workspace_settings WHERE $1 = ANY(COALESCE(auto_add_instance_groups, '{}'))", &name).fetch_all(&mut *tx).await?;
+        for ws in workspaces {
+            let role = ws.auto_add_instance_groups_roles.and_then(|r| r.get(&name).and_then(|v| v.as_str().map(String::from))).unwrap_or_else(|| "developer".to_string());
+            let (is_admin, is_operator) = match role.as_str() { "admin" => (true, false), "operator" => (false, true), _ => (false, false) };
+            auto_add_user(&email, &ws.workspace_id, &is_operator, &mut tx, &authed, Some(serde_json::json!({"source": "instance_group", "group": &name}))).await?;
+            if is_admin { sqlx::query!("UPDATE usr SET is_admin = true WHERE workspace_id = $1 AND email = $2", &ws.workspace_id, &email).execute(&mut *tx).await?; }
+        }
+    }
+
     tx.commit().await?;
     Ok(format!("Added {} to igroup {}", email, name))
 }
@@ -777,8 +795,16 @@ async fn remove_user_igroup(
         Some([("email", email.as_str())].into()),
     )
     .await?;
+
+    // Remove user from workspaces where they were added via this instance group
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        use crate::workspaces_ee::remove_users_from_instance_group_workspaces;
+        remove_users_from_instance_group_workspaces(&email, &name, &mut tx).await?;
+    }
+
     tx.commit().await?;
-    Ok(format!("Added {} to igroup {}", email, name))
+    Ok(format!("Removed {} from igroup {}", email, name))
 }
 
 async fn remove_user(

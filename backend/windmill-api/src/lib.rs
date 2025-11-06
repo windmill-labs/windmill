@@ -20,8 +20,10 @@ use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::triggers::start_all_listeners;
 #[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
@@ -60,7 +62,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -85,7 +87,8 @@ pub mod ee;
 pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
-mod flows;
+mod flow_conversations;
+pub mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
@@ -98,25 +101,17 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
+#[cfg(feature = "http_trigger")]
+mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
-
-mod trigger_helpers;
-
-pub mod openapi;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod apps_ee;
 #[cfg(feature = "enterprise")]
 mod apps_oss;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
-pub mod gcp_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-mod gcp_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod git_sync_ee;
 #[cfg(feature = "enterprise")]
@@ -127,16 +122,6 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-pub mod kafka_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-mod kafka_triggers_oss;
-#[cfg(feature = "mqtt_trigger")]
-mod mqtt_triggers;
-#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
-pub mod nats_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-mod nats_triggers_oss;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -162,10 +147,6 @@ mod slack_approvals;
 pub mod smtp_server_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_oss;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
-pub mod sqs_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
@@ -175,6 +156,9 @@ mod static_assets;
 pub mod stripe_ee;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_oss;
+#[cfg(feature = "private")]
+pub mod teams_cache_ee;
+mod teams_cache_oss;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
@@ -189,8 +173,6 @@ mod utils;
 pub mod var_resource_cache;
 mod variables;
 pub mod webhook_util;
-#[cfg(feature = "websocket")]
-mod websocket_triggers;
 mod workers;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -202,6 +184,7 @@ mod workspaces_oss;
 #[cfg(feature = "mcp")]
 mod mcp;
 
+pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
 lazy_static::lazy_static! {
@@ -216,11 +199,11 @@ lazy_static::lazy_static! {
 
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
         .build().unwrap();
 
 
@@ -389,47 +372,7 @@ pub async fn run_server(
     let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
-        #[cfg(feature = "websocket")]
-        {
-            let ws_killpill_rx = killpill_rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            let kafka_killpill_rx = killpill_rx.resubscribe();
-            kafka_triggers_oss::start_kafka_consumers(db.clone(), kafka_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            let nats_killpill_rx = killpill_rx.resubscribe();
-            nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(feature = "postgres_trigger")]
-        {
-            let db_killpill_rx = killpill_rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx);
-        }
-
-        #[cfg(feature = "mqtt_trigger")]
-        {
-            let mqtt_killpill_rx = killpill_rx.resubscribe();
-            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            let sqs_killpill_rx = killpill_rx.resubscribe();
-            sqs_triggers_oss::start_sqs(db.clone(), sqs_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            let gcp_killpill_rx = killpill_rx.resubscribe();
-            gcp_triggers_oss::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
-        }
+        start_all_listeners(db.clone(), &killpill_rx);
     }
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -470,7 +413,7 @@ pub async fn run_server(
     };
 
     #[cfg(feature = "agent_worker_server")]
-    let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_job_completed_tx) =
         if server_mode {
             agent_workers_oss::workspaced_service(db.clone(), _base_internal_url.clone())
         } else {
@@ -502,6 +445,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/flow_conversations",
+                            flow_conversations::workspaced_service(),
+                        )
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
@@ -529,7 +476,17 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
-                        .nest("/openapi", openapi::openapi_service())
+                        .nest("/openapi", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                openapi::openapi_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
@@ -594,7 +551,14 @@ pub async fn run_server(
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_oss::global_service().layer(Extension(agent_cache.clone()))
+                        if let Some(agent_workers_job_completed_tx) =
+                            agent_workers_job_completed_tx.clone()
+                        {
+                            agent_workers_oss::global_service(agent_workers_job_completed_tx)
+                                .layer(Extension(agent_cache.clone()))
+                        } else {
+                            Router::new()
+                        }
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {
@@ -735,10 +699,18 @@ pub async fn run_server(
         )
     };
 
+    let app = app.layer(CatchPanicLayer::custom(|err| {
+        tracing::error!("panic in handler, returning 500: {:?}", err);
+        Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Internal Server Error"))
+            .unwrap()
+    }));
+
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    let server = axum::serve(listener, app.into_make_service());
+    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
@@ -748,15 +720,16 @@ pub async fn run_server(
         name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    port_tx
-        .send(format!("http://localhost:{}", port))
-        .expect("Failed to send port");
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
 
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
-        if let Some(agent_workers_killpill_tx) = agent_workers_killpill_tx {
-            if let Err(e) = agent_workers_killpill_tx.kill().await {
+        if let Some(agent_workers_job_completed_tx) = agent_workers_job_completed_tx {
+            if let Err(e) = agent_workers_job_completed_tx.kill().await {
                 tracing::error!("Error killing agent workers: {e:#}");
             }
         }
@@ -846,8 +819,11 @@ async fn openapi_json() -> Response {
         .unwrap()
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
-    db::migrate(db)
+pub async fn migrate_db(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

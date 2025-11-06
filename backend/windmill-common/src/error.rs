@@ -84,6 +84,8 @@ pub enum Error {
     ArgumentErr(String),
     #[error("{1}")]
     Generic(StatusCode, String),
+    #[error("{feature} is unavailable due to some workers being behind. Do not use the feature or make sure all workers run at least {min_version}")]
+    WorkersAreBehind { feature: String, min_version: String },
 }
 
 impl Error {
@@ -185,6 +187,12 @@ impl From<url::ParseError> for Error {
     #[track_caller]
     fn from(e: url::ParseError) -> Self {
         Self::ArgumentErr(format!("Cannot parse provided url. \ne: {e}"))
+    }
+}
+
+impl From<tokio::time::error::Elapsed> for Error {
+    fn from(value: tokio::time::error::Elapsed) -> Self {
+        Self::InternalErr(value.to_string())
     }
 }
 

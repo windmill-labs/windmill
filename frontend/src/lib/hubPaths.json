@@ -14,7 +14,8 @@
 	"gitSync_12": "hub/19798/sync-script-to-git-repo-windmill",
 	"gitSync_13": "hub/19801/sync-script-to-git-repo-windmill",
 	"gitSync_14": "hub/19803/sync-script-to-git-repo-windmill",
-	"gitSync": "hub/19816/sync-script-to-git-repo-windmill",
+	"gitSync_15": "hub/19816/sync-script-to-git-repo-windmill",
+	"gitSync": "hub/19818/sync-script-to-git-repo-windmill",
 	"gitSyncTest_0": "hub/9073/git-repo-test-read-write-windmill",
 	"gitSyncTest_1": "hub/11499/git-repo-test-read-write-windmill",
 	"gitSyncTest_2": "hub/11667/git-repo-test-read-write-windmill",
@@ -22,7 +23,8 @@
 	"gitSyncTest": "hub/19799/git-repo-test-read-write-windmill",
 	"gitInitRepo_0": "hub/19787/git-sync%3A-init-repository-windmill",
 	"gitInitRepo_1": "hub/19797/git-sync%3A-init-repository-windmill",
-	"gitInitRepo": "hub/19817/git-sync%3A-init-repository-windmill",
+	"gitInitRepo_2": "hub/19817/git-sync%3A-init-repository-windmill",
+	"gitInitRepo": "hub/28072/git-sync%3A-init-repository-windmill",
 	"slackErrorHandler": "hub/19741/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_0": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_1": "hub/9206/workspace-or-schedule-error-handler-slack",
@@ -35,5 +37,7 @@
 	"teamsSuccessHandler": "hub/11596/schedule-success-handler-teams",
 	"slackReport": "hub/9084/slack",
 	"discordReport": "hub/9085/discord",
-	"smtpReport": "hub/9086/smtp"
+	"smtpReport": "hub/9086/smtp",
+	"cloneRepoToS3forGitRepoViewer_0": "hub/19825/clone_repo_and_upload_to_instance_storage",
+	"cloneRepoToS3forGitRepoViewer": "hub/19827/clone_repo_and_upload_to_instance_storage"
 }

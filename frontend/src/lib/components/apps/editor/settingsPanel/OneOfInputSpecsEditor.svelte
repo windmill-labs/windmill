@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Select from '$lib/components/select/Select.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import type { RichConfiguration } from '../../types'
@@ -52,10 +53,19 @@
 		// If the configuration is empty, we set the first one as selected.
 		// It happens when the configuration was added after the component was created
 		if (oneOf.selected === '') {
+			let selected = Object.keys(inputSpecsConfiguration ?? {})[0]
 			oneOf = {
 				configuration: cleanseOneOfConfiguration(inputSpecsConfiguration),
-				selected: Object.keys(inputSpecsConfiguration ?? {})[0],
+				selected,
 				type: 'oneOf'
+			}
+		}
+		if (oneOf.selected && Object.keys(oneOf.configuration).length > 1) {
+			oneOf = {
+				...oneOf,
+				configuration: {
+					[oneOf.selected]: cleanseOneOfConfiguration(inputSpecsConfiguration)?.[oneOf.selected]
+				}
 			}
 		}
 	})
@@ -69,27 +79,36 @@
 	}
 </script>
 
-<div class="p-2 border">
+<div class="p-2 border rounded-md">
 	{#if oneOf}
-		<div class="mb-2 text-sm font-semibold">
+		<div class="mb-2 text-xs font-semibold">
 			{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
 			{#if tooltip}
 				<Tooltip light>{tooltip}</Tooltip>
 			{/if}
 		</div>
-		<select
-			class="w-full border border-gray-300 rounded-md p-2"
-			value={oneOf.selected}
-			onchange={(e) => {
-				oneOf = { ...oneOf, selected: e?.target?.['value'] }
-			}}
-		>
-			{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
-				{#if (!disabledOptions.includes(choice) && !getValueOfDeprecated(inputSpecsConfiguration[choice])) || oneOf.selected === choice}
-					<option value={choice}>{labels?.[choice] ?? choice}</option>
-				{/if}
-			{/each}
-		</select>
+		<Select
+			bind:value={
+				() => oneOf.selected,
+				(selected) =>
+					(oneOf = {
+						...oneOf,
+						configuration: { selected: inputSpecsConfiguration[selected] },
+						selected
+					})
+			}
+			items={Object.keys(inputSpecsConfiguration ?? {})
+				.filter(
+					(choice) =>
+						(!disabledOptions.includes(choice) &&
+							!getValueOfDeprecated(inputSpecsConfiguration[choice])) ||
+						oneOf.selected === choice
+				)
+				.map((choice) => ({ label: labels?.[choice] ?? choice, value: choice }))}
+		/>
+		<!-- {JSON.stringify(inputSpecsConfiguration)} -->
+		<!-- {JSON.stringify(oneOf.configuration)} -->
+
 		{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
 			<div class="mb-4"></div>
 		{/if}

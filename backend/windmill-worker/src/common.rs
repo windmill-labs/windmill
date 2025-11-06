@@ -14,6 +14,7 @@ use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 
+use windmill_common::flows::Step;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
@@ -27,13 +28,15 @@ use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
     scripts::ScriptHash,
+    utils::configure_client,
     variables::ContextualVariable,
 };
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
-use windmill_queue::MiniPulledJob;
+use windmill_queue::{MiniCompletedJob, MiniPulledJob};
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -233,7 +236,8 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
-            if path.split("/").count() < 2 {
+
+            if path.split("/").count() < 2 && !path.starts_with("INSTANCE_DUCKLAKE_CATALOG/") {
                 return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
@@ -261,7 +265,11 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
-                        serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
+                        serde_json::from_str(&x).map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to decrypt '$encrypted:' value: {e}"
+                            ))
+                        })
                     })
                 }
                 Connection::Http(_) => {
@@ -445,6 +453,7 @@ pub async fn get_reserved_variables(
         Some(get_root_job_id(job).to_string()),
         Some(job.scheduled_for.clone()),
         job.runnable_id,
+        job.permissioned_as_end_user_email.clone(),
     )
     .await
     .to_vec();
@@ -660,13 +669,16 @@ pub async fn resolve_job_timeout(
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace = *CLOUD_HOSTED
+    let cloud_premium_workspace =
+        *CLOUD_HOSTED
         && windmill_common::workspaces::get_team_plan_status(
             _conn.as_sql().expect("cloud cannot use http connection"),
             _w_id,
         )
         .await
-        .premium;
+        .inspect_err(|err| tracing::error!("Failed to get team plan status to resolve job timeout for workspace {_w_id}: {err:#}"))
+        .map(|s| s.premium)
+        .unwrap_or(true);
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
@@ -961,7 +973,7 @@ pub async fn get_cached_resource_value_if_valid(
 pub async fn save_in_cache(
     db: &Pool<Postgres>,
     _client: &AuthedClient,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     cached_path: String,
     r: Arc<Box<RawValue>>,
 ) {
@@ -988,7 +1000,7 @@ pub async fn save_in_cache(
         "INSERT INTO resource
         (workspace_id, path, value, resource_type, created_by, edited_at)
         VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)
-        DO UPDATE SET value = $3, edited_at = now()",
+        DO UPDATE SET value = EXCLUDED.value, edited_at = now()",
         job.workspace_id,
         &cached_path,
         raw_json as Json<&CachedResource>,
@@ -1045,12 +1057,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(timeout_duration)
+            .connect_timeout(std::time::Duration::from_secs(10)),
+    )
+    .build()
+    .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
@@ -1059,6 +1073,218 @@ pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
         .or(job.flow_innermost_root_job)
         .or(job.parent_job)
         .unwrap_or(job.id)
+}
+
+#[derive(Clone)]
+pub struct StreamNotifier {
+    db: DB,
+    job_id: uuid::Uuid,
+    parent_job: uuid::Uuid,
+    root_job: uuid::Uuid,
+    flow_step_id: Option<String>,
+}
+
+// Helper struct to hold parent job information
+#[derive(Debug)]
+struct JobInfo {
+    flow_step_id: Option<String>,
+    step: Option<i32>,
+    len: Option<i32>,
+    is_branch_one: Option<bool>,
+    next_parent: Option<Uuid>,
+}
+
+// Shared helper function to fetch parent job info with flow status
+async fn get_job_info(db: &DB, job_id: Uuid) -> error::Result<JobInfo> {
+    sqlx::query_as!(
+        JobInfo,
+        r#"SELECT
+            flow_step_id,
+            (flow_status->'step')::integer as step,
+            jsonb_array_length(flow_status->'modules') as len,
+            runnable_path ~ '/branchone-\d+$' as is_branch_one,
+            parent_job as next_parent
+        FROM v2_job
+            LEFT JOIN v2_job_status USING (id)
+        WHERE v2_job.id = $1"#,
+        job_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("fetching parent job info: {e:#}")))
+}
+
+async fn check_if_last_step(
+    db: &DB,
+    mut next_parent: Option<Uuid>,
+    root_job: Uuid,
+) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    loop {
+        // Get parent of current job
+        let Some(parent_job) = next_parent else {
+            return Ok(false);
+        };
+
+        // Check for cycles
+        if !visited.insert(parent_job) {
+            return Ok(false);
+        }
+
+        let parent_info = get_job_info(db, parent_job).await?;
+
+        if let Some(step) = parent_info.step {
+            let step = Step::from_i32_and_len(step, parent_info.len.unwrap_or(0) as usize);
+            if step.is_last_step() {
+                if parent_job == root_job {
+                    return Ok(true);
+                } else if parent_info.is_branch_one.unwrap_or(false) {
+                    next_parent = parent_info.next_parent;
+                    continue;
+                }
+            }
+        }
+
+        return Ok(false);
+    }
+}
+
+// Iterative implementation to avoid stack overflow from async_recursion
+// Checks if we're at last step in nested branches AND if any parent's flow_step_id matches early_return_id
+async fn check_if_early_return_or_last_in_early_return_parent(
+    db: &DB,
+    mut next_parent: Option<Uuid>,
+    mut step_id: Option<String>,
+    early_return_id: &str,
+    root_job: Uuid,
+) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    loop {
+        if step_id.is_none() {
+            return Ok(false);
+        }
+
+        let Some(parent_job) = next_parent else {
+            return Ok(false);
+        };
+
+        // Check for cycles
+        if !visited.insert(parent_job) {
+            return Ok(false);
+        }
+
+        // If the parent's flow_step_id matches early_return_id, we found it!
+        if step_id.as_deref() == Some(early_return_id) && parent_job == root_job {
+            return Ok(true);
+        } else {
+            let parent_info = get_job_info(db, parent_job).await?;
+            if let Some(step) = parent_info.step {
+                let step = Step::from_i32_and_len(step, parent_info.len.unwrap_or(0) as usize);
+                // we only continue if we are at the last step and the parent is a branch one
+                if step.is_last_step() && parent_info.is_branch_one.unwrap_or(false) {
+                    next_parent = parent_info.next_parent;
+                    step_id = parent_info.flow_step_id;
+                    continue;
+                }
+            }
+            return Ok(false);
+        }
+    }
+}
+
+impl StreamNotifier {
+    pub fn new(conn: &Connection, job: &MiniPulledJob) -> Option<Self> {
+        let root_job = get_root_job_id(job);
+        if job.is_flow_step() && job.parent_job.is_some() {
+            match conn {
+                Connection::Sql(db) => Some(Self {
+                    db: db.clone(),
+                    parent_job: job.parent_job.unwrap(),
+                    job_id: job.id,
+                    root_job,
+                    flow_step_id: job.flow_step_id.clone(),
+                }),
+                Connection::Http(_) => {
+                    tracing::warn!(
+                        "Flow job streaming is only supported for workers connected to a database"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    async fn update_flow_status_with_stream_job_inner(
+        db: DB,
+        parent_job: Uuid,
+        job_id: Uuid,
+        root_job: Uuid,
+        flow_step_id: Option<String>,
+    ) -> Result<(), Error> {
+        // Check if early_return is set at the flow level
+        let early_return_node_id = sqlx::query_scalar!(
+            r#"
+            SELECT fv.value->>'early_return' as "early_return"
+            FROM v2_job j
+            INNER JOIN flow_version fv ON fv.id = j.runnable_id
+            WHERE j.id = $1
+            "#,
+            root_job
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+
+        let should_set_stream_job = if let Some(ref early_return_id) = early_return_node_id {
+            check_if_early_return_or_last_in_early_return_parent(
+                &db,
+                Some(parent_job),
+                flow_step_id,
+                early_return_id,
+                root_job,
+            )
+            .await?
+        } else {
+            check_if_last_step(&db, Some(parent_job), root_job).await?
+        };
+
+        if should_set_stream_job {
+            sqlx::query!(r#"
+                    UPDATE v2_job_status
+                    SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))
+                    WHERE id = $2"#,
+                    job_id,
+                    root_job
+                )
+                .execute(&db)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub fn update_flow_status_with_stream_job(&self) -> () {
+        let db = self.db.clone();
+        let parent_job = self.parent_job;
+        let job_id = self.job_id;
+        let root_job = self.root_job;
+        let flow_step_id = self.flow_step_id.clone();
+        tokio::spawn(async move {
+            if let Err(err) = Self::update_flow_status_with_stream_job_inner(
+                db,
+                parent_job,
+                job_id,
+                root_job,
+                flow_step_id,
+            )
+            .await
+            {
+                tracing::error!("Could not notify about stream job {}: {err:#?}", parent_job);
+            }
+        });
+    }
 }
 
 #[derive(Clone)]
@@ -1120,4 +1346,3 @@ pub fn s3_mode_args_to_worker_data(
         workspace_id: job.workspace_id.clone(),
     }
 }
-

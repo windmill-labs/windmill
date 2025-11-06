@@ -19,6 +19,7 @@ use uuid::Uuid;
 use windmill_common::{
     add_time,
     error::{self, Error},
+    flow_status::FlowJobDuration,
     jobs::JobKind,
     utils::WarnAfterExt,
     worker::{to_raw_value, Connection, WORKER_GROUP},
@@ -30,8 +31,7 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
-    WrappedError, INIT_SCRIPT_TAG,
+    CanceledBy, INIT_SCRIPT_TAG, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson, WrappedError, append_logs, get_mini_completed_job
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -342,6 +342,7 @@ pub fn start_background_processor(
                         &w_id,
                         success,
                         Arc::new(result),
+                        None,
                         true,
                         &same_worker_tx,
                         &worker_dir,
@@ -398,7 +399,7 @@ async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobComplet
 }
 
 pub async fn process_result(
-    job: Arc<MiniPulledJob>,
+    job: MiniCompletedJob,
     result: error::Result<Arc<Box<RawValue>>>,
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
@@ -410,6 +411,7 @@ pub async fn process_result(
     preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     conn: &Connection,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -426,6 +428,8 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
+                    from_cache: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -488,6 +492,8 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
+                    from_cache: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -532,7 +538,7 @@ pub async fn handle_receive_completed_job(
             handle_job_error(
                 db,
                 &client,
-                job.as_ref(),
+                &job,
                 mem_peak,
                 canceled_by,
                 err,
@@ -562,6 +568,8 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
+        has_stream,
+        from_cache,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -582,6 +590,7 @@ pub async fn process_completed_job(
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
+        let started_at = job.started_at.clone();
 
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
@@ -614,7 +623,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        add_completed_job(
+        let (_, duration) = add_completed_job(
             db,
             &job,
             true,
@@ -625,6 +634,8 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
+            has_stream.unwrap_or(false),
+            from_cache.unwrap_or(false),
         )
         .await?;
         drop(job);
@@ -642,6 +653,7 @@ pub async fn process_completed_job(
                     &workspace_id,
                     true,
                     result,
+                    started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -682,6 +694,12 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
+                    duration.and_then(|d| {
+                        job.started_at.map(|started_at| FlowJobDuration {
+                            started_at: started_at,
+                            duration_ms: d,
+                        })
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -702,7 +720,7 @@ pub async fn process_completed_job(
 
 pub async fn handle_non_flow_job_error(
     db: &DB,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err_string: String,
@@ -733,7 +751,7 @@ pub async fn handle_non_flow_job_error(
 pub async fn handle_job_error(
     db: &DB,
     client: &AuthedClient,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
@@ -783,6 +801,7 @@ pub async fn handle_job_error(
             &job.workspace_id,
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
+            None,
             unrecoverable,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
@@ -797,7 +816,7 @@ pub async fn handle_job_error(
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(Some(parent_job)) =
-                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
+                    get_mini_completed_job(&parent_job_id, &job.workspace_id, db).await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     append_logs(
@@ -809,7 +828,7 @@ pub async fn handle_job_error(
                     .await;
                     let _ = add_completed_job_error(
                         db,
-                        &MiniPulledJob::from(&parent_job),
+                        &parent_job,
                         mem_peak,
                         canceled_by.clone(),
                         e,

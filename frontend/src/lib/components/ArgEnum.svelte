@@ -12,6 +12,8 @@
 		valid: boolean
 		create: boolean
 		enumLabels?: Record<string, string> | undefined
+		selectClass?: string
+		onClear?: () => void
 	}
 
 	let {
@@ -22,7 +24,9 @@
 		defaultValue,
 		valid,
 		create,
-		enumLabels = undefined
+		enumLabels = undefined,
+		selectClass = '',
+		onClear = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -30,38 +34,54 @@
 	let customItems: string[] = $state([])
 
 	let items = $derived.by(() => {
-		const l = [...(enum_ ? enum_ : []), ...customItems].map((item) => ({
-			value: item,
-			label: enumLabels?.[item] ?? item
-		}))
-		if (create && filterText && l.every((i) => i.value !== filterText)) {
+		const l = [...(enum_ ? enum_ : []), ...customItems]
+			.map((item) => {
+				if (typeof item === 'string') {
+					return {
+						value: item,
+						label: enumLabels?.[item] ?? item
+					}
+				} else if (typeof item === 'object') {
+					return item
+				}
+			})
+			.filter((i) => i != undefined)
+		if (create && filterText && l.every((i) => i?.value !== filterText)) {
 			l.push({ value: filterText, label: `Add new: ${filterText}` })
 		}
 		return l
 	})
 
 	let filterText = $state('')
+	let cleared = $state(false)
 </script>
 
 <div class="w-full flex-col">
 	<div class="w-full">
 		<Select
-			inputClass={valid ? '' : '!border-red-500/60'}
+			error={!valid}
 			clearable
 			{disabled}
 			autofocus={autofocus ?? undefined}
 			bind:filterText
 			{items}
 			bind:value={
-				() => value ?? defaultValue,
+				() => value ?? (cleared ? undefined : defaultValue),
 				(newValue) => {
+					cleared = false
 					if (newValue && items.findIndex((i) => i.value === newValue) === -1)
 						customItems.push(newValue)
 					value = newValue
 				}
 			}
+			onClear={() => {
+				onClear?.()
+				cleared = true
+				value = undefined
+			}}
 			onFocus={() => dispatch('focus')}
 			onBlur={() => dispatch('blur')}
+			inputClass={selectClass}
 		/>
 	</div>
 </div>

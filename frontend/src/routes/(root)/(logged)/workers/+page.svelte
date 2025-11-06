@@ -39,7 +39,7 @@
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
-	let intervalId: NodeJS.Timeout | undefined
+	let intervalId: number | undefined
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
 	$: groupedWorkers = groupWorkers(workers, workerGroups)
@@ -90,7 +90,7 @@
 		}
 	}
 
-	let secondInterval: NodeJS.Timeout | undefined = undefined
+	let secondInterval: number | undefined = undefined
 	async function loadCustomTags() {
 		try {
 			customTags = (await WorkerService.getCustomTags()) ?? []
@@ -329,10 +329,10 @@
 				<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
 					<div>
 						<AssignableTags
-							showWorkspaceRestriction
 							on:refresh={() => {
 								loadCustomTags()
 							}}
+							variant="default"
 						/>
 					</div>
 					<div>
@@ -340,8 +340,8 @@
 					</div>
 					<div>
 						<Button
-							size="xs"
-							color="dark"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{
 								icon: LineChart
 							}}
@@ -354,8 +354,8 @@
 					</div>
 					<div>
 						<Button
-							size="xs"
-							color="dark"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{
 								icon: List
 							}}
@@ -389,9 +389,8 @@
 				{#if $superadmin || $devopsRole}
 					<div class="flex flex-row gap-4 items-center">
 						<Button
-							size="sm"
-							color="light"
-							variant="border"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{ icon: Plus }}
 							on:click={() => {
 								newHttpAgentWorkerDrawer?.toggleDrawer?.()
@@ -404,7 +403,8 @@
 							<svelte:fragment slot="trigger">
 								<div class="flex items-center gap-2">
 									<Button
-										size="sm"
+										variant="accent"
+										unifiedSize="md"
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
 										disabled={!$enterpriseLicense}
@@ -489,14 +489,16 @@
 							{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 								x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 							)}
-							<Tab value={worker_group[0]}>
-								{`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
-								<Tooltip>Number of workers active in the last 15s</Tooltip>
+							<Tab
+								value={worker_group[0]}
+								label={`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
+							>
+								{#snippet extra()}
+									<Tooltip>Number of workers active in the last 15s</Tooltip>
+								{/snippet}
 							</Tab>
 						{:else}
-							<Tab value={name}>
-								{name} (0 worker)
-							</Tab>
+							<Tab value={name} label={`${name} (0 worker)`} />
 						{/if}
 					{/each}
 				</Tabs>
@@ -530,7 +532,7 @@
 						<Search class="absolute left-2 " size={14} />
 					</div>
 					{#if worker_group?.[1].length == 0 && search}
-						<div class="text-xs text-tertiary">
+						<div class="text-xs text-primary">
 							No workers found. Reset the search to see all workers.
 						</div>
 					{:else}
@@ -583,7 +585,7 @@
 												? 12
 												: 9}
 											scope="colgroup"
-											class="bg-surface-secondary/30 !py-1 border-b !text-xs"
+											class="bg-surface-secondary/30 border-b !text-xs"
 										>
 											<div class="flex flex-row w-full">
 												<div class="min-w-64">
@@ -603,7 +605,7 @@
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 											<tr>
-												<Cell first>
+												<Cell class="py-6 text-secondary" first>
 													{@const underscorePos = worker.search('_')}
 													{#if underscorePos === -1}
 														{worker}
@@ -612,7 +614,7 @@
 														<Tooltip>{worker}</Tooltip>
 													{/if}
 												</Cell>
-												<Cell>
+												<Cell class="text-secondary">
 													{#if custom_tags && custom_tags?.length > 2}
 														{truncate(custom_tags?.join(', ') ?? '', 10)}
 														<Tooltip>{custom_tags?.join(', ')}</Tooltip>
@@ -620,13 +622,13 @@
 														{custom_tags?.join(', ') ?? ''}
 													{/if}
 												</Cell>
-												<Cell
+												<Cell class="text-secondary"
 													>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
 												>
-												<Cell>{displayDate(started_at)}</Cell>
-												<Cell>{jobs_executed}</Cell>
+												<Cell class="text-secondary">{displayDate(started_at)}</Cell>
+												<Cell class="text-secondary">{jobs_executed}</Cell>
 												{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
-													<Cell>
+													<Cell class="text-secondary">
 														{#if last_job_id}
 															<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
 																View last job
@@ -635,7 +637,7 @@
 															(workspace {last_job_workspace_id})
 														{/if}
 													</Cell>
-													<Cell>
+													<Cell class="text-secondary">
 														{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
 															occupancy_rate_5m
 														)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
@@ -643,7 +645,7 @@
 														)}
 													</Cell>
 												{/if}
-												<Cell>
+												<Cell class="text-secondary">
 													<div class="flex flex-col gap-1">
 														<div>
 															{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}
@@ -655,7 +657,7 @@
 														</div>
 													</div>
 												</Cell>
-												<Cell>
+												<Cell class="text-secondary">
 													<div class="flex flex-col gap-1">
 														<div>
 															{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
@@ -665,12 +667,12 @@
 														</div>
 													</div>
 												</Cell>
-												<Cell>
+												<Cell class="text-secondary">
 													<div class="!text-2xs">
 														{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
 													</div>
 												</Cell>
-												<Cell>
+												<Cell class="text-secondary">
 													<Badge
 														color={isWorkerAlive != undefined
 															? isWorkerAlive
@@ -686,7 +688,7 @@
 													</Badge>
 												</Cell>
 												{#if $superadmin || $devopsRole}
-													<Cell>
+													<Cell class="text-secondary">
 														<Button
 															size="xs"
 															color="light"
@@ -727,7 +729,7 @@
 							config={worker_group[1]}
 							activeWorkers={0}
 						/>
-						<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
+						<div class="text-xs text-primary"> No workers currently in this worker group </div>
 					{/if}
 				{/if}
 			</div>

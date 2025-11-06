@@ -20,12 +20,7 @@
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import {
-		type DurationStatus,
-		type FlowStatusViewerContext,
-		type GlobalIterationBounds,
-		type GraphModuleState
-	} from './graph'
+	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -48,12 +43,14 @@
 	import {
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
+		AI_MCP_TOOL_CALL_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
+	import McpToolCallDetails from './McpToolCallDetails.svelte'
 
 	let {
-		flowStateStore,
+		flowState: flowStateStore,
 		retryStatus,
 		suspendStatus,
 		hideDownloadInGraph,
@@ -72,6 +69,12 @@
 					moduleId: string
 					flowJobs: string[]
 					flowJobsSuccess: (boolean | undefined)[]
+					flowJobsDuration:
+						| {
+								started_at?: (string | undefined)[]
+								duration_ms?: (number | undefined)[]
+						  }
+						| undefined
 					length: number
 					branchall?: boolean
 			  }
@@ -83,7 +86,6 @@
 		selectedNode?: string | undefined
 		globalModuleStates: Record<string, GraphModuleState>[]
 		globalDurationStatuses?: Record<string, DurationStatus>[]
-		globalIterationBounds: Record<string, GlobalIterationBounds>
 		isSelectedBranch?: boolean
 		isSubflow?: boolean
 		reducedPolling?: boolean
@@ -138,7 +140,6 @@
 		selectedNode = $bindable(undefined),
 		globalModuleStates,
 		globalDurationStatuses = [],
-		globalIterationBounds,
 		updateRecursiveRefreshFn = undefined,
 		isSelectedBranch = true,
 		isSubflow = false,
@@ -227,7 +228,7 @@
 	)
 
 	let retry_selected = $state('')
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
@@ -402,15 +403,30 @@
 		}
 	}
 
-	function setDurationStatusByJob(key: string, id: string, value: any) {
-		if (!deepEqual(localDurationStatuses[key]?.byJob[id], value)) {
-			localDurationStatuses[key].byJob[id] = value
+	function setDurationStatusByJob(
+		key: string,
+		id: string,
+		value: DurationStatus['byJob'][string],
+		overwrite: boolean = false
+	) {
+		if (!deepEqual(localDurationStatuses[key]?.byJob?.[id], value)) {
+			if (localDurationStatuses[key]?.byJob == undefined) {
+				localDurationStatuses[key] = { byJob: {} }
+			}
+			localDurationStatuses[key].byJob = {
+				[id]: value,
+				...(overwrite ? {} : (localDurationStatuses[key].byJob ?? {}))
+			}
+
 			globalDurationStatuses.forEach((s) => {
-				s[key].byJob[id] = value
+				s[key].byJob = { [id]: value, ...(overwrite ? {} : (s[key].byJob ?? {})) }
 			})
 			if (prefix) {
 				subflowParentsDurationStatuses.forEach((s) => {
-					s[buildSubflowKey(key, prefix)].byJob[id] = value
+					s[buildSubflowKey(key, prefix)].byJob = {
+						[id]: value,
+						...(overwrite ? {} : (s[buildSubflowKey(key, prefix)].byJob ?? {}))
+					}
 				})
 			}
 		}
@@ -461,6 +477,34 @@
 		}
 	}
 
+	function updateDurationStatuses(
+		key: string,
+		durationStatuses: Record<string, DurationStatus['byJob'][string]>
+	) {
+		if (localDurationStatuses[key] == undefined) {
+			localDurationStatuses[key] = { byJob: {} }
+		}
+		localDurationStatuses[key].byJob = durationStatuses
+		globalDurationStatuses.forEach((s) => {
+			if (s[key] == undefined) {
+				s[key] = { byJob: {} }
+			}
+			s[key].byJob = durationStatuses
+		})
+		if (prefix) {
+			subflowParentsDurationStatuses.forEach((s) => {
+				if (s[key] == undefined) {
+					s[key] = { byJob: {} }
+				}
+				s[key].byJob = durationStatuses
+			})
+		}
+	}
+
+	let jobMissingStartedAt: Record<string, number | 'P'> = {}
+	let lastSelectedLoopSwitch: number | undefined
+	let selectedLoopSwitchTimeout: number | undefined = undefined
+
 	function updateInnerModules() {
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -502,7 +546,7 @@
 									mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
 							}
 						: {}
-					console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
+					// console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
 					setModuleState(
 						mod.id ?? '',
 						{
@@ -515,12 +559,112 @@
 					setModuleState(mod.id ?? '', {}, true)
 				}
 
-				if (mod.flow_jobs_success || mod.flow_jobs) {
+				if (mod.flow_jobs_success || mod.flow_jobs_duration || mod.flow_jobs) {
 					setModuleState(mod.id ?? '', {
 						flow_jobs_success: mod.flow_jobs_success,
+						flow_jobs_duration: mod.flow_jobs_duration,
 						flow_jobs: mod.flow_jobs,
 						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
 					})
+				}
+
+				if (mod.flow_jobs_duration && mod.flow_jobs) {
+					let key = buildSubflowKey(mod.id ?? '', prefix)
+					let durationStatuses = Object.fromEntries(
+						mod.flow_jobs.map((flowJobId, idx) => {
+							let started_at_str = mod.flow_jobs_duration?.started_at?.[idx]
+							let started_at = started_at_str ? new Date(started_at_str).getTime() : undefined
+							let duration_ms = mod.flow_jobs_duration?.duration_ms?.[idx]
+							if (started_at == undefined) {
+								let missingStartedAt = jobMissingStartedAt[flowJobId]
+								if (missingStartedAt != 'P') {
+									started_at = missingStartedAt
+								}
+							} else {
+								delete jobMissingStartedAt[flowJobId]
+							}
+							return [
+								flowJobId,
+								{
+									created_at: started_at,
+									started_at: started_at,
+									duration_ms: duration_ms
+								}
+							]
+						})
+					)
+					let missingStartedAtIds = Object.keys(durationStatuses)
+						.filter(
+							(id) => durationStatuses[id].created_at == undefined && jobMissingStartedAt[id] != 'P'
+						)
+						.slice(0, 100)
+
+					updateDurationStatuses(key, durationStatuses)
+
+					if (missingStartedAtIds.length > 0) {
+						missingStartedAtIds.forEach((id) => {
+							jobMissingStartedAt[id] = 'P'
+						})
+						JobService.getStartedAtByIds({
+							workspace: workspaceId ?? $workspaceStore ?? '',
+							requestBody: missingStartedAtIds
+						})
+							.then((jobs) => {
+								let lastStarted: string | undefined = undefined
+								let anySet = false
+								let nDurationStatuses = localDurationStatuses[key]?.byJob
+								missingStartedAtIds.forEach((id, idx) => {
+									const startedAt = jobs[idx]
+									const time = startedAt ? new Date(startedAt).getTime() : undefined
+									if (time) {
+										jobMissingStartedAt[id] = time
+									} else {
+										delete jobMissingStartedAt[id]
+									}
+									if (nDurationStatuses && time) {
+										if (!nDurationStatuses[id]?.duration_ms) {
+											anySet = true
+											lastStarted = id
+											nDurationStatuses[id] = {
+												created_at: time,
+												started_at: time
+											}
+										}
+									}
+								})
+								if (anySet) {
+									updateDurationStatuses(key, nDurationStatuses)
+									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
+									function setSelectedLoopSwitch() {
+										if (lastStarted) {
+											let position = mod.flow_jobs?.indexOf(lastStarted)
+											if (position != undefined) {
+												lastSelectedLoopSwitch = new Date().getTime()
+												console.log('setSelectedLoopSwitch', position, lastStarted)
+												setIteration(position, lastStarted, false, mod.id ?? '', true)
+											}
+										}
+									}
+
+									if (
+										lastSelectedLoopSwitch &&
+										new Date().getTime() - lastSelectedLoopSwitch < 3000
+									) {
+										selectedLoopSwitchTimeout = setTimeout(() => {
+											setSelectedLoopSwitch()
+										}, 2000)
+									} else {
+										console.log('setSelectedLoopSwitch')
+										setSelectedLoopSwitch()
+									}
+								}
+							})
+							.catch((e) => {
+								console.error(`Could not load inner module duration status for job ${mod.job}`, e)
+							})
+					} else {
+						setIteration(0, mod.flow_jobs?.[0] ?? '', false, mod.id ?? '', true)
+					}
 				}
 
 				if (mod.agent_actions && mod.id) {
@@ -534,6 +678,12 @@
 								const success = mod.agent_actions_success?.[idx]
 								setModuleState(toolCallId, {
 									job_id: action.job_id,
+									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+								})
+							} else if (action.type == 'mcp_tool_call') {
+								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
+								const success = mod.agent_actions_success?.[idx]
+								setModuleState(mcpToolCallId, {
 									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 								})
 							} else if (action.type == 'message') {
@@ -636,7 +786,6 @@
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
 			innerModules = undefined
-			console.log('updateJobId', jobId)
 			if (flowJobIds) {
 				let modId = flowJobIds?.moduleId ?? ''
 
@@ -649,11 +798,6 @@
 						x[prefixed] = { byJob: {} }
 					}
 				})
-
-				globalIterationBounds[prefixed] = {
-					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
-					iteration_total: flowJobIds?.length
-				}
 			} else {
 				recursiveRefresh = {}
 				localDurationStatuses = {}
@@ -663,7 +807,7 @@
 		}
 	}
 
-	let forloop_selected = $state(
+	let forloop_selected = $derived(
 		getTopModuleStates?.[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]?.selectedForloop
 	)
 
@@ -711,10 +855,15 @@
 					},
 					force
 				)
-				setDurationStatusByJob(id, job.id, {
-					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
-					started_at
-				})
+				setDurationStatusByJob(
+					id,
+					job.id,
+					{
+						created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+						started_at
+					},
+					true
+				)
 			} else {
 				const parent_module = mod['parent_module']
 
@@ -735,6 +884,7 @@
 						started_at: started_at,
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
+						flow_jobs_duration: mod.flow_jobs_duration,
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
@@ -744,11 +894,16 @@
 					force
 				)
 
-				setDurationStatusByJob(id, job.id, {
-					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
-					started_at,
-					duration_ms: job['duration_ms']
-				})
+				setDurationStatusByJob(
+					id,
+					job.id,
+					{
+						created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+						started_at,
+						duration_ms: job['duration_ms']
+					},
+					true
+				)
 			}
 		}
 	}
@@ -858,6 +1013,7 @@
 				started_at,
 				flow_jobs: flowJobIds?.flowJobs,
 				flow_jobs_success: flowJobIds?.flowJobsSuccess,
+				flow_jobs_duration: flowJobIds?.flowJobsDuration,
 				iteration_total: flowJobIds?.length,
 				duration_ms: undefined
 			}
@@ -880,17 +1036,29 @@
 				}
 			}
 			setModuleState(modId, v, force, true)
-			if (jobLoaded.type == 'QueuedJob') {
-				setDurationStatusByJob(modId, job_id, {
-					created_at,
-					started_at
-				})
-			} else if (jobLoaded.type == 'CompletedJob') {
-				setDurationStatusByJob(modId, job_id, {
-					created_at,
-					started_at,
-					duration_ms: jobLoaded.duration_ms
-				})
+			if (innerModule?.type == 'branchall') {
+				if (jobLoaded.type == 'QueuedJob') {
+					setDurationStatusByJob(
+						modId,
+						job_id,
+						{
+							created_at,
+							started_at
+						},
+						false
+					)
+				} else if (jobLoaded.type == 'CompletedJob') {
+					setDurationStatusByJob(
+						modId,
+						job_id,
+						{
+							created_at,
+							started_at,
+							duration_ms: jobLoaded.duration_ms
+						},
+						false
+					)
+				}
 			}
 
 			if (jobLoaded.job_kind == 'script' || isScriptPreview(jobLoaded.job_kind)) {
@@ -909,15 +1077,6 @@
 	}
 
 	let flowTimeline: FlowTimeline | undefined = $state()
-
-	function loadPreviousIters(innerKey: string, lenToAdd: number) {
-		let key = buildSubflowKey(innerKey, prefix)
-		if (globalIterationBounds[key]) {
-			globalIterationBounds[key].iteration_from =
-				(globalIterationBounds[key]?.iteration_from ?? 0) - lenToAdd
-		}
-		// updateSlicedListJobIds()
-	}
 
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 
@@ -941,15 +1100,25 @@
 		}
 	}
 
+	export type FlowModuleForTimeline = {
+		id: string
+		type: FlowModuleValue['type']
+	}
+
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, FlowModule[]>
-	): string[] {
-		const ids = dfs(modules, (x) => x.id, { skipToolNodes: true })
+	): FlowModuleForTimeline[] {
+		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
+			skipToolNodes: true
+		})
 
-		function rec(ids: string[], prefix: string | undefined): string[] {
+		function rec(
+			ids: FlowModuleForTimeline[],
+			prefix: string | undefined
+		): FlowModuleForTimeline[] {
 			return ids.concat(
-				ids.flatMap((id) => {
+				ids.flatMap(({ id, type }) => {
 					let fms = expandedSubflows[id]
 					let oid = id.split(':').pop()
 					if (!oid) {
@@ -960,7 +1129,10 @@
 						? rec(
 								dfs(
 									fms,
-									(x) => (x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)),
+									(x) => ({
+										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
+										type: x.value.type
+									}),
 									{ skipToolNodes: true }
 								),
 								nprefix
@@ -1113,32 +1285,6 @@
 			<div class="h-8" />
 		{/if} -->
 		{#if isListJob}
-			{@const sliceFrom =
-				globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
-					?.iteration_from ?? 0}
-			{@const lenToAdd = Math.min(20, sliceFrom)}
-			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
-				{@const allToAdd = (flowJobIds?.length ?? 0) - sliceFrom}
-				<p class="text-tertiary italic text-xs">
-					For performance reasons, only the last 20 items are shown by default <button
-						class="text-primary underline ml-4"
-						onclick={() => {
-							loadPreviousIters(flowJobIds?.moduleId ?? '', lenToAdd)
-						}}
-						>Load {lenToAdd} prior
-					</button>
-					{#if allToAdd > 0 && allToAdd > lenToAdd}
-						{sliceFrom}
-						<button
-							class="text-primary underline ml-4"
-							onclick={() => {
-								loadPreviousIters(flowJobIds?.moduleId ?? '', allToAdd)
-							}}
-							>Load {allToAdd} prior
-						</button>
-					{/if}
-				</p>
-			{/if}
 			{#if render}
 				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
 					<DisplayResult
@@ -1168,15 +1314,17 @@
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
-					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"
 						class={animateLogsTab
 							? 'animate-pulse animate-duration-1000 bg-surface-inverse text-primary-inverse'
-							: ''}><span class="font-semibold">Logs</span></Tab
-					>
-					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
-					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
+							: ''}
+						label="Logs"
+					/>
+
+					<Tab value="sequence" label="Details" />
+					<Tab value="assets" label="Assets" />
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1188,16 +1336,13 @@
 			style="min-height: {minTabHeight}px"
 		>
 			{#if isListJob}
-				{@const sliceFrom =
-					globalIterationBounds[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]
-						?.iteration_from ?? 0}
-				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
+				<h3 class="text-md leading-6 font-bold text-primary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
-							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+							<Button variant="default" on:click={() => (subflowsSize += 500)}
 								>Load 500 more...</Button
 							>
 						{/if}
@@ -1233,7 +1378,7 @@
 								</span>
 							</Button>
 						{/if}
-						{#if j >= sliceFrom || forloop_selected == loopJobId}
+						{#if forloop_selected == loopJobId || innerModule?.type == 'branchall'}
 							{@const forloopIsSelected =
 								forloop_selected == loopJobId ||
 								(innerModule?.type != 'forloopflow' && innerModule?.type != 'whileloopflow')}
@@ -1274,7 +1419,6 @@
 									{onResultStreamUpdate}
 									graphTabOpen={selected == 'graph' && graphTabOpen}
 									isNodeSelected={forloop_selected == loopJobId}
-									{globalIterationBounds}
 									toolCallStore={{
 										getStoredToolCallJob: (storeKey: string) =>
 											toolCallStore?.getStoredToolCallJob(forLoopStoreKeyPrefix + storeKey),
@@ -1292,17 +1436,20 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules && innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
+			{:else if innerModules && innerModules.length > 0 && ((job.raw_flow?.modules.length ?? 0) > 0 || innerModules[0]?.id == 'preprocessor')}
 				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
+				{@const isPreprocessorOnly = hasPreprocessor && (job.raw_flow?.modules.length ?? 0) === 0}
+				<!-- if the flow is preprocessor only, we should only display the first innerModule: the second one is a placeholder added when running empty flows -->
+				{@const modules = isPreprocessorOnly ? [innerModules[0]] : (innerModules ?? [])}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
 					</h3>
 
-					{#each innerModules ?? [] as mod, i}
+					{#each modules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10"></div>
-							<h3 class="text-tertiary mb-2 w-full">
+							<h3 class="text-primary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
 									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
@@ -1367,7 +1514,6 @@
 											{onResultStreamUpdate}
 											graphTabOpen={selected == 'graph' && graphTabOpen}
 											isNodeSelected={retry_selected == failedRetry}
-											{globalIterationBounds}
 										/>
 									</div>
 								{/each}
@@ -1382,7 +1528,6 @@
 										globalModuleStates={[]}
 										{updateGlobalRefresh}
 										globalDurationStatuses={[]}
-										{globalIterationBounds}
 										prefix={buildPrefix(prefix, mod.id ?? '')}
 										subflowParentsGlobalModuleStates={[
 											localModuleStates,
@@ -1430,6 +1575,7 @@
 													moduleId: mod.id ?? '',
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success ?? [],
+													flowJobsDuration: mod.flow_jobs_duration,
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
@@ -1445,7 +1591,6 @@
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
-										{globalIterationBounds}
 										{toolCallStore}
 									/>
 									{#if mod.agent_actions && mod.agent_actions.length > 0 && mod.id}
@@ -1515,7 +1660,6 @@
 														graphTabOpen={selected == 'graph' && graphTabOpen}
 														isNodeSelected={localModuleStates?.[toolCallId]?.job_id ==
 															agentAction.job_id}
-														{globalIterationBounds}
 													/>
 												{/if}
 											{/if}
@@ -1532,23 +1676,25 @@
 					{/each}
 				</ul>
 			{:else}
-				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
+				<div class="p-2 text-primary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
-		<div
-			class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
-			bind:clientHeight={tabsHeight.logsHeight}
-			style="min-height: {minTabHeight}px"
-		>
-			<FlowLogViewerWrapper
-				{job}
-				{localModuleStates}
-				{workspaceId}
-				{render}
-				{onSelectedIteration}
-			/>
-		</div>
-		{#if selected == 'assets' && render}
+		{#if selected == 'logs' && render}
+			<div
+				class="mx-auto overflow-auto"
+				bind:clientHeight={tabsHeight.logsHeight}
+				style="min-height: {minTabHeight}px"
+			>
+				<FlowLogViewerWrapper
+					{job}
+					{localModuleStates}
+					{localDurationStatuses}
+					{workspaceId}
+					{render}
+					{onSelectedIteration}
+				/>
+			</div>
+		{:else if selected == 'assets' && render}
 			<div
 				class="p-2"
 				bind:clientHeight={tabsHeight.assetsHeight}
@@ -1638,19 +1784,20 @@
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							{#if !hideTimeline}
-								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+								<Tab value="timeline" label="Timeline" />
 							{/if}
-							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
+							<Tab value="node_status" label="Node status" />
 							{#if !hideNodeDefinition}
-								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
-								>
+								<Tab value="node_definition" label="Node definition" />
 							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
-								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
+								<Tab value="user_states" label="User States" />
 							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								{localModuleStates}
+								{onSelectedIteration}
 								selfWaitTime={job?.self_wait_time_ms}
 								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
@@ -1660,18 +1807,35 @@
 									expandedSubflows ?? {}
 								)}
 								buildSubflowKey={(key) => buildSubflowKey(key, prefix)}
-								{globalIterationBounds}
 								durationStatuses={localDurationStatuses}
-								decreaseIterationFrom={(key, amount) => {
-									loadPreviousIters(key, amount)
-								}}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 grow flex flex-col">
+							<div class="p-2 grow flex flex-col gap-6">
 								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 									<div class="pt-2 px-4 pb-4">
 										<Alert type="info" title="Message output is available on the AI agent node" />
 									</div>
+								{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
+									{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+									{@const agentNode = localModuleStates?.[agentModuleId]}
+									{@const agentActions = agentNode?.agent_actions}
+									{@const mcpActionIndex = parseInt(toolCallIndex)}
+									{@const mcpAction =
+										agentActions && mcpActionIndex >= 0 && mcpActionIndex < agentActions.length
+											? agentActions[mcpActionIndex]
+											: undefined}
+									{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
+										{@const message = agentNode.result.messages.find(
+											(m) => m.agent_action?.call_id === mcpAction.call_id
+										)}
+										<McpToolCallDetails
+											functionName={mcpAction.function_name}
+											args={mcpAction.arguments ?? {}}
+											result={message?.content}
+											type="Success"
+											workspaceId={job?.workspace_id}
+										/>
+									{/if}
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}
@@ -1707,100 +1871,110 @@
 											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
 										{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 										{#if node.flow_jobs_results}
-											<span class="pl-1 text-tertiary"
-												>Result of step as collection of all subflows</span
-											>
-											<div class="overflow-auto max-h-[200px] p-2">
-												<DisplayResult
-													workspaceId={job?.workspace_id}
-													result={node.flow_jobs_results}
-													nodeId={selectedNode}
-													jobId={job?.id}
-													language={job?.language}
-												/>
-											</div>
-											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
-										{/if}
-										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus
-												type={node.type}
-												scheduled_for={node.scheduled_for}
-												skipped={node.skipped}
-											/>
-											{#if node.duration_ms}
-												<Badge>
-													<Hourglass class="mr-2" size={10} />
-													{msToSec(node.duration_ms)} s
-												</Badge>
-											{/if}
-											{#if node.job_id}
-												<div class="grow w-full flex flex-row-reverse">
-													<a
-														class="text-right text-xs"
-														rel="noreferrer"
-														target="_blank"
-														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-													>
-														{truncateRev(node.job_id ?? '', 10)}
-													</a>
+											<div>
+												<span class="pl-1 text-emphasis text-xs font-medium"
+													>Result of step as collection of all subflows</span
+												>
+												<div class="overflow-auto max-h-[200px] p-2">
+													<DisplayResult
+														workspaceId={job?.workspace_id}
+														result={node.flow_jobs_results}
+														nodeId={selectedNode}
+														jobId={job?.id}
+														language={job?.language}
+													/>
 												</div>
-											{/if}
-										</div>
-										{#if !node.isListJob}
-											<div class="px-1 py-1">
-												<JobArgs
-													id={node.job_id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-													args={node.args}
-												/>
 											</div>
 										{/if}
-										<FlowJobResult
-											tagLabel={customUi?.tagLabel}
-											workspaceId={job?.workspace_id}
-											jobId={node.job_id}
-											noBorder
-											loading={node.type != 'Success' && node.type != 'Failure'}
-											waitingForExecutor={node.type == 'WaitingForExecutor'}
-											refreshLog={node.type == 'InProgress'}
-											col
-											result_stream={resultStreams[node.job_id ?? '']}
-											result={node.result}
-											tag={node.tag}
-											logs={node.logs}
-											downloadLogs={!hideDownloadLogs}
-											aiAgentStatus={agentTools &&
-											node?.job_id &&
-											(node.type === 'Success' || node.type === 'Failure')
-												? {
-														tools: agentTools,
-														agentJob: {
-															id: node.job_id,
-															result: node.result,
-															logs: node.logs,
-															args: node.args,
-															success: node.type === 'Success',
-															type: 'CompletedJob'
-														},
-														storedToolCallJobs: module
-															? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
-															: undefined,
-														onToolJobLoaded: (job, idx) => {
-															if (module) {
-																const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																toolCallStore?.setStoredToolCallJob(storeKey, job)
+										<div class="flex flex-col gap-2">
+											{#if node.flow_jobs_results}
+												<span class="pl-1 text-xs font-medium text-emphasis pt-4"
+													>Selected subflow</span
+												>
+											{/if}
+											<div class="flex flex-col gap-6">
+												<div class="flex flex-col gap-1">
+													<div class="flex gap-2 min-w-0 w-full items-center">
+														<ModuleStatus
+															type={node.type}
+															scheduled_for={node.scheduled_for}
+															skipped={node.skipped}
+														/>
+														{#if node.duration_ms}
+															<Badge>
+																<Hourglass class="mr-2" size={10} />
+																{msToSec(node.duration_ms)} s
+															</Badge>
+														{/if}
+														{#if node.job_id}
+															<div class="grow w-full flex flex-row-reverse">
+																<a
+																	class="text-right text-xs"
+																	rel="noreferrer"
+																	target="_blank"
+																	href="{base}/run/{node.job_id ??
+																		''}?workspace={job?.workspace_id}"
+																>
+																	{truncateRev(node.job_id ?? '', 10)}
+																</a>
+															</div>
+														{/if}
+													</div>
+													{#if !node.isListJob}
+														<JobArgs
+															id={node.job_id}
+															workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+															args={node.args}
+														/>
+													{/if}
+												</div>
+												<FlowJobResult
+													tagLabel={customUi?.tagLabel}
+													workspaceId={job?.workspace_id}
+													jobId={node.job_id}
+													loading={node.type != 'Success' && node.type != 'Failure'}
+													waitingForExecutor={node.type == 'WaitingForExecutor'}
+													refreshLog={node.type == 'InProgress'}
+													col
+													result_stream={resultStreams[node.job_id ?? '']}
+													result={node.result}
+													tag={node.tag}
+													logs={node.logs}
+													downloadLogs={!hideDownloadLogs}
+													aiAgentStatus={agentTools &&
+													node?.job_id &&
+													(node.type === 'Success' || node.type === 'Failure')
+														? {
+																tools: agentTools,
+																agentJob: {
+																	id: node.job_id,
+																	result: node.result,
+																	logs: node.logs,
+																	args: node.args,
+																	success: node.type === 'Success',
+																	type: 'CompletedJob'
+																},
+																storedToolCallJobs: module
+																	? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
+																	: undefined,
+																onToolJobLoaded: (job, idx) => {
+																	if (module) {
+																		const storeKey = parentLoopsPrefix + module.id + '-' + idx
+																		toolCallStore?.setStoredToolCallJob(storeKey, job)
+																	}
+																}
 															}
-														}
-													}
-												: undefined}
-										/>
+														: undefined}
+												/>
+											</div>
+										</div>
 									{:else}
-										<p class="p-2 text-tertiary italic"
+										<p class="p-2 text-primary italic"
 											>The execution of this node has no information attached to it. The job likely
 											did not run yet</p
 										>
 									{/if}
-								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
+								{:else}<p class="p-2 text-primary italic">Select a node to see its details here</p
 									>{/if}
 							</div>
 						{:else if rightColumnSelect == 'node_definition'}

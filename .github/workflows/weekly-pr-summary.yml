@@ -1,0 +1,148 @@
+name: Weekly PR Summary
+
+on:
+  schedule:
+    # Every Friday at 8:00 AM UTC
+    - cron: "0 8 * * 5"
+  workflow_dispatch:
+    # Allow manual triggering for testing
+
+jobs:
+  weekly-pr-summary:
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate Weekly PR Summary
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+
+            Generate a categorized weekly summary of ONLY MERGED Pull Requests from the past 7 days.
+
+            ## Your Task:
+
+            1. **Calculate Date Range**:
+               - Run: `CUTOFF_DATE=$(date --date='7 days ago' --iso-8601)`
+               - Run: `TODAY=$(date --iso-8601)`
+               - This gives you the exact 7-day window (store these in variables for use in commands)
+
+            2. **Fetch ONLY Merged PRs from Past Week**:
+               - Command: `gh pr list --repo ${{ github.repository }} --state merged --search "merged:>=$CUTOFF_DATE" --limit 100 --json number,title,author,mergedAt,url`
+               - This returns ONLY PRs that were merged in the last 7 days
+               - The --search flag filters by merge date using GitHub's search syntax
+               - **FILTER OUT** any PRs with titles starting with "chore: release" or "chore(release)"
+
+            3. **Categorize PRs**: Group PRs into three categories by analyzing titles and labels:
+               - **Features**: PRs with titles starting with "feat:", "feature:", or containing "add", "implement", "new"
+               - **Bug Fixes**: PRs with titles starting with "fix:", "bug:", or containing "fix", "resolve", "patch"
+               - **Other**: All remaining PRs (improvements, refactors, docs, chores, etc.)
+
+            4. **Gather Details**: For each merged PR, include:
+               - Full PR title (NO truncation, NO links)
+               - Author (extract login from author.login in JSON)
+               - Brief summary: Use `gh pr view <number> --json body` to get PR description, then extract first paragraph or key points (1-2 sentences max)
+
+            5. **Character Limit Enforcement**:
+               - The final summary MUST be under 6000 characters
+               - If the summary exceeds 6000 characters, truncate PR descriptions (NOT titles) and add at the end: "_and X more PRs_" where X is the count of omitted PRs
+
+            6. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
+               - Save the complete formatted markdown to: `summary.md`
+               - Do not commit the file to the repository
+
+            ## Output Format:
+
+            ```markdown
+            #### 📈 Weekly overview
+            - **Total merged**: X
+            - **Features**: Y
+            - **Bug Fixes**: Z
+            - **Other**: W
+
+            #### ✨ Features (Y)
+            • **[Full PR Title]** by @username - [brief impact description]
+            • **[Full PR Title]** by @username - [brief impact description]
+
+            #### 🐛 Bug Fixes (Z)
+            • **[Full PR Title]** by @username - [brief impact description]
+            • **[Full PR Title]** by @username - [brief impact description]
+
+            #### 🔧 Other (W)
+            • **[Full PR Title]** by @username - [brief impact description]
+            • **[Full PR Title]** by @username - [brief impact description]
+
+            _and X more PRs_
+            ```
+
+            ## Important Notes:
+            - **CRITICAL**: ONLY include PRs with state "merged" from the last 7 days
+            - **CRITICAL**: EXCLUDE all PRs with titles starting with "chore: release" or "chore(release)"
+            - **CRITICAL**: Total character count MUST be under 6000 characters
+            - Only use #### markdown headers for major sections and emoji indicators
+            - Use bullet points (•) for individual PR entries - more compact than paragraphs
+            - NO links to PRs
+            - NO merged date in output
+            - NEVER truncate PR titles - show full titles
+            - Use GitHub CLI (`gh`) for all operations
+            - Sort PRs within each category by merge date (most recent first)
+            - If a PR has no description, write "(No description provided)"
+            - Extract meaningful summary from PR body - look for the first paragraph or key bullet points
+            - Parse JSON responses carefully using `jq` or similar tools
+            - If summary exceeds 6000 chars, shorten PR descriptions and add "_and X more PRs_" at the end
+            - Count PRs in each category and display in both overview and section headers
+
+            ## Saving the Markdown Output:
+            After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
+
+            ## Write Tool Fallback:
+            - First, attempt to use the Write tool to create `summary.md` with the markdown content
+            - If the Write tool returns ANY error or fails:
+              1. Use the Bash tool with the `echo` command instead
+              2. Use a heredoc to write the content: `cat > summary.md << 'EOF'` followed by your markdown content and `EOF` on a new line
+              3. Example: `cat > summary.md << 'EOF'\n[your markdown content here]\nEOF`
+              4. This ensures the file is always created regardless of Write tool issues
+            - Verify the file was created by running: `ls -lh summary.md`
+          claude_args: |
+            --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
+
+      - name: Send Summary to Windmill
+        if: hashFiles('summary.md') != ''
+        env:
+          WEEKLY_SUMMARY_TOKEN: ${{ secrets.WEEKLY_SUMMARY_TOKEN }}
+        run: |
+          if [[ -f "summary.md" ]]; then
+            echo "Found summary.md, sending to Windmill..."
+
+            # Read the markdown content
+            MARKDOWN_CONTENT=$(cat summary.md)
+
+            # Create JSON payload
+            PAYLOAD=$(jq -n --arg markdown "$MARKDOWN_CONTENT" '{markdown: $markdown}')
+
+            # Send to Windmill webhook
+            RESULT=$(curl -s \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $WEEKLY_SUMMARY_TOKEN" \
+              -X POST \
+              -d "$PAYLOAD" \
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/send_past_week_pr_summaries_to_discord')
+
+            echo "Windmill response:"
+            echo -E "$RESULT"
+            echo "✅ Summary sent successfully to Windmill!"
+          else
+            echo "⚠️ Warning: summary.md not found, skipping delivery"
+            exit 1
+          fi

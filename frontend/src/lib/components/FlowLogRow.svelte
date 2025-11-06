@@ -44,7 +44,7 @@
 >
 	<button
 		class={twMerge(
-			'py-1 leading-tight w-full flex items-center justify-left text-xs text-tertiary hover:text-primary ',
+			'py-1 leading-tight w-full flex items-center justify-left text-xs text-primary hover:text-primary hover:bg-surface-hover ',
 			isCurrent(id) ? 'bg-surface-hover text-primary' : '',
 			className
 		)}
@@ -71,7 +71,7 @@
 		</div>
 	</button>
 
-	{#if isExpanded(id) || !isCollapsible}
+	{#if isExpanded(id, isRunning) || !isCollapsible}
 		<div class="my-1 transition-all duration-200 ease-in-out">
 			<div class="pl-4">
 				{@render children()}

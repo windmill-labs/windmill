@@ -31,14 +31,14 @@
 	})
 </script>
 
-<span class={$$props.class} use:melt={$trigger}>
+<span class={$$props.class} style={$$props.style} use:melt={$trigger}>
 	<slot />
 </span>
 {#if !$$slots.default}
 	<div
 		class="inline-flex w-3 mx-0.5 h-3 {light
-			? 'text-tertiary-inverse'
-			: 'text-tertiary'} {$$props.class} "
+			? 'text-primary-inverse'
+			: 'text-primary'} {$$props.class} "
 		use:melt={$trigger}
 	>
 		<InfoIcon size={small ? 12 : 14} />

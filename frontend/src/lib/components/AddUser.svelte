@@ -75,7 +75,7 @@
 
 <Popover placement="bottom-end">
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
+		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
 		</Button>
 	{/snippet}
@@ -115,8 +115,7 @@
 				{/snippet}
 			</ToggleButtonGroup>
 			<Button
-				variant="contained"
-				color="blue"
+				variant="accent"
 				size="sm"
 				on:click={() => {
 					addUser().then(() => {

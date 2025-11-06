@@ -7,8 +7,14 @@
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import Popover from './meltComponents/Popover.svelte'
+	import type { ComponentProps } from 'svelte'
 
-	export let customUi: EditorBarUi = {}
+	interface Props {
+		customUi?: EditorBarUi
+		btnProps?: ComponentProps<typeof Button>
+	}
+
+	let { customUi = {}, btnProps }: Props = $props()
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
@@ -17,19 +23,19 @@
 		usePointerDownOutside
 		contentClasses="flex flex-col gap-y-2 p-4"
 	>
-		<svelte:fragment slot="trigger">
-			<Button
-				btnClasses="text-tertiary"
-				color="light"
-				size="xs"
-				nonCaptureEvent={true}
-				startIcon={{ icon: Settings }}
-				iconOnly
-				title="Editor settings"
-			/>
-		</svelte:fragment>
+		{#snippet trigger()}
+			{#if customUi.editorSettings != false}
+				<Button
+					nonCaptureEvent={true}
+					startIcon={{ icon: Settings }}
+					iconOnly
+					title="Editor settings"
+					{...btnProps}
+				/>
+			{/if}
+		{/snippet}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			{#if customUi?.autoformatting != false}
 				<div>
 					<FormatOnSave />
@@ -50,6 +56,6 @@
 					<CodeCompletionStatus />
 				</div>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

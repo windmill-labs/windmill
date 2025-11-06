@@ -1,0 +1,27 @@
+summary: Invalid AI Agent - MCP Missing Resource Path
+description: An AI agent with MCP tool missing required resource_path
+value:
+  modules:
+    - id: mcp_broken_agent
+      value:
+        type: aiagent
+        input_transforms:
+          instruction:
+            type: static
+            value: "Execute MCP tools"
+        tools:
+          - id: broken_mcp_tool
+            summary: MCP tool without resource_path
+            value:
+              tool_type: mcp
+              # Missing required 'resource_path' field
+              include_tools:
+                - search
+                - fetch
+          - id: valid_tool
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms: {}
+              content: "export async function main() { return {}; }"
+              language: deno

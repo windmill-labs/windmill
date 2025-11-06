@@ -15,6 +15,7 @@ use crate::{
     scripts::{ScriptHash, ScriptLang},
 };
 use anyhow::anyhow;
+use serde_json::value::to_raw_value;
 
 #[cfg(feature = "scoped_cache")]
 use std::thread::ThreadId;
@@ -284,10 +285,30 @@ pub struct FlowData {
     pub flow: FlowValue,
 }
 
+/// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
+#[derive(Deserialize)]
+struct RevertedFlowNodeFlow {
+    value: FlowValue,
+}
+
 impl FlowData {
     pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
-        let flow = serde_json::from_str(raw_flow.get())?;
-        Ok(Self { raw_flow, flow })
+        match serde_json::from_str::<FlowValue>(raw_flow.get()) {
+            Ok(flow) => Ok(FlowData { raw_flow, flow }),
+            _ => {
+                // fallback for compatibility with bad version 1.560.0
+                // TODO: remove this in a future version. Reverted optimization for ai agent steps.
+                let flow_node_flow = serde_json::from_str::<RevertedFlowNodeFlow>(raw_flow.get())
+                    .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to parse as RevertedFlowNodeFlow: {}",
+                        e
+                    ))
+                })?;
+                let raw_flow = to_raw_value(&flow_node_flow.value)?;
+                Ok(FlowData { raw_flow, flow: flow_node_flow.value })
+            }
+        }
     }
 
     pub fn value(&self) -> &FlowValue {
@@ -837,10 +858,12 @@ pub mod job {
             match (kind, hash.map(|ScriptHash(id)| id)) {
                 (FlowDependencies, Some(id)) => flow::fetch_version(db, id).await,
                 (FlowNode, Some(id)) => flow::fetch_flow(db, FlowNodeId(id)).await,
-                (Flow, Some(id)) => match flow::fetch_version_lite(db, id).await {
-                    Ok(raw_flow) => Ok(raw_flow),
-                    Err(_) => flow::fetch_version(db, id).await,
-                },
+                (Flow, Some(id)) | (SingleStepFlow, Some(id)) => {
+                    match flow::fetch_version_lite(db, id).await {
+                        Ok(raw_flow) => Ok(raw_flow),
+                        Err(_) => flow::fetch_version(db, id).await,
+                    }
+                }
                 _ => Err(error::Error::internal_err(format!(
                     "Isn't a flow job {:?}",
                     kind

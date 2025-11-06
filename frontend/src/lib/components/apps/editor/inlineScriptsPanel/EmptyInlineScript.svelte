@@ -11,14 +11,14 @@
 
 	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { fly } from 'svelte/transition'
 	import { defaultCode } from '../component'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
-	import { defaultScripts } from '$lib/stores'
+	import { defaultScripts, isCurrentlyInTutorial } from '$lib/stores'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
 	import type { InlineScript } from '../../types'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		componentType?: string | undefined
@@ -103,19 +103,9 @@
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab size="sm" value="workspacescripts">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Workspace Scripts
-						</div>
-					</Tab>
+					<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 
-					<Tab size="sm" value="hubscripts">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Scripts
-						</div>
-					</Tab>
+					<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
@@ -133,8 +123,10 @@
 </Drawer>
 
 <div
-	class="flex flex-col px-4 gap-2 text-sm"
-	in:fly={{ duration: 50 }}
+	class={twMerge(
+		'flex flex-col px-4 gap-2 text-sm',
+		isCurrentlyInTutorial.val ? 'h-full overflow-y-clip' : ''
+	)}
 	id="app-editor-empty-runnable"
 >
 	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">

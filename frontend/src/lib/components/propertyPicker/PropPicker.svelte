@@ -17,7 +17,6 @@
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
-	export let alwaysOn = false
 	export let previousId: string | undefined = undefined
 
 	let variables: Record<string, string> = {}
@@ -48,7 +47,7 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	function onSearch(search: string) {
 		filterActive = false
 		if (timeout) {
@@ -193,25 +192,24 @@
 		await updateCollapsable()
 	}
 
-	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
 
 	onDestroy(() => {
 		clearTimeout(timeout)
 	})
+
+	const categoryContentClasses = 'overflow-y-auto pb-4'
+	const categoryTitleClasses = 'font-semibold text-xs text-emphasis'
 </script>
 
-<div class="flex flex-col h-full rounded">
+<div class="flex flex-col h-full">
 	<div class="px-1 pb-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<!-- <div
 	class="px-2 pt-2 grow relative"
 	class:bg-surface-secondary={!$propPickerConfig && !alwaysOn} -->
-	<Scrollable
-		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
-			? 'bg-surface-secondary'
-			: ''}"
-	>
+	<Scrollable scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink">
 		<!-- <div
 			class="px-2 pt-2 grow relative"
 			class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
@@ -225,13 +223,8 @@
 			</div>
 		{/if}
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
-			<div class="flex justify-between items-center space-x-1">
-				<span class="font-normal text-sm text-secondary"
-					><span class="font-mono">flow_input</span></span
-				>
-				<div class="flex space-x-2 items-center"></div>
-			</div>
-			<div class="overflow-y-auto pb-2">
+			<span class={categoryTitleClasses}>Flow Input</span>
+			<div class={categoryContentClasses}>
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -242,8 +235,8 @@
 			</div>
 		{/if}
 		{#if error}
-			<span class="font-normal text-sm text-secondary">Error</span>
-			<div class="overflow-y-auto pb-2">
+			<span class={categoryTitleClasses}>Error</span>
+			<div class={categoryContentClasses}>
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -260,8 +253,8 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto pb-2">
+					<span class={categoryTitleClasses}>Suggested Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -272,8 +265,8 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-tertiary font-mono">results</span>
-				<div class="overflow-y-auto pb-2">
+				<span class={categoryTitleClasses}>Results</span>
+				<div class={categoryContentClasses}>
 					<ObjectViewer
 						expandedEvenOnLevel0={previousId}
 						{allowCopy}
@@ -287,8 +280,8 @@
 			{/if}
 		{:else}
 			{#if pickableProperties.hasResume}
-				<span class="font-normal text-sm text-secondary">Resume payloads</span>
-				<div class="overflow-y-auto pb-2">
+				<span class={categoryTitleClasses}>Resume payloads</span>
+				<div class={categoryContentClasses}>
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
@@ -303,8 +296,8 @@
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if !filterActive && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto pb-2">
+					<span class={categoryTitleClasses}>Suggested Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -316,9 +309,8 @@
 					</div>
 				{/if}
 				{#if Object.keys(resultByIdFiltered ?? {}).length > 0}
-					<div class="overflow-y-auto pb-2 pt-2">
-						<span class="font-normal text-sm text-tertiary font-mono">results</span>
-
+					<span class={categoryTitleClasses}>Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -335,14 +327,12 @@
 
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
-				<div class="overflow-y-auto pb-2 pt-4">
-					<span class="font-normal text-xs text-secondary">Variables:</span>
-
+				<span class={categoryTitleClasses}>Variables</span>
+				<div class={categoryContentClasses}>
 					{#if displayVariable}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayVariable = false
 							}}
@@ -359,9 +349,8 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadVariables()
 								displayVariable = true
@@ -375,14 +364,12 @@
 				</div>
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
-				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-xs text-secondary">Resources:</span>
-
+				<span class={categoryTitleClasses}>Resources</span>
+				<div class={categoryContentClasses}>
 					{#if displayResources}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayResources = false
 							}}
@@ -399,9 +386,8 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadResources()
 								displayResources = true

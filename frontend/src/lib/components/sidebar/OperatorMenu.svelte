@@ -16,14 +16,20 @@
 	import { base } from '$lib/base'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		enterpriseLicense,
+		superadmin,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { logout } from '$lib/logout'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
-	import MenuButton from './MenuButton.svelte'
+	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
 	import { onDestroy } from 'svelte'
 	let darkMode: boolean = $state(false)
@@ -148,7 +154,7 @@
 	)
 
 	let moreOpen = $state(false)
-	let moreOpenTimeout: NodeJS.Timeout | undefined = $state()
+	let moreOpenTimeout: number | undefined = $state()
 
 	function debouncedSetMoreOpen(value: boolean) {
 		if (moreOpenTimeout) {
@@ -207,7 +213,7 @@
 				</div>
 
 				{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
+					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} {item} lightMode />
 				{/each}
 
 				<div class="divide-y" role="none">
@@ -215,11 +221,11 @@
 						<MenuItem
 							href={USER_SETTINGS_HASH}
 							class={twMerge(
-								'flex flex-row gap-3.5 items-center px-2 py-2 ',
-								'text-secondary text-xs',
-								'hover:bg-surface-hover hover:text-primary cursor-pointer',
-								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+								'flex flex-row gap-3.5 items-center px-2 py-2',
+								sidebarClasses.text,
+								sidebarClasses.hoverBg
 							)}
+							lightMode
 							{item}
 						>
 							<Settings size={14} />
@@ -238,10 +244,11 @@
 									window.localStorage.setItem('dark-mode', 'light')
 								}
 							}}
+							lightMode
 							class={twMerge(
-								'text-secondary block text-left px-2 py-2 font-normal text-xs hover:bg-surface-hover hover:text-primary w-full',
-								'flex flex-row items-center gap-3.5 ',
-								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+								'w-full flex gap-3.5 px-2 py-2',
+								sidebarClasses.hoverBg,
+								sidebarClasses.text
 							)}
 							{item}
 						>
@@ -254,13 +261,9 @@
 						</MenuItem>
 						<MenuItem
 							href="{base}/user/workspaces"
-							onClick={() => {
-								localStorage.removeItem('workspace')
-							}}
-							class={twMerge(
-								'text-primary flex gap-3.5 px-2 py-2 text-xs hover:bg-surface-hover hover:text-primary',
-								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-							)}
+							onClick={() => clearWorkspaceFromStorage()}
+							lightMode
+							class={twMerge('flex gap-3.5 px-2 py-2', sidebarClasses.hoverBg, sidebarClasses.text)}
 							{item}
 						>
 							<Building size={14} />
@@ -308,7 +311,7 @@
 							{item}
 						>
 							{#if !moreOpen || secondMenuLinks.length === 0}
-								<div class="px-2 py-2 text-tertiary text-2xs">More...</div>
+								<div class="px-2 py-2 text-primary text-2xs">More...</div>
 							{/if}
 						</MenuItem>
 						{#if moreOpen && secondMenuLinks.length > 0}

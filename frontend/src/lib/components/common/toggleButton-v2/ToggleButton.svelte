@@ -3,21 +3,55 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { type ToggleGroupElements, type ToggleGroupItemProps, melt } from '@melt-ui/svelte'
 	import { Info } from 'lucide-svelte'
+	import { ButtonType } from '$lib/components/common/button/model'
 
-	export let label: string | undefined = undefined
-	export let iconOnly: boolean = false
-	export let tooltip: string | undefined = undefined
-	export let icon: any | undefined = undefined
-	export let disabled: boolean = false
-	export let selectedColor: string = '#3b82f6'
-	export let small = false
-	export let light = false
-	export let iconProps: Record<string, any> = {}
-	export let showTooltipIcon: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let id: string | undefined = undefined
-	export let item: ToggleGroupElements['item']
-	export let value: ToggleGroupItemProps
+	interface Props {
+		label?: string | undefined
+		iconOnly?: boolean
+		tooltip?: string | undefined
+		icon?: any | undefined
+		disabled?: boolean
+		selectedColor?: string | undefined
+		small?: boolean
+		size?: 'sm' | 'md' | 'lg'
+		iconProps?: Record<string, any>
+		showTooltipIcon?: boolean
+		documentationLink?: string | undefined
+		id?: string | undefined
+		item: ToggleGroupElements['item']
+		value: ToggleGroupItemProps
+		class?: string
+	}
+
+	let {
+		label = undefined,
+		iconOnly = false,
+		tooltip = undefined,
+		icon = undefined,
+		disabled = false,
+		selectedColor = undefined,
+		small = false,
+		size = undefined,
+		iconProps = {},
+		showTooltipIcon = false,
+		documentationLink = undefined,
+		id = undefined,
+		item,
+		value,
+		class: className = ''
+	}: Props = $props()
+
+	// Handle backward compatibility: small prop maps to size="sm"
+	const actualSize = $derived(size ?? (small ? 'sm' : 'md'))
+
+	// Direct access to unified sizing
+	const horizontalPadding = $derived(
+		iconOnly
+			? ButtonType.UnifiedIconOnlySizingClasses[actualSize]
+			: ButtonType.UnifiedSizingClasses[actualSize]
+	)
+	const height = $derived(ButtonType.UnifiedHeightClasses[actualSize])
+	const iconSize = $derived(ButtonType.UnifiedIconSizes[actualSize])
 </script>
 
 <Tooltip
@@ -30,25 +64,28 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
-			light ? 'font-medium' : '',
-			'data-[state=on]:bg-surface data-[state=on]:shadow-md',
-			'bg-surface-secondary hover:bg-surface-hover',
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
+			horizontalPadding,
+			height,
+			'text-primary data-[state=on]:text-primary',
+			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal/30',
+			'bg-surface-transparent hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
-			$$props.class
+			className
 		)}
 		use:melt={$item(value)}
-		style={`--selected-color: ${selectedColor}`}
+		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
 	>
 		{#if icon}
-			<svelte:component
-				this={icon}
-				size={small ? 12 : 14}
+			{@const SvelteComponent = icon}
+			<SvelteComponent
+				size={iconSize}
 				{...iconProps}
 				class={twMerge(
-					'text-gray-400',
-					'group-data-[state=on]:text-[var(--selected-color)]',
+					'text-primary',
+					selectedColor
+						? 'group-data-[state=on]:text-[var(--selected-color)]'
+						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
 					iconProps.class
 				)}
 			/>
@@ -57,11 +94,11 @@
 			{label}
 		{/if}
 		{#if showTooltipIcon}
-			<Info size={14} class="text-gray-400" />
+			<Info size={iconSize} class="text-gray-400" />
 		{/if}
 	</button>
 
-	<svelte:fragment slot="text">
+	{#snippet text()}
 		{tooltip}
-	</svelte:fragment>
+	{/snippet}
 </Tooltip>

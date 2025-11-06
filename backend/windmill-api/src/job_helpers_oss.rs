@@ -5,8 +5,6 @@ pub use crate::job_helpers_ee::*;
 #[cfg(not(feature = "private"))]
 use axum::Router;
 #[cfg(not(feature = "private"))]
-use serde::Serialize;
-#[cfg(not(feature = "private"))]
 use uuid::Uuid;
 #[cfg(not(feature = "private"))]
 use windmill_common::s3_helpers::StorageResourceType;
@@ -31,21 +29,6 @@ use futures::Stream;
 use axum::response::Response;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use serde::Deserialize;
-
-#[derive(Serialize)]
-#[cfg(not(feature = "private"))]
-pub struct UploadFileResponse {
-    pub file_key: String,
-}
-
-#[derive(Deserialize)]
-#[cfg(not(feature = "private"))]
-pub struct LoadImagePreviewQuery {
-    #[allow(dead_code)]
-    pub file_key: String,
-    #[allow(dead_code)]
-    pub storage: Option<String>,
-}
 
 #[derive(Deserialize)]
 #[cfg(not(feature = "private"))]
@@ -166,4 +149,22 @@ pub async fn delete_s3_file_internal(
 pub struct DeleteS3FileQuery {
     pub file_key: String,
     pub storage: Option<String>,
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn get_workspace_s3_resource_and_check_paths<'c>(
+    _authed: &crate::db::ApiAuthed,
+    _db: &crate::db::DB,
+    _user_db: Option<windmill_common::db::UserDB>,
+    _token: &str,
+    _w_id: &str,
+    _storage: Option<String>,
+    _paths: &[(&str, windmill_common::s3_helpers::S3Permission)],
+) -> windmill_common::error::Result<(
+    Option<bool>,
+    Option<windmill_common::s3_helpers::ObjectStoreResource>,
+)> {
+    Err(windmill_common::error::Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
 }

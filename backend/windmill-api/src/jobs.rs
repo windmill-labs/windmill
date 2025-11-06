@@ -30,19 +30,22 @@ use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
+use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    ENTRYPOINT_OVERRIDE,
+    DynamicInput, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::utils::WarnAfterExt;
+use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
+use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
-use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
+use crate::triggers::trigger_helpers::ScriptId;
 use crate::{
     add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
@@ -99,6 +102,9 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
+
+use crate::flow_conversations;
+use windmill_common::flow_conversations::MessageType;
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -171,6 +177,30 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
+            "/run_and_stream/f/*script_path",
+            get(stream_flow_by_path)
+                .post(stream_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
+            "/run_and_stream/p/*script_path",
+            get(stream_script_by_path)
+                .post(stream_script_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
+            "/run_and_stream/h/:hash",
+            get(stream_script_by_hash)
+                .post(stream_script_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
             "/run/h/:hash",
             post(run_job_by_hash)
                 .head(|| async { "" })
@@ -192,6 +222,7 @@ pub fn workspaced_service() -> Router {
             "/run_wait_result/preview_flow",
             post(run_wait_result_preview_flow),
         )
+        .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
@@ -288,6 +319,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_logs_tail),
         )
         .route("/get_args/:id", get(get_args))
+        .route("/queue/get_started_at_by_ids", post(get_started_at_by_ids))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -746,7 +778,7 @@ macro_rules! get_job_query {
     ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
-            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -808,101 +840,6 @@ macro_rules! get_job_query {
         )
     }
 }
-
-// CREATE OR REPLACE VIEW v2_as_queue AS
-// SELECT
-//     j.id,
-//     j.workspace_id,
-//     j.parent_job,
-//     j.created_by,
-//     j.created_at,
-//     q.started_at,
-//     q.scheduled_for,
-//     q.running,
-//     j.runnable_id              AS script_hash,
-//     j.runnable_path            AS script_path,
-//     j.args,
-//     j.raw_code,
-//     q.canceled_by IS NOT NULL  AS canceled,
-//     q.canceled_by,
-//     q.canceled_reason,
-//     r.ping                     AS last_ping,
-//     j.kind                     AS job_kind,
-//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
-//                                AS schedule_path,
-//     j.permissioned_as,
-//     COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status,
-//     j.raw_flow,
-//     j.flow_step_id IS NOT NULL AS is_flow_step,
-//     j.script_lang              AS language,
-//     q.suspend,
-//     q.suspend_until,
-//     j.same_worker,
-//     j.raw_lock,
-//     j.pre_run_error,
-//     j.permissioned_as_email    AS email,
-//     j.visible_to_owner,
-//     r.memory_peak              AS mem_peak,
-//     j.flow_innermost_root_job  AS root_job,
-//     s.flow_leaf_jobs           AS leaf_jobs,
-//     j.tag,
-//     j.concurrent_limit,
-//     j.concurrency_time_window_s,
-//     j.timeout,
-//     j.flow_step_id,
-//     j.cache_ttl,
-//     j.priority,
-//     NULL::TEXT                 AS logs,
-//     j.script_entrypoint_override,
-//     j.preprocessed
-// FROM v2_job_queue q
-//      JOIN v2_job j USING (id)
-//      LEFT JOIN v2_job_runtime r USING (id)
-//      LEFT JOIN v2_job_status s USING (id)
-// ;
-
-// -- Add up migration script here
-// CREATE OR REPLACE VIEW v2_as_completed_job AS
-// SELECT
-//     j.id,
-//     j.workspace_id,
-//     j.parent_job,
-//     j.created_by,
-//     j.created_at,
-//     c.duration_ms,
-//     c.status = 'success' OR c.status = 'skipped' AS success,
-//     j.runnable_id              AS script_hash,
-//     j.runnable_path            AS script_path,
-//     j.args,
-//     c.result,
-//     FALSE                      AS deleted,
-//     j.raw_code,
-//     c.status = 'canceled'      AS canceled,
-//     c.canceled_by,
-//     c.canceled_reason,
-//     j.kind                     AS job_kind,
-//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
-//                                AS schedule_path,
-//     j.permissioned_as,
-//     COALESCE(c.flow_status, c.workflow_as_code_status) AS flow_status,
-//     j.raw_flow,
-//     j.flow_step_id IS NOT NULL AS is_flow_step,
-//     j.script_lang              AS language,
-//     c.started_at,
-//     c.status = 'skipped'       AS is_skipped,
-//     j.raw_lock,
-//     j.permissioned_as_email    AS email,
-//     j.visible_to_owner,
-//     c.memory_peak              AS mem_peak,
-//     j.tag,
-//     j.priority,
-//     NULL::TEXT                 AS logs,
-//     c.result_columns,
-//     j.script_entrypoint_override,
-//     j.preprocessed
-// FROM v2_job_completed c
-//      JOIN v2_job j USING (id)
-// ;
 
 #[derive(Copy, Clone)]
 struct GetQuery<'a> {
@@ -1474,10 +1411,10 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM v2_as_completed_job
-        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id
-        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
+        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        FROM v2_job j
+        LEFT JOIN job_logs ON job_logs.job_id = j.id
+        WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
         w_id,
         tags.as_ref().map(|v| v.as_slice())
@@ -1522,10 +1459,10 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM v2_as_queue
-            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id
-            WHERE v2_as_queue.id = $1 AND v2_as_queue.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_queue.tag = ANY($3))",
+            "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+            FROM v2_job j
+            LEFT JOIN job_logs ON job_logs.job_id = j.id
+            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             id,
             w_id,
             tags.as_ref().map(|v| v.as_slice())
@@ -1581,9 +1518,9 @@ async fn get_args(
         .map(|authed| get_scope_tags(authed))
         .flatten();
     let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_completed_job
-        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        "SELECT j.created_by AS \"created_by!\", j.args as \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_job j
+        WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
@@ -1637,6 +1574,32 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
+}
+
+async fn get_started_at_by_ids(
+    Extension(db): Extension<DB>,
+    Json(mut ids): Json<Vec<Uuid>>,
+) -> JsonResult<Vec<Option<chrono::DateTime<chrono::Utc>>>> {
+    ids.truncate(100);
+
+    let started_at = sqlx::query!(
+        "SELECT id, started_at FROM v2_job_queue WHERE id = ANY($1)",
+        ids.as_slice()
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let as_map = started_at
+        .iter()
+        .map(|x| (x.id, x.started_at))
+        .collect::<HashMap<_, _>>();
+
+    let mut r = Vec::new();
+    for id in ids {
+        r.push(as_map.get(&id).map(|x| x.clone()).unwrap_or_default());
+    }
+
+    Ok(Json(r))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -1700,6 +1663,8 @@ pub struct RunJobQuery {
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
+    pub poll_delay_ms: Option<u64>,
+    pub memory_id: Option<Uuid>,
 }
 
 impl RunJobQuery {
@@ -1760,8 +1725,8 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_by: lcq.created_by,
             started_before: lcq.started_before,
             started_after: lcq.started_after,
-            created_before: lcq.created_before,
-            created_after: lcq.created_after,
+            created_before: lcq.created_before_queue.or(lcq.created_before),
+            created_after: lcq.created_after_queue.or(lcq.created_after),
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
             worker: lcq.worker,
@@ -1795,11 +1760,11 @@ pub fn filter_list_queue_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_queue.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_queue.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(w) = &lq.worker {
@@ -1900,8 +1865,7 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -2004,6 +1968,7 @@ async fn cancel_jobs(
     db: &DB,
     username: &str,
     w_id: &str,
+    force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     let mut tx = db.begin().await?;
@@ -2063,7 +2028,7 @@ async fn cancel_jobs(
                 w_id,
                 tx,
                 db,
-                false,
+                force_cancel,
                 false,
             )
             .await?;
@@ -2094,17 +2059,23 @@ async fn cancel_jobs(
     Ok(Json(uuids))
 }
 
+#[derive(Deserialize)]
+pub struct CancelSelectionQuery {
+    force_cancel: Option<bool>,
+}
+
 async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CancelSelectionQuery>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT id AS \"id!\" FROM v2_as_queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
+        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND j.trigger_kind != 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -2112,7 +2083,14 @@ async fn cancel_selection(
     .await?;
     tx.commit().await?;
 
-    cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+    cancel_jobs(
+        jobs_to_cancel,
+        &db,
+        authed.username.as_str(),
+        w_id.as_str(),
+        query.force_cancel.unwrap_or(false),
+    )
+    .await
 }
 
 async fn list_filtered_job_uuids(
@@ -2201,7 +2179,7 @@ async fn count_queue_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE q.suspend = 0 AND q.running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE q.suspend > 0), 0) as \"suspended!\" FROM v2_job_queue q JOIN v2_job j USING (id) WHERE (j.workspace_id = $1 OR $2) AND q.scheduled_for <= now() AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
             tags.as_ref().map(|v| v.as_slice())
@@ -2286,9 +2264,12 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
+
+    if offset > 0 {
+        tracing::warn!("offset is not 0, but is ignored for list_jobs. Use created_before or completed_before instead.");
+    }
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
@@ -2298,7 +2279,7 @@ async fn list_jobs(
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
-            Some(per_page + offset),
+            Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
@@ -2311,26 +2292,22 @@ async fn list_jobs(
 
     let sql = if lq.success.is_none()
         && lq.label.is_none()
-        && lq.created_or_started_before.is_none()
+        && lq.created_before.is_none()
         && lq.started_before.is_none()
+        && lq.created_or_started_before.is_none()
+        && lq.completed_before.is_none()
     {
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
-            Pagination { per_page: Some(limit), page: None },
+            Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
         );
 
         if let Some(sqlc) = sqlc {
-            format!(
-                "{} UNION ALL {} LIMIT {} OFFSET {};",
-                &sqlq.subquery()?,
-                &sqlc.subquery()?,
-                per_page,
-                offset
-            )
+            format!("{} UNION ALL {}", &sqlq.subquery()?, &sqlc.subquery()?,)
         } else {
             sqlq.limit(per_page).offset(offset).query()?
         }
@@ -2344,6 +2321,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
+    // tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
@@ -2644,9 +2622,9 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id AS "id!", flow_status, suspend AS "suspend!", script_path
-        FROM v2_as_queue
-        WHERE id = $1
+        SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path
+        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
+        WHERE j.id = $1
         "#,
         job_id,
     )
@@ -2860,9 +2838,9 @@ pub async fn get_flow_user_state(
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"
-        SELECT flow_status->'user_states'->$1
-        FROM v2_as_queue
-        WHERE id = $2 AND workspace_id = $3
+        SELECT COALESCE(s.flow_status, s.workflow_as_code_status)->'user_states'->$1
+        FROM v2_job_queue q LEFT JOIN v2_job_status s USING (id)
+        WHERE q.id = $2 AND q.workspace_id = $3
         "#,
         key,
         job_id,
@@ -3221,6 +3199,7 @@ pub struct UnifiedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
@@ -3253,13 +3232,14 @@ pub struct UnifiedJob {
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_completed.id",
+    "v2_job_completed.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
     "v2_job.created_at",
     "v2_job_completed.started_at",
     "null as scheduled_for",
+    "v2_job_completed.completed_at",
     "null as running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3292,13 +3272,14 @@ const CJ_FIELDS: &[&str] = &[
 
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_queue.id",
+    "v2_job_queue.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
-    "v2_job.created_at",
+    "v2_job_queue.created_at",
     "v2_job_queue.started_at",
     "v2_job_queue.scheduled_for",
+    "null as completed_at",
     "v2_job_queue.running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3351,6 +3332,7 @@ impl<'a> From<UnifiedJob> for Job {
                     created_by: uj.created_by,
                     created_at: uj.created_at,
                     started_at: uj.started_at,
+                    completed_at: uj.completed_at,
                     duration_ms: uj.duration_ms.unwrap(),
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
@@ -3457,6 +3439,7 @@ struct Preview {
     tag: Option<String>,
     dedicated_worker: Option<bool>,
     lock: Option<String>,
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3471,6 +3454,22 @@ struct PreviewFlow {
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     tag: Option<String>,
     restarted_from: Option<RestartedFrom>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DynamicSelectRequest {
+    pub entrypoint_function: String,
+    pub args: Option<HashMap<String, Box<JsonRawValue>>>,
+    pub runnable_ref: DynamicSelectRunnableRef,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "source")]
+pub enum DynamicSelectRunnableRef {
+    #[serde(rename = "deployed")]
+    Deployed { path: String, runnable_kind: RunnableKind },
+    #[serde(rename = "inline")]
+    Inline { code: String, lang: Option<ScriptLang> },
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -3514,7 +3513,7 @@ where
 }
 
 fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
-    let vec = base64::engine::general_purpose::URL_SAFE
+    let vec = base64::engine::general_purpose::STANDARD
         .decode(t)
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
@@ -3782,7 +3781,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3798,7 +3797,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3809,7 +3808,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3823,6 +3822,82 @@ async fn batch_rerun_handle_job(
     Err(error::Error::ExecutionErr(
         format!("Couldn't re-run job {}", job.id).to_string(),
     ))
+}
+
+/// Set the memory_id in flow_status for agent memory persistence
+async fn set_flow_memory_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    memory_id: Uuid,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status 
+         SET flow_status = jsonb_set(
+             flow_status,
+             '{memory_id}',
+             to_jsonb($2::uuid)
+         )
+         WHERE id = $1",
+        job_id,
+        memory_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn handle_chat_conversation_messages(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+) -> error::Result<()> {
+    let memory_id = run_query.memory_id.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "memory_id is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_message_raw = user_message_raw.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "user_message argument is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    // Deserialize the RawValue to get the actual string without quotes
+    let user_message: String = serde_json::from_str(user_message_raw.get()).map_err(|e| {
+        windmill_common::error::Error::BadRequest(format!(
+            "Failed to deserialize user_message: {}",
+            e
+        ))
+    })?;
+
+    // Create conversation with provided ID (or get existing one)
+    flow_conversations::get_or_create_conversation_with_id(
+        tx,
+        w_id,
+        flow_path,
+        &authed.username,
+        &user_message,
+        memory_id,
+    )
+    .await?;
+
+    // Create user message
+    add_message_to_conversation_tx(
+        tx,
+        memory_id,
+        None,
+        &user_message,
+        MessageType::User,
+        None,
+        true,
+    )
+    .await?;
+
+    Ok(())
 }
 
 pub async fn run_flow_by_path(
@@ -3871,6 +3946,7 @@ pub async fn run_flow_by_path_inner(
         tag,
         dedicated_worker,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         early_return,
@@ -3896,11 +3972,11 @@ pub async fn run_flow_by_path_inner(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -3932,8 +4008,29 @@ pub async fn run_flow_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
     Ok((uuid, early_return))
 }
@@ -3974,10 +4071,10 @@ pub async fn restart_flow(
     let mut tx = user_db.clone().begin(&authed).await?;
     let completed_job = sqlx::query!(
         "SELECT
-            script_path, args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-            tag AS \"tag!\", priority
-        FROM v2_as_completed_job
-        WHERE id = $1 and workspace_id = $2",
+            j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+            j.tag AS \"tag!\", j.priority
+        FROM v2_job j
+        WHERE j.id = $1 and j.workspace_id = $2",
         job_id,
         &w_id,
     )
@@ -4028,6 +4125,8 @@ pub async fn restart_flow(
         completed_job.priority,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4130,6 +4229,8 @@ pub async fn run_script_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4195,6 +4296,9 @@ pub async fn run_workflow_as_code(
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
+                // TODO(debouncing): enable for this mode
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -4282,6 +4386,8 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -4441,12 +4547,17 @@ pub async fn run_wait_result_internal(
 
         if result.is_none() {
             let row = sqlx::query!(
-                "SELECT
+                "
+                SELECT
                     result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                     result_columns,
                     status = 'success' AS \"success!\"
-                FROM v2_job_completed
-                WHERE id = $1 AND workspace_id = $2",
+                FROM 
+                    v2_job_completed
+                WHERE 
+                    id = $1 AND 
+                    workspace_id = $2
+                ",
                 uuid,
                 &w_id
             )
@@ -4613,10 +4724,9 @@ pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<()
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM v2_as_queue WHERE  canceled = false AND (scheduled_for <= now()
-        OR (suspend_until IS NOT NULL
-            AND (   suspend <= 0
-                 OR suspend_until <= now())))",
+            "SELECT COUNT(*) FROM v2_job_queue q WHERE q.canceled_by IS NULL AND (q.scheduled_for <= now()
+        OR (q.suspend_until IS NOT NULL
+            AND (q.suspend <= 0 OR q.suspend_until <= now())))",
         )
         .fetch_one(db)
         .await?
@@ -4820,6 +4930,8 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4972,6 +5084,8 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5014,6 +5128,8 @@ pub async fn run_wait_result_script_by_hash(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_key,
+        debounce_delay_s,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -5060,6 +5176,8 @@ pub async fn run_wait_result_script_by_hash(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -5088,6 +5206,8 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5127,6 +5247,197 @@ pub async fn run_wait_result_flow_by_path(
         .await
 }
 
+pub async fn stream_flow_by_path(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_flow_path(flow_path.to_path()),
+        args,
+        run_query,
+        method == http::Method::GET,
+    )
+    .await
+}
+
+pub async fn stream_script_by_path(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_script_path(script_path.to_path()),
+        args,
+        run_query,
+        method == http::Method::GET,
+    )
+    .await
+}
+
+pub async fn stream_script_by_hash(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash)): Path<(String, ScriptHash)>,
+    Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_script_hash(script_hash),
+        args,
+        run_query,
+        method == http::Method::GET,
+    )
+    .await
+}
+
+pub async fn stream_job(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    runnable_id: RunnableId,
+    args: RawWebhookArgs,
+    run_query: RunJobQuery,
+    is_get: bool,
+) -> error::Result<Response> {
+    let args = if is_get {
+        let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+            x.map_err(|e| {
+                Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+            })
+        });
+
+        let payload_args = if let Some(payload) = payload_r {
+            payload?
+        } else {
+            HashMap::new()
+        };
+
+        let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+        args.body = args::Body::HashMap(payload_args);
+
+        let args = args
+            .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
+            .await?;
+        args
+    } else {
+        args.to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            runnable_id.clone(),
+            run_query.skip_preprocessor,
+        )
+        .await?
+    };
+
+    let poll_delay_ms = run_query.poll_delay_ms;
+    let uuid = match runnable_id {
+        RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
+        | RunnableId::HubScript(script_path) => {
+            run_script_by_path_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                StripPath(script_path),
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+        RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
+            run_job_by_hash_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                script_hash,
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+        RunnableId::FlowPath(flow_path) => {
+            run_flow_by_path_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                StripPath(flow_path),
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+    };
+
+    let opt_authed = Some(authed.clone());
+    let opt_tokened = OptTokened { token: None }; // ignored when authed is some
+    let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&x).unwrap_or_default()
+        )
+    });
+
+    start_job_update_sse_stream(
+        opt_authed,
+        opt_tokened,
+        db,
+        w_id,
+        uuid,
+        None,
+        None,
+        None,
+        None,
+        Some(true),
+        Some(true),
+        None,
+        None,
+        tx,
+        poll_delay_ms,
+    );
+
+    let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
+
+    Ok(Response::builder()
+        .status(200)
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap())
+}
+
 pub async fn run_wait_result_flow_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
@@ -5149,6 +5460,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         dedicated_worker,
         early_return,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         version,
@@ -5171,11 +5483,11 @@ pub async fn run_wait_result_flow_by_path_internal(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -5207,8 +5519,29 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
+
+    // Set conversation_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
@@ -5253,6 +5586,8 @@ async fn run_preview_script(
                 custom_concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
+                custom_debounce_key: None, // TODO(pyra): same as for concurrency limits.
+                debounce_delay_s: None,
                 cache_ttl: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
@@ -5278,6 +5613,8 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5317,8 +5654,6 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-    use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
-
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5329,6 +5664,7 @@ async fn run_bundle_preview_script(
     let mut tx = None;
     let mut uploaded = false;
     let mut is_tar = false;
+    let mut format = BundleFormat::Cjs;
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
@@ -5336,6 +5672,10 @@ async fn run_bundle_preview_script(
         let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
+            format = preview
+                .format
+                .and_then(|s| BundleFormat::from_string(&s))
+                .unwrap_or(BundleFormat::Cjs);
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5356,11 +5696,10 @@ async fn run_bundle_preview_script(
                 ltx,
                 &w_id,
                 JobPayload::Code(RawCode {
-                    hash: if is_tar {
-                        Some(PREVIEW_IS_TAR_CODEBASE_HASH)
-                    } else {
-                        Some(PREVIEW_IS_CODEBASE_HASH)
-                    },
+                    hash: Some(windmill_common::scripts::codebase_to_hash(
+                        is_tar,
+                        format == BundleFormat::Esm,
+                    )),
                     content: preview.content.unwrap_or_default(),
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
@@ -5370,6 +5709,8 @@ async fn run_bundle_preview_script(
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5392,6 +5733,8 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
+                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5409,52 +5752,22 @@ async fn run_bundle_preview_script(
 
             // tracing::info!("is_tar 2: {is_tar}");
 
+            if format == BundleFormat::Esm {
+                id = format!("{}.esm", id);
+            }
             if is_tar {
                 id = format!("{}.tar", id);
             }
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::get_object_store().await;
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            let object_store: Option<()> = None;
-
-            if &windmill_common::utils::MODE_AND_ADDONS.mode
-                == &windmill_common::utils::Mode::Standalone
-                && object_store.is_none()
-            {
-                std::fs::create_dir_all(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
-                )?;
-                windmill_common::worker::write_file_bytes(
-                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                    &id,
-                    &data,
-                )?;
-            } else {
-                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-                {
-                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                if let Some(os) = object_store {
-                    check_license_key_valid().await?;
-
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data.into())
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-                }
-            }
+            let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -5559,6 +5872,8 @@ async fn run_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5626,6 +5941,8 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5969,6 +6286,8 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5998,6 +6317,159 @@ async fn run_wait_result_preview_flow(
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
     let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     return result;
+}
+
+async fn run_dynamic_select(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(request): Json<DynamicSelectRequest>,
+) -> error::Result<Response> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    if matches!(
+        request.runnable_ref,
+        DynamicSelectRunnableRef::Inline { .. }
+    ) && authed.is_operator
+    {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
+
+    let dynamic_input: DynamicInput;
+
+    match request.runnable_ref {
+        DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
+            RunnableKind::Script => {
+                let mut script_args = request.args.unwrap_or_default();
+                script_args.insert(
+                    "_ENTRYPOINT_OVERRIDE".to_string(),
+                    serde_json::value::to_raw_value(&request.entrypoint_function)?,
+                );
+
+                let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
+
+                let (uuid, _) = run_script_by_path_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    StripPath(path),
+                    run_query.clone(),
+                    push_args.clone(),
+                )
+                .await?;
+
+                return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
+            }
+            RunnableKind::Flow => {
+                let mut conn = user_db.clone().begin(&authed).await?;
+
+                let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
+                {
+                    Some(cached) => cached.as_ref().clone(),
+                    None => {
+                        let dynamic_input = sqlx::query_scalar!(
+                            r#"
+                        SELECT 
+                            schema 
+                        FROM 
+                            flow 
+                        WHERE 
+                            workspace_id = $1 AND 
+                            path = $2
+                    "#,
+                            &w_id,
+                            &path
+                        )
+                        .fetch_one(&mut *conn)
+                        .await?
+                        .and_then(|dynamic_input| {
+                            Some(serde_json::from_value::<DynamicInput>(dynamic_input))
+                        })
+                        .transpose()?;
+
+                        let Some(dynamic_input) = dynamic_input else {
+                            return Err(Error::BadRequest(format!(
+                                "Flow at path {} does not have a dynamic select schema",
+                                path
+                            )));
+                        };
+
+                        let dynamic_input_key =
+                            windmill_common::jobs::generate_dynamic_input_key(&w_id, &path);
+                        DYNAMIC_INPUT_CACHE
+                            .insert(dynamic_input_key, Arc::new(dynamic_input.clone()));
+                        dynamic_input
+                    }
+                };
+
+                conn.commit().await?;
+
+                dynamic_input = dynamic_input_res;
+            }
+        },
+        DynamicSelectRunnableRef::Inline { code, lang: language } => {
+            dynamic_input = DynamicInput {
+                x_windmill_dyn_select_code: code,
+                x_windmill_dyn_select_lang: language.unwrap_or_default(),
+            };
+        }
+    }
+
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::Code(RawCode {
+            hash: None,
+            content: dynamic_input.x_windmill_dyn_select_code,
+            path: None,
+            language: dynamic_input.x_windmill_dyn_select_lang,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
+        }),
+        PushArgs::from(&request.args.unwrap_or_default()),
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        scheduled_for,
+        None,
+        None,
+        None,
+        None,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        true,
+        None,
+        run_query.timeout,
+        None,
+        None,
+        Some(&authed.clone().into()),
+        false,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
 pub async fn run_job_by_hash(
@@ -6044,6 +6516,8 @@ pub async fn run_job_by_hash_inner(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_delay_s,
+        debounce_key,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -6092,6 +6566,8 @@ pub async fn run_job_by_hash_inner(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -6120,6 +6596,8 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6136,6 +6614,8 @@ pub struct JobUpdateQuery {
     pub no_logs: Option<bool>,
     pub only_result: Option<bool>,
     pub fast: Option<bool>,
+    pub is_flow: Option<bool>,
+    pub poll_delay_ms: Option<u64>,
 }
 
 #[derive(Serialize, Debug)]
@@ -6164,6 +6644,8 @@ pub struct JobUpdate {
     pub job: Option<Job>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub only_result: Option<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_stream_job_id: Option<Uuid>,
 }
 
 impl JobUpdate {
@@ -6182,6 +6664,7 @@ impl Hash for JobUpdate {
         self.mem_peak.hash(state);
         self.progress.hash(state);
         self.stream_offset.hash(state);
+        self.flow_stream_job_id.hash(state);
         if !self.completed.unwrap_or(false) {
             self.flow_status.as_ref().map(|x| x.get().hash(state));
             self.workflow_as_code_status
@@ -6254,6 +6737,7 @@ async fn get_job_update(
         running,
         only_result,
         no_logs,
+        is_flow,
         ..
     }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
@@ -6266,12 +6750,14 @@ async fn get_job_update(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            get_progress.unwrap_or(false),
             running,
             true,
             false,
             only_result,
             no_logs,
+            is_flow,
+            None,
         )
         .await?,
     ))
@@ -6290,9 +6776,13 @@ async fn get_job_update_sse(
         no_logs,
         only_result,
         fast,
+        is_flow,
+        poll_delay_ms,
     }): Query<JobUpdateQuery>,
-) -> Response {
-    let stream = get_job_update_sse_stream(
+) -> error::Result<Response> {
+    let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+    start_job_update_sse_stream(
         opt_authed,
         opt_tokened,
         db,
@@ -6305,8 +6795,12 @@ async fn get_job_update_sse(
         only_result,
         fast,
         no_logs,
-    )
-    .map(|x| {
+        is_flow,
+        tx,
+        poll_delay_ms,
+    );
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
         format!(
             "data: {}\n\n",
             serde_json::to_string(&x).unwrap_or_default()
@@ -6315,26 +6809,31 @@ async fn get_job_update_sse(
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
-    Response::builder()
+    Ok(Response::builder()
         .status(200)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .body(body)
-        .unwrap()
+        .unwrap())
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
-    Error(String),
+    Error { error: String },
     NotFound,
     Timeout,
     Ping,
 }
 
-fn get_job_update_sse_stream(
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 =
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -6347,13 +6846,15 @@ fn get_job_update_sse_stream(
     only_result: Option<bool>,
     fast: Option<bool>,
     no_logs: Option<bool>,
-) -> impl futures::Stream<Item = JobUpdateSSEStream> {
-    let (tx, rx) = tokio::sync::mpsc::channel(32);
-
+    is_flow: Option<bool>,
+    tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
+    poll_delay_ms: Option<u64>,
+) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
         let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
+        let mut flow_stream_job_id = None;
 
         // Send initial update immediately
         let mut running = running;
@@ -6367,12 +6868,14 @@ fn get_job_update_sse_stream(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            false,
             running,
             true,
             true,
             only_result,
             no_logs,
+            is_flow,
+            flow_stream_job_id,
         )
         .await
         {
@@ -6399,6 +6902,9 @@ fn get_job_update_sse_stream(
                         update.stream_offset = None;
                     }
                 }
+                if update.flow_stream_job_id.is_some() {
+                    flow_stream_job_id = update.flow_stream_job_id;
+                }
                 if tx.send(JobUpdateSSEStream::Update(update)).await.is_err() {
                     tracing::warn!("Failed to send initial job update for job {job_id}");
                     return;
@@ -6409,7 +6915,7 @@ fn get_job_update_sse_stream(
             }
             Err(e) => {
                 if tx
-                    .send(JobUpdateSSEStream::Error(e.to_string()))
+                    .send(JobUpdateSSEStream::Error { error: e.to_string() })
                     .await
                     .is_err()
                 {
@@ -6419,20 +6925,38 @@ fn get_job_update_sse_stream(
             }
         }
 
+        let mut get_progress_m: bool = false;
         // Poll for updates every 1 second
         let mut i = 0;
         let start = Instant::now();
         let mut last_ping = Instant::now();
-
+        let mut last_progress_check = Instant::now();
         loop {
             i += 1;
-            let ms_duration = if i > 100 || !fast.unwrap_or(false) {
+
+            #[allow(unused_mut)]
+            let mut ms_duration = if i > 100 || !fast.unwrap_or(false) {
                 3000
             } else if i > 10 {
                 500
             } else {
                 100
             };
+
+            #[allow(unused_variables)]
+            if let Some(poll_delay_ms) = poll_delay_ms {
+                #[cfg(feature = "enterprise")]
+                if poll_delay_ms < 50 {
+                    tracing::warn!("Poll delay ms is less than 50, setting it to 50");
+                    ms_duration = 50;
+                } else {
+                    ms_duration = poll_delay_ms;
+                }
+
+                #[cfg(not(feature = "enterprise"))]
+                tracing::warn!("Settable poll delay requires EE");
+            }
+
             if last_ping.elapsed().as_secs() > 5 {
                 if tx.send(JobUpdateSSEStream::Ping).await.is_err() {
                     tracing::warn!("Failed to send job ping for job {job_id}");
@@ -6441,7 +6965,7 @@ fn get_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }
@@ -6449,6 +6973,10 @@ fn get_job_update_sse_stream(
             }
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
+            // Check progress if the user requested it, and check periodically if the job has progress
+            // Once it has progress, we always check progress
+            let check_progress = get_progress.unwrap_or(false)
+                && (get_progress_m || last_progress_check.elapsed().as_secs() > 5);
             match get_job_update_data(
                 &opt_authed,
                 &opt_tokened,
@@ -6457,12 +6985,14 @@ fn get_job_update_sse_stream(
                 &job_id,
                 log_offset,
                 stream_offset,
-                get_progress,
+                check_progress,
                 running,
                 false,
                 true,
                 only_result,
                 no_logs,
+                is_flow,
+                flow_stream_job_id,
             )
             .await
             {
@@ -6476,6 +7006,13 @@ fn get_job_update_sse_stream(
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
                     }
+                    if check_progress {
+                        if update.progress.is_some() {
+                            get_progress_m = true;
+                        } else {
+                            last_progress_check = Instant::now();
+                        }
+                    }
 
                     // if !only_result.unwrap_or(false) {
                     //     tracing::error!("update {:?}", update);
@@ -6486,16 +7023,29 @@ fn get_job_update_sse_stream(
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
                             if new_offset != log_offset.unwrap_or(0) {
+                                // let logs = update.new_logs.clone().unwrap_or_default();
+                                // tracing::error!(
+                                //     "new_offset: {new_offset}; log_offset: {log_offset:?}; {} {logs}",
+                                //     logs.len()
+                                // );
                                 log_offset = Some(new_offset);
                             } else {
                                 update.log_offset = None;
                             }
                         }
+
                         if let Some(new_stream_offset) = update.stream_offset {
                             if new_stream_offset != stream_offset.unwrap_or(0) {
                                 stream_offset = Some(new_stream_offset);
                             } else {
                                 update.stream_offset = None;
+                            }
+                        }
+                        if update.flow_stream_job_id.is_some() {
+                            if flow_stream_job_id.is_none() {
+                                flow_stream_job_id = update.flow_stream_job_id;
+                            } else {
+                                update.flow_stream_job_id = None;
                             }
                         }
                         if let Some(new_mem_peak) = update.mem_peak {
@@ -6526,8 +7076,35 @@ fn get_job_update_sse_stream(
             }
         }
     });
+}
 
-    tokio_stream::wrappers::ReceiverStream::new(rx)
+async fn get_flow_stream_delta(
+    db: &DB,
+    flow_stream_job_id: Option<Uuid>,
+    stream_offset: Option<i32>,
+) -> error::Result<Option<(Option<String>, Option<i32>)>> {
+    if let Some(job_id) = flow_stream_job_id {
+        let record = sqlx::query!(
+            "
+            SELECT 
+                string_agg(stream, '' order by idx asc) as stream, 
+                max(idx) + 1 as offset 
+            FROM job_result_stream_v2
+            WHERE job_id = $2 AND idx >= $1
+            ",
+            stream_offset.unwrap_or(0),
+            job_id,
+        )
+        .fetch_optional(db)
+        .await?;
+        if let Some(record) = record {
+            Ok(Some((record.stream, record.offset)))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(None)
+    }
 }
 
 async fn get_job_update_data(
@@ -6538,12 +7115,14 @@ async fn get_job_update_data(
     job_id: &Uuid,
     log_offset: Option<i32>,
     stream_offset: Option<i32>,
-    get_progress: Option<bool>,
+    get_progress: bool,
     running: Option<bool>,
     log_view: bool,
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
     no_logs: Option<bool>,
+    is_flow: Option<bool>,
+    flow_stream_job_id: Option<Uuid>,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -6562,128 +7141,200 @@ async fn get_job_update_data(
         None
     };
 
+    let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
+
     if only_result.unwrap_or(false) {
-        let result = if let Some(tags) = tags {
-            let r =
-                sqlx::query!(
-                    "SELECT result as \"result: sqlx::types::Json<Box<RawValue>>\", v2_job.tag,
-                v2_job_queue.running as \"running: Option<bool>\", SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\", CHAR_LENGTH(rs.stream) AS stream_offset
+        let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
+            if let Some(tags) = tags {
+                let r = sqlx::query!(
+                "
+                WITH result_stream AS (
+                    SELECT 
+                        string_agg(stream, '' order by idx asc) as stream, 
+                        job_id, 
+                        max(idx) + 1 as offset 
+                    FROM job_result_stream_v2
+                    WHERE job_id = $2 AND idx >= $3
+                    GROUP BY job_id
+                )
+                SELECT 
+                    jc.result as \"result: sqlx::types::Json<Box<RawValue>>\",
+                    v2_job.tag,
+                    v2_job_queue.running as \"running: Option<bool>\",
+                    rs.stream AS \"result_stream: Option<String>\",
+                    rs.offset AS stream_offset,
+                    CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
-                LEFT JOIN v2_job_completed USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $2
+                LEFT JOIN v2_job_completed jc USING (id)
+                LEFT JOIN v2_job_status js USING (id)
+                LEFT JOIN result_stream rs ON rs.job_id = $2
                 WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
-                    w_id,
-                    job_id,
-                    stream_offset.unwrap_or(0),
-                )
-                .fetch_optional(db)
-                .await?
-                .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-
-            if !tags.contains(&r.tag.as_str()) {
-                return Err(Error::NotAuthorized(format!(
-                    "Job tag {} is not in the scope tags: {}",
-                    r.tag,
-                    tags.join(", ")
-                )));
-            }
-            let running = r.running.as_ref().map(|x| *x);
-            (
-                r.result.map(|x| x.0),
-                running,
-                r.result_stream.flatten(),
-                r.stream_offset,
+                w_id,
+                job_id,
+                stream_offset.unwrap_or(0),
+                ignore_flow_stream_job_id,
             )
-        } else {
-            if running.is_some_and(|x| !x) {
-                let r = sqlx::query!(
-                    "SELECT
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+                if !tags.contains(&r.tag.as_str()) {
+                    return Err(Error::NotAuthorized(format!(
+                        "Job tag {} is not in the scope tags: {}",
+                        r.tag,
+                        tags.join(", ")
+                    )));
+                }
+                let running = r.running.as_ref().map(|x| *x);
+                (
+                    r.result.map(|x| x.0),
+                    running,
+                    r.result_stream.flatten(),
+                    r.stream_offset,
+                    r.stream_job,
+                )
+            } else {
+                if running.is_some_and(|x| !x) {
+                    let r = sqlx::query!(
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $1 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         jq.running as \"running: Option<bool>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
+                        CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $1::uuid as job_id, $2::text as workspace_id
                     ) base
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN v2_job_status js ON js.id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $1",
                     job_id,
                     w_id,
                     stream_offset.unwrap_or(0),
+                    ignore_flow_stream_job_id,
                 ).fetch_optional(db).await?;
-                if let Some(r) = r {
-                    let running = r.running.as_ref().map(|x| *x);
-                    (
-                        r.result.map(|x| x.0),
-                        running,
-                        r.result_stream.flatten(),
-                        r.stream_offset,
-                    )
+                    if let Some(r) = r {
+                        let running = r.running.as_ref().map(|x| *x);
+                        (
+                            r.result.map(|x| x.0),
+                            running,
+                            r.result_stream.flatten(),
+                            r.stream_offset,
+                            r.stream_job,
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    }
                 } else {
-                    (None, None, None, None)
-                }
-            } else {
-                let q =  sqlx::query!(
-                    "SELECT
+                    let q = sqlx::query!(
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $2 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
+                        COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                        CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $2::uuid as job_id, $1::text as workspace_id
                     ) base
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN v2_job_status js ON js.id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $2",
                     w_id,
                     job_id,
                     stream_offset.unwrap_or(0),
+                    ignore_flow_stream_job_id,
                 )
                 .fetch_optional(db)
                 .await?;
-                if let Some(r) = q {
-                    (
-                        r.result.map(|x| x.0),
-                        running,
-                        r.result_stream.flatten(),
-                        r.stream_offset,
-                    )
-                } else {
-                    (None, None, None, None)
+                    if let Some(r) = q {
+                        (
+                            r.result.map(|x| x.0),
+                            running,
+                            r.result_stream.flatten(),
+                            r.stream_offset,
+                            r.stream_job,
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    }
                 }
-            }
-        };
+            };
+
+        let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
+
+        let flow_stream_delta =
+            get_flow_stream_delta(db, flow_stream_job_id, stream_offset).await?;
+
+        if let Some((flow_result_stream, flow_stream_offset)) = flow_stream_delta {
+            result_stream = flow_result_stream;
+            new_stream_offset = flow_stream_offset;
+        }
+
         Ok(JobUpdate {
-            running: result.1,
-            completed: if result.0.is_some() { Some(true) } else { None },
+            running,
+            completed: if result.is_some() { Some(true) } else { None },
             log_offset: None,
             new_logs: None,
-            new_result_stream: result.2,
-            stream_offset: result.3,
+            new_result_stream: result_stream,
+            stream_offset: new_stream_offset,
             mem_peak: None,
             progress: None,
             job: None,
             flow_status: None,
             workflow_as_code_status: None,
-            only_result: result.0,
+            only_result: result,
+            flow_stream_job_id,
         })
     } else {
-        let record = sqlx::query!(
-            "SELECT
+        let mut record = sqlx::query!(
+            "
+            WITH result_stream AS (
+                SELECT 
+                    string_agg(stream, '' order by idx asc) as stream, 
+                    job_id, 
+                    max(idx) + 1 as offset 
+                FROM job_result_stream_v2
+                WHERE job_id = $3 AND idx >= $8
+                GROUP BY job_id
+            )
+            SELECT
                 c.id IS NOT NULL AS completed,
                 CASE
                     WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                     ELSE false
                 END AS running,
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,
-                SUBSTR(rs.stream, $8) AS new_result_stream,
+                rs.stream AS new_result_stream,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                (COALESCE(c.flow_status, f.flow_status)->>'stream_job')::uuid AS stream_job,
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
-                CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                rs.offset AS stream_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
@@ -6694,14 +7345,14 @@ async fn get_job_update_data(
                 LEFT JOIN v2_job_runtime r USING (id)
                 LEFT JOIN v2_job_status f USING (id)
                 LEFT JOIN v2_job_completed c USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $3
+                LEFT JOIN result_stream rs ON rs.job_id = $3
                 LEFT JOIN job_logs ON job_logs.job_id =  $3
             WHERE j.workspace_id = $2 AND j.id = $3
             AND ($6::text[] IS NULL OR j.tag = ANY($6))",
             log_offset,
             w_id,
             job_id,
-            get_progress.unwrap_or(false),
+            get_progress,
             running,
             tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
             no_logs.unwrap_or(false),
@@ -6718,11 +7369,24 @@ async fn get_job_update_data(
         }
 
         let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
-            let get = GetQuery::new().with_auth(&opt_authed).without_logs();
+            let get = GetQuery::new()
+                .with_auth(&opt_authed)
+                .without_logs()
+                .without_code();
             Some(get.fetch(&db, job_id, &w_id).await?)
         } else {
             None
         };
+
+        let flow_stream_job_id = flow_stream_job_id.or(record.stream_job);
+
+        let flow_stream_delta =
+            get_flow_stream_delta(db, flow_stream_job_id, stream_offset).await?;
+
+        if let Some((new_result_stream, stream_offset)) = flow_stream_delta {
+            record.new_result_stream = new_result_stream;
+            record.stream_offset = stream_offset;
+        }
 
         Ok(JobUpdate {
             running: record.running,
@@ -6741,6 +7405,7 @@ async fn get_job_update_data(
                 .flow_status
                 .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             only_result: None,
+            flow_stream_job_id,
         })
     }
 }
@@ -6757,7 +7422,7 @@ pub fn filter_list_completed_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_completed.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
@@ -6785,7 +7450,8 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id))
+            .and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
@@ -6836,8 +7502,12 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
-        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+        let ts = dt.to_rfc3339();
+        sqlb.and_where(format!(
+            "(created_at >= '{}' OR started_at >= '{}')",
+            ts.replace("'", "''"),
+            ts.replace("'", "''")
+        ));
     }
 
     if let Some(dt) = &lq.created_before {
@@ -6849,6 +7519,13 @@ pub fn filter_list_completed_query(
 
     if let Some(dt) = &lq.created_or_started_after_completed_jobs {
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+    }
+
+    if let Some(dt) = &lq.completed_after {
+        sqlb.and_where_ge("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+    if let Some(dt) = &lq.completed_before {
+        sqlb.and_where_le("completed_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(sk) = &lq.is_skipped {
@@ -6886,8 +7563,7 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -6904,7 +7580,14 @@ pub fn list_completed_jobs_query(
 ) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
+        .order_by(
+            if lq.completed_before.is_some() || lq.completed_after.is_some() {
+                "v2_job_completed.completed_at"
+            } else {
+                "v2_job.created_at"
+            },
+            lq.order_desc.unwrap_or(true),
+        )
         .offset(offset)
         .clone();
     if let Some(per_page) = per_page {
@@ -6933,6 +7616,10 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -6972,8 +7659,8 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "v2_job.id",
-            "v2_job.workspace_id",
+            "v2_job_completed.id",
+            "v2_job_completed.workspace_id",
             "v2_job.parent_job",
             "v2_job.created_by",
             "v2_job.created_at",
@@ -7188,10 +7875,10 @@ async fn count_by_tag(
     let counts = sqlx::query_as!(
         TagCount,
         r#"
-        SELECT tag as "tag!", COUNT(*) as "count!"
-        FROM v2_as_completed_job
-        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
-        GROUP BY tag
+        SELECT j.tag as "tag!", COUNT(*) as "count!"
+        FROM v2_job_completed c JOIN v2_job j USING (id)
+        WHERE c.started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR j.workspace_id = $2)
+        GROUP BY j.tag
         ORDER BY "count!" DESC
         "#,
         horizon as f64,

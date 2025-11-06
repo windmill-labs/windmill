@@ -420,6 +420,7 @@ Your Gemfile syntax will continue to work as-is."
             &mut None,
             // Some(&mut stdout),
             None,
+            None,
         )
         .await?;
 
@@ -432,7 +433,7 @@ Your Gemfile syntax will continue to work as-is."
 
     if let Some(db) = conn.as_sql() {
         sqlx::query!(
-            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
             req_hash,
             lock.clone(),
         ).fetch_optional(db).await?;
@@ -871,6 +872,7 @@ mount {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
     Ok(())
@@ -889,9 +891,23 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
 
 require 'json'
 a = JSON.parse(File.read("args.json"))
-res = main(SPREAD)
-File.open("result.json", "w") do |file|
-  file.write(JSON.generate(res))
+
+begin
+    res = main(SPREAD)
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(res))
+    end
+
+rescue => e
+    error = {
+        name: e.class.name,
+        stack: e.full_message,
+        message: e.message
+    }
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(error))
+    end
+    raise
 end
             "#
         .replace("INNER_CONTENT", inner_content)

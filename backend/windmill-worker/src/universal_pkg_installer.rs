@@ -159,6 +159,7 @@ pub async fn par_install_language_dependencies_all_at_once<
             false,
             &mut None,
             pipe_stdout,
+            None,
         )
         .await
         {
@@ -543,7 +544,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
         if let Err(e) = s3_pull_future.await {
             tracing::info!(
                 workspace_id = %w_id,
-                "No tarball was found for {:?} on S3 or different problem occured {job_id}:\n{e}",
+                "No tarball was found for {:?} on S3 or different problem occurred {job_id}:\n{e}",
                 &dep._s3_handle.clone()
             );
         } else {
@@ -586,6 +587,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
         None,
         false,
         &mut None,
+        None,
         None,
     )
     .await

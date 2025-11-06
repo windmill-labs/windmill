@@ -265,7 +265,7 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-tertiary">
+					<p class="text-xs mt-3 mb-1 text-primary">
 						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-col gap-2">
@@ -284,8 +284,8 @@
 
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
+									btnClasses="ml-4"
+									variant="accent"
 									size="xs"
 									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
 									target="_blank">Create from template</Button
@@ -311,8 +311,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler

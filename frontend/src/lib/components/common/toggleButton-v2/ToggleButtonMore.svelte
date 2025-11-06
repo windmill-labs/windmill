@@ -13,21 +13,23 @@
 	interface Props {
 		disabled?: boolean
 		small?: boolean
-		light?: boolean
 		id?: string | undefined
 		item?: any | undefined
 		selected?: string | undefined
 		togglableItems: TogglableItem[]
+		btnText?: string
+		class?: string
 	}
 
 	let {
 		disabled = false,
 		small = false,
-		light = false,
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
-		togglableItems
+		togglableItems,
+		btnText,
+		class: className = ''
 	}: Props = $props()
 
 	let items = togglableItems.map((i) => ({
@@ -44,7 +46,7 @@
 <Popover
 	disablePopup={true}
 	notClickable
-	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
+	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer', className)}
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
@@ -55,7 +57,6 @@
 				value={selected ?? ''}
 				{item}
 				{small}
-				{light}
 				{id}
 				label={togglableItems.find((i) => i.value === selected)?.label}
 				{tooltip}
@@ -63,7 +64,7 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 {items} />
+			<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
 		</div>
 	</div>
 </Popover>

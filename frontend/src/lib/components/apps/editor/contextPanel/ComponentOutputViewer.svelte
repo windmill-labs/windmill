@@ -52,7 +52,7 @@
 
 {#if render && object != undefined && Object.keys(object).length > 0}
 	{#if $hasResult[componentId] || $search == ''}
-		<div class="pl-2 !cursor-pointer" data-connection-button>
+		<div class="pl-2 !cursor-pointer component-output-viewer-{componentId}" data-connection-button>
 			<ObjectViewer
 				json={filtered}
 				on:select
@@ -63,8 +63,8 @@
 			/>
 		</div>
 	{:else if $search.length > 0}
-		<div class="text-xs pl-2 text-tertiary">No results</div>
+		<div class="text-xs pl-2 text-primary">No results</div>
 	{:else}
-		<div class="text-xs pl-2 text-tertiary">No outputs</div>
+		<div class="text-xs pl-2 text-primary">No outputs</div>
 	{/if}
 {/if}

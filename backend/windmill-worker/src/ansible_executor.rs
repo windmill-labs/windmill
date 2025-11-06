@@ -13,6 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
+    git_sync_oss::{prepend_token_to_github_url},
     worker::{
         is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
         Connection, WORKER_CONFIG,
@@ -20,7 +21,9 @@ use windmill_common::{
 };
 use windmill_queue::MiniPulledJob;
 
-use windmill_parser_yaml::{AnsibleRequirements, GitRepo, ResourceOrVariablePath};
+use windmill_parser_yaml::{
+    AnsibleRequirements, GitRepo, PreexistingAnsibleInventory, ResourceOrVariablePath,
+};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -93,6 +96,7 @@ async fn clone_repo(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -112,7 +116,8 @@ async fn clone_repo(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
+        let checkout_cmd_child =
+            start_child_process(checkout_cmd, GIT_PATH.as_str(), false).await?;
         handle_child(
             job_id,
             conn,
@@ -126,6 +131,7 @@ async fn clone_repo(
             None,
             false,
             &mut Some(occupancy_metrics),
+            None,
             None,
         )
         .await?;
@@ -232,6 +238,7 @@ async fn clone_repo_without_history(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -249,7 +256,8 @@ async fn clone_repo_without_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str(), false).await?;
+    let add_remote_cmd_child =
+        start_child_process(add_remote_cmd, GIT_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -263,6 +271,7 @@ async fn clone_repo_without_history(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -296,6 +305,7 @@ async fn clone_repo_without_history(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -327,6 +337,7 @@ async fn clone_repo_without_history(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -462,6 +473,7 @@ pub async fn install_galaxy_collections(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -484,7 +496,8 @@ pub async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
+    let child =
+        start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -498,6 +511,7 @@ pub async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -874,16 +888,41 @@ pub async fn handle_ansible_job(
 
     let inventories: Vec<String> = reqs
         .as_ref()
-        .map(|x| {
-            x.inventories
+        .map(|x| -> Result<Vec<String>, _> {
+            let mut ret: Vec<String> = x
+                .inventories
                 .clone()
                 .iter()
                 .flat_map(|i| vec!["-i".to_string(), i.name.clone()].into_iter())
-                .collect()
+                .collect();
+
+            let additional: Vec<String> = x
+                .additional_inventories
+                .iter()
+                .map(|i| match i {
+                    PreexistingAnsibleInventory::Static(name) => Ok(Some(vec![name.clone()])),
+                    PreexistingAnsibleInventory::PassedInArgs(inv_def) => interpolated_args
+                        .as_ref()
+                        .and_then(|args| args.get(&inv_def.name))
+                        .and_then(|v| serde_json::from_str(v.get()).transpose())
+                        .transpose(),
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .flatten()
+                .flat_map(|name| vec!["-i".to_string(), name])
+                .collect();
+
+            ret.extend(additional);
+            Ok::<_, windmill_common::error::Error>(ret)
         })
+        .transpose()?
         .unwrap_or_else(|| vec![]);
 
     let mut nsjail_extra_mounts = vec![];
+    let mut playbook_override = None;
+
     if let Some(r) = reqs.as_ref() {
         nsjail_extra_mounts = create_file_resources(
             &job.id,
@@ -895,6 +934,106 @@ pub async fn handle_ansible_job(
             conn,
         )
         .await?;
+
+        if let Some(delegated_git_repo) = r.delegate_to_git_repo.as_ref() {
+            let serde_json::Value::Object(git_repo_resource) = client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &delegated_git_repo.resource,
+                    Some(job.id.to_string()),
+                )
+                .await?
+            else {
+                return Err(windmill_common::error::Error::BadRequest(
+                    "Git repository resource is not an object".to_string(),
+                ));
+            };
+
+            let mut secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
+                .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
+
+            #[cfg(feature = "enterprise")]
+            let is_github_app = git_repo_resource.get("is_github_app").and_then(|s| s.as_bool())
+                .ok_or(anyhow!("Failed to get `is_github_app` field from git repo resource, please check that the resource has the correct type (git_repository)"))?;
+
+            #[cfg(feature = "enterprise")]
+            if is_github_app {
+                if let Connection::Sql(db) = conn {
+                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(db, &client.token).await?;
+                    secret_url = prepend_token_to_github_url(&secret_url, &token)?;
+                } else {
+                    return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
+                }
+            }
+
+            let branch = Some(git_repo_resource.get("branch").and_then(|s| s.as_str()).map(|s| s.to_string())
+                .ok_or(anyhow!("Failed to get branch from git repo resource, please check that the resource has the correct type (git_repository)"))?).filter(|s| !s.is_empty());
+
+            let target_path = "delegate_git_repository".to_string();
+
+            let repo =
+                GitRepo { url: secret_url, commit: delegated_git_repo.commit.clone(), branch, target_path };
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\nCloning {}...\n", delegated_git_repo.resource),
+                conn,
+            )
+            .await;
+            if let Some(commit) = delegated_git_repo.commit.as_ref() {
+                clone_repo_without_history(
+                    &repo,
+                    commit,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            } else {
+                clone_repo(
+                    &repo,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            }
+
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!(
+                    "Cloned {} into {}\n",
+                    delegated_git_repo.resource, &repo.target_path
+                ),
+                conn,
+            )
+            .await;
+
+            playbook_override = Some(
+                delegated_git_repo
+                    .playbook
+                    .as_ref()
+                    .map(|p| format!("{}/{}", &repo.target_path, p)),
+            );
+        }
+
+        if playbook_override.clone().flatten().is_none() && playbook.is_empty() {
+            return Err(windmill_common::error::Error::BadRequest("No playbook was specified. Append a playbook to your script or specify one in the delegate_to_git_repo -> playbook section.".to_string()));
+        }
 
         for repo in &r.git_repos {
             append_logs(
@@ -1049,7 +1188,10 @@ mount {{
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
 
-    let mut cmd_args = vec!["main.yml", "--extra-vars", "@args.json"];
+    let playbook = playbook_override
+        .flatten()
+        .unwrap_or("main.yml".to_string());
+    let mut cmd_args = vec![playbook.as_str(), "--extra-vars", "@args.json"];
     cmd_args.extend(inventories.iter().map(|s| s.as_str()));
     cmd_args.extend(cmd_options.iter().map(|s| s.as_str()));
 
@@ -1132,6 +1274,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

@@ -2,7 +2,7 @@
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
-	import type { TeamInfo, TeamsChannel } from '$lib/gen/types.gen'
+	import type { TeamsChannel } from '$lib/gen/types.gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -96,29 +96,6 @@
 
 		if (nvalues['critical_error_channels'] == undefined) {
 			nvalues['critical_error_channels'] = []
-		} else {
-			let teams = ((await SettingService.getGlobal({ key: 'teams' })) as TeamInfo[]) ?? []
-
-			nvalues['teams'] = teams
-
-			nvalues['critical_error_channels'] = nvalues['critical_error_channels'].map((el) => {
-				if (el.teams_channel) {
-					const team = teams.find((team) => team.team_name === el.teams_channel.team_name) || null
-					return {
-						teams_channel: {
-							team_id: team?.team_id,
-							team_name: team?.team_name,
-							channel_id: team?.channels.find(
-								(channel) => channel.channel_id === el.teams_channel.channel_id
-							)?.channel_id,
-							channel_name: team?.channels.find(
-								(channel) => channel.channel_id === el.teams_channel.channel_id
-							)?.channel_name
-						}
-					}
-				}
-				return el
-			})
 		}
 
 		$values = nvalues
@@ -141,12 +118,20 @@
 			setupSnowflakeUrls()
 		}
 
-		// Remove empty or invalid teams_channel entries
+		// Remove empty or invalid entries for critical error channels
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
-			if (entry && typeof entry == 'object' && 'teams_channel' in entry) {
+			if (!entry || typeof entry !== 'object') return false
+			if ('teams_channel' in entry) {
 				return isValidTeamsChannel(entry.teams_channel)
 			}
-			return true
+			if ('slack_channel' in entry) {
+				return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
+			}
+			if ('email' in entry) {
+				return typeof entry.email === 'string' && entry.email.trim() !== ''
+			}
+			// Unknown shape
+			return false
 		})
 
 		let shouldReloadPage = false
@@ -260,7 +245,7 @@
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
-			<Tab value={category}>{category}</Tab>
+			<Tab value={category} label={category}></Tab>
 		{/each}
 
 		{#snippet content()}
@@ -312,7 +297,7 @@
 							Enable debug mode to get more detailed logs.
 						</div>
 					{:else if category == 'Telemetry'}
-						<div class="text-secondary pb-4 text-xs">
+						<div class="text-primary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
@@ -329,15 +314,14 @@
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
-							<div class="text-secondary pb-4 text-xs">
+							<div class="text-primary pb-4 text-xs">
 								On Enterprise Edition, you must send data to check that usage is in line with the
 								terms of the subscription. You can either enable telemetry or regularly send usage
 								data by clicking the button below.
 							</div>
 							<Button
 								on:click={sendStats}
-								variant="border"
-								color="light"
+								variant="default"
 								btnClasses="w-auto"
 								wrapperClasses="mb-4"
 								loading={sendingStats}
@@ -388,6 +372,6 @@
 </div>
 
 {#if !hideSave}
-	<Button on:click={saveSettings}>Save settings</Button>
+	<Button on:click={saveSettings} variant="accent">Save settings</Button>
 	<div class="pb-8"></div>
 {/if}

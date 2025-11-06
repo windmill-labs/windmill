@@ -12,6 +12,7 @@ use tokio_tungstenite::connect_async;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -40,6 +41,7 @@ impl TriggerCrud for WebsocketTrigger {
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
+        "can_return_error_result",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
@@ -105,13 +107,14 @@ impl TriggerCrud for WebsocketTrigger {
                 url_runnable_args,
                 edited_by,
                 can_return_message,
+                can_return_error_result,
                 email,
                 edited_at,
                 error_handler_path,
                 error_handler_args,
                 retry
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16
             )
             "#,
             w_id,
@@ -128,6 +131,7 @@ impl TriggerCrud for WebsocketTrigger {
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap())) as _,
             authed.username,
             trigger.config.can_return_message,
+            trigger.config.can_return_error_result,
             authed.email,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
@@ -177,14 +181,15 @@ impl TriggerCrud for WebsocketTrigger {
             edited_by = $8,
             email = $9,
             can_return_message = $10,
+            can_return_error_result = $11,
             edited_at = now(),
             server_id = NULL,
             error = NULL,
-            error_handler_path = $13,
-            error_handler_args = $14,
-            retry = $15
+            error_handler_path = $14,
+            error_handler_args = $15,
+            retry = $16
         WHERE
-            workspace_id = $11 AND path = $12
+            workspace_id = $12 AND path = $13
     ",
             trigger.config.url,
             trigger.base.script_path,
@@ -200,6 +205,7 @@ impl TriggerCrud for WebsocketTrigger {
             &authed.username,
             &authed.email,
             trigger.config.can_return_message,
+            trigger.config.can_return_error_result,
             w_id,
             path,
             trigger.error_handling.error_handler_path,
@@ -231,7 +237,7 @@ impl TriggerCrud for WebsocketTrigger {
                         url.starts_with("$flow:"),
                         &db,
                         authed.clone(),
-                        config.url_runnable_args.as_ref(),
+                        config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
                         &workspace_id,
                     )
                     .await?,
