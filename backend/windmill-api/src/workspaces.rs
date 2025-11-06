@@ -50,8 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::git_sync_ee::handle_fork_branch_creation;
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
