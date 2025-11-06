@@ -4226,7 +4226,8 @@ pub async fn run_script_by_path_inner(
         tag,
         timeout,
         None,
-        None,
+        // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
+        if run_query.parent_job.is_some() || run_query.root_job.is_some() { Some(2) } else { None },
         push_authed.as_ref(),
         false,
         None,
