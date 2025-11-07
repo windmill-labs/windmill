@@ -188,7 +188,7 @@
 	<FlowCard {noEditor} title="Flow Env Variables">
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Flow Env Variables" class="m-4">
-				Environment variables can be referenced in any flow step input using the syntax{' '}
+				Flow envs can be referenced in any flow step input using the syntax{' '}
 				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
 				variables are available in the property picker and can be used in JavaScript expressions and
 				input bindings. You can choose between String or JSON types for each variable - JSON types
@@ -196,9 +196,9 @@
 			</Alert>
 
 			{#if flowEnvEntries.length === 0}
-				<Alert type="warning" title="No environment variables" class="m-4">
-					This flow has no environment variables defined. Click "Add Variable" to create your first
-					flow environment variable.
+				<Alert type="warning" title="No flow env variables" class="m-4">
+					This flow has no flow env variables defined. Click "Add Variable" to create your first
+					flow env variable.
 				</Alert>
 			{:else}
 				<div class="space-y-4 p-4">
