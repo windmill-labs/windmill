@@ -49,14 +49,14 @@ jobs:
                - **Bug Fixes**: PRs with titles starting with "fix:", "bug:", or containing "fix", "resolve", "patch"
                - **Other**: All remaining PRs (improvements, refactors, docs, chores, etc.)
 
-            4. **Gather Details**: For each merged PR, include:
+            4. **Gather Details**: For each feature and bug fix merged PR, include:
                - Full PR title (NO truncation, NO links)
                - Author (extract login from author.login in JSON)
                - Brief summary: Use `gh pr view <number> --json body` to get PR description, then extract first paragraph or key points (1-2 sentences max)
 
             5. **Character Limit Enforcement**:
-               - The final summary MUST be under 6000 characters
-               - If the summary exceeds 6000 characters, truncate PR descriptions (NOT titles) and add at the end: "_and X more PRs_" where X is the count of omitted PRs
+               - The final summary MUST be under 5000 characters
+               - If the summary exceeds 5000 characters, truncate PR descriptions (NOT titles) and add at the end: "_and X more PRs_" where X is the count of omitted PRs
 
             6. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
                - Save the complete formatted markdown to: `summary.md`
@@ -65,23 +65,19 @@ jobs:
             ## Output Format:
 
             ```markdown
-            #### 📈 Weekly overview
+            ### 📈 Weekly overview
             - **Total merged**: X
             - **Features**: Y
             - **Bug Fixes**: Z
             - **Other**: W
 
-            #### ✨ Features (Y)
-            • **[Full PR Title]** by @username - [brief impact description]
-            • **[Full PR Title]** by @username - [brief impact description]
+            ### ✨ Features (Y)
+            - **[Full PR Title]** by @username - [brief impact description]
+            - **[Full PR Title]** by @username - [brief impact description]
 
-            #### 🐛 Bug Fixes (Z)
-            • **[Full PR Title]** by @username - [brief impact description]
-            • **[Full PR Title]** by @username - [brief impact description]
-
-            #### 🔧 Other (W)
-            • **[Full PR Title]** by @username - [brief impact description]
-            • **[Full PR Title]** by @username - [brief impact description]
+            ### 🐛 Bug Fixes (Z)
+            - **[Full PR Title]** by @username - [brief impact description]
+            - **[Full PR Title]** by @username - [brief impact description]
 
             _and X more PRs_
             ```
@@ -89,9 +85,9 @@ jobs:
             ## Important Notes:
             - **CRITICAL**: ONLY include PRs with state "merged" from the last 7 days
             - **CRITICAL**: EXCLUDE all PRs with titles starting with "chore: release" or "chore(release)"
-            - **CRITICAL**: Total character count MUST be under 6000 characters
-            - Only use #### markdown headers for major sections and emoji indicators
-            - Use bullet points (•) for individual PR entries - more compact than paragraphs
+            - **CRITICAL**: Total character count MUST be under 5000 characters
+            - Count the number of "Other" PRs but do not include a section for them in the output
+            - Only use ### markdown headers for major sections and emoji indicators
             - NO links to PRs
             - NO merged date in output
             - NEVER truncate PR titles - show full titles
@@ -100,7 +96,7 @@ jobs:
             - If a PR has no description, write "(No description provided)"
             - Extract meaningful summary from PR body - look for the first paragraph or key bullet points
             - Parse JSON responses carefully using `jq` or similar tools
-            - If summary exceeds 6000 chars, shorten PR descriptions and add "_and X more PRs_" at the end
+            - If summary exceeds 5000 chars, shorten PR descriptions and add "_and X more PRs_" at the end
             - Count PRs in each category and display in both overview and section headers
 
             ## Saving the Markdown Output:
