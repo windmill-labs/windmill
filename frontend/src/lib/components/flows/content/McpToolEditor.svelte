@@ -173,7 +173,6 @@
 								bind:value={tool.value.include_tools}
 								items={toolOptions}
 								placeholder="Choose tools to include..."
-								disablePortal
 							/>
 						</Label>
 					</div>
@@ -183,7 +182,6 @@
 								bind:value={tool.value.exclude_tools}
 								items={toolOptions}
 								placeholder="Choose tools to exclude..."
-								disablePortal
 							/>
 						</Label>
 					</div>

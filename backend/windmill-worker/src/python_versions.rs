@@ -12,6 +12,7 @@ use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
+    lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     worker::Connection,
 };
 
@@ -22,7 +23,6 @@ use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
     python_executor::{PYTHON_PATH, UV_PATH},
-    worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
 };
 

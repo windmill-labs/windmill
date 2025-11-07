@@ -1095,7 +1095,6 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
-    // fallback to flow_innermost_root_job and parent_job as root_job is not set if equal to innermost root job or parent job
     job.root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job)
