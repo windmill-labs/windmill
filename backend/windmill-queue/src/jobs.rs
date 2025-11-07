@@ -35,6 +35,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -5660,15 +5661,20 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
                     });
 
-                    let new_hash = windmill_common::scripts::clone_script(
+                    let cloned_script = windmill_common::scripts::clone_script(
                         base_hash,
                         &job.workspace_id,
                         deployment_message,
                         &mut tx,
                     )
                     .await?;
-
-                    new_hash
+                    if is_generated_from_raw_requirements(&Some(cloned_script.old_script.language), &cloned_script.old_script.lock.map(|v| v.to_string())) {
+                        return Err(Error::BadRequest(format!(
+                            "Script at path {} is generated from raw requirements, not overriding",
+                            job.runnable_path()
+                        )));
+                    }
+                    cloned_script.new_hash
                 }
                 JobKind::FlowDependencies => {
                     sqlx::query_scalar!(
