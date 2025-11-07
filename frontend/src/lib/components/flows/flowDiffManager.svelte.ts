@@ -252,7 +252,7 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Accept a module action (keep the changes)
-	 * Simplified version - just marks as not pending
+	 * Removes the action from tracking after acceptance
 	 */
 	function acceptModule(id: string, options: AcceptModuleOptions = {}) {
 		if (!beforeFlow) {
@@ -268,12 +268,11 @@ export function createFlowDiffManager() {
 			deleteModuleFromFlow(actualId, options.flowStore)
 		}
 
-		// Mark as decided (no longer pending)
+		// Remove the action from tracking (no longer needs user decision)
 		if (moduleActions[id]) {
-			updateModuleActions({
-				...moduleActions,
-				[id]: { ...moduleActions[id], pending: false }
-			})
+			const newActions = { ...moduleActions }
+			delete newActions[id]
+			updateModuleActions(newActions)
 		}
 
 		// Check if all actions are decided and clear snapshot if so
@@ -282,7 +281,7 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Reject a module action (revert the changes)
-	 * Simplified version - reverts changes and marks as not pending
+	 * Removes the action from tracking after rejection
 	 */
 	function rejectModule(id: string, options: RejectModuleOptions = {}) {
 		if (!beforeFlow) {
@@ -324,12 +323,11 @@ export function createFlowDiffManager() {
 			refreshStateStore(options.flowStore)
 		}
 
-		// Mark as decided
+		// Remove the action from tracking (no longer needs user decision)
 		if (moduleActions[id]) {
-			updateModuleActions({
-				...moduleActions,
-				[id]: { ...moduleActions[id], pending: false }
-			})
+			const newActions = { ...moduleActions }
+			delete newActions[id]
+			updateModuleActions(newActions)
 		}
 
 		// Check if all actions are decided and clear snapshot if so
@@ -373,11 +371,10 @@ export function createFlowDiffManager() {
 	}
 
 	/**
-	 * Check if all module actions are decided (not pending) and clear snapshot if so
+	 * Check if all module actions are decided (removed) and clear snapshot if so
 	 */
 	function checkAndClearSnapshot() {
-		const allDecided = Object.values(moduleActions).every((info) => !info.pending)
-		if (allDecided) {
+		if (Object.keys(moduleActions).length === 0) {
 			clearSnapshot()
 		}
 	}
