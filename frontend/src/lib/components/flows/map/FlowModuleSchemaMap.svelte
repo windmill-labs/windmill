@@ -113,8 +113,16 @@
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		customUi,
+		selectedId,
+		moving,
+		history,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		currentEditor
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -315,6 +323,49 @@
 		return graph?.isNodeVisible(nodeId) ?? false
 	}
 
+	// Register onChange callback to propagate moduleActions changes to graph
+	$effect(() => {
+		flowDiffManager.setOnChange((actions) => {
+			graph?.setModuleActions(actions)
+		})
+	})
+
+	// Handle accept module action
+	function handleAcceptModule(moduleId: string) {
+		flowDiffManager.acceptModule(moduleId, {
+			flowStore,
+			selectNextId,
+			onDelete,
+			onScriptAccept: (moduleId) => {
+				const editor = $currentEditor
+				if (editor?.type === 'script' && editor.stepId === moduleId) {
+					const handler = editor.editor.getAiChatEditorHandler()
+					handler?.keepAll({ disableReviewCallback: true })
+				}
+			}
+		})
+	}
+
+	// Handle reject module action
+	function handleRejectModule(moduleId: string) {
+		flowDiffManager.rejectModule(moduleId, {
+			flowStore,
+			onScriptRevert: (moduleId, originalContent) => {
+				const editor = $currentEditor
+				if (editor?.type === 'script' && editor.stepId === moduleId) {
+					const handler = editor.editor.getAiChatEditorHandler()
+					handler?.revertAll({ disableReviewCallback: true })
+				}
+			},
+			onHideDiffMode: () => {
+				const editor = $currentEditor
+				if (editor?.type === 'script') {
+					editor.hideDiffMode()
+				}
+			}
+		})
+	}
+
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -488,8 +539,8 @@
 			{flowHasChanged}
 			diffBeforeFlow={flowDiffManager.beforeFlow}
 			onShowModuleDiff={handleShowModuleDiff}
-			{onAcceptModule}
-			{onRejectModule}
+			onAcceptModule={onAcceptModule ?? handleAcceptModule}
+			onRejectModule={onRejectModule ?? handleRejectModule}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)

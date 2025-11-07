@@ -44,27 +44,17 @@ export type ModuleActionInfo = {
 /**
  * Helper interface for AI chat flow operations
  *
- * Note: Flow diff management methods delegate to flowDiffManager under the hood,
- * providing a unified interface for AI chat while keeping diff logic reusable.
+ * Note: AI chat is only responsible for setting the beforeFlow snapshot when making changes.
+ * Accept/reject operations are handled directly by the UI via flowDiffManager.
  */
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
 	getModules: (id?: string) => FlowModule[]
 
-	// flow diff management (delegates to flowDiffManager)
-	/** Check if there are any pending changes that need approval */
-	hasDiff: () => boolean
+	// snapshot management (AI sets this when making changes)
 	/** Set a snapshot of the flow before changes for diff tracking */
 	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
-	/** Revert a specific module change (reject the modification) */
-	revertModuleAction: (id: string) => void
-	/** Accept a specific module change (keep the modification) */
-	acceptModuleAction: (id: string) => void
-	/** Accept all pending module changes */
-	acceptAllModuleActions: () => void
-	/** Reject all pending module changes */
-	rejectAllModuleActions: () => void
 	/** Revert the entire flow to a previous snapshot */
 	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
 

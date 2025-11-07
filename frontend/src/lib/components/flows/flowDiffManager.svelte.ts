@@ -11,7 +11,7 @@ import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 import { buildFlowTimeline, type FlowTimeline } from './flowDiff'
 import { refreshStateStore, type StateStore } from '$lib/svelte5Utils.svelte'
-import { getModule, getIndexInNestedModules } from '../copilot/chat/flow/utils'
+import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
 
 /**
@@ -61,9 +61,25 @@ export function createFlowDiffManager() {
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
 
 	// Derived: whether there are any pending changes
-	const hasPendingChanges = $derived(
-		Object.values(moduleActions).some((info) => info.pending)
-	)
+	const hasPendingChanges = $derived(Object.values(moduleActions).some((info) => info.pending))
+
+	// onChange callback for notifying listeners when moduleActions change
+	let onChangeCallback: ((actions: Record<string, ModuleActionInfo>) => void) | undefined
+
+	/**
+	 * Register a callback to be notified when moduleActions change
+	 */
+	function setOnChange(callback: (actions: Record<string, ModuleActionInfo>) => void) {
+		onChangeCallback = callback
+	}
+
+	/**
+	 * Helper to update moduleActions and notify listeners
+	 */
+	function updateModuleActions(newActions: Record<string, ModuleActionInfo>) {
+		moduleActions = newActions
+		onChangeCallback?.(newActions)
+	}
 
 	/**
 	 * Set the before flow snapshot for diff computation
@@ -77,7 +93,7 @@ export function createFlowDiffManager() {
 	 */
 	function clearSnapshot() {
 		beforeFlow = undefined
-		moduleActions = {}
+		updateModuleActions({})
 	}
 
 	/**
@@ -104,7 +120,7 @@ export function createFlowDiffManager() {
 		})
 
 		// Update module actions with the computed diff
-		moduleActions = timeline.afterActions
+		updateModuleActions(timeline.afterActions)
 
 		return timeline
 	}
@@ -113,7 +129,7 @@ export function createFlowDiffManager() {
 	 * Set module actions directly (useful when actions are computed elsewhere)
 	 */
 	function setModuleActions(actions: Record<string, ModuleActionInfo>) {
-		moduleActions = actions
+		updateModuleActions(actions)
 	}
 
 	/**
@@ -139,7 +155,11 @@ export function createFlowDiffManager() {
 	/**
 	 * Helper to delete a module from the flow
 	 */
-	function deleteModuleFromFlow(id: string, flowStore: StateStore<ExtendedOpenFlow>, selectNextIdFn?: (id: string) => void) {
+	function deleteModuleFromFlow(
+		id: string,
+		flowStore: StateStore<ExtendedOpenFlow>,
+		selectNextIdFn?: (id: string) => void
+	) {
 		selectNextIdFn?.(id)
 
 		if (id === 'preprocessor') {
@@ -161,6 +181,7 @@ export function createFlowDiffManager() {
 	 * Accept a module action (keep the changes)
 	 */
 	function acceptModule(id: string, options: AcceptModuleOptions) {
+		console.log('acceptModule', id)
 		// Handle __ prefixed IDs for type-changed modules
 		const actualId = id.startsWith('__') ? id.substring(2) : id
 		const info = moduleActions[id]
@@ -182,10 +203,10 @@ export function createFlowDiffManager() {
 
 		// Mark as decided (no longer pending)
 		if (moduleActions[id]) {
-			moduleActions = {
+			updateModuleActions({
 				...moduleActions,
 				[id]: { ...moduleActions[id], pending: false }
-			}
+			})
 		}
 
 		// Check if all actions are decided and clear snapshot if so
@@ -225,10 +246,7 @@ export function createFlowDiffManager() {
 			}
 
 			// Apply the old code to the editor for rawscripts
-			if (
-				newModule.value.type === 'rawscript' &&
-				oldModule.value.type === 'rawscript'
-			) {
+			if (newModule.value.type === 'rawscript' && oldModule.value.type === 'rawscript') {
 				options.onScriptRevert?.(actualId, oldModule.value.content ?? '')
 				options.onHideDiffMode?.()
 			}
@@ -242,10 +260,10 @@ export function createFlowDiffManager() {
 
 		// Mark as decided
 		if (moduleActions[id]) {
-			moduleActions = {
+			updateModuleActions({
 				...moduleActions,
 				[id]: { ...moduleActions[id], pending: false }
-			}
+			})
 		}
 
 		// Check if all actions are decided and clear snapshot if so
@@ -300,9 +318,15 @@ export function createFlowDiffManager() {
 
 	return {
 		// State accessors
-		get beforeFlow() { return beforeFlow },
-		get moduleActions() { return moduleActions },
-		get hasPendingChanges() { return hasPendingChanges },
+		get beforeFlow() {
+			return beforeFlow
+		},
+		get moduleActions() {
+			return moduleActions
+		},
+		get hasPendingChanges() {
+			return hasPendingChanges
+		},
 
 		// Snapshot management
 		setSnapshot,
@@ -315,6 +339,7 @@ export function createFlowDiffManager() {
 		// Module actions management
 		setModuleActions,
 		getModuleActions,
+		setOnChange,
 
 		// Accept/reject operations
 		acceptModule,

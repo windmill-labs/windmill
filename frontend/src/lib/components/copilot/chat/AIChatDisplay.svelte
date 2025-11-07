@@ -212,7 +212,8 @@
 					Stop
 				</Button>
 			</div>
-		{:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
+		{/if}
+		<!-- {:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
@@ -237,7 +238,7 @@
 					Reject all
 				</Button>
 			</div>
-		{/if}
+		{/if} -->
 		<div class="px-2">
 			<AIChatInput
 				bind:this={aiChatInput}
