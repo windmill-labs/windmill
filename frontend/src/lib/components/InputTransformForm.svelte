@@ -159,7 +159,13 @@
 
 	function getPropertyType(arg: InputTransform | any): PropertyType {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
-		if (isAgentTool && arg?.type === 'static' && arg?.value === undefined) {
+		if (
+			isAgentTool &&
+			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
+		) {
+			if (arg?.type === 'static') {
+				arg.type = 'ai'
+			}
 			return 'ai'
 		}
 
@@ -563,7 +569,7 @@
 								if (e.detail === 'ai') {
 									// Switch to AI mode: static with no value
 									if (arg) {
-										arg.type = 'static'
+										arg.type = 'ai'
 										arg.value = undefined
 										arg.expr = undefined
 									}

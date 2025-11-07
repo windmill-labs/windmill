@@ -643,6 +643,7 @@ pub enum InputTransform {
         #[serde(default = "default_empty_string")]
         expr: String,
     },
+    Ai,
 }
 
 impl InputTransform {
@@ -661,6 +662,7 @@ impl TryFrom<UntaggedInputTransform> for InputTransform {
         let input_transform = match value.type_.as_str() {
             "static" => InputTransform::new_static_value(value.value.unwrap_or_else(default_null)),
             "javascript" => InputTransform::new_javascript_expr(&value.expr.unwrap_or_default()),
+            "ai" => InputTransform::Ai,
             other => {
                 return Err(anyhow::anyhow!(
                     "got value: {other} for field `type`, expected value: `static` or `javascript`"
@@ -816,8 +818,7 @@ pub struct McpToolValue {
     pub exclude_tools: Vec<String>,
 }
 
-fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool
-{
+fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
 }
 
