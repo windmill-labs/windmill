@@ -664,8 +664,6 @@
 																		componentInput={actionButton.componentInput}
 																		{controls}
 																	/>
-																{:else if actionButton.type == 'modalcomponent'}
-																	MODAL
 																{:else if actionButton.type == 'checkboxcomponent'}
 																	<AppCheckbox
 																		noInitialize
@@ -716,8 +714,6 @@
 																	extraQueryParams={{ row: row.original }}
 																	componentInput={actionButton.componentInput}
 																/>
-															{:else if actionButton.type == 'modalcomponent'}
-																MODAL
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
 																	noInitialize
