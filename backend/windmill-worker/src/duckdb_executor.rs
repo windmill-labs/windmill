@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -149,6 +149,7 @@ pub async fn do_duckdb(
                 &token,
                 &base_internal_url,
                 &w_id,
+                collection_strategy,
             )
         })
         .await
@@ -219,6 +220,8 @@ struct DuckDbFfiLib {
             base_internal_url: *const c_char,
             w_id: *const c_char,
             column_order_ptr: *mut *mut c_char,
+            collect_last_only: bool,
+            collect_first_row_only: bool,
         ) -> *mut c_char,
     >,
     free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
@@ -295,6 +298,7 @@ fn run_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
     let query_block_list = query_block_list
         .map(|s| {
@@ -326,13 +330,18 @@ fn run_duckdb_ffi_safe<'a>(
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
             &mut column_order,
+            collection_strategy.collect_last_statement_only(query_block_list_count),
+            collection_strategy.collect_first_row_only(),
         );
         let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
         free_cstr(ptr);
         str
     };
 
-    let column_order = if column_order.is_null() {
+    let column_order = if column_order.is_null()
+        || !collection_strategy.collect_last_statement_only(query_block_list_count)
+        || collection_strategy.collect_scalar()
+    {
         None
     } else {
         let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
@@ -343,7 +352,14 @@ fn run_duckdb_ffi_safe<'a>(
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))
     } else {
-        let result = serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?;
+        let result = if collection_strategy == SqlResultCollectionStrategy::AllStatementsAllRows {
+            // Avoid parsing JSON
+            serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?
+        } else {
+            let result =
+                serde_json::from_str::<Vec<Vec<Box<RawValue>>>>(&result_str).map_err(to_anyhow)?;
+            collection_strategy.collect(result)?
+        };
         Ok((result, column_order))
     }
 }

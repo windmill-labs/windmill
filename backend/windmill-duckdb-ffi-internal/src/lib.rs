@@ -44,6 +44,8 @@ pub extern "C" fn run_duckdb_ffi(
     base_internal_url: *const c_char,
     w_id: *const c_char,
     column_order_ptr: *mut *mut c_char,
+    collect_last_only: bool,
+    collect_first_row_only: bool,
 ) -> *mut c_char {
     let (r, column_order) = match convert_args(
         query_block_list,
@@ -62,6 +64,8 @@ pub extern "C" fn run_duckdb_ffi(
                 token,
                 base_internal_url,
                 w_id,
+                collect_last_only,
+                collect_first_row_only,
             )
         },
     ) {
@@ -161,6 +165,8 @@ fn run_duckdb_internal<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    collect_last_only: bool,
+    collect_first_row_only: bool,
 ) -> Result<(String, Option<Vec<String>>), String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
@@ -197,7 +203,7 @@ fn run_duckdb_internal<'a>(
     ))
     .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))?;
 
-    let mut results: Vec<Box<RawValue>> = vec![];
+    let mut results: Vec<Vec<Box<RawValue>>> = vec![];
     let mut column_order = None;
 
     for (query_block_index, query_block) in query_block_list.enumerate() {
@@ -205,18 +211,18 @@ fn run_duckdb_internal<'a>(
             &conn,
             query_block,
             &job_args,
-            query_block_index != query_block_list_count - 1,
+            if collect_last_only {
+                query_block_index != query_block_list_count - 1
+            } else {
+                false
+            },
+            collect_first_row_only,
             &mut column_order,
         )
         .map_err(|e| e.to_string())?;
         results.push(result);
     }
-    let results = if results.len() == 1 {
-        serde_json::value::to_raw_value(&results.get(0).unwrap())
-    } else {
-        serde_json::value::to_raw_value(&results)
-    }
-    .map_err(|e| e.to_string())?;
+    let results = serde_json::value::to_raw_value(&results).map_err(|e| e.to_string())?;
     Ok((results.get().to_string(), column_order))
 }
 
@@ -225,8 +231,9 @@ fn do_duckdb_inner(
     query: &str,
     job_args: &HashMap<String, duckdb::types::Value>,
     skip_collect: bool,
+    collect_first_row_only: bool,
     column_order: &mut Option<Vec<String>>,
-) -> Result<Box<RawValue>, String> {
+) -> Result<Vec<Box<RawValue>>, String> {
     let mut rows_vec = vec![];
 
     let (query, job_args) = interpolate_named_args(query, &job_args);
@@ -238,7 +245,7 @@ fn do_duckdb_inner(
         .map_err(|e| e.to_string())?;
 
     if skip_collect {
-        return Ok(RawValue::from_string("[]".to_string()).unwrap());
+        return Ok(vec![]);
     }
     // Statement needs to be stepped at least once or stmt.column_names() will panic
     let mut column_names = None;
@@ -278,11 +285,14 @@ fn do_duckdb_inner(
                 return Err(e.to_string());
             }
         }
+        if collect_first_row_only {
+            break;
+        }
     }
 
     *column_order = column_names;
 
-    serde_json::value::to_raw_value(&rows_vec).map_err(|e| e.to_string())
+    Ok(rows_vec)
 }
 
 // duckdb-rs does not support named parameters,
