@@ -308,6 +308,88 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    pub static ref UNSHARE_ISOLATION_FLAGS: String = std::env::var("UNSHARE_ISOLATION_FLAGS")
+        .unwrap_or_else(|_| "--pid --fork --mount-proc".to_string());
+
+    pub static ref UNSHARE_PATH: Option<String> = {
+        // Check if unshare is available AND we have permission to use it
+        // by actually testing if we can create a PID namespace
+        let test_result = std::process::Command::new("unshare")
+            .arg("--pid")
+            .arg("--fork")
+            .arg("--mount-proc")
+            .arg("--")
+            .arg("true")
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("unshare is available and has required permissions for PID namespace isolation");
+                Some("unshare".to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                // If ENABLE_UNSHARE_PID is explicitly set, fail immediately
+                if *ENABLE_UNSHARE_PID {
+                    if stderr.contains("Operation not permitted") || stderr.contains("Permission denied") {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set to true but unshare lacks required permissions.\n\
+                            Error: {}\n\
+                            To fix this:\n\
+                            (1) Run with CAP_SYS_ADMIN capability: setcap cap_sys_admin+ep /path/to/windmill\n\
+                            (2) Run as root (not recommended)\n\
+                            (3) Enable unprivileged user namespaces: sysctl -w kernel.unprivileged_userns_clone=1\n\
+                            (4) Set ENABLE_UNSHARE_PID=false to disable this security feature",
+                            stderr.trim()
+                        );
+                    } else {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set to true but unshare test failed: {}",
+                            stderr.trim()
+                        );
+                    }
+                }
+
+                // If not explicitly enabled, just log and continue
+                if stderr.contains("Operation not permitted") || stderr.contains("Permission denied") {
+                    tracing::warn!(
+                        "unshare binary found but lacks required permissions for PID namespace isolation. \
+                        To use unshare, run with CAP_SYS_ADMIN capability or as root, \
+                        or enable unprivileged user namespaces (kernel.unprivileged_userns_clone=1)"
+                    );
+                } else {
+                    tracing::warn!("unshare test failed: {}", stderr);
+                }
+                None
+            },
+            Err(e) => {
+                // If ENABLE_UNSHARE_PID is explicitly set, fail immediately
+                if *ENABLE_UNSHARE_PID {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set to true but unshare binary not found.\n\
+                            Please install util-linux package or set ENABLE_UNSHARE_PID=false"
+                        );
+                    } else {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set to true but failed to test unshare: {}",
+                            e
+                        );
+                    }
+                }
+
+                // If not explicitly enabled, just log and continue
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::debug!("unshare binary not found, PID namespace isolation unavailable");
+                } else {
+                    tracing::warn!("Failed to test unshare: {}", e);
+                }
+                None
+            }
+        }
+    };
+
     pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -971,6 +1053,17 @@ pub async fn run_worker(
         tracing::warn!(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
+        );
+    }
+
+    // Log PID namespace isolation status
+    // Note: If ENABLE_UNSHARE_PID is true, we've already verified unshare is available
+    // at startup (in UNSHARE_PATH initialization), otherwise the process would have panicked.
+    if *ENABLE_UNSHARE_PID {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "PID namespace isolation enabled via unshare with flags: {}",
+            UNSHARE_ISOLATION_FLAGS.as_str()
         );
     }
 

@@ -406,7 +406,7 @@ try {{
             args.push("-A");
         }
         args.push(&script_path);
-        let enable_isolation = *DISABLE_NSJAIL && *ENABLE_UNSHARE_PID;
+        let enable_isolation = *ENABLE_UNSHARE_PID;
         let mut deno_cmd = build_command_with_isolation(
             DENO_PATH.as_str(),
             &args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
