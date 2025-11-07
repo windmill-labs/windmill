@@ -45,7 +45,6 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { getModuleById } from '$lib/components/copilot/chat/flow/utils'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
-	import { flowDiffManager } from '../flowDiffManager.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -75,8 +74,6 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
 	}
 
 	let {
@@ -106,9 +103,7 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
-		flowHasChanged,
-		onAcceptModule = undefined,
-		onRejectModule = undefined
+		flowHasChanged
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -303,15 +298,19 @@
 	}
 
 	export function setBeforeFlow(flow: ExtendedOpenFlow) {
-		flowDiffManager.setSnapshot(flow)
+		graph?.setBeforeFlow(flow)
 	}
 
 	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
-		flowDiffManager.setModuleActions(actions)
+		graph?.getDiffManager().setModuleActions(actions)
 	}
 
 	export function getModuleActions(): Record<string, ModuleActionInfo> {
-		return flowDiffManager.getModuleActions()
+		return graph?.getDiffManager().getModuleActions() ?? {}
+	}
+
+	export function getDiffManager() {
+		return graph?.getDiffManager()
 	}
 
 	let deleteCallback: (() => void) | undefined = $state(undefined)
@@ -324,38 +323,37 @@
 
 	// Handle accept module action
 	function handleAcceptModule(moduleId: string) {
-		flowDiffManager.acceptModule(moduleId, {
-			flowStore,
-			selectNextId,
-			onDelete,
-			onScriptAccept: (moduleId) => {
-				const editor = $currentEditor
-				if (editor?.type === 'script' && editor.stepId === moduleId) {
-					const handler = editor.editor.getAiChatEditorHandler()
-					handler?.keepAll({ disableReviewCallback: true })
-				}
-			}
-		})
+		const diffManager = graph?.getDiffManager()
+		if (!diffManager) return
+
+		// Accept the module (marks as not pending, deletes removed modules)
+		diffManager.acceptModule(moduleId, { flowStore })
+
+		// Handle editor state separately
+		const editor = $currentEditor
+		if (editor?.type === 'script' && editor.stepId === moduleId) {
+			const handler = editor.editor.getAiChatEditorHandler()
+			handler?.keepAll({ disableReviewCallback: true })
+		}
 	}
 
 	// Handle reject module action
 	function handleRejectModule(moduleId: string) {
-		flowDiffManager.rejectModule(moduleId, {
-			flowStore,
-			onScriptRevert: (moduleId, originalContent) => {
-				const editor = $currentEditor
-				if (editor?.type === 'script' && editor.stepId === moduleId) {
-					const handler = editor.editor.getAiChatEditorHandler()
-					handler?.revertAll({ disableReviewCallback: true })
-				}
-			},
-			onHideDiffMode: () => {
-				const editor = $currentEditor
-				if (editor?.type === 'script') {
-					editor.hideDiffMode()
-				}
-			}
-		})
+		const diffManager = graph?.getDiffManager()
+		if (!diffManager) return
+
+		// Revert the module (reverts changes, marks as not pending)
+		diffManager.rejectModule(moduleId, { flowStore })
+
+		// Handle editor state separately
+		const editor = $currentEditor
+		if (editor?.type === 'script' && editor.stepId === moduleId) {
+			const handler = editor.editor.getAiChatEditorHandler()
+			handler?.revertAll({ disableReviewCallback: true })
+		}
+		if (editor?.type === 'script') {
+			editor.hideDiffMode()
+		}
 	}
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
@@ -529,11 +527,7 @@
 			{showJobStatus}
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
-			diffBeforeFlow={flowDiffManager.beforeFlow}
-			moduleActions={flowDiffManager.moduleActions}
 			onShowModuleDiff={handleShowModuleDiff}
-			onAcceptModule={onAcceptModule ?? handleAcceptModule}
-			onRejectModule={onRejectModule ?? handleRejectModule}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
