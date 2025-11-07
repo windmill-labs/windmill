@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.573.5](https://github.com/windmill-labs/windmill/compare/v1.573.4...v1.573.5) (2025-11-07)
+
+
+### Bug Fixes
+
+* dep jobs improvements ([#7081](https://github.com/windmill-labs/windmill/issues/7081)) ([ad43680](https://github.com/windmill-labs/windmill/commit/ad43680bb979f80db3bdb182ccb5bc61ca385ceb))
+* modal action in App AgGrid ([#7085](https://github.com/windmill-labs/windmill/issues/7085)) ([b07c35f](https://github.com/windmill-labs/windmill/commit/b07c35fe1c9dbc4955ce47766ef92bd5cfdac4c8))
+
+## [1.573.4](https://github.com/windmill-labs/windmill/compare/v1.573.3...v1.573.4) (2025-11-07)
+
+
+### Bug Fixes
+
+* **bun:** support relative imports without .ts but starting with /u/ or /f/ ([9e3ea76](https://github.com/windmill-labs/windmill/commit/9e3ea7657568d6561abcdfd23cc8a210432e4050))
+* create git branch right before creating the workspace fork to catch errors and have a coherent fork point ([#7073](https://github.com/windmill-labs/windmill/issues/7073)) ([192fecc](https://github.com/windmill-labs/windmill/commit/192fecc86f54cf2a69ec7dddc466139b40933ac9))
+* improve priority for child jobs ran from api ([5f7e0b7](https://github.com/windmill-labs/windmill/commit/5f7e0b7244e27533d9a8d1551e8affeb17eb94c0))
+* make it impossible to have non linear script history even in edge condition ([3bda6da](https://github.com/windmill-labs/windmill/commit/3bda6da1683589180cad0780dd87b391a04851f8))
+
+## [1.573.3](https://github.com/windmill-labs/windmill/compare/v1.573.2...v1.573.3) (2025-11-06)
+
+
+### Bug Fixes
+
+* job streaming improvement after compaction ([f16231d](https://github.com/windmill-labs/windmill/commit/f16231d7c9837efa3873034498abc9bfa87575d5))
+
+## [1.573.2](https://github.com/windmill-labs/windmill/compare/v1.573.1...v1.573.2) (2025-11-06)
+
+
+### Bug Fixes
+
+* authentik frontend baseurl field empty when loaded from db ([#7065](https://github.com/windmill-labs/windmill/issues/7065)) ([8cb8650](https://github.com/windmill-labs/windmill/commit/8cb8650460856a1975c6eee429a2771f784a1555))
+* oidc token issue ([75e056b](https://github.com/windmill-labs/windmill/commit/75e056bbce7e00334a36175eed00eb8eba332fbc))
+
+## [1.573.1](https://github.com/windmill-labs/windmill/compare/v1.573.0...v1.573.1) (2025-11-05)
+
+
+### Bug Fixes
+
+* nits hub search and telemetry ([#7063](https://github.com/windmill-labs/windmill/issues/7063)) ([3338a3e](https://github.com/windmill-labs/windmill/commit/3338a3e3c48cbf05c48f0af6754b4c536bcb25f6))
+
+## [1.573.0](https://github.com/windmill-labs/windmill/compare/v1.572.2...v1.573.0) (2025-11-05)
+
+
+### Features
+
+* add groups to user endpoint + set displayname when group created via igroup api ([#7061](https://github.com/windmill-labs/windmill/issues/7061)) ([8667024](https://github.com/windmill-labs/windmill/commit/86670240a773792f4e84cb15af476b9cd2e79c07))
+* hub actions and better search ([#7056](https://github.com/windmill-labs/windmill/issues/7056)) ([1edfdce](https://github.com/windmill-labs/windmill/commit/1edfdce0ddd521819e4cca9dd2e57a20757ad400))
+
+
+### Bug Fixes
+
+* incorrect query arg in hub link ([2303f2c](https://github.com/windmill-labs/windmill/commit/2303f2cca0f65bdf69f246cdad2e0fe0bedb3e6e))
+* **lsp:** fix ruff integration ([0271a9f](https://github.com/windmill-labs/windmill/commit/0271a9f51dfdbda950600d41f59ea18c0dafe7a0))
+
 ## [1.572.2](https://github.com/windmill-labs/windmill/compare/v1.572.1...v1.572.2) (2025-11-04)
 
 

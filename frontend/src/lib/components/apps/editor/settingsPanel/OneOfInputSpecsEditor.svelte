@@ -53,10 +53,19 @@
 		// If the configuration is empty, we set the first one as selected.
 		// It happens when the configuration was added after the component was created
 		if (oneOf.selected === '') {
+			let selected = Object.keys(inputSpecsConfiguration ?? {})[0]
 			oneOf = {
 				configuration: cleanseOneOfConfiguration(inputSpecsConfiguration),
-				selected: Object.keys(inputSpecsConfiguration ?? {})[0],
+				selected,
 				type: 'oneOf'
+			}
+		}
+		if (oneOf.selected && Object.keys(oneOf.configuration).length > 1) {
+			oneOf = {
+				...oneOf,
+				configuration: {
+					[oneOf.selected]: cleanseOneOfConfiguration(inputSpecsConfiguration)?.[oneOf.selected]
+				}
 			}
 		}
 	})
@@ -79,7 +88,15 @@
 			{/if}
 		</div>
 		<Select
-			bind:value={() => oneOf.selected, (selected) => (oneOf = { ...oneOf, selected })}
+			bind:value={
+				() => oneOf.selected,
+				(selected) =>
+					(oneOf = {
+						...oneOf,
+						configuration: { selected: inputSpecsConfiguration[selected] },
+						selected
+					})
+			}
 			items={Object.keys(inputSpecsConfiguration ?? {})
 				.filter(
 					(choice) =>
@@ -89,6 +106,8 @@
 				)
 				.map((choice) => ({ label: labels?.[choice] ?? choice, value: choice }))}
 		/>
+		<!-- {JSON.stringify(inputSpecsConfiguration)} -->
+		<!-- {JSON.stringify(oneOf.configuration)} -->
 
 		{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
 			<div class="mb-4"></div>

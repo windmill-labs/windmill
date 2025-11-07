@@ -322,16 +322,23 @@ async fn execute_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if let InputTransform::Static { value } = transform {
-            let val = value.get().trim();
-            if val.is_empty() || val == "null" {
+        match transform {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                if val.is_empty() || val == "null" {
+                    continue;
+                }
+            }
+            InputTransform::Ai => {
                 continue;
             }
+            _ => (),
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
             transform,
             last_result.clone(),
             flow_inputs.clone(),
+            None,
             Some(ctx.client),
             ctx.id_context.as_ref(),
         )

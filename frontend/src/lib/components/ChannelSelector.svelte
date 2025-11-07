@@ -18,6 +18,7 @@
 		channels?: ChannelItem[]
 		teamId?: string
 		onError?: (error: Error) => void
+		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
 	}
 
 	let {
@@ -28,34 +29,56 @@
 		minWidth = '160px',
 		channels = undefined,
 		teamId,
-		onError
+		onError,
+		onSelectedChannelChange
 	}: Props = $props()
 
 	let isFetching = $state(false)
 	let searchResults = $state<ChannelItem[]>([])
 
-	// Only enable search mode if no channels are provided AND teamId is provided
+	let selectedChannelId = $state<string | undefined>(selectedChannel?.channel_id)
+
 	const searchMode = !channels && !!teamId
 
-	// Determine which channels to show: provided channels or search results
-	// In search mode, include the selected channel if it exists
-	let displayChannels = $derived(() => {
-		const baseChannels = channels || searchResults;
-		if (searchMode && selectedChannel && !baseChannels.find(c => c.channel_id === selectedChannel?.channel_id)) {
-			return [selectedChannel, ...baseChannels];
+	let displayChannels = $derived.by(() => {
+		const baseChannels = channels || searchResults
+		if (selectedChannel && !baseChannels.find(c => c.channel_id === selectedChannel?.channel_id)) {
+			return [selectedChannel, ...baseChannels]
 		}
-		return baseChannels;
+		return baseChannels
 	})
 
-	// Create separate filter text for search mode
+	$effect(() => {
+		const newChannel = selectedChannelId
+			? displayChannels.find(c => c.channel_id === selectedChannelId)
+			: undefined
+
+		if (newChannel?.channel_id !== selectedChannel?.channel_id) {
+			selectedChannel = newChannel
+		}
+	})
+
+	$effect(() => {
+		if (selectedChannel?.channel_id !== selectedChannelId) {
+			selectedChannelId = selectedChannel?.channel_id
+		}
+	})
+
+	let previousChannelId = $state<string | undefined>(undefined)
+
+	$effect(() => {
+		if (selectedChannel?.channel_id !== previousChannelId) {
+			previousChannelId = selectedChannel?.channel_id
+			onSelectedChannelChange?.(selectedChannel)
+		}
+	})
+
 	let searchFilterText = $state('')
 
-	// Debounced search function
 	const debouncedSearch = debounce(async (query: string) => {
 		await searchChannels(query)
 	}, 500)
 
-	// Watch for search filter text changes (only in search mode)
 	$effect(() => {
 		if (searchMode) {
 			if (searchFilterText.length >= 1) {
@@ -97,37 +120,27 @@
 			{#if searchMode}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={searchFilterText.length >= 1 || (searchFilterText.length === 0 && selectedChannel) ? displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
+					items={displayChannels.filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
 						label: channel.channel_name ?? 'Unknown Channel',
 						value: channel.channel_id ?? ''
-					})) : []}
+					}))}
 					placeholder={isFetching ? "Searching..." : (teamId ? "Search channels..." : "Select a team first")}
 					clearable
 					disabled={disabled || isFetching || !teamId}
 					bind:filterText={searchFilterText}
-					bind:value={
-						() => selectedChannel?.channel_id,
-						(value) => {
-							selectedChannel = value ? displayChannels().find((channel) => channel.channel_id === value) : undefined
-						}
-					}
+					bind:value={selectedChannelId}
 				/>
 			{:else}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
+					items={displayChannels.filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
 						label: channel.channel_name ?? 'Unknown Channel',
 						value: channel.channel_id ?? ''
 					}))}
 					{placeholder}
 					clearable
-					disabled={disabled || displayChannels().length === 0}
-					bind:value={
-						() => selectedChannel?.channel_id,
-						(value) => {
-							selectedChannel = value ? displayChannels().find((channel) => channel.channel_id === value) : undefined
-						}
-					}
+					disabled={disabled || displayChannels.length === 0}
+					bind:value={selectedChannelId}
 				/>
 			{/if}
 		</div>

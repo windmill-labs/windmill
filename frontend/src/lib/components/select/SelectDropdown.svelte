@@ -169,10 +169,7 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div
-					bind:this={listEl}
-					class="flex flex-col max-h-64 rounded-md overflow-clip bg-surface-tertiary"
-				>
+				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-tertiary">
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
