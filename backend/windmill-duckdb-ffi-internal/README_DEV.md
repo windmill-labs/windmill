@@ -12,4 +12,4 @@ INSERT INTO t VALUES (NULL);
 
 causes `Constraint Error: NOT NULL constraint failed: t.x` normally, but here we see `Unknown exception in ExecutorTask::Execute`. This opaque errors comes directly from the C++ DuckDB library : https://github.com/duckdb/duckdb/blob/f99fed1e0b16a842573f9dad529f6c170a004f6e/src/parallel/executor_task.cpp#L58
 
-To solve this, we compile duckdb separately from the main backend crate and call it with FFI
+To solve this, we compile duckdb separately from the main backend crate and call it with FFI. It has to be loaded dynamically, if it is loaded statically it will still share lib c++ with deno_core and cause issues.

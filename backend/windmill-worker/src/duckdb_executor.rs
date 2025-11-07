@@ -40,7 +40,13 @@ pub async fn do_duckdb(
     parent_runnable_path: Option<String>,
 ) -> Result<Box<RawValue>> {
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
-    let collection_strategy = annotations.result_collection;
+    let collection_strategy =
+        if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+            // Before result_collection was introduced, duckdb ignored all statements results except the last one
+            SqlResultCollectionStrategy::LastStatementAllRows
+        } else {
+            annotations.result_collection
+        };
     if annotations.return_last_result {
         return Err(Error::ExecutionErr(
             "return_last_result annotation is deprecated, use result_collection=last_statement_all_rows instead".to_string(),
