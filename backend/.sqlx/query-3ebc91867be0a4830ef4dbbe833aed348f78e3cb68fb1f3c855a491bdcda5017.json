@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            auto_add_instance_groups_roles\n        FROM workspace_settings\n        WHERE\n            auto_add_instance_groups IS NOT NULL\n            AND $1 = ANY(auto_add_instance_groups)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "auto_add_instance_groups_roles",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "3ebc91867be0a4830ef4dbbe833aed348f78e3cb68fb1f3c855a491bdcda5017"
+}

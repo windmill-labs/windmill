@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_ping",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "fec3144df0d33bf8cfd4a629d85ba58d79f523994e75b7b4631f493d12933152"
+}

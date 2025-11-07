@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            jsonb_strip_nulls(jsonb_build_object(\n                'path', asset.path,\n                'kind', asset.kind,\n                'usages', ARRAY_AGG(jsonb_build_object(\n                    'path', asset.usage_path,\n                    'kind', asset.usage_kind,\n                    'access_type', asset.usage_access_type\n                )),\n                'metadata', (CASE\n                  WHEN asset.kind = 'resource' THEN\n                    jsonb_build_object('resource_type', resource.resource_type)\n                  ELSE\n                    NULL\n                  END\n                )\n            )) as \"list!: _\"\n        FROM asset\n        LEFT JOIN resource ON asset.kind = 'resource' AND asset.path = resource.path AND resource.workspace_id = $1\n        WHERE asset.workspace_id = $1\n          AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)\n          AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))\n          AND (asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))\n          GROUP BY asset.path, asset.kind, resource.resource_type\n        ORDER BY asset.path, asset.kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "list!: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "92f03f4df5e86eb40b255ad0f2cc85e0302c37b0f312366098104cd280a91ef6"
+}

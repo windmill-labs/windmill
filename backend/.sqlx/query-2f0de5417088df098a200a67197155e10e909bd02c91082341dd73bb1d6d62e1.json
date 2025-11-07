@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f0de5417088df098a200a67197155e10e909bd02c91082341dd73bb1d6d62e1"
+}
