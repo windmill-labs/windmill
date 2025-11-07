@@ -2,7 +2,6 @@
 	import { FlowService, type FlowModule, type Job, type OpenFlow } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
-	import { buildFlowTimeline, hasInputSchemaChanged } from '../flows/flowDiff'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -231,6 +230,7 @@
 			// Set snapshot from diffBeforeFlow
 			diffManager.setSnapshot(diffBeforeFlow)
 			diffManager.setInputSchemas(diffBeforeFlow.schema, currentInputSchema)
+			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
 
 			// Set afterFlow from current modules
 			const afterFlowValue = {
@@ -454,12 +454,14 @@
 		effectiveModuleActions['Input']?.action === 'modified'
 	)
 
-	// Use raw modules (diffManager handles merging internally via auto-computation)
-	let effectiveModules = $derived(modules)
+	// Use merged flow when in diff mode (includes removed modules), otherwise use raw modules
+	let effectiveModules = $derived(diffManager.mergedFlow?.modules ?? modules)
 
-	let effectiveFailureModule = $derived(failureModule)
+	let effectiveFailureModule = $derived(diffManager.mergedFlow?.failure_module ?? failureModule)
 
-	let effectivePreprocessorModule = $derived(preprocessorModule)
+	let effectivePreprocessorModule = $derived(
+		diffManager.mergedFlow?.preprocessor_module ?? preprocessorModule
+	)
 
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = new ChangeTracker($state.snapshot(effectiveModules))

@@ -50,9 +50,15 @@ export function createFlowDiffManager() {
 	// State: current flow after changes
 	let afterFlow = $state<FlowValue | undefined>(undefined)
 
+	// State: merged flow containing both original and modified/removed modules
+	let mergedFlow = $state<FlowValue | undefined>(undefined)
+
 	// State: input schemas for tracking schema changes
 	let beforeInputSchema = $state<Record<string, any> | undefined>(undefined)
 	let afterInputSchema = $state<Record<string, any> | undefined>(undefined)
+
+	// State: whether to mark removed modules as shadowed (for side-by-side view)
+	let markRemovedAsShadowed = $state(false)
 
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
@@ -67,9 +73,12 @@ export function createFlowDiffManager() {
 	$effect(() => {
 		if (beforeFlow && afterFlow) {
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
-				markRemovedAsShadowed: false,
+				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: true
 			})
+
+			// Store the merged flow for rendering
+			mergedFlow = timeline.mergedFlow
 
 			// Update module actions
 			const newActions = { ...timeline.afterActions }
@@ -88,7 +97,8 @@ export function createFlowDiffManager() {
 
 			updateModuleActions(newActions)
 		} else if (!beforeFlow) {
-			// Clear module actions when no snapshot
+			// Clear module actions and merged flow when no snapshot
+			mergedFlow = undefined
 			updateModuleActions({})
 		}
 	})
@@ -138,11 +148,19 @@ export function createFlowDiffManager() {
 	}
 
 	/**
+	 * Set whether to mark removed modules as shadowed (for side-by-side view)
+	 */
+	function setMarkRemovedAsShadowed(value: boolean) {
+		markRemovedAsShadowed = value
+	}
+
+	/**
 	 * Clear the snapshot and all module actions
 	 */
 	function clearSnapshot() {
 		beforeFlow = undefined
 		afterFlow = undefined
+		mergedFlow = undefined
 		beforeInputSchema = undefined
 		afterInputSchema = undefined
 		updateModuleActions({})
@@ -372,6 +390,9 @@ export function createFlowDiffManager() {
 		get afterFlow() {
 			return afterFlow
 		},
+		get mergedFlow() {
+			return mergedFlow
+		},
 		get moduleActions() {
 			return moduleActions
 		},
@@ -383,6 +404,7 @@ export function createFlowDiffManager() {
 		setSnapshot,
 		setAfterFlow,
 		setInputSchemas,
+		setMarkRemovedAsShadowed,
 		clearSnapshot,
 		getSnapshot,
 
