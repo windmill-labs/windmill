@@ -10,7 +10,6 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import { flowDiffManager } from '$lib/components/flows/flowDiffManager.svelte'
 
 	let {
 		flowModuleSchemaMap
@@ -58,8 +57,11 @@
 			flowModuleSchemaMap?.setBeforeFlow(snapshot)
 		},
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
+			const diffManager = flowModuleSchemaMap?.getDiffManager()
+			if (!diffManager) return
+
 			if (snapshot) {
-				flowDiffManager.revertToSnapshot(flowStore)
+				diffManager.revertToSnapshot(flowStore)
 
 				// Update current editor if needed
 				if ($currentEditor) {
@@ -75,7 +77,7 @@
 					}
 				}
 			} else {
-				flowDiffManager.revertToSnapshot(flowStore)
+				diffManager.revertToSnapshot(flowStore)
 			}
 		},
 
