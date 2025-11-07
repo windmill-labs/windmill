@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.573.5](https://github.com/windmill-labs/windmill/compare/v1.573.4...v1.573.5) (2025-11-07)
+
+
+### Bug Fixes
+
+* dep jobs improvements ([#7081](https://github.com/windmill-labs/windmill/issues/7081)) ([ad43680](https://github.com/windmill-labs/windmill/commit/ad43680bb979f80db3bdb182ccb5bc61ca385ceb))
+* modal action in App AgGrid ([#7085](https://github.com/windmill-labs/windmill/issues/7085)) ([b07c35f](https://github.com/windmill-labs/windmill/commit/b07c35fe1c9dbc4955ce47766ef92bd5cfdac4c8))
+
 ## [1.573.4](https://github.com/windmill-labs/windmill/compare/v1.573.3...v1.573.4) (2025-11-07)
 
 
