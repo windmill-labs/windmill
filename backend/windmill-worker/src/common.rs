@@ -635,6 +635,33 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
+/// Helper function to build a Command with optional PID namespace isolation via unshare.
+/// When enable_isolation is true and nsjail is disabled, wraps the command with unshare.
+pub fn build_command_with_isolation(
+    program: &str,
+    args: &[&str],
+    enable_isolation: bool,
+) -> Command {
+    use tokio::process::Command;
+
+    if enable_isolation {
+        // Wrap with unshare for PID namespace isolation
+        let mut cmd = Command::new("unshare");
+        cmd.arg("--pid");
+        cmd.arg("--fork");
+        cmd.arg("--mount-proc");
+        cmd.arg("--");
+        cmd.arg(program);
+        cmd.args(args);
+        cmd
+    } else {
+        // Direct execution without isolation
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        cmd
+    }
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,

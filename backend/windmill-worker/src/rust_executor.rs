@@ -19,11 +19,11 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
     TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -566,8 +566,9 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
         let compiled_executable_name = "./main";
-        let mut run_rust = Command::new(compiled_executable_name);
+        let mut run_rust = build_command_with_isolation(compiled_executable_name, &[], enable_isolation);
         run_rust
             .current_dir(job_dir)
             .env_clear()
@@ -587,7 +588,8 @@ pub async fn handle_rust_job(
             run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(run_rust, compiled_executable_name, false).await?
+        let executable = if enable_isolation { "unshare" } else { compiled_executable_name };
+        start_child_process(run_rust, executable, false).await?
     };
     handle_child(
         &job.id,

@@ -35,11 +35,11 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
+        build_args_map, build_command_with_isolation, get_reserved_variables, read_file, read_file_content, start_child_process,
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -200,7 +200,12 @@ exit $exit_status
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let mut bash_cmd = Command::new(BIN_BASH.as_str());
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+        let mut bash_cmd = build_command_with_isolation(
+            BIN_BASH.as_str(),
+            &cmd_args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
+            enable_isolation,
+        );
         bash_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -209,11 +214,11 @@ exit $exit_status
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bash_cmd, BIN_BASH.as_str(), false).await?
+        let executable = if enable_isolation { "unshare" } else { BIN_BASH.as_str() };
+        start_child_process(bash_cmd, executable, false).await?
     };
     handle_child(
         &job.id,

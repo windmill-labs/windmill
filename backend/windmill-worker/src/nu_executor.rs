@@ -13,10 +13,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -282,14 +283,15 @@ async fn run<'a>(
         )
         .await;
 
-        // let plugin_registry = format!("{job_dir}/plugin-registry");
-        // File::create(&plugin_registry).await?;
-        //
-        let mut cmd = Command::new(if cfg!(windows) {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+        let nu_executable = if cfg!(windows) {
             "nu"
         } else {
             NU_PATH.as_str()
-        });
+        };
+
+        let args = vec!["main.nu", "--wrapped"];
+        let mut cmd = build_command_with_isolation(nu_executable, &args, enable_isolation);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -297,20 +299,6 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
-            .args(&[
-                "main.nu",
-                "--wrapped",
-                // TODO(v1):
-                // "--plugins",
-                // &format!(
-                //     "[{}]",
-                //     plugins
-                //         .into_iter()
-                //         .map(|pl| format!("{NU_CACHE_DIR}/plugins/bin/nu_plugin_{pl}"))
-                //         .collect_vec()
-                //         .join(",")
-                // ),
-            ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -324,7 +312,8 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "nu", false).await?
+        let executable = if enable_isolation { "unshare" } else { nu_executable };
+        start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

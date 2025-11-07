@@ -21,13 +21,13 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR,
-    MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, JAVA_CACHE_DIR,
+    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -653,11 +653,14 @@ async fn run<'a>(
         )
         .await;
 
-        let mut cmd = Command::new(if cfg!(windows) {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+        let java_executable = if cfg!(windows) {
             "java"
         } else {
             JAVA_PATH.as_str()
-        });
+        };
+
+        let mut cmd = build_command_with_isolation(java_executable, &[], enable_isolation);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -703,7 +706,8 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "java", false).await?
+        let executable = if enable_isolation { "unshare" } else { java_executable };
+        start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

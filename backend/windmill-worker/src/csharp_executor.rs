@@ -27,12 +27,12 @@ use windmill_queue::CanceledBy;
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, start_child_process,
     },
     handle_child::handle_child,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
-    NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, ENABLE_UNSHARE_PID, HOME_ENV,
+    NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
 use crate::common::OccupancyMetrics;
@@ -580,6 +580,8 @@ pub async fn handle_csharp_job(
 
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         #[cfg(unix)]
         let compiled_executable_name = "./Main".to_string();
         #[cfg(windows)]
@@ -588,7 +590,8 @@ pub async fn handle_csharp_job(
         } else {
             format!("{job_dir}/Main.exe")
         };
-        let mut run_csharp = Command::new(&compiled_executable_name);
+
+        let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[], enable_isolation);
         run_csharp
             .current_dir(job_dir)
             .env_clear()
@@ -628,7 +631,8 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        start_child_process(run_csharp, &compiled_executable_name, true).await?
+        let executable = if enable_isolation { "unshare" } else { &compiled_executable_name };
+        start_child_process(run_csharp, executable, true).await?
     };
 
     handle_child(

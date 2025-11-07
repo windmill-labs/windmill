@@ -23,12 +23,13 @@ lazy_static::lazy_static! {
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
-        OccupancyMetrics,
+        build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
+        read_file_content, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
-    POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
+    TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -504,7 +505,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+        let enable_isolation = *ENABLE_UNSHARE_PID;
         let cmd_args;
 
         #[cfg(unix)]
@@ -517,6 +518,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec![r".\wrapper.ps1"];
         }
 
+        let mut cmd = build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args, enable_isolation);
+
         cmd.current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -525,7 +528,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(&cmd_args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -572,7 +574,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?
+        let executable = if enable_isolation { "unshare" } else { POWERSHELL_PATH.as_str() };
+        start_child_process(cmd, executable, false).await?
     };
 
     handle_child(

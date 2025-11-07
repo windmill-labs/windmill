@@ -7,11 +7,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, ENABLE_UNSHARE_PID, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -406,18 +406,23 @@ try {{
             args.push("-A");
         }
         args.push(&script_path);
-        let mut deno_cmd = Command::new(DENO_PATH.as_str());
+        let enable_isolation = *DISABLE_NSJAIL && *ENABLE_UNSHARE_PID;
+        let mut deno_cmd = build_command_with_isolation(
+            DENO_PATH.as_str(),
+            &args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
+            enable_isolation,
+        );
         deno_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
+        let executable = if enable_isolation { "unshare" } else { DENO_PATH.as_str() };
+        start_child_process(deno_cmd, executable, false).await?
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);

@@ -19,11 +19,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        capitalize, create_args_and_out_file, get_reserved_variables, read_result,
+        build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables, read_result,
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
     NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -366,15 +366,14 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         #[cfg(unix)]
         let compiled_executable_name = "./main";
         #[cfg(windows)]
         let compiled_executable_name = format!("{}/main.exe", job_dir);
 
-        #[cfg(unix)]
-        let mut run_go = Command::new(&compiled_executable_name);
-        #[cfg(windows)]
-        let mut run_go = Command::new(&compiled_executable_name);
+        let mut run_go = build_command_with_isolation(&compiled_executable_name, &[], enable_isolation);
 
         run_go
             .current_dir(job_dir)
@@ -410,7 +409,8 @@ func Run(req Req) (interface{{}}, error){{
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(run_go, &compiled_executable_name, false).await?
+        let executable = if enable_isolation { "unshare" } else { &compiled_executable_name };
+        start_child_process(run_go, executable, false).await?
     };
     let handle_result = handle_child(
         &job.id,

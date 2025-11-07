@@ -23,12 +23,13 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
+    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -823,11 +824,15 @@ mount {{
         )
         .await;
 
-        let mut cmd = Command::new(if cfg!(windows) {
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+        let ruby_executable = if cfg!(windows) {
             "ruby.exe"
         } else {
             RUBY_PATH.as_str()
-        });
+        };
+
+        let args = vec!["main.rb"];
+        let mut cmd = build_command_with_isolation(ruby_executable, &args, enable_isolation);
 
         #[cfg(windows)]
         let rubylib = rubylib.replace(":", ";");
@@ -842,8 +847,7 @@ mount {{
             .envs(PROXY_ENVS.clone())
             .envs(envs);
 
-        cmd.args(&["main.rb"])
-            .stdin(Stdio::null())
+        cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -856,7 +860,8 @@ mount {{
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "ruby", false).await?
+        let executable = if enable_isolation { "unshare" } else { ruby_executable };
+        start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

@@ -120,12 +120,12 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_file, read_result,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file, read_result,
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
-    PyV, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PyV, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
@@ -835,9 +835,13 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut python_cmd = Command::new(&python_path);
-
         let args = vec!["-u", "-m", "wrapper"];
+        let enable_isolation = *ENABLE_UNSHARE_PID;
+        let mut python_cmd = build_command_with_isolation(
+            &python_path,
+            &args,
+            enable_isolation,
+        );
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -847,7 +851,6 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -864,7 +867,8 @@ mount {{
             );
         }
 
-        start_child_process(python_cmd, &python_path, false).await?
+        let executable = if enable_isolation { "unshare" } else { &python_path };
+        start_child_process(python_cmd, executable, false).await?
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);
