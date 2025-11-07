@@ -366,14 +366,14 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
 
         #[cfg(unix)]
         let compiled_executable_name = "./main";
         #[cfg(windows)]
         let compiled_executable_name = format!("{}/main.exe", job_dir);
 
-        let mut run_go = build_command_with_isolation(&compiled_executable_name, &[], enable_isolation);
+        let mut run_go = build_command_with_isolation(&compiled_executable_name, &[]);
 
         run_go
             .current_dir(job_dir)
@@ -409,7 +409,7 @@ func Run(req Req) (interface{{}}, error){{
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if enable_isolation { "unshare" } else { &compiled_executable_name };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &compiled_executable_name };
         start_child_process(run_go, executable, false).await?
     };
     let handle_result = handle_child(

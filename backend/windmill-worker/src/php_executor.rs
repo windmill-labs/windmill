@@ -310,11 +310,11 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let script_path = format!("{job_dir}/wrapper.php");
         let args = vec![script_path.as_str()];
 
-        let mut php_cmd = build_command_with_isolation(&*PHP_PATH, &args, enable_isolation);
+        let mut php_cmd = build_command_with_isolation(&*PHP_PATH, &args);
         php_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -326,7 +326,7 @@ try {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let executable = if enable_isolation { "unshare" } else { &*PHP_PATH };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &*PHP_PATH };
         start_child_process(php_cmd, executable, false).await?
     };
 

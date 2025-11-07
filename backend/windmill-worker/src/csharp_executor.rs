@@ -580,7 +580,7 @@ pub async fn handle_csharp_job(
 
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
 
         #[cfg(unix)]
         let compiled_executable_name = "./Main".to_string();
@@ -591,7 +591,7 @@ pub async fn handle_csharp_job(
             format!("{job_dir}/Main.exe")
         };
 
-        let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[], enable_isolation);
+        let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[]);
         run_csharp
             .current_dir(job_dir)
             .env_clear()
@@ -631,7 +631,7 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        let executable = if enable_isolation { "unshare" } else { &compiled_executable_name };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &compiled_executable_name };
         start_child_process(run_csharp, executable, true).await?
     };
 

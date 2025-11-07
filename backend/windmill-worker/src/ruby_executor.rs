@@ -141,7 +141,7 @@ pub async fn prepare<'a>(
         File::create(format!("{}/inline.rb", &mini_wm_path))
             .await?
             .write_all(&wrap(
-        r#"    
+        r#"
 class GemfileProxy
   def initialize
     @gem_calls = []
@@ -214,7 +214,7 @@ end
             .await?
             .write_all(
                 &wrap(
-                    r##"    
+                    r##"
 require 'net/http'
 require 'uri'
 require 'json'
@@ -224,17 +224,17 @@ def get_variable(path)
   base_url = ENV['BASE_INTERNAL_URL']
   workspace = ENV['WM_WORKSPACE']
   token = ENV['WM_TOKEN']
-  
+
   uri = URI("#{base_url}/api/w/#{workspace}/variables/get_value/#{path}")
-  
+
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == 'https'
-  
+
   request = Net::HTTP::Get.new(uri)
   request['Authorization'] = "Bearer #{token}"
-  
+
   response = http.request(request)
-  
+
   if response.code == '200'
     JSON.parse(response.body)
   else
@@ -246,17 +246,17 @@ def get_resource(path)
   base_url = ENV['BASE_INTERNAL_URL']
   workspace = ENV['WM_WORKSPACE']
   token = ENV['WM_TOKEN']
-  
+
   uri = URI("#{base_url}/api/w/#{workspace}/resources/get_value_interpolated/#{path}")
-  
+
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == 'https'
-  
+
   request = Net::HTTP::Get.new(uri)
   request['Authorization'] = "Bearer #{token}"
-  
+
   response = http.request(request)
-  
+
   if response.code == '200'
     JSON.parse(response.body)
   else
@@ -824,7 +824,7 @@ mount {{
         )
         .await;
 
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let ruby_executable = if cfg!(windows) {
             "ruby.exe"
         } else {
@@ -832,7 +832,7 @@ mount {{
         };
 
         let args = vec!["main.rb"];
-        let mut cmd = build_command_with_isolation(ruby_executable, &args, enable_isolation);
+        let mut cmd = build_command_with_isolation(ruby_executable, &args);
 
         #[cfg(windows)]
         let rubylib = rubylib.replace(":", ";");
@@ -860,7 +860,7 @@ mount {{
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if enable_isolation { "unshare" } else { ruby_executable };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { ruby_executable };
         start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(

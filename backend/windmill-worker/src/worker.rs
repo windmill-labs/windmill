@@ -308,45 +308,93 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
-    pub static ref UNSHARE_ISOLATION_FLAGS: String = std::env::var("UNSHARE_ISOLATION_FLAGS")
-        .unwrap_or_else(|_| "--pid --fork --mount-proc".to_string());
+    pub static ref UNSHARE_ISOLATION_FLAGS: String = {
+        // Allow manual override via env var
+        if let Ok(flags) = std::env::var("UNSHARE_ISOLATION_FLAGS") {
+            return flags;
+        }
+
+        // Auto-detect best isolation mode:
+        // Try unprivileged user namespace mode first (works without CAP_SYS_ADMIN)
+        let test_unprivileged = std::process::Command::new("unshare")
+            .args(["--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "--", "true"])
+            .output();
+
+        if matches!(test_unprivileged, Ok(output) if output.status.success()) {
+            // Success! User namespace mode works - completely unprivileged
+            // This works in Docker/K8s without any special capabilities
+            return "--user --map-root-user --pid --fork --mount-proc".to_string();
+        }
+
+        // Fall back to direct PID namespace (requires CAP_SYS_ADMIN or root)
+        // This will be tested again below and fail with clear error if not available
+        "--pid --fork --mount-proc".to_string()
+    };
 
     pub static ref UNSHARE_PATH: Option<String> = {
-        // Check if unshare is available AND we have permission to use it
-        // by actually testing if we can create a PID namespace
+        // Parse the isolation flags to determine what mode we're using
+        let flags = UNSHARE_ISOLATION_FLAGS.as_str();
+        let using_user_namespace = flags.contains("--user");
+
+        // Test with the actual flags we'll use at runtime
+        let test_args: Vec<&str> = flags.split_whitespace().collect();
+        let mut test_cmd_args = test_args.clone();
+        test_cmd_args.push("--");
+        test_cmd_args.push("true");
+
         let test_result = std::process::Command::new("unshare")
-            .arg("--pid")
-            .arg("--fork")
-            .arg("--mount-proc")
-            .arg("--")
-            .arg("true")
+            .args(&test_cmd_args)
             .output();
 
         match test_result {
             Ok(output) if output.status.success() => {
-                tracing::info!("unshare is available and has required permissions for PID namespace isolation");
+                if using_user_namespace {
+                    tracing::info!(
+                        "PID namespace isolation enabled via unprivileged user namespaces (no special privileges required). Flags: {}",
+                        flags
+                    );
+                } else {
+                    tracing::info!(
+                        "PID namespace isolation enabled via privileged mode (CAP_SYS_ADMIN required). Flags: {}",
+                        flags
+                    );
+                }
                 Some("unshare".to_string())
             },
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
 
-                // If ENABLE_UNSHARE_PID is explicitly set, fail immediately
+                // If ENABLE_UNSHARE_PID is explicitly set, fail immediately with helpful error
                 if *ENABLE_UNSHARE_PID {
                     if stderr.contains("Operation not permitted") || stderr.contains("Permission denied") {
+                        let mode_desc = if using_user_namespace {
+                            "unprivileged user namespace"
+                        } else {
+                            "privileged PID namespace"
+                        };
                         panic!(
-                            "ENABLE_UNSHARE_PID is set to true but unshare lacks required permissions.\n\
+                            "ENABLE_UNSHARE_PID is set but unshare {} mode is not available.\n\
                             Error: {}\n\
-                            To fix this:\n\
-                            (1) Run with CAP_SYS_ADMIN capability: setcap cap_sys_admin+ep /path/to/windmill\n\
-                            (2) Run as root (not recommended)\n\
-                            (3) Enable unprivileged user namespaces: sysctl -w kernel.unprivileged_userns_clone=1\n\
-                            (4) Set ENABLE_UNSHARE_PID=false to disable this security feature",
-                            stderr.trim()
+                            Flags attempted: {}\n\
+                            \n\
+                            Solutions:\n\
+                            • For bare metal/VMs: Run with CAP_SYS_ADMIN or as root\n\
+                            • For Docker: Add --cap-add=SYS_ADMIN or use --privileged\n\
+                            • For Kubernetes: Add 'capabilities: add: [SYS_ADMIN]' to securityContext\n\
+                            • Enable user namespaces: 'sysctl -w kernel.unprivileged_userns_clone=1' (if blocked)\n\
+                            • Alternative: Use NSJAIL instead (doesn't require special privileges)\n\
+                            • Disable feature: Set ENABLE_UNSHARE_PID=false",
+                            mode_desc,
+                            stderr.trim(),
+                            flags
                         );
                     } else {
                         panic!(
-                            "ENABLE_UNSHARE_PID is set to true but unshare test failed: {}",
-                            stderr.trim()
+                            "ENABLE_UNSHARE_PID is set but unshare test failed.\n\
+                            Error: {}\n\
+                            Flags: {}",
+                            stderr.trim(),
+                            flags
                         );
                     }
                 }
@@ -354,12 +402,12 @@ lazy_static::lazy_static! {
                 // If not explicitly enabled, just log and continue
                 if stderr.contains("Operation not permitted") || stderr.contains("Permission denied") {
                     tracing::warn!(
-                        "unshare binary found but lacks required permissions for PID namespace isolation. \
-                        To use unshare, run with CAP_SYS_ADMIN capability or as root, \
-                        or enable unprivileged user namespaces (kernel.unprivileged_userns_clone=1)"
+                        "unshare binary found but namespace isolation not available. \
+                        Tried flags: {}. Set ENABLE_UNSHARE_PID=true for detailed error.",
+                        flags
                     );
                 } else {
-                    tracing::warn!("unshare test failed: {}", stderr);
+                    tracing::warn!("unshare test failed: {}. Flags: {}", stderr, flags);
                 }
                 None
             },
@@ -368,12 +416,12 @@ lazy_static::lazy_static! {
                 if *ENABLE_UNSHARE_PID {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         panic!(
-                            "ENABLE_UNSHARE_PID is set to true but unshare binary not found.\n\
-                            Please install util-linux package or set ENABLE_UNSHARE_PID=false"
+                            "ENABLE_UNSHARE_PID is set but unshare binary not found.\n\
+                            Install util-linux package or set ENABLE_UNSHARE_PID=false"
                         );
                     } else {
                         panic!(
-                            "ENABLE_UNSHARE_PID is set to true but failed to test unshare: {}",
+                            "ENABLE_UNSHARE_PID is set but failed to test unshare: {}",
                             e
                         );
                     }

@@ -566,9 +566,9 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let compiled_executable_name = "./main";
-        let mut run_rust = build_command_with_isolation(compiled_executable_name, &[], enable_isolation);
+        let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)
             .env_clear()
@@ -588,7 +588,7 @@ pub async fn handle_rust_job(
             run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        let executable = if enable_isolation { "unshare" } else { compiled_executable_name };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { compiled_executable_name };
         start_child_process(run_rust, executable, false).await?
     };
     handle_child(

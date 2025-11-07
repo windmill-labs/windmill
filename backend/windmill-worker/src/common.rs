@@ -636,17 +636,18 @@ lazy_static! {
 }
 
 /// Helper function to build a Command with optional PID namespace isolation via unshare.
-/// When enable_isolation is true, wraps the command with unshare using configurable flags.
+/// Automatically detects whether to enable isolation based on ENABLE_UNSHARE_PID flag.
 ///
 /// # Panics
-/// Panics if enable_isolation is true but UNSHARE_PATH is None. This should never happen
+/// Panics if ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. This should never happen
 /// because the worker checks at startup that unshare is available when ENABLE_UNSHARE_PID is set.
 pub fn build_command_with_isolation(
     program: &str,
     args: &[&str],
-    enable_isolation: bool,
 ) -> Command {
     use tokio::process::Command;
+
+    let enable_isolation = *crate::ENABLE_UNSHARE_PID;
 
     if enable_isolation {
         // Check if unshare is available on the system
@@ -669,7 +670,7 @@ pub fn build_command_with_isolation(
             // if ENABLE_UNSHARE_PID is true, UNSHARE_PATH must be available.
             // If we reach here, it's a bug.
             panic!(
-                "BUG: build_command_with_isolation called with enable_isolation=true but UNSHARE_PATH is None. \
+                "BUG: build_command_with_isolation called but UNSHARE_PATH is None. \
                 This should have been caught at worker startup."
             );
         }

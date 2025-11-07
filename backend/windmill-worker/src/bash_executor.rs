@@ -200,11 +200,9 @@ exit $exit_status
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let enable_isolation = *ENABLE_UNSHARE_PID;
         let mut bash_cmd = build_command_with_isolation(
             BIN_BASH.as_str(),
             &cmd_args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
-            enable_isolation,
         );
         bash_cmd
             .current_dir(job_dir)
@@ -217,7 +215,7 @@ exit $exit_status
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if enable_isolation { "unshare" } else { BIN_BASH.as_str() };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { BIN_BASH.as_str() };
         start_child_process(bash_cmd, executable, false).await?
     };
     handle_child(

@@ -82,14 +82,14 @@ $credentials = $null
 if ($hasPrivateRepo) {
     $repoName = "windmill-private-$jobId"
     $repoUri = "$privateRepoUrl"
-    
+
     # Create PSCredential for authentication
     $username = "token"
     $patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
     $credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
-    
+
     Write-Host "Registering temporary repository: $repoName"
-    
+
     # Remove repository if it already exists
     Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
     Register-PSResourceRepository -Name $repoName -Uri $repoUri -Trusted
@@ -100,7 +100,7 @@ try {
     foreach ($moduleRequest in $moduleRequests) {
         $moduleName = $moduleRequest.Name
         $requiredVersion = $moduleRequest.Version
-        
+
         # Check if module is already installed with the required version (case-insensitive)
         $isInstalled = $false
         if ($requiredVersion) {
@@ -108,32 +108,32 @@ try {
         } else {
             $isInstalled = $availableModules | Where-Object { $_.Name -eq $moduleName }
         }
-        
+
         if (-not $isInstalled) {
             $moduleFound = $false
-            
+
             # First try private repository if configured
             if ($hasPrivateRepo) {
                 $findParams = @{ Name = $moduleName; Repository = $repoName; ErrorAction = 'SilentlyContinue'; Credential = $credentials }
                 if ($requiredVersion) { $findParams.Version = $requiredVersion }
-                
+
                 $privateModule = Find-PSResource @findParams
                 if ($privateModule) {
                     $moduleFound = $true
                     $versionInfo = if ($requiredVersion) { " version $requiredVersion" } else { "" }
                     Write-Host "Found module $moduleName$versionInfo in private repository, installing from there..."
-                    
+
                     $saveParams = @{ Name = $moduleName; Path = $path; Repository = $repoName; Credential = $credentials }
                     if ($requiredVersion) { $saveParams.Version = $requiredVersion }
                     Save-PSResource @saveParams
                 }
             }
-            
+
             # If not found in private repo (or no private repo configured), try all repositories
             if (-not $moduleFound) {
                 $versionInfo = if ($requiredVersion) { " version $requiredVersion" } else { "" }
                 Write-Host "Installing module $moduleName$versionInfo from public repositories..."
-                
+
                 $saveParams = @{ Name = $moduleName; Path = $path; TrustRepository = $true }
                 if ($requiredVersion) { $saveParams.Version = $requiredVersion }
                 Save-PSResource @saveParams
@@ -505,7 +505,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let cmd_args;
 
         #[cfg(unix)]
@@ -518,7 +518,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec![r".\wrapper.ps1"];
         }
 
-        let mut cmd = build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args, enable_isolation);
+        let mut cmd = build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args);
 
         cmd.current_dir(job_dir)
             .env_clear()
@@ -574,7 +574,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        let executable = if enable_isolation { "unshare" } else { POWERSHELL_PATH.as_str() };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { POWERSHELL_PATH.as_str() };
         start_child_process(cmd, executable, false).await?
     };
 

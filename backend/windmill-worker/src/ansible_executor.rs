@@ -1240,12 +1240,10 @@ fi
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
         let ansible_args: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let mut ansible_cmd = build_command_with_isolation(
             ANSIBLE_PLAYBOOK_PATH.as_str(),
             &ansible_args,
-            enable_isolation,
         );
         ansible_cmd
             .current_dir(job_dir)
@@ -1263,7 +1261,7 @@ fi
         #[cfg(windows)]
         ansible_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
 
-        let executable = if enable_isolation {
+        let executable = if *ENABLE_UNSHARE_PID {
             "unshare"
         } else {
             ANSIBLE_PLAYBOOK_PATH.as_str()

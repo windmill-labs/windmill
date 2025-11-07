@@ -406,11 +406,10 @@ try {{
             args.push("-A");
         }
         args.push(&script_path);
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let mut deno_cmd = build_command_with_isolation(
             DENO_PATH.as_str(),
             &args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
-            enable_isolation,
         );
         deno_cmd
             .current_dir(job_dir)
@@ -421,7 +420,7 @@ try {{
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if enable_isolation { "unshare" } else { DENO_PATH.as_str() };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { DENO_PATH.as_str() };
         start_child_process(deno_cmd, executable, false).await?
     };
 
@@ -594,7 +593,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 
-console.log('start\n'); 
+console.log('start\n');
 
 const decoder = new TextDecoder();
 for await (const chunk of Deno.stdin.readable) {{
@@ -606,7 +605,7 @@ for await (const chunk of Deno.stdin.readable) {{
             break;
         }}
         try {{
-            let {{ {spread} }} = JSON.parse(line) 
+            let {{ {spread} }} = JSON.parse(line)
             {dates}
             let res: any = await main(...[ {spread} ]);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');

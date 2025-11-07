@@ -182,7 +182,7 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .collect_vec()
         .join(" ");
     Ok(
-        r#"    
+        r#"
 $env.config.table.mode = 'basic'
 
 def nullguard [ name: string ] {
@@ -195,11 +195,11 @@ def nullguard [ name: string ] {
 # TODO: Probably needs rework in order for LSP to work
 def get_variable [ pat ] {
     let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/variables/get_value/($pat)" ;
-    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in
 }
 def get_resource [ pat ] {
     let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/resources/get_value_interpolated/($pat)" ;
-    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in
 }
 
 def 'main --wrapped' [] {
@@ -283,7 +283,7 @@ async fn run<'a>(
         )
         .await;
 
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let nu_executable = if cfg!(windows) {
             "nu"
         } else {
@@ -291,7 +291,7 @@ async fn run<'a>(
         };
 
         let args = vec!["main.nu", "--wrapped"];
-        let mut cmd = build_command_with_isolation(nu_executable, &args, enable_isolation);
+        let mut cmd = build_command_with_isolation(nu_executable, &args);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -312,7 +312,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if enable_isolation { "unshare" } else { nu_executable };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { nu_executable };
         start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(

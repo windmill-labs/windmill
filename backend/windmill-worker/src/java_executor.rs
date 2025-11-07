@@ -653,14 +653,14 @@ async fn run<'a>(
         )
         .await;
 
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let java_executable = if cfg!(windows) {
             "java"
         } else {
             JAVA_PATH.as_str()
         };
 
-        let mut cmd = build_command_with_isolation(java_executable, &[], enable_isolation);
+        let mut cmd = build_command_with_isolation(java_executable, &[]);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -706,7 +706,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if enable_isolation { "unshare" } else { java_executable };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { java_executable };
         start_child_process(cmd, executable, false).await?
     };
     handle_child::handle_child(
@@ -840,7 +840,7 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         })
         .collect_vec()
         .join(" ");
-    Ok(r#"    
+    Ok(r#"
 package net.script;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.FileInputStream;

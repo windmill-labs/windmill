@@ -1428,12 +1428,12 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
             let args = vec!["--preserve-symlinks", script_path.as_str()];
 
-            let mut bun_cmd = build_command_with_isolation(&*NODE_BIN_PATH, &args, enable_isolation);
+            let mut bun_cmd = build_command_with_isolation(&*NODE_BIN_PATH, &args);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
@@ -1463,7 +1463,7 @@ try {{
                     &script_path,
                 ]
             };
-            let mut bun_cmd = build_command_with_isolation(&*BUN_PATH, &args, enable_isolation);
+            let mut bun_cmd = build_command_with_isolation(&*BUN_PATH, &args);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
@@ -1480,7 +1480,7 @@ try {{
             bun_cmd
         };
 
-        let executable = if enable_isolation {
+        let executable = if *ENABLE_UNSHARE_PID {
             "unshare"
         } else if annotation.nodejs {
             &*NODE_BIN_PATH

@@ -836,7 +836,7 @@ mount {{
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let args = vec!["-u", "-m", "wrapper"];
-        let enable_isolation = *ENABLE_UNSHARE_PID;
+
         let mut python_cmd = build_command_with_isolation(
             &python_path,
             &args,
@@ -867,7 +867,7 @@ mount {{
             );
         }
 
-        let executable = if enable_isolation { "unshare" } else { &python_path };
+        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &python_path };
         start_child_process(python_cmd, executable, false).await?
     };
 
