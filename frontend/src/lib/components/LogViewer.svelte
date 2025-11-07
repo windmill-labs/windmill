@@ -156,6 +156,7 @@
 			lastJobId = jobId
 			loadedFromObjectStore = ''
 			LOG_LIMIT = LOG_INC
+			scroll = true
 		}
 	})
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
