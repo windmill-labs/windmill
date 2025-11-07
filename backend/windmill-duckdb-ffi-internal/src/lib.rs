@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, CString, c_char, c_uint},
     ptr::null_mut,
 };
 
@@ -25,6 +25,14 @@ pub extern "C" fn free_cstr(string: *mut c_char) -> () {
     unsafe {
         let _ = CString::from_raw(string);
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn get_version() -> c_uint {
+    // Increment when making breaking changes to the FFI interface.
+    // The windmill worker will check that the version matches or else refuse to call
+    // the FFI functions to avoid undefined behavior.
+    return 1;
 }
 
 #[unsafe(no_mangle)]

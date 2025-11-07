@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_uint, CStr, CString};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +39,14 @@ pub async fn do_duckdb(
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
 ) -> Result<Box<RawValue>> {
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = annotations.result_collection;
+    if annotations.return_last_result {
+        return Err(Error::ExecutionErr(
+            "return_last_result annotation is deprecated, use result_collection=last_statement_all_rows instead".to_string(),
+        ));
+    }
+
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
 
@@ -146,6 +154,7 @@ pub async fn do_duckdb(
         .await
         .map_err(|e| Error::from(to_anyhow(e)))
         .and_then(|r| r);
+
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
@@ -249,7 +258,28 @@ impl DuckDbFfiLib {
                 ))
             })?
         };
+
         let lib = Box::leak(Box::new(lib));
+
+        // Version mismatch should only be possible on Windows agent workers
+        // We check for it because FFI interface mismatch will cause undefined behavior / crashes
+        unsafe {
+            let expected_version: c_uint = 1;
+            let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
+            lib.get(b"get_version")
+                .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
+            let actual_version = get_version();
+            if actual_version < expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please update to the latest windmill_duckdb_ffi_lib."),
+                ));
+            } else if actual_version > expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please upgrade your worker to the latest windmill version."),
+                ));
+            }
+        }
+
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
             free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
