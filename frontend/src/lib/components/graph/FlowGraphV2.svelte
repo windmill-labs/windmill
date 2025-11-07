@@ -62,8 +62,10 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import SelectionTool from './SelectionTool.svelte'
+	import NodeContextMenu from './NodeContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import { createGroupNote } from './groupNoteUtils'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -480,6 +482,28 @@
 		updateStores()
 	}
 
+	function updateNoteLock(noteId: string, locked: boolean) {
+		if (onNotesChange) {
+			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, locked } : note)))
+		}
+		updateStores()
+	}
+
+	function handleCreateGroupNote(selectedNodeIds: string[]) {
+		if (selectedNodeIds.length === 0 || !onNotesChange) return
+
+		try {
+			const groupNote = createGroupNote(selectedNodeIds, nodes)
+			// Group notes are locked by default
+			const lockedGroupNote = { ...groupNote, locked: true, isGroupNote: true }
+			onNotesChange([...notes, lockedGroupNote])
+			nextNoteId += 1
+		} catch (error) {
+			console.error('Failed to create group note:', error)
+		}
+		updateStores()
+	}
+
 	function convertNotesToNodes(): Node[] {
 		return notes.map((note) => ({
 			id: note.id,
@@ -488,16 +512,19 @@
 			data: {
 				text: note.text,
 				color: note.color,
+				locked: (note as any).locked || false,
+				isGroupNote: note.id.startsWith('group-note-'),
 				onUpdate: (text: string) => updateNoteText(note.id, text),
 				onDelete: () => deleteNote(note.id),
 				onColorChange: (color: NoteColor) => updateNoteColor(note.id, color),
-				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size)
+				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size),
+				onLockToggle: (locked: boolean) => updateNoteLock(note.id, locked)
 			},
 			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,
 			width: note.size.width,
 			height: note.size.height,
 			zIndex: -2000,
-			draggable: true,
+			draggable: !(note as any).locked, // Don't allow dragging locked notes
 			selectable: true
 		}))
 	}
@@ -788,11 +815,16 @@
 					<NoteTool {onNoteAdded} />
 				{/if}
 
-				<SelectionBoundingBox
-					selectedNodes={nodes.filter((node) =>
-						actualSelectionManager.selectedIds.includes(node.id)
-					)}
-				/>
+				<NodeContextMenu
+					selectedNodeIds={actualSelectionManager.selectedIds.filter(id => !id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result'))}
+					onCreateGroupNote={handleCreateGroupNote}
+				>
+					<SelectionBoundingBox
+						selectedNodes={nodes.filter((node) =>
+							actualSelectionManager.selectedIds.includes(node.id)
+						)}
+					/>
+				</NodeContextMenu>
 
 				<SelectionTool
 					selectionMode={actualSelectionManager.mode}

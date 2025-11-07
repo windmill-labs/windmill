@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { NodeResizer } from '@xyflow/svelte'
-	import { X } from 'lucide-svelte'
+	import { X, Lock, Unlock } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { fade } from 'svelte/transition'
@@ -12,10 +12,13 @@
 		data: {
 			text: string
 			color: NoteColor
+			locked?: boolean
+			isGroupNote?: boolean
 			onUpdate?: (text: string) => void
 			onDelete?: () => void
 			onColorChange?: (color: NoteColor) => void
 			onSizeChange?: (size: { width: number; height: number }) => void
+			onLockToggle?: (locked: boolean) => void
 		}
 		selected?: boolean
 		dragging?: boolean
@@ -44,6 +47,12 @@
 		data.onColorChange?.(color)
 	}
 
+	function handleLockToggle(event?: Event) {
+		event?.preventDefault?.()
+		event?.stopPropagation?.()
+		data.onLockToggle?.(!data.locked)
+	}
+
 	// Get color configuration for current color
 	const colorConfig = $derived(NOTE_COLORS[data.color] || NOTE_COLORS[DEFAULT_NOTE_COLOR])
 
@@ -51,6 +60,12 @@
 		console.log('Double click detected', { editMode, selected, dragging })
 		event.preventDefault()
 		event.stopPropagation()
+
+		// Don't allow editing if note is locked
+		if (data.locked) {
+			return
+		}
+
 		textContent = data.text ?? '' // Initialize local state with current data
 		editMode = true
 		// Focus the textarea after a short delay to ensure it's rendered
@@ -101,30 +116,47 @@
 	onmouseleave={handleMouseLeave}
 	role="note"
 >
-	<!-- Color picker button -->
-	<div class="absolute -top-10 -right-2.5 p-2 w-20 h-12 group flex justify-end">
+	<!-- Action buttons -->
+	<div class="absolute -top-10 -right-2.5 p-2 w-32 h-12 group flex justify-end">
 		<div
 			class={twMerge(
 				'hidden group-hover:flex flex-row gap-2 h-fit',
 				hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
 			)}
 		>
-			<NoteColorPicker
-				selectedColor={data.color}
-				onColorChange={handleColorChange}
-				bind:isOpen={colorPickerIsOpen}
-			/>
-			<!-- Delete button -->
+			<!-- Lock/Unlock button -->
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
-				title="Delete note"
-				aria-label="Delete note"
-				startIcon={{ icon: X }}
-				onClick={handleDelete}
+				title={data.locked ? 'Unlock note' : 'Lock note'}
+				aria-label={data.locked ? 'Unlock note' : 'Lock note'}
+				startIcon={{ icon: data.locked ? Lock : Unlock }}
+				onClick={handleLockToggle}
 				iconOnly
-				destructive
 			/>
+
+			<!-- Color picker -->
+			{#if !data.locked}
+				<NoteColorPicker
+					selectedColor={data.color}
+					onColorChange={handleColorChange}
+					bind:isOpen={colorPickerIsOpen}
+				/>
+			{/if}
+
+			<!-- Delete button -->
+			{#if !data.locked}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					title="Delete note"
+					aria-label="Delete note"
+					startIcon={{ icon: X }}
+					onClick={handleDelete}
+					iconOnly
+					destructive
+				/>
+			{/if}
 		</div>
 	</div>
 
@@ -135,9 +167,9 @@
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
 			>
-				Double click to edit
+				{data.locked ? 'Note is locked' : 'Double click to edit'}
 			</div>
-		{:else}
+		{:else if !data.locked}
 			<div
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
@@ -183,20 +215,22 @@
 		{/if}
 	</div>
 
-	<!-- Node resizer - only visible when selected -->
-	<NodeResizer
-		isVisible={selected && !dragging}
-		minWidth={200}
-		minHeight={100}
-		lineClass="!border-4 !border-transparent !rounded-md"
-		handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
-		onResizeEnd={(_, params) => {
-			// Update note size when resizing ends
-			if (data.onSizeChange && params.width !== undefined && params.height !== undefined) {
-				data.onSizeChange({ width: params.width, height: params.height })
-			}
-		}}
-	/>
+	<!-- Node resizer - only visible when selected and not locked -->
+	{#if !data.locked}
+		<NodeResizer
+			isVisible={selected && !dragging}
+			minWidth={200}
+			minHeight={100}
+			lineClass="!border-4 !border-transparent !rounded-md"
+			handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
+			onResizeEnd={(_, params) => {
+				// Update note size when resizing ends
+				if (data.onSizeChange && params.width !== undefined && params.height !== undefined) {
+					data.onSizeChange({ width: params.width, height: params.height })
+				}
+			}}
+		/>
+	{/if}
 </div>
 
 <style>

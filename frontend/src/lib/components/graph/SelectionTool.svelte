@@ -17,11 +17,36 @@
 	let endPosition: XYPosition | null = $state(null)
 	let rect: DOMRect | null = $state(null)
 
+	// Global handler to handle middle-click panning in rect mode
+	function handleGlobalPointerDown(event: PointerEvent) {
+		if (selectionMode === 'rect-select' && event.button === 1) {
+			// Find the SvelteFlow element and dispatch the event to it
+			const flowElement = document.querySelector('.svelte-flow')
+			if (flowElement) {
+				const syntheticEvent = new PointerEvent('pointerdown', {
+					bubbles: true,
+					pointerId: event.pointerId,
+					button: event.button,
+					buttons: event.buttons,
+					clientX: event.clientX,
+					clientY: event.clientY,
+					screenX: event.screenX,
+					screenY: event.screenY
+				})
+				flowElement.dispatchEvent(syntheticEvent)
+			}
+		}
+	}
+
 	function onPointerDown(event: PointerEvent) {
 		if (selectionMode !== 'rect-select') return
 
 		// Allow middle-click (button 1) to pass through for graph panning
 		if (event.button === 1) {
+			// Stop the event from being handled by this overlay
+			event.stopPropagation()
+			// Re-dispatch to SvelteFlow
+			handleGlobalPointerDown(event)
 			return
 		}
 
@@ -171,7 +196,7 @@
 		position: absolute;
 		top: 0;
 		left: 0;
-		z-index: 50;
+		z-index: 5;
 		height: 100%;
 		width: 100%;
 		cursor: crosshair;
