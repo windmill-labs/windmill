@@ -9,6 +9,7 @@
 		required?: boolean
 		small?: boolean
 		onKeyDown?: (event: KeyboardEvent) => void
+		onBlur?: (event: FocusEvent) => void
 	}
 
 	let {
@@ -17,7 +18,8 @@
 		disabled = false,
 		required = false,
 		small = false,
-		onKeyDown
+		onKeyDown,
+		onBlur
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
@@ -43,6 +45,7 @@
 			type="password"
 			bind:value={password}
 			onkeydown={onKeyDown}
+			onblur={onBlur}
 			autocomplete="new-password"
 			{placeholder}
 			{disabled}
@@ -55,6 +58,7 @@
 			type="text"
 			bind:value={password}
 			onkeydown={bubble('keydown')}
+			onblur={onBlur}
 			autocomplete="new-password"
 			{placeholder}
 			{disabled}
