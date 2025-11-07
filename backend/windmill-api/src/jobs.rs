@@ -3826,6 +3826,7 @@ async fn batch_rerun_handle_job(
                     batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
                 );
             }
+            InputTransform::Ai => {}
         }
     }
 
@@ -4283,7 +4284,8 @@ pub async fn run_script_by_path_inner(
         tag,
         timeout,
         None,
-        None,
+        // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
+        if run_query.parent_job.is_some() || run_query.root_job.is_some() { Some(2) } else { None },
         push_authed.as_ref(),
         false,
         None,
@@ -7080,6 +7082,11 @@ pub fn start_job_update_sse_stream(
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
                             if new_offset != log_offset.unwrap_or(0) {
+                                // let logs = update.new_logs.clone().unwrap_or_default();
+                                // tracing::error!(
+                                //     "new_offset: {new_offset}; log_offset: {log_offset:?}; {} {logs}",
+                                //     logs.len()
+                                // );
                                 log_offset = Some(new_offset);
                             } else {
                                 update.log_offset = None;
@@ -7421,7 +7428,10 @@ async fn get_job_update_data(
         }
 
         let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
-            let get = GetQuery::new().with_auth(&opt_authed).without_logs();
+            let get = GetQuery::new()
+                .with_auth(&opt_authed)
+                .without_logs()
+                .without_code();
             Some(get.fetch(&db, job_id, &w_id).await?)
         } else {
             None

@@ -1925,11 +1925,8 @@ pub async fn evaluate_input_transform<T>(
     by_id: Option<&IdContext>,
 ) -> error::Result<T>
 where
-    T: for<'de> serde::Deserialize<'de> + Send,
+    T: for<'de> serde::Deserialize<'de> + Send + Default,
 {
-    let mut context = HashMap::with_capacity(2);
-    context.insert("result".to_string(), last_result.clone());
-    context.insert("previous_result".to_string(), last_result.clone());
     match transform {
         InputTransform::Static { value } => serde_json::from_str(value.get()).map_err(|e| {
             Error::ExecutionErr(format!(
@@ -1938,6 +1935,9 @@ where
             ))
         }),
         InputTransform::Javascript { expr } => {
+            let mut context = HashMap::with_capacity(2);
+            context.insert("result".to_string(), last_result.clone());
+            context.insert("previous_result".to_string(), last_result.clone());
             let result = eval_timeout(
                 expr.to_string(),
                 context,
@@ -1963,6 +1963,7 @@ where
                 ))
             })
         }
+        InputTransform::Ai => Ok(T::default()),
     }
 }
 
@@ -2025,6 +2026,7 @@ async fn transform_input(
                 })?;
                 mapped.insert(key.to_string(), v);
             }
+            InputTransform::Ai => (),
         }
     }
 
@@ -2462,6 +2464,9 @@ async fn push_next_flow_job(
                                     "Result returned by input transform invalid `{e:#}`"
                                 )));
                             }
+                        }
+                        InputTransform::Ai => {
+                            user_groups_required = Vec::new();
                         }
                     }
                 } else {
@@ -4383,6 +4388,11 @@ async fn next_forloop_status(
             /* Iterator is an InputTransform, evaluate it into an array. */
             let itered_raw = match iterator {
                 InputTransform::Static { value } => to_raw_value(value),
+                InputTransform::Ai => {
+                    return Err(Error::ExecutionErr(format!(
+                        "AI input transform not supported for iterator"
+                    )))?
+                }
                 InputTransform::Javascript { expr } => {
                     let mut context = HashMap::with_capacity(5);
                     context.insert("result".to_string(), arc_last_job_result.clone());
@@ -4465,6 +4475,11 @@ async fn next_forloop_status(
                             None,
                         )
                         .await?
+                    }
+                    InputTransform::Ai => {
+                        return Err(Error::ExecutionErr(format!(
+                            "AI input transform not supported for iterator"
+                        )))?
                     }
                 };
                 serde_json::from_str::<Vec<Box<RawValue>>>(itered_raw.get()).map_err(
