@@ -41,6 +41,7 @@
 		components,
 		type ButtonComponent,
 		type CheckboxComponent,
+		type ModalComponent,
 		type SelectComponent
 	} from '../../../editor/component'
 	import { initCss } from '../../../utils'
@@ -62,7 +63,8 @@
 		id: string
 		componentInput: AppInput | undefined
 		configuration: RichConfigurations
-		actionButtons: (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+		actionButtons: (BaseAppComponent &
+			(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
 		initializing?: boolean | undefined
 		customCss?: ComponentCustomCSS<'tablecomponent'> | undefined
 		render: boolean
@@ -662,6 +664,8 @@
 																		componentInput={actionButton.componentInput}
 																		{controls}
 																	/>
+																{:else if actionButton.type == 'modalcomponent'}
+																	MODAL
 																{:else if actionButton.type == 'checkboxcomponent'}
 																	<AppCheckbox
 																		noInitialize
@@ -712,6 +716,8 @@
 																	extraQueryParams={{ row: row.original }}
 																	componentInput={actionButton.componentInput}
 																/>
+															{:else if actionButton.type == 'modalcomponent'}
+																MODAL
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
 																	noInitialize
