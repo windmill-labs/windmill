@@ -211,11 +211,7 @@ fn run_duckdb_internal<'a>(
             &conn,
             query_block,
             &job_args,
-            if collect_last_only {
-                query_block_index != query_block_list_count - 1
-            } else {
-                false
-            },
+            collect_last_only && query_block_index != query_block_list_count - 1,
             collect_first_row_only,
             &mut column_order,
         )
