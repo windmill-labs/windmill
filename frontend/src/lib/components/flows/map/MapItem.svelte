@@ -24,8 +24,7 @@
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
+		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -60,8 +59,7 @@
 		insertable,
 		moduleAction = undefined,
 		onShowModuleDiff = undefined,
-		onAcceptModule = undefined,
-		onRejectModule = undefined,
+		diffManager,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -159,8 +157,7 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
-					{onAcceptModule}
-					{onRejectModule}
+					{diffManager}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -196,8 +193,7 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
-					{onAcceptModule}
-					{onRejectModule}
+					{diffManager}
 					on:changeId
 					on:delete
 					on:move
@@ -218,8 +214,7 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
-					{onAcceptModule}
-					{onRejectModule}
+					{diffManager}
 					on:changeId
 					on:delete
 					on:move
@@ -240,8 +235,7 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
-					{onAcceptModule}
-					{onRejectModule}
+					{diffManager}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete

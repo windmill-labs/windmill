@@ -130,8 +130,7 @@ export type InputN = {
 		inputSchemaModified?: boolean
 		onShowModuleDiff?: (moduleId: string) => void
 		assets?: AssetWithAltAccessType[] | undefined
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
+		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	}
 }
 
@@ -153,8 +152,7 @@ export type ModuleN = {
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
+		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	}
 }
 
@@ -391,8 +389,7 @@ export function graphBuilder(
 		chatInputEnabled: boolean
 		onShowModuleDiff?: (moduleId: string) => void
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
+		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -452,8 +449,7 @@ export function graphBuilder(
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
 					onShowModuleDiff: extra.onShowModuleDiff,
-					onAcceptModule: extra.onAcceptModule,
-					onRejectModule: extra.onRejectModule
+					diffManager: extra.diffManager
 				},
 				type: 'module'
 			})

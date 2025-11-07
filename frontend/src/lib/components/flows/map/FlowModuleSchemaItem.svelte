@@ -50,8 +50,7 @@
 		deletable?: boolean
 		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
+		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -95,8 +94,7 @@
 		deletable = false,
 		moduleAction = undefined,
 		onShowModuleDiff = undefined,
-		onAcceptModule = undefined,
-		onRejectModule = undefined,
+		diffManager,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -295,25 +293,23 @@
 						Diff
 					</Button>
 				{/if}
-				{#if onAcceptModule}
+				{#if diffManager.beforeFlow && moduleAction?.pending}
 					<Button
 						size="xs"
 						color="green"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							onAcceptModule?.(id)
+							if (id) diffManager.acceptModule(id, {})
 						}}
 					>
 						✓ Accept
 					</Button>
-				{/if}
-				{#if onRejectModule}
 					<Button
 						size="xs"
 						color="red"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							onRejectModule?.(id)
+							if (id) diffManager.rejectModule(id, {})
 						}}
 					>
 						✗ Reject
