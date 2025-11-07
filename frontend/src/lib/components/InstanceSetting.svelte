@@ -586,7 +586,7 @@
 													minWidth="140px"
 													showRefreshButton={false}
 													selectedTeam={currentTeam}
-													onselectedteamchange={(team) => handleTeamChange(team, i)}
+													onSelectedTeamChange={(team) => handleTeamChange(team, i)}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
@@ -595,7 +595,7 @@
 														placeholder="Search channels"
 														teamId={$values['critical_error_channels'][i]?.teams_channel?.team_id}
 														selectedChannel={currentChannel}
-														onselectedchannelchange={(channel) => handleChannelChange(channel, i)}
+														onSelectedChannelChange={(channel) => handleChannelChange(channel, i)}
 														onError={(e) =>
 															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
