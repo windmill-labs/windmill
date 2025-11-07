@@ -3769,6 +3769,7 @@ async fn batch_rerun_handle_job(
                     batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
                 );
             }
+            InputTransform::Ai => {}
         }
     }
 
