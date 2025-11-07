@@ -192,6 +192,8 @@ pub struct FlowValue {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_env: Option<HashMap<String, Box<RawValue>>>
 }
 
 impl FlowValue {
