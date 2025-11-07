@@ -3,7 +3,8 @@
 		'flow_input',
 		'results',
 		'resource',
-		'variable'
+		'variable',
+		'flow_env'
 	])
 </script>
 
