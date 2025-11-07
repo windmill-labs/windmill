@@ -15,29 +15,19 @@ import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
 
 /**
- * Options for accepting a module action
+ * Options for accepting a module action (simplified)
  */
 export type AcceptModuleOptions = {
 	/** The current flow store (used for applying changes) */
-	flowStore: StateStore<ExtendedOpenFlow>
-	/** Callback to handle deletion of a module */
-	onDelete?: (id: string) => void
-	/** Callback to handle script editor updates (for modified rawscripts) */
-	onScriptAccept?: (moduleId: string) => void
-	/** Select next module after deletion */
-	selectNextId?: (id: string) => void
+	flowStore?: StateStore<ExtendedOpenFlow>
 }
 
 /**
- * Options for rejecting a module action
+ * Options for rejecting a module action (simplified)
  */
 export type RejectModuleOptions = {
 	/** The current flow store (used for reverting changes) */
-	flowStore: StateStore<ExtendedOpenFlow>
-	/** Callback to handle script editor updates (for modified rawscripts) */
-	onScriptRevert?: (moduleId: string, originalContent: string) => void
-	/** Callback to handle script editor hiding diff mode */
-	onHideDiffMode?: () => void
+	flowStore?: StateStore<ExtendedOpenFlow>
 }
 
 /**
@@ -57,6 +47,13 @@ export function createFlowDiffManager() {
 	// State: snapshot of flow before changes
 	let beforeFlow = $state<ExtendedOpenFlow | undefined>(undefined)
 
+	// State: current flow after changes
+	let afterFlow = $state<FlowValue | undefined>(undefined)
+
+	// State: input schemas for tracking schema changes
+	let beforeInputSchema = $state<Record<string, any> | undefined>(undefined)
+	let afterInputSchema = $state<Record<string, any> | undefined>(undefined)
+
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
 
@@ -65,6 +62,36 @@ export function createFlowDiffManager() {
 
 	// onChange callback for notifying listeners when moduleActions change
 	let onChangeCallback: ((actions: Record<string, ModuleActionInfo>) => void) | undefined
+
+	// Auto-compute diff when beforeFlow or afterFlow changes
+	$effect(() => {
+		if (beforeFlow && afterFlow) {
+			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
+				markRemovedAsShadowed: false,
+				markAsPending: true
+			})
+
+			// Update module actions
+			const newActions = { ...timeline.afterActions }
+
+			// Check for input schema changes
+			if (beforeInputSchema && afterInputSchema) {
+				const schemaChanged = JSON.stringify(beforeInputSchema) !== JSON.stringify(afterInputSchema)
+				if (schemaChanged) {
+					newActions['Input'] = {
+						action: 'modified',
+						pending: true,
+						description: 'Input schema changed'
+					}
+				}
+			}
+
+			updateModuleActions(newActions)
+		} else if (!beforeFlow) {
+			// Clear module actions when no snapshot
+			updateModuleActions({})
+		}
+	})
 
 	/**
 	 * Register a callback to be notified when moduleActions change
@@ -86,8 +113,28 @@ export function createFlowDiffManager() {
 	/**
 	 * Set the before flow snapshot for diff computation
 	 */
-	function setSnapshot(flow: ExtendedOpenFlow) {
+	function setSnapshot(flow: ExtendedOpenFlow | undefined) {
 		beforeFlow = flow
+		if (flow) {
+			beforeInputSchema = flow.schema
+		} else {
+			beforeInputSchema = undefined
+		}
+	}
+
+	/**
+	 * Set the after flow (current state) for diff computation
+	 */
+	function setAfterFlow(flow: FlowValue | undefined) {
+		afterFlow = flow
+	}
+
+	/**
+	 * Set input schemas for tracking schema changes
+	 */
+	function setInputSchemas(before: Record<string, any> | undefined, after: Record<string, any> | undefined) {
+		beforeInputSchema = before
+		afterInputSchema = after
 	}
 
 	/**
@@ -95,6 +142,9 @@ export function createFlowDiffManager() {
 	 */
 	function clearSnapshot() {
 		beforeFlow = undefined
+		afterFlow = undefined
+		beforeInputSchema = undefined
+		afterInputSchema = undefined
 		updateModuleActions({})
 	}
 
@@ -184,26 +234,20 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Accept a module action (keep the changes)
+	 * Simplified version - just marks as not pending
 	 */
-	function acceptModule(id: string, options: AcceptModuleOptions) {
-		console.log('acceptModule', id, moduleActions)
-		// Handle __ prefixed IDs for type-changed modules
-		const actualId = id.startsWith('__') ? id.substring(2) : id
-		const info = moduleActions[id]
-
-		if (!info) return
-
-		const action = info.action
-
-		// Handle removed modules: delete them from the flow
-		if (action === 'removed') {
-			deleteModuleFromFlow(actualId, options.flowStore, options.selectNextId)
-			options.onDelete?.(actualId)
+	function acceptModule(id: string, options: AcceptModuleOptions = {}) {
+		if (!beforeFlow) {
+			throw new Error('Cannot accept module without a beforeFlow snapshot')
 		}
 
-		// Handle modified rawscripts: keep the new code in the editor
-		if (action === 'modified') {
-			options.onScriptAccept?.(actualId)
+		const info = moduleActions[id]
+		if (!info) return
+
+		// Handle removed modules: delete them from the flow if flowStore is provided
+		if (info.action === 'removed' && options.flowStore) {
+			const actualId = id.startsWith('__') ? id.substring(2) : id
+			deleteModuleFromFlow(actualId, options.flowStore)
 		}
 
 		// Mark as decided (no longer pending)
@@ -220,48 +264,47 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Reject a module action (revert the changes)
+	 * Simplified version - reverts changes and marks as not pending
 	 */
-	function rejectModule(id: string, options: RejectModuleOptions) {
-		// Handle __ prefixed IDs for type-changed modules
+	function rejectModule(id: string, options: RejectModuleOptions = {}) {
+		if (!beforeFlow) {
+			throw new Error('Cannot reject module without a beforeFlow snapshot')
+		}
+
 		const actualId = id.startsWith('__') ? id.substring(2) : id
 		const info = moduleActions[id]
 
-		if (!info || !beforeFlow) return
+		if (!info) return
 
 		const action = info.action
 
-		// Handle different action types
-		if (id === 'Input') {
-			// Revert input schema changes
-			options.flowStore.val.schema = beforeFlow.schema
-		} else if (action === 'added') {
-			// Remove the added module
-			deleteModuleFromFlow(actualId, options.flowStore)
-		} else if (action === 'removed') {
-			// For removed modules, we would need to restore from snapshot
-			// This is complex and might require full flow revert
-			console.warn('Reverting removed module - requires full flow restore')
-		} else if (action === 'modified') {
-			// Revert to the old module state
-			const oldModule = getModuleFromFlow(actualId, beforeFlow)
-			const newModule = getModuleFromFlow(actualId, options.flowStore.val)
+		// Only perform revert operations if flowStore is provided
+		if (options.flowStore) {
+			// Handle different action types
+			if (id === 'Input') {
+				// Revert input schema changes
+				options.flowStore.val.schema = beforeFlow.schema
+			} else if (action === 'added') {
+				// Remove the added module
+				deleteModuleFromFlow(actualId, options.flowStore)
+			} else if (action === 'removed') {
+				// For removed modules, we would need to restore from snapshot
+				// This is complex and might require full flow revert
+				console.warn('Reverting removed module - requires full flow restore')
+			} else if (action === 'modified') {
+				// Revert to the old module state
+				const oldModule = getModuleFromFlow(actualId, beforeFlow)
+				const newModule = getModuleFromFlow(actualId, options.flowStore.val)
 
-			if (!oldModule || !newModule) {
-				throw new Error('Module not found')
+				if (oldModule && newModule) {
+					// Restore the old module state
+					Object.keys(newModule).forEach((k) => delete (newModule as any)[k])
+					Object.assign(newModule, $state.snapshot(oldModule))
+				}
 			}
 
-			// Apply the old code to the editor for rawscripts
-			if (newModule.value.type === 'rawscript' && oldModule.value.type === 'rawscript') {
-				options.onScriptRevert?.(actualId, oldModule.value.content ?? '')
-				options.onHideDiffMode?.()
-			}
-
-			// Restore the old module state
-			Object.keys(newModule).forEach((k) => delete (newModule as any)[k])
-			Object.assign(newModule, $state.snapshot(oldModule))
+			refreshStateStore(options.flowStore)
 		}
-
-		refreshStateStore(options.flowStore)
 
 		// Mark as decided
 		if (moduleActions[id]) {
@@ -326,6 +369,9 @@ export function createFlowDiffManager() {
 		get beforeFlow() {
 			return beforeFlow
 		},
+		get afterFlow() {
+			return afterFlow
+		},
 		get moduleActions() {
 			return moduleActions
 		},
@@ -335,6 +381,8 @@ export function createFlowDiffManager() {
 
 		// Snapshot management
 		setSnapshot,
+		setAfterFlow,
+		setInputSchemas,
 		clearSnapshot,
 		getSnapshot,
 
@@ -354,6 +402,3 @@ export function createFlowDiffManager() {
 		revertToSnapshot
 	}
 }
-
-// Export singleton instance for global use
-export const flowDiffManager = createFlowDiffManager()
