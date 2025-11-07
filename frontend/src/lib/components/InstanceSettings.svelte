@@ -136,6 +136,11 @@
 
 		let shouldReloadPage = false
 		if ($values) {
+			// Trim license key before saving
+			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
+				$values['license_key'] = $values['license_key'].trim()
+			}
+
 			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
 				Object.entries(x)
 			)
