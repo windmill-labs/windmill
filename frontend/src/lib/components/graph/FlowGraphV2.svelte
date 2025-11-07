@@ -65,7 +65,12 @@
 	import NodeContextMenu from './NodeContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
-	import { createGroupNote } from './groupNoteUtils'
+	import {
+		createGroupNote,
+		isGroupNote,
+		calculateGroupNoteBounds,
+		convertToExtendedNote
+	} from './groupNoteUtils'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -314,7 +319,7 @@
 		}
 
 		const yOffset = insertable ? 100 : 0
-		const newNodes = dag.descendants().map((des) => ({
+		const initialNodes = dag.descendants().map((des) => ({
 			id: des.data.id,
 			position: {
 				x: des.x
@@ -331,8 +336,39 @@
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
-		return newNodes
+		// Apply group note spacing adjustments
+		// First, collect all nodes that need spacing above them
+		const spacingMap = new Map<string, number>()
+		for (const node of initialNodes) {
+			const groupNoteHeight = getGroupNoteHeightForNode(node.id, initialNodes)
+			if (groupNoteHeight > 0) {
+				spacingMap.set(node.id, groupNoteHeight)
+			}
+		}
+
+		// Apply spacing - move nodes down by the cumulative spacing above them
+		const adjustedNodes = initialNodes.map(node => {
+			let totalSpacingAbove = 0
+
+			// Calculate total spacing needed above this node from all group notes above it
+			for (const [spacingNodeId, spacing] of spacingMap) {
+				const spacingNode = initialNodes.find(n => n.id === spacingNodeId)
+				if (spacingNode && spacingNode.position.y <= node.position.y) {
+					totalSpacingAbove += spacing
+				}
+			}
+
+			return {
+				...node,
+				position: {
+					...node.position,
+					y: node.position.y + totalSpacingAbove
+				}
+			}
+		})
+
+		lastNodes = [nodes, adjustedNodes]
+		return adjustedNodes
 	}
 
 	let eventHandler = {
@@ -493,9 +529,23 @@
 		if (selectedNodeIds.length === 0 || !onNotesChange) return
 
 		try {
-			const groupNote = createGroupNote(selectedNodeIds, nodes)
-			// Group notes are locked by default
-			const lockedGroupNote = { ...groupNote, locked: true, isGroupNote: true }
+			const groupNote = createGroupNote(selectedNodeIds)
+			// For now, we need to store group notes as FlowNote format with additional properties
+			// We'll add dummy position/size that will be calculated dynamically in convertNotesToNodes
+			const lockedGroupNote = {
+				...groupNote,
+				position: { x: 0, y: 0 }, // Dummy values, will be calculated dynamically
+				size: { width: 300, height: 100 }, // Dummy values, will be calculated dynamically
+				locked: true,
+				isGroupNote: true,
+				containedNodeIds: groupNote.containedNodeIds,
+				type: 'group'
+			} as FlowNote & {
+				locked: boolean;
+				isGroupNote: boolean;
+				containedNodeIds: string[];
+				type: string;
+			}
 			onNotesChange([...notes, lockedGroupNote])
 			nextNoteId += 1
 		} catch (error) {
@@ -504,29 +554,92 @@
 		updateStores()
 	}
 
-	function convertNotesToNodes(): Node[] {
-		return notes.map((note) => ({
-			id: note.id,
-			type: 'note',
-			position: note.position,
-			data: {
-				text: note.text,
-				color: note.color,
-				locked: (note as any).locked || false,
-				isGroupNote: note.id.startsWith('group-note-'),
-				onUpdate: (text: string) => updateNoteText(note.id, text),
-				onDelete: () => deleteNote(note.id),
-				onColorChange: (color: NoteColor) => updateNoteColor(note.id, color),
-				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size),
-				onLockToggle: (locked: boolean) => updateNoteLock(note.id, locked)
-			},
-			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,
-			width: note.size.width,
-			height: note.size.height,
-			zIndex: -2000,
-			draggable: !(note as any).locked, // Don't allow dragging locked notes
-			selectable: true
-		}))
+
+	/**
+	 * Helper function to determine if a node needs additional spacing above it for group notes.
+	 * Returns the height needed above the node.
+	 */
+	function getGroupNoteHeightForNode(nodeId: string, layoutedNodes: (NodeDep & NodePos)[]): number {
+		for (const note of notes) {
+			const extendedNote = convertToExtendedNote(note as any)
+			if (isGroupNote(extendedNote) && extendedNote.containedNodeIds.includes(nodeId)) {
+				// Find the topmost node in this group by Y position
+				const containedNodes = layoutedNodes.filter(node =>
+					extendedNote.containedNodeIds.includes(node.id)
+				)
+
+				if (containedNodes.length > 0) {
+					const topmostNode = containedNodes.reduce((topMost, node) =>
+						node.position.y < topMost.position.y ? node : topMost
+					)
+
+					// If this is the topmost node in the group, return the needed height
+					if (topmostNode.id === nodeId) {
+						return 60 // Height for group note text
+					}
+				}
+			}
+		}
+		return 0
+	}
+
+	function convertNotesToNodes(currentNodes: Node[]): Node[] {
+		return notes.map((note) => {
+			const extendedNote = convertToExtendedNote(note as any)
+
+			if (isGroupNote(extendedNote)) {
+				// Calculate dynamic bounds for group notes
+				const bounds = calculateGroupNoteBounds(extendedNote, currentNodes, 60)
+
+				return {
+					id: extendedNote.id,
+					type: 'note',
+					position: bounds.position,
+					data: {
+						text: extendedNote.text,
+						color: extendedNote.color,
+						locked: (note as any).locked || true, // Group notes are locked by default
+						isGroupNote: true,
+						containedNodeIds: extendedNote.containedNodeIds,
+						onUpdate: (text: string) => updateNoteText(extendedNote.id, text),
+						onDelete: () => deleteNote(extendedNote.id),
+						onColorChange: (color: NoteColor) => updateNoteColor(extendedNote.id, color),
+						onSizeChange: (size: { width: number; height: number }) => updateNoteSize(extendedNote.id, size),
+						onLockToggle: (locked: boolean) => updateNoteLock(extendedNote.id, locked)
+					},
+					style: `width: ${bounds.size.width}px; height: ${bounds.size.height}px;`,
+					width: bounds.size.width,
+					height: bounds.size.height,
+					zIndex: -2000,
+					draggable: !(note as any).locked, // Don't allow dragging locked notes
+					selectable: true
+				}
+			} else {
+				// Handle regular notes
+				return {
+					id: extendedNote.id,
+					type: 'note',
+					position: extendedNote.position,
+					data: {
+						text: extendedNote.text,
+						color: extendedNote.color,
+						locked: (note as any).locked || false,
+						isGroupNote: false,
+						onUpdate: (text: string) => updateNoteText(extendedNote.id, text),
+						onDelete: () => deleteNote(extendedNote.id),
+						onColorChange: (color: NoteColor) => updateNoteColor(extendedNote.id, color),
+						onSizeChange: (size: { width: number; height: number }) => updateNoteSize(extendedNote.id, size),
+						onLockToggle: (locked: boolean) => updateNoteLock(extendedNote.id, locked)
+					},
+					style: `width: ${extendedNote.size.width}px; height: ${extendedNote.size.height}px;`,
+					width: extendedNote.size.width,
+					height: extendedNote.size.height,
+					zIndex: -2000,
+					draggable: !(note as any).locked, // Don't allow dragging locked notes
+					selectable: true
+				}
+			}
+		})
 	}
 
 	async function updateStores() {
@@ -560,11 +673,15 @@
 			}))
 		}
 		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		nodes = [
+		const finalNodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
 			...(assetNodesResult?.newAssetNodes ?? []),
-			...aiToolNodesResult.toolNodes,
-			...convertNotesToNodes()
+			...aiToolNodesResult.toolNodes
+		]
+
+		nodes = [
+			...finalNodes,
+			...convertNotesToNodes(finalNodes)
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),

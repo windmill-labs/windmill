@@ -27,13 +27,57 @@
 	let { data, selected = false, dragging = false }: Props = $props()
 
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
+	let contentElement: HTMLDivElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
 	let textContent = $state(data.text ?? '')
+	let contentHeight = $state(0)
+
+	function calculateContentHeight() {
+		let calculatedHeight = 0
+		let currentWidth = 300 // Default width
+
+		if (editMode && textareaElement) {
+			// For textarea in edit mode
+			textareaElement.style.height = 'auto'
+			const scrollHeight = textareaElement.scrollHeight
+			const minHeight = 60 // Minimum height in pixels
+			const maxHeight = 400 // Maximum height in pixels
+			calculatedHeight = Math.max(minHeight, Math.min(maxHeight, scrollHeight))
+			textareaElement.style.height = `${calculatedHeight}px`
+
+			// Get current width from parent element
+			const parentElement = textareaElement.closest('.svelte-flow__node')
+			if (parentElement) {
+				currentWidth = parentElement.getBoundingClientRect().width
+			}
+		} else if (!editMode && contentElement) {
+			// For content in display mode
+			const scrollHeight = contentElement.scrollHeight
+			const minHeight = 60
+			const maxHeight = 400
+			calculatedHeight = Math.max(minHeight, Math.min(maxHeight, scrollHeight))
+
+			// Get current width from parent element
+			const parentElement = contentElement.closest('.svelte-flow__node')
+			if (parentElement) {
+				currentWidth = parentElement.getBoundingClientRect().width
+			}
+		}
+
+		contentHeight = calculatedHeight
+
+		// Update note size if handler is available
+		if (data.onSizeChange && contentHeight > 0) {
+			data.onSizeChange({ width: currentWidth, height: contentHeight + 40 }) // Add extra padding for note UI
+		}
+	}
 
 	function handleTextSave() {
 		// Only update parent when done editing
 		data.onUpdate?.(textContent)
+		// Recalculate height after saving
+		setTimeout(calculateContentHeight, 0)
 	}
 
 	function handleDelete(event?: Event) {
@@ -71,6 +115,7 @@
 		// Focus the textarea after a short delay to ensure it's rendered
 		setTimeout(() => {
 			textareaElement?.focus()
+			calculateContentHeight()
 		}, 0)
 	}
 
@@ -87,6 +132,21 @@
 		if (!selected && editMode) {
 			handleTextSave() // Save changes before exiting
 			editMode = false
+		}
+	})
+
+	// Auto-resize when content changes
+	$effect(() => {
+		textContent // Track textContent changes
+		if (editMode || contentElement) {
+			setTimeout(calculateContentHeight, 0)
+		}
+	})
+
+	// Calculate initial content height
+	$effect(() => {
+		if (data.text && !editMode && contentElement) {
+			setTimeout(calculateContentHeight, 0)
 		}
 	})
 
@@ -179,31 +239,34 @@
 	{/if}
 
 	<!-- Note content -->
-	<div class="h-full rounded-md">
+	<div class="w-full min-h-[60px] max-h-[400px] rounded-md">
 		{#if editMode}
 			<!-- Edit mode: show textarea -->
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textContent}
 				class={twMerge(
-					'windmillapp w-full h-full min-h-0 shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
+					'windmillapp w-full min-h-[60px] max-h-[400px] shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
 					colorConfig.text
 				)}
 				placeholder="Add your note here... (Markdown supported)"
 				onblur={handleTextSave}
+				oninput={calculateContentHeight}
 				spellcheck="false"
+				style="height: auto;"
 			></textarea>
 		{:else}
 			<!-- Render mode: show markdown or empty state -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
+				bind:this={contentElement}
 				class={twMerge(
-					'w-full h-full overflow-auto cursor-pointer flex items-start justify-center rounded-md p-4'
+					'w-full min-h-[60px] max-h-[400px] overflow-auto cursor-pointer flex items-start justify-start rounded-md p-4'
 				)}
 				ondblclick={handleDoubleClick}
 			>
 				{#if data.text}
-					<div class={twMerge('w-full h-full text-xs rounded-md', colorConfig.text)}>
+					<div class={twMerge('w-full text-xs rounded-md', colorConfig.text)}>
 						<GfmMarkdown md={data.text} noPadding />
 					</div>
 				{:else}
@@ -220,7 +283,7 @@
 		<NodeResizer
 			isVisible={selected && !dragging}
 			minWidth={200}
-			minHeight={100}
+			minHeight={60}
 			lineClass="!border-4 !border-transparent !rounded-md"
 			handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
 			onResizeEnd={(_, params) => {
