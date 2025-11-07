@@ -241,10 +241,12 @@ async fn handle_full_regex(
         authed_client
             .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
             .await
-    } else {
+    } else if obj_name == "flow_env" {
         authed_client
             .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
             .await
+    } else {
+        unreachable!();
     };
 
     return result;
