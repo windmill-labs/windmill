@@ -857,14 +857,6 @@ async fn route_job(
     .await
     .map_err(|e| e.into_response())?;
 
-    if !trigger.enabled.unwrap_or(false) {
-        return Err(Error::BadRequest(format!(
-            "Http trigger at path: {} is disabled",
-            trigger.path
-        ))
-        .into_response());
-    }
-
     if trigger.script_path.is_empty() && trigger.static_asset_config.is_none() {
         return Err(Error::NotFound(format!(
             "Runnable path of HTTP route at path: {}",
