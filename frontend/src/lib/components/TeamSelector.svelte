@@ -18,7 +18,7 @@
 		teams?: TeamItem[] | undefined
 		minWidth?: string
 		onError?: (error: Error) => void
-		onselectedteamchange?: (team: TeamItem | undefined) => void
+		onSelectedTeamChange?: (team: TeamItem | undefined) => void
 	}
 
 	let {
@@ -29,7 +29,7 @@
 		teams = undefined,
 		minWidth = '160px',
 		onError,
-		onselectedteamchange
+		onSelectedTeamChange
 	}: Props = $props()
 
 	let isFetching = $state(false)
@@ -68,7 +68,7 @@
 	$effect(() => {
 		if (selectedTeam?.team_id !== previousTeamId) {
 			previousTeamId = selectedTeam?.team_id
-			onselectedteamchange?.(selectedTeam)
+			onSelectedTeamChange?.(selectedTeam)
 		}
 	})
 
