@@ -84,86 +84,16 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
-/// Extract the full PowerShell param() block including the keyword and parentheses.
-/// Returns the entire param block string, or None if not found.
-/// This is useful for replacing or removing the param block from code.
-pub fn extract_powershell_param_block_full(code: &str) -> Option<&str> {
-    // Find "param" keyword (case-insensitive)
-    let lower_code = code.to_lowercase();
-    let param_start = lower_code.find("param")?;
-
-    // Skip whitespace and tabs after "param"
-    let mut chars = code[param_start + 5..].char_indices();
-    let mut paren_offset = param_start + 5;
-
-    // Skip whitespace to find opening paren
-    while let Some((idx, ch)) = chars.next() {
-        if ch == '(' {
-            paren_offset += idx;
-            break;
-        } else if !ch.is_whitespace() && ch != '\t' {
-            // Found non-whitespace, non-paren character - not a valid param block
-            return None;
-        }
-    }
-
-    // Now parse from the opening parenthesis
-    let remaining = &code[paren_offset..];
-    let mut chars = remaining.char_indices();
-
-    // Skip the opening '('
-    if let Some((_, ch)) = chars.next() {
-        if ch != '(' {
-            return None;
-        }
-    } else {
-        return None;
-    }
-
-    let mut depth = 1;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escape_next = false;
-
-    for (idx, ch) in chars {
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
-
-        match ch {
-            '`' if in_single_quote || in_double_quote => {
-                // PowerShell escape character
-                escape_next = true;
-            }
-            '\'' if !in_double_quote => {
-                in_single_quote = !in_single_quote;
-            }
-            '"' if !in_single_quote => {
-                in_double_quote = !in_double_quote;
-            }
-            '(' if !in_single_quote && !in_double_quote => {
-                depth += 1;
-            }
-            ')' if !in_single_quote && !in_double_quote => {
-                depth -= 1;
-                if depth == 0 {
-                    // Found the matching closing parenthesis
-                    // idx is the position of ')' relative to paren_offset
-                    // We want to include the closing paren, so add 1
-                    return Some(&code[param_start..paren_offset + idx + 1]);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    None
-}
-
-/// Extract the contents of a PowerShell param() block, handling nested parentheses.
-/// Returns the contents between the outermost parentheses of the param block, or None if not found.
-pub fn extract_powershell_param_block(code: &str) -> Option<&str> {
+/// Extract a PowerShell param() block, handling nested parentheses.
+///
+/// # Arguments
+/// * `code` - The PowerShell code to extract from
+/// * `include_keyword` - If true, returns the full block including "param(...)"
+///                       If false, returns only the contents between the parentheses
+///
+/// # Returns
+/// The extracted param block or contents, or None if not found.
+pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Option<&str> {
     // Find "param" keyword (case-insensitive)
     let lower_code = code.to_lowercase();
     let param_start = lower_code.find("param")?;
@@ -227,8 +157,13 @@ pub fn extract_powershell_param_block(code: &str) -> Option<&str> {
                 if depth == 0 {
                     // Found the matching closing parenthesis
                     // idx is the position of ')' relative to paren_offset
-                    // We want content between parens, so exclude the closing paren
-                    return Some(&code[content_start..paren_offset + idx]);
+                    if include_keyword {
+                        // Return full block including "param" keyword and closing paren
+                        return Some(&code[param_start..paren_offset + idx + 1]);
+                    } else {
+                        // Return only contents between parentheses
+                        return Some(&code[content_start..paren_offset + idx]);
+                    }
                 }
             }
             _ => {}
@@ -290,7 +225,7 @@ fn parse_powershell_single_typ(typ: &str) -> Typ {
 }
 
 fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let param_wrapper = extract_powershell_param_block(code);
+    let param_wrapper = extract_powershell_param_block(code, false);
     let mut args = vec![];
     if let Some(param_wrapper) = param_wrapper {
         let params = split_pwsh_args(param_wrapper);
@@ -539,36 +474,37 @@ non_required="${5:-}"
 
     #[test]
     fn test_extract_powershell_param_block() {
-        // Test basic param block
+        // Test basic param block - contents only
         let code = "param($x, $y)";
-        assert_eq!(extract_powershell_param_block(code), Some("$x, $y"));
+        assert_eq!(extract_powershell_param_block(code, false), Some("$x, $y"));
 
-        // Test with nested parentheses
+        // Test basic param block - full block
+        assert_eq!(extract_powershell_param_block(code, true), Some("param($x, $y)"));
+
+        // Test with nested parentheses - contents only
         let code = "param($x = Get-Func(1, 2), $y = (1 + 2))";
-        assert_eq!(extract_powershell_param_block(code), Some("$x = Get-Func(1, 2), $y = (1 + 2)"));
+        assert_eq!(extract_powershell_param_block(code, false), Some("$x = Get-Func(1, 2), $y = (1 + 2)"));
 
-        // Test with whitespace
+        // Test with nested parentheses - full block
+        assert_eq!(extract_powershell_param_block(code, true), Some("param($x = Get-Func(1, 2), $y = (1 + 2))"));
+
+        // Test with whitespace - contents only
         let code = "param  \t  ($x, $y)";
-        assert_eq!(extract_powershell_param_block(code), Some("$x, $y"));
+        assert_eq!(extract_powershell_param_block(code, false), Some("$x, $y"));
 
-        // Test with parentheses in quotes
+        // Test with whitespace - full block
+        assert_eq!(extract_powershell_param_block(code, true), Some("param  \t  ($x, $y)"));
+
+        // Test with parentheses in quotes - contents only
         let code = r#"param($x = "test (parens)")"#;
-        assert_eq!(extract_powershell_param_block(code), Some(r#"$x = "test (parens)""#));
-    }
+        assert_eq!(extract_powershell_param_block(code, false), Some(r#"$x = "test (parens)""#));
 
-    #[test]
-    fn test_extract_powershell_param_block_full() {
-        // Test basic param block
-        let code = "param($x, $y)";
-        assert_eq!(extract_powershell_param_block_full(code), Some("param($x, $y)"));
+        // Test with parentheses in quotes - full block
+        assert_eq!(extract_powershell_param_block(code, true), Some(r#"param($x = "test (parens)")"#));
 
-        // Test with nested parentheses
-        let code = "param($x = Get-Func(1, 2), $y)";
-        assert_eq!(extract_powershell_param_block_full(code), Some("param($x = Get-Func(1, 2), $y)"));
-
-        // Test with code after param block
+        // Test with code after param block - full block
         let code = "param($x)\nWrite-Host $x";
-        assert_eq!(extract_powershell_param_block_full(code), Some("param($x)"));
+        assert_eq!(extract_powershell_param_block(code, true), Some("param($x)"));
     }
 
     #[test]
