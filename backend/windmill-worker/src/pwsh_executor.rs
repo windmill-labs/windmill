@@ -426,9 +426,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         }\n";
 
     // make sure param() is first
-    let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
+    let param_match = windmill_parser_bash::extract_powershell_param_block_full(&content);
     let content: String = if let Some(param_match) = param_match {
-        let param_match = param_match.as_str();
         format!(
             "{}\n{}\n{}\n{}\n{}",
             param_match,
