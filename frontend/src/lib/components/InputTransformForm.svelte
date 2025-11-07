@@ -163,6 +163,9 @@
 			isAgentTool &&
 			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
 		) {
+			if (arg?.type === 'static') {
+				arg.type = 'ai'
+			}
 			return 'ai'
 		}
 
