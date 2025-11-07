@@ -9,7 +9,12 @@
 	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext, BaseAppComponent, RichConfiguration } from '../../types'
 	import { appComponentFromType } from '../appUtils'
-	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
+	import type {
+		ButtonComponent,
+		CheckboxComponent,
+		ModalComponent,
+		SelectComponent
+	} from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import { GripVertical, Inspect, List, ToggleRightIcon, ListOrdered } from 'lucide-svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
@@ -17,10 +22,12 @@
 	import { flip } from 'svelte/animate'
 	import TableActionsWizard from '$lib/components/wizards/TableActionsWizard.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 
 	interface Props {
 		components:
-			| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+			| (BaseAppComponent &
+					(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
 			| undefined
 		actionsOrder?: RichConfiguration | undefined
 		id: string
@@ -48,41 +55,50 @@
 	const { selectedComponent, app, errorByComponent, hoverStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent' | 'selectcomponent') {
+	function addComponent(
+		typ: 'buttoncomponent' | 'checkboxcomponent' | 'selectcomponent' | 'modalcomponent'
+	) {
 		if (!components) {
 			return
 		}
 
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
 
-		const newComponent = {
-			...appComponentFromType(typ)(`${id}_${actionId}`),
-			recomputeIds: []
-		}
+		const newComponent = appComponentFromType(typ)(`${id}_${actionId}`)
 
-		if (typ == 'buttoncomponent') {
+		if (newComponent?.type == 'buttoncomponent') {
 			if (newComponent?.configuration?.size) {
 				// @ts-ignore
 				newComponent.configuration.size = { type: 'static', value: 'xs2' }
 			}
 		}
-
-		items = [
-			...items,
-			{
-				value: newComponent,
-				id: generateRandomString(),
-				originalIndex: items.length
+		if (newComponent?.type == 'modalcomponent') {
+			if (newComponent?.configuration?.buttonSize) {
+				// @ts-ignore
+				newComponent.configuration.buttonSize = { type: 'static', value: 'xs2' }
 			}
-		]
+			// Create associated subgrid
+			if ($app.subgrids) $app.subgrids[`${newComponent.id}-0`] = []
+			newComponent.id
+		}
 
-		components = [...components, newComponent]
+		const newItem = {
+			value: newComponent,
+			id: generateRandomString(),
+			originalIndex: items.length
+		}
+		items = [...items, newItem as any]
+		components = [...components, newComponent as any]
 		$app = $app
 	}
 
 	function deleteComponent(cid: string, index: number) {
 		if (!components) {
 			return
+		}
+		if (components.find((x) => x.id === cid)?.type === 'modalcomponent') {
+			// Remove associated subgrid
+			delete $app.subgrids?.[`${cid}-0`]
 		}
 		components = components.filter((x) => x.id !== cid)
 		delete $errorByComponent[cid]
@@ -171,6 +187,8 @@
 										Select
 									{:else if component.type == 'checkboxcomponent'}
 										Toggle
+									{:else if component.type == 'modalcomponent'}
+										Modal
 									{/if}
 								</div>
 							</div>
@@ -192,8 +210,8 @@
 		</div>
 		<div class="w-full flex gap-2">
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-primary"
-				wrapperClasses="w-full"
+				btnClasses="gap-1 flex items-center text-xs text-primary"
+				wrapperClasses="flex-1"
 				variant="default"
 				on:click={() => addComponent('buttoncomponent')}
 				title="Add Button"
@@ -201,8 +219,8 @@
 				+ <Inspect size={14} />
 			</Button>
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-primary"
-				wrapperClasses="w-full"
+				btnClasses="gap-1 flex items-center text-xs text-primary"
+				wrapperClasses="flex-1"
 				variant="default"
 				on:click={() => addComponent('checkboxcomponent')}
 				title="Add Toggle"
@@ -210,14 +228,24 @@
 				+ <ToggleRightIcon size={14} />
 			</Button>
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-primary"
-				wrapperClasses="w-full"
+				btnClasses="gap-1 flex items-center text-xs text-primary"
+				wrapperClasses="flex-1"
 				variant="default"
 				on:click={() => addComponent('selectcomponent')}
 				title="Add Select"
 			>
 				+ <List size={14} />
 			</Button>
+			<DropdownV2
+				items={[
+					{
+						displayName: 'Modal button',
+						icon: Inspect,
+						action: () => addComponent('modalcomponent')
+					}
+				]}
+				fixedHeight={false}
+			></DropdownV2>
 		</div>
 		<div class="w-full flex flex-col">
 			{#if actionsOrder}
