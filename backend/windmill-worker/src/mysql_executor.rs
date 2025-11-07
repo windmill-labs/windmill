@@ -299,7 +299,7 @@ pub async fn do_mysql(
 
     let queries = parse_sql_blocks(query);
 
-    let conn_a_ref = &conn_a.clone();
+    let conn_a_ref = &conn_a;
     let result_f = async move {
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
@@ -345,11 +345,10 @@ pub async fn do_mysql(
 
     pool.disconnect().await.map_err(to_anyhow)?;
 
-    let raw_result = windmill_common::worker::to_raw_value(&json!(result));
-    *mem_peak = (raw_result.get().len() / 1000) as i32;
+    *mem_peak = (result.get().len() / 1000) as i32;
 
     // And then check that we got back the same string we sent over.
-    return Ok(raw_result);
+    return Ok(result);
 }
 
 // 2023-12-01T16:18:00.000Z
