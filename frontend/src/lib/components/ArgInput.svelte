@@ -11,10 +11,10 @@
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
-	import { DollarSign, Plus, X, Check, Loader2, ExternalLink, AlertTriangle } from 'lucide-svelte'
+	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Button, SecondsInput } from './common'
+	import { Alert, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -1459,10 +1459,12 @@
 	{/if}
 
 	{#if !s3StorageConfigured && extra['x-no-s3-storage-workspace-warning']}
-		<div class="text-secondary text-2xs mt-1 flex items-start gap-1">
-			<AlertTriangle size={12} class="mt-0.5 flex-shrink-0" />
-			<span>{extra['x-no-s3-storage-workspace-warning']}</span>
-		</div>
+		<Alert
+			type="warning"
+			title={extra['x-no-s3-storage-workspace-warning']}
+			size="xs"
+			titleClass="text-2xs"
+		/>
 	{/if}
 </div>
 
