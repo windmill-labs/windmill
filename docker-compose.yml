@@ -73,8 +73,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
-      # for AI agent memory
-      - worker_memory:/tmp/windmill/memory
 
     logging: *default-logging
 
