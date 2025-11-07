@@ -9,7 +9,7 @@ export type PickableProperties = {
 	priorIds: Record<string, any>
 	previousId: string | undefined
 	hasResume: boolean
-	env?: Record<string, any>
+	flow_env?: Record<string, any>
 }
 
 type StepPropPicker = {
@@ -158,7 +158,7 @@ export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, a
 			priorIds: priorIds,
 			previousId: undefined,
 			hasResume: false,
-			env: flow.value.flow_env
+			flow_env: flow.value.flow_env
 		},
 		extraLib: `
 /**
@@ -187,7 +187,7 @@ ${
 /**
 * flow environment variables
 */
-declare const env = ${JSON.stringify(flow.value.flow_env)};
+declare const flow_env = ${JSON.stringify(flow.value.flow_env)};
 `
 		: ''
 }
@@ -232,7 +232,7 @@ export function getStepPropPicker(
 		priorIds: priorIds,
 		previousId: previousIds[0],
 		hasResume: previousModule?.suspend != undefined,
-		env: flow.value.flow_env
+		flow_env: flow.value.flow_env
 	}
 
 	if (pickableProperties.hasResume) {
@@ -297,7 +297,7 @@ ${
 /**
  * flow environment variables
  */
-declare const env = ${JSON.stringify(flowEnv)};
+declare const flow_env = ${JSON.stringify(flowEnv)};
 `
 		: ''
 }

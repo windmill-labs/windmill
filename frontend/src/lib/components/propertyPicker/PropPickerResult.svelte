@@ -5,7 +5,7 @@
 	export let result: any
 	export let extraResults: any = undefined
 	export let flow_input: any = undefined
-	export let env: any = undefined
+	export let flow_env: any = undefined
 </script>
 
 <div class="w-full px-2">
@@ -19,10 +19,10 @@
 			<ObjectViewer {allowCopy} json={flow_input} prefix="flow_input" on:select />
 		</div>
 	{/if}
-	{#if env}
-		<span class="font-normal text-sm text-secondary">Environment Variables</span>
+	{#if flow_env}
+		<span class="font-normal text-sm text-secondary">Flow Environment Variables</span>
 		<div class="overflow-y-auto w-full">
-			<ObjectViewer {allowCopy} json={env} prefix="env" on:select />
+			<ObjectViewer {allowCopy} json={flow_env} prefix="flow_env" on:select />
 		</div>
 	{/if}
 </div>

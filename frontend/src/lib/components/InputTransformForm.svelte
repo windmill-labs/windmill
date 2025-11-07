@@ -4,7 +4,7 @@
 		'results',
 		'resource',
 		'variable',
-		'env'
+		'flow_env'
 	])
 </script>
 

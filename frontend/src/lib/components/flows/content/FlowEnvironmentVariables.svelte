@@ -33,7 +33,7 @@
 	if (!flowStore.val.value.flow_env) {
 		flowStore.val.value.flow_env = {}
 	}
-	let envVarsMap = $derived(new Map(Object.entries(flowStore.val.value.flow_env || {})))
+	let flowEnvVarsMap = $derived(new Map(Object.entries(flowStore.val.value.flow_env || {})))
 
 	function determineValueType(value: any): EnvVarType {
 		if (typeof value === 'string') {
@@ -51,7 +51,7 @@
 		return 'json'
 	}
 
-	let envTypes = $state<Record<string, EnvVarType>>({})
+	let flowEnvTypes = $state<Record<string, EnvVarType>>({})
 
 	const typeOptions = [
 		{ label: 'String', value: 'string' as EnvVarType },
@@ -59,15 +59,15 @@
 	]
 
 	$effect(() => {
-		for (const [key, value] of envVarsMap.entries()) {
-			if (!envTypes[key]) {
-				envTypes[key] = determineValueType(value)
+		for (const [key, value] of flowEnvVarsMap.entries()) {
+			if (!flowEnvTypes[key]) {
+				flowEnvTypes[key] = determineValueType(value)
 			}
 		}
 	})
 
 	$effect(() => {
-		for (const [key, type] of Object.entries(envTypes)) {
+		for (const [key, type] of Object.entries(flowEnvTypes)) {
 			if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
 				const currentType = determineValueType(flowStore.val.value.flow_env[key])
 				if (currentType !== type) {
@@ -77,10 +77,10 @@
 		}
 	})
 
-	let envEntries = $derived(
-		Array.from(envVarsMap.entries()).map(([key, value]): EnvVarEntry => {
+	let flowEnvEntries = $derived(
+		Array.from(flowEnvVarsMap.entries()).map(([key, value]): EnvVarEntry => {
 			const stringValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-			const type = envTypes[key] || determineValueType(value)
+			const type = flowEnvTypes[key] || determineValueType(value)
 			return {
 				id: key,
 				key,
@@ -93,7 +93,7 @@
 	)
 
 	function addEnvVar() {
-		const existingKeys = Array.from(envVarsMap.keys())
+		const existingKeys = Array.from(flowEnvVarsMap.keys())
 		let counter = 1
 		let newKey = `VAR_${counter}`
 		while (existingKeys.includes(newKey)) {
@@ -105,14 +105,14 @@
 			flowStore.val.value.flow_env = {}
 		}
 		flowStore.val.value.flow_env[newKey] = ''
-		envTypes[newKey] = 'string'
+		flowEnvTypes[newKey] = 'string'
 		flowStore.val = flowStore.val
 	}
 
 	function removeEnvVar(key: string) {
 		if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
 			delete flowStore.val.value.flow_env[key]
-			delete envTypes[key]
+			delete flowEnvTypes[key]
 			flowStore.val = flowStore.val
 		}
 	}
@@ -136,10 +136,10 @@
 	function updateEnvKey(oldKey: string, newKey: string) {
 		if (flowStore.val.value.flow_env && oldKey !== newKey && newKey.trim() !== '') {
 			const value = flowStore.val.value.flow_env[oldKey]
-			const type = envTypes[oldKey] || 'string'
+			const type = flowEnvTypes[oldKey] || 'string'
 
 			const newEnvVars: Record<string, any> = {}
-			for (const [k, v] of envVarsMap.entries()) {
+			for (const [k, v] of flowEnvVarsMap.entries()) {
 				if (k === oldKey) {
 					newEnvVars[newKey] = value
 				} else {
@@ -148,8 +148,8 @@
 			}
 
 			flowStore.val.value.flow_env = newEnvVars
-			delete envTypes[oldKey]
-			envTypes[newKey] = type
+			delete flowEnvTypes[oldKey]
+			flowEnvTypes[newKey] = type
 			flowStore.val = flowStore.val
 		}
 	}
@@ -160,7 +160,7 @@
 			const stringValue =
 				typeof currentValue === 'string' ? currentValue : JSON.stringify(currentValue, null, 2)
 
-			envTypes[key] = newType
+			flowEnvTypes[key] = newType
 
 			if (newType === 'json') {
 				try {
@@ -185,23 +185,24 @@
 </script>
 
 <div class="min-h-full">
-	<FlowCard {noEditor} title="Environment Variables">
+	<FlowCard {noEditor} title="Flow Env Variables">
 		<div class="min-h-full flex-1">
-			<Alert type="info" title="Environment Variables" class="m-4">
-				Environment variables can be referenced in any flow step using the syntax{' '}
-				<code>env.VARIABLE_NAME</code>. These variables are available in the property picker and can
-				be used in JavaScript expressions and input bindings. You can choose between String or JSON
-				types for each variable - JSON types allow complex data structures.
+			<Alert type="info" title="Flow Env Variables" class="m-4">
+				Environment variables can be referenced in any flow step input using the syntax{' '}
+				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
+				variables are available in the property picker and can be used in JavaScript expressions and
+				input bindings. You can choose between String or JSON types for each variable - JSON types
+				allow complex data structures.
 			</Alert>
 
-			{#if envEntries.length === 0}
+			{#if flowEnvEntries.length === 0}
 				<Alert type="warning" title="No environment variables" class="m-4">
 					This flow has no environment variables defined. Click "Add Variable" to create your first
-					environment variable.
+					flow environment variable.
 				</Alert>
 			{:else}
 				<div class="space-y-4 p-4">
-					{#each envEntries as entry (entry.id)}
+					{#each flowEnvEntries as entry (entry.id)}
 						<div class="flex flex-col gap-4 p-4 border rounded-lg bg-surface-secondary">
 							<div class="flex items-end gap-3">
 								<div class="flex-1 min-w-0 max-w-xs">
@@ -224,7 +225,7 @@
 
 								<Label label="Type">
 									<Select
-										bind:value={envTypes[entry.key]}
+										bind:value={flowEnvTypes[entry.key]}
 										items={typeOptions}
 										disabled={noEditor}
 										size="sm"

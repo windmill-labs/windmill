@@ -73,7 +73,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let env = $derived(pickableProperties?.env || flowStore.val.value.flow_env)
+	let flow_env = $derived(pickableProperties?.flow_env || flowStore.val.value.flow_env)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
@@ -161,7 +161,7 @@
 						<PropPicker
 							{displayContext}
 							{error}
-							{env}
+							{flow_env}
 							previousId={pickableProperties?.previousId}
 							{pickableProperties}
 							allowCopy={!notSelectable && !$propPickerConfig}

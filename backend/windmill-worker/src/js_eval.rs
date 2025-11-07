@@ -166,7 +166,7 @@ impl NetPermissions for PermissionsContainer {
 pub struct OptAuthedClient(Option<AuthedClient>);
 
 const FLOW_INPUT_PREFIX: &'static str = "flow_input";
-const ENV_KEY_PREFIX: &'static str = "env";
+const ENV_KEY_PREFIX: &'static str = "flow_env";
 const DOT_PATTERN: &'static str = ".";
 const START_BRACKET_PATTERN: &'static str = "[\"";
 const END_BRACKET_PATTERN: &'static str = "\"]";
@@ -191,17 +191,18 @@ fn try_exact_property_access(
         let access_pattern_pos = prefix.len();
         let suffix = &expr[access_pattern_pos..];
         let maybe_key_name = if suffix.starts_with(DOT_PATTERN) {
-            let key_name_pos = access_pattern_pos + DOT_PATTERN.len();
+            let key_name_pos = DOT_PATTERN.len();
             Some(&expr[key_name_pos..])
         } else if suffix.starts_with(START_BRACKET_PATTERN) {
-            let key_name_pos = access_pattern_pos + START_BRACKET_PATTERN.len();
+            let key_name_pos = START_BRACKET_PATTERN.len();
             let suffix = &suffix[key_name_pos..];
 
             let flow_arg_name = suffix
                 .ends_with(END_BRACKET_PATTERN)
                 .then(|| {
+                    let start_key_name_pos = access_pattern_pos + key_name_pos;
                     let end_key_name_pos = expr.len() - END_BRACKET_PATTERN.len();
-                    &expr[key_name_pos..end_key_name_pos]
+                    &expr[start_key_name_pos..end_key_name_pos]
                 })
                 .filter(|s| s.len() > 0);
             flow_arg_name
@@ -442,10 +443,10 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>(?:results|env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#)
+        Regex::new(r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#)
             .unwrap();
     static ref RE_FULL: Regex = Regex::new(
-        r"(?m)^(results|env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
+        r"(?m)^(results|flow_env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
     )
     .unwrap();
     static ref RE_PROXY: Regex =
@@ -518,14 +519,14 @@ const results = new Proxy({{}}, {{
     }}
 }});
 
-async function env_by_var_name(var_name) {{
+async function flow_env_by_var_name(var_name) {{
     let root_job_id = "{}";
     return JSON.parse(await Deno.core.ops.op_get_flow_env(root_job_id, var_name, null));
 }}
 
-const env = new Proxy({{}}, {{
+const flow_env = new Proxy({{}}, {{
     get: function(target, name, receiver) {{
-        return env_by_var_name(name);
+        return flow_env_by_var_name(name);
     }}
 }});
 

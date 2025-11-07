@@ -18,13 +18,13 @@
 	export let error: boolean = false
 	export let allowCopy = false
 	export let previousId: string | undefined = undefined
-	export let env: Record<string, string> | undefined = undefined
+	export let flow_env: Record<string, string> | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
 	let displayResources = false
-	let displayEnv = false
+	let displayFlowEnv = false
 
 	let allResultsCollapsed = true
 	let collapsableInitialState:
@@ -32,7 +32,7 @@
 				allResultsCollapsed: boolean
 				displayVariable: boolean
 				displayResources: boolean
-				displayEnv: boolean
+				displayFlowEnv: boolean
 		  }
 		| undefined
 
@@ -49,7 +49,7 @@
 
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
-	let envFiltered: any = pickableProperties.env
+	let flowEnvFiltered: any = pickableProperties.flow_env
 
 	let timeout: number | undefined
 	function onSearch(search: string) {
@@ -68,10 +68,8 @@
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
 
-			envFiltered =
-				search === EMPTY_STRING
-					? pickableProperties.env
-					: keepByKey(pickableProperties.env, search)
+			flowEnvFiltered =
+				search === EMPTY_STRING ? pickableProperties.flow_env : keepByKey(pickableProperties.flow_env, search)
 		}, 50)
 	}
 
@@ -107,7 +105,7 @@
 			if (search === EMPTY_STRING) {
 				flowInputsFiltered = pickableProperties.flow_input
 				resultByIdFiltered = pickableProperties.priorIds
-				envFiltered = pickableProperties.env
+				flowEnvFiltered = pickableProperties.flow_env
 			}
 			filteringFlowInputsOrResult = ''
 			return
@@ -119,8 +117,8 @@
 		if (!$inputMatches?.some((match) => match.word === 'results')) {
 			resultByIdFiltered = {}
 		}
-		if (!$inputMatches?.some((match) => match.word === 'env')) {
-			envFiltered = {}
+		if (!$inputMatches?.some((match) => match.word === 'flow_env')) {
+			flowEnvFiltered = {}
 		}
 		if ($inputMatches?.length == 1) {
 			filteringFlowInputsOrResult = $inputMatches[0].value
@@ -138,12 +136,12 @@
 				if (Object.keys(filtered).length > 0) {
 					resultByIdFiltered = filtered
 				}
-			} else if ($inputMatches[0].word === 'env') {
-				envFiltered = pickableProperties.env
+			} else if ($inputMatches[0].word === 'flow_env') {
+				flowEnvFiltered = pickableProperties.flow_env
 				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
-				let filtered = filterNestedObject(envFiltered, nestedKeys)
+				let filtered = filterNestedObject(flowEnvFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
-					envFiltered = filtered
+					flowEnvFiltered = filtered
 				}
 			}
 		} else {
@@ -163,7 +161,12 @@
 		}
 
 		if (!collapsableInitialState) {
-			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources, displayEnv }
+			collapsableInitialState = {
+				allResultsCollapsed,
+				displayVariable,
+				displayResources,
+				displayFlowEnv
+			}
 		}
 
 		if ($inputMatches[0].word === 'variable') {
@@ -176,8 +179,8 @@
 			displayResources = true
 			return
 		}
-		if ($inputMatches[0].word === 'env') {
-			displayEnv = true
+		if ($inputMatches[0].word === 'flow_env') {
+			displayFlowEnv = true
 			return
 		}
 		if ($inputMatches[0].word === 'results') {
@@ -190,7 +193,8 @@
 		if (!collapsableInitialState) {
 			return
 		}
-		;({ allResultsCollapsed, displayVariable, displayResources, displayEnv } = collapsableInitialState)
+		;({ allResultsCollapsed, displayVariable, displayResources, displayFlowEnv } =
+			collapsableInitialState)
 		collapsableInitialState = undefined
 	}
 
@@ -207,7 +211,7 @@
 		if (prev && !filterActive) {
 			flowInputsFiltered = pickableProperties.flow_input
 			resultByIdFiltered = pickableProperties.priorIds
-			envFiltered = pickableProperties.env
+			flowEnvFiltered = pickableProperties.flow_env
 		}
 	}
 
@@ -217,7 +221,7 @@
 		await updateCollapsable()
 	}
 
-	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
+	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
 
 	onDestroy(() => {
 		clearTimeout(timeout)
@@ -425,17 +429,17 @@
 					{/if}
 				</div>
 			{/if}
-			{#if env && Object.keys(env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'env'))}
+			{#if flow_env && Object.keys(flow_env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'flow_env'))}
 				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-xs text-secondary">Flow Variables:</span>
+					<span class="font-normal text-xs text-secondary">Flow Env Variables:</span>
 
-					{#if displayEnv}
+					{#if displayFlowEnv}
 						<Button
 							color="light"
 							size="xs2"
 							variant="border"
 							on:click={() => {
-								displayEnv = false
+								displayFlowEnv = false
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
@@ -444,8 +448,8 @@
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							rawKey={false}
-							json={envFiltered}
-							prefix="env"
+							json={flowEnvFiltered}
+							prefix="flow_env"
 							on:select
 						/>
 					{:else}
@@ -454,7 +458,7 @@
 							size="xs2"
 							variant="border"
 							on:click={() => {
-								displayEnv = true
+								displayFlowEnv = true
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
