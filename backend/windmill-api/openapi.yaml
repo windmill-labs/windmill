@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.566.1
+  version: 1.573.4
   title: Windmill API
 
   contact:
@@ -554,6 +554,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/onboarding:
+    post:
+      summary: Submit user onboarding data
+      operationId: submitOnboardingData
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                touch_point:
+                  type: string
+                use_case:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding data submitted successfully
+          content:
+            application/json:
+              schema:
+                type: string                
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
@@ -603,6 +628,14 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination (default 1)
+          required: false
+          schema:
+            type: integer
+            default: 1
       responses:
         "200":
           description: connected repositories
@@ -695,12 +728,40 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_workspace_fork_branch:
+    post:
+      summary: create forked workspace branch with git sync
+      operationId: createWorkspaceForkGitBranch
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace branch created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -1972,6 +2033,10 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  slack_oauth_client_id:
+                    type: string
+                  slack_oauth_client_secret:
+                    type: string
                   teams_team_id:
                     type: string
                   teams_command_script:
@@ -2206,6 +2271,73 @@ paths:
                 slack_command_script:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_oauth_config:
+    get:
+      summary: get workspace slack oauth config
+      operationId: getWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: slack oauth config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_oauth_client_id:
+                    type: string
+                    nullable: true
+                  slack_oauth_client_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
+    post:
+      summary: set workspace slack oauth config
+      operationId: setWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Slack OAuth Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - slack_oauth_client_id
+                - slack_oauth_client_secret
+              properties:
+                slack_oauth_client_id:
+                  type: string
+                slack_oauth_client_secret:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete workspace slack oauth config
+      operationId: deleteWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: status
@@ -4765,6 +4897,27 @@ paths:
                 required:
                   - content
                   - language
+
+  /scripts/hub/pick/{path}:
+    get:
+      summary: record hub script pick
+      operationId: pickHubScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script pick recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
 
   /scripts/hub/top:
     get:
@@ -18425,11 +18578,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id
@@ -18519,12 +18668,15 @@ components:
           type: string
         operator_only:
           type: boolean
+        first_time_user:
+          type: boolean
 
       required:
         - email
         - login_type
         - super_admin
         - verified
+        - first_time_user
 
     Flow:
       allOf:
@@ -19539,10 +19691,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object

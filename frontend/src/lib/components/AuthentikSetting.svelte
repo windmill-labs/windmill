@@ -6,12 +6,13 @@
 
 	$: enabled = value != undefined
 
-	let org = ''
+	// Initialize org from existing auth_url
+	$: org = value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? ''
 
 	$: changeOrg(org)
 
 	function changeOrg(org) {
-		if (value) {
+		if (value && org) {
 			value = {
 				...value,
 				connect_config: {
@@ -32,7 +33,7 @@
 
 <div class="flex flex-col gap-1">
 	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="text-sm font-medium text-primary flex gap-4 items-center"
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'authentik'} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -50,7 +51,7 @@
 				<span class="text-primary font-semibold text-sm"
 					>Authentik Url ({'AUTHENTIK_HOST/application/o/authorize/'})</span
 				>
-				<input type="text" placeholder="yourorg" bind:value={org} />
+				<input type="text" placeholder="Authentik base url" bind:value={org} required />
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Custom Name</span>

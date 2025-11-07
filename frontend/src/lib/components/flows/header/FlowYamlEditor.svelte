@@ -3,7 +3,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { filteredContentForExport } from '../utils'
+	import { filteredContentForExport } from '../utils.svelte'
 	import YAML from 'yaml'
 
 	import { Button } from '$lib/components/common'

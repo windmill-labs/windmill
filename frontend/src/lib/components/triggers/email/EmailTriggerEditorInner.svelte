@@ -284,7 +284,7 @@
 
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
+									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
 									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}

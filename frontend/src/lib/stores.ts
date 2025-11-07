@@ -11,6 +11,7 @@ import {
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
 import { createState } from './svelte5Utils.svelte'
+import { DEFAULT_HUB_BASE_URL } from './hub'
 
 export interface UserExt {
 	email: string
@@ -36,16 +37,21 @@ export interface UserWorkspace {
 	disabled: boolean
 }
 
-const persistedWorkspace = BROWSER && getWorkspace()
+const persistedWorkspace = BROWSER && getWorkspaceFromStorage()
 
-function getWorkspace(): string | undefined {
+export function getWorkspaceFromStorage(): string | undefined {
 	try {
-		return localStorage.getItem('workspace') ?? undefined
+		return sessionStorage.getItem('workspace') ?? localStorage.getItem('workspace') ?? undefined
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}
 	return undefined
 }
+export function clearWorkspaceFromStorage() {
+	localStorage.removeItem('workspace')
+	sessionStorage.removeItem('workspace')
+}
+
 export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
@@ -73,7 +79,7 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
-export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
+export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	[usersWorkspaceStore, superadmin],
 	([store, superadmin]) => {
@@ -115,7 +121,6 @@ export const relativeLineNumbers = writable<boolean>(
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
-
 
 export const usedTriggerKinds = writable<string[]>([])
 

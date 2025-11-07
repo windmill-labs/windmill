@@ -69,6 +69,7 @@
 		'spotify',
 		'snowflake_oauth',
 		'teams',
+		'zoho',
 		'xero',
 		'apify'
 	]
@@ -169,7 +170,7 @@
 					{/if}
 				{/each}
 			</div>
-			<div class="flex gap-2 py-4">
+			<div class="flex gap-2 py-4 whitespace-nowrap">
 				<input type="text" placeholder="client_id" bind:value={clientName} />
 				<Button
 					variant="accent"

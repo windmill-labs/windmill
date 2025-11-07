@@ -33,7 +33,8 @@ use windmill_common::{
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    get_mini_pulled_job, push, JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
+    get_mini_pulled_job, push, JobCompleted, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel,
 };
 
 /// Context for tool execution containing all required references and state
@@ -321,11 +322,17 @@ async fn execute_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if let InputTransform::Static { value } = transform {
-            let val = value.get().trim();
-            if val.is_empty() || val == "null" {
+        match transform {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                if val.is_empty() || val == "null" {
+                    continue;
+                }
+            }
+            InputTransform::Ai => {
                 continue;
             }
+            _ => (),
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
             transform,
@@ -545,7 +552,7 @@ async fn execute_windmill_tool(
                 ctx,
                 tool_call,
                 tool_module,
-                &tool_job,
+                &MiniCompletedJob::from(tool_job),
                 job_id,
                 err,
                 messages,
@@ -576,7 +583,7 @@ async fn handle_tool_execution_error(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
     tool_module: &windmill_common::flows::FlowModule,
-    tool_job: &MiniPulledJob,
+    tool_job: &MiniCompletedJob,
     job_id: Uuid,
     err: Error,
     messages: &mut Vec<OpenAIMessage>,
