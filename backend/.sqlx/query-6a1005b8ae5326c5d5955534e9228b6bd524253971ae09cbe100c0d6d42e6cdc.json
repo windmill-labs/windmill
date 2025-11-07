@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT messages FROM ai_agent_memory\n         WHERE workspace_id = $1 AND conversation_id = $2 AND step_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "messages",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6a1005b8ae5326c5d5955534e9228b6bd524253971ae09cbe100c0d6d42e6cdc"
+}

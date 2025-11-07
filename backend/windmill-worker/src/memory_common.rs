@@ -1,72 +1,123 @@
 use crate::ai::types::OpenAIMessage;
-use std::path::PathBuf;
-use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
-use windmill_common::worker::TMP_MEMORY_DIR;
+use windmill_common::{db::DB, error::Error};
 
-/// Get the file path for storing memory for a specific AI agent step
-pub fn path_for(workspace_id: &str, conversation_id: Uuid, step_id: &str) -> PathBuf {
-    PathBuf::from(TMP_MEMORY_DIR)
-        .join(workspace_id)
-        .join(conversation_id.to_string())
-        .join(format!("{step_id}.json"))
-}
+pub const MAX_MEMORY_SIZE_BYTES: usize = 100_000; // 100KB per memory entry in database
 
-/// Read messages from disk storage
-pub async fn read_from_disk(
+/// Read AI agent memory from database
+pub async fn read_from_db(
+    db: &DB,
     workspace_id: &str,
     conversation_id: Uuid,
     step_id: &str,
-) -> anyhow::Result<Option<Vec<OpenAIMessage>>> {
-    let path = path_for(workspace_id, conversation_id, step_id);
-    if !fs::try_exists(&path).await? {
-        return Ok(None);
-    }
+) -> Result<Option<Vec<OpenAIMessage>>, Error> {
+    let result = sqlx::query!(
+        "SELECT messages FROM ai_agent_memory
+         WHERE workspace_id = $1 AND conversation_id = $2 AND step_id = $3",
+        workspace_id,
+        conversation_id,
+        step_id
+    )
+    .fetch_optional(db)
+    .await?;
 
-    let bytes = fs::read(&path).await?;
-    let messages: Vec<OpenAIMessage> = serde_json::from_slice(&bytes)?;
-    Ok(Some(messages))
+    match result {
+        Some(row) => {
+            let messages: Vec<OpenAIMessage> = serde_json::from_value(row.messages)?;
+            Ok(Some(messages))
+        }
+        None => Ok(None),
+    }
 }
 
-/// Write messages to disk storage
-pub async fn write_to_disk(
+/// Write AI agent memory to database with size checking and truncation
+pub async fn write_to_db(
+    db: &DB,
     workspace_id: &str,
     conversation_id: Uuid,
     step_id: &str,
     messages: &[OpenAIMessage],
-) -> anyhow::Result<()> {
-    let path = path_for(workspace_id, conversation_id, step_id);
-
-    // Ensure parent directories exist
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).await?;
+) -> Result<(), Error> {
+    if messages.is_empty() {
+        return Ok(());
     }
 
-    // Write atomically using a temporary file
-    let tmp = path.with_extension("json.tmp");
-    let mut f = fs::File::create(&tmp).await?;
-    f.write_all(&serde_json::to_vec(messages)?).await?;
-    f.flush().await?;
-    drop(f);
+    // Serialize messages and check size
+    let mut messages_to_store = messages.to_vec();
+    let mut json_value = serde_json::to_value(&messages_to_store)?;
+    let size_bytes = json_value.to_string().len();
 
-    // Atomic rename
-    fs::rename(tmp, &path).await?;
+    // Truncate if necessary
+    if size_bytes > MAX_MEMORY_SIZE_BYTES {
+        tracing::warn!(
+            "Memory size ({} bytes) exceeds limit ({} bytes) for workspace={} conversation={} step={}. Truncating messages. Use S3 storage in workspace settings to store full conversation history.",
+            size_bytes,
+            MAX_MEMORY_SIZE_BYTES,
+            workspace_id,
+            conversation_id,
+            step_id
+        );
+
+        messages_to_store = truncate_messages(messages, MAX_MEMORY_SIZE_BYTES)?;
+        json_value = serde_json::to_value(&messages_to_store)?;
+    }
+
+    // Insert or update using UPSERT
+    sqlx::query!(
+        "INSERT INTO ai_agent_memory (workspace_id, conversation_id, step_id, messages, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())
+         ON CONFLICT (workspace_id, conversation_id, step_id)
+         DO UPDATE SET
+            messages = EXCLUDED.messages,
+            updated_at = NOW()",
+        workspace_id,
+        conversation_id,
+        step_id,
+        json_value
+    )
+    .execute(db)
+    .await?;
 
     Ok(())
 }
 
-/// Delete all memory for a conversation from disk storage
-pub async fn delete_conversation_from_disk(
+/// Delete all memory for a conversation from database
+pub async fn delete_conversation_from_db(
+    db: &DB,
     workspace_id: &str,
     conversation_id: Uuid,
-) -> anyhow::Result<()> {
-    let conversation_path = PathBuf::from(TMP_MEMORY_DIR)
-        .join(workspace_id)
-        .join(conversation_id.to_string());
-
-    if fs::try_exists(&conversation_path).await? {
-        fs::remove_dir_all(&conversation_path).await?;
-    }
+) -> Result<(), Error> {
+    sqlx::query!(
+        "DELETE FROM ai_agent_memory
+         WHERE workspace_id = $1 AND conversation_id = $2",
+        workspace_id,
+        conversation_id
+    )
+    .execute(db)
+    .await?;
 
     Ok(())
+}
+
+/// Truncate messages to fit within the size limit
+fn truncate_messages(
+    messages: &[OpenAIMessage],
+    max_size_bytes: usize,
+) -> Result<Vec<OpenAIMessage>, Error> {
+    let mut result = messages.to_vec();
+
+    // Keep removing oldest messages until we're under the threshold
+    while !result.is_empty() {
+        let test_json = serde_json::to_value(&result)?;
+        let test_size = test_json.to_string().len();
+
+        if test_size <= max_size_bytes {
+            break;
+        }
+
+        // Remove the first (oldest) message
+        result.remove(0);
+    }
+
+    Ok(result)
 }

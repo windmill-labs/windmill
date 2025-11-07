@@ -405,7 +405,7 @@ pub async fn run_agent(
                     .and_then(|fs| fs.memory_id)
                 {
                     // Read messages from memory
-                    match read_from_memory(&job.workspace_id, memory_id, step_id).await {
+                    match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
@@ -856,6 +856,7 @@ pub async fn run_agent(
 
                     if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
                         if let Err(e) = write_to_memory(
+                            db,
                             &job.workspace_id,
                             memory_id,
                             step_id,
