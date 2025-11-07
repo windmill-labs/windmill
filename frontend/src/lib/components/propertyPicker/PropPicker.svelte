@@ -18,7 +18,7 @@
 	export let error: boolean = false
 	export let allowCopy = false
 	export let previousId: string | undefined = undefined
-	export let flow_env: Record<string, string> | undefined = undefined
+	export let flow_env: Record<string, any> | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
