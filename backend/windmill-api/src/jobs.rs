@@ -7805,7 +7805,6 @@ async fn get_completed_job_result(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JsonPath { json_path, suspended_job, approver, resume_id, secret }): Query<JsonPath>,
 ) -> error::Result<Response> {
-    println!("Json path: {:#?}", json_path.as_ref());
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))

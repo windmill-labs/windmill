@@ -267,7 +267,7 @@ pub async fn eval_timeout(
     );
 
     if let Some(value) = transform_context.get(&expr) {
-        return Ok(value.as_ref().clone());
+        return Ok(value.as_ref().to_owned());
     }
 
     if let Some(value) = try_exact_property_access(&expr, flow_input.as_ref(), flow_env) {
