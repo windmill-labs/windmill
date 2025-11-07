@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { DEFAULT_NOTE_COLOR, type NoteColor } from './noteColors'
+	import { DEFAULT_NOTE_COLOR } from './noteColors'
 	import { getContext, onDestroy, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -65,12 +65,7 @@
 	import NodeContextMenu from './NodeContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
-	import {
-		createGroupNote,
-		isGroupNote,
-		calculateGroupNoteBounds,
-		convertToExtendedNote
-	} from './groupNoteUtils'
+	import { NoteManager } from './noteManager.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -225,6 +220,16 @@
 		multiSelectEnabled = false
 	}: Props = $props()
 
+	// Initialize note manager
+	const noteManager = new NoteManager(notes)
+	noteManager.setOnNotesChangeCallback(onNotesChange || (() => {}))
+	noteManager.setUpdateStoresCallback(updateStores)
+
+	// Update note manager when notes prop changes
+	$effect(() => {
+		noteManager.setNotes(notes)
+	})
+
 	// Selection manager - create one if not provided
 	let actualSelectionManager = selectionManager || new SelectionManager()
 
@@ -340,7 +345,7 @@
 		// First, collect all nodes that need spacing above them
 		const spacingMap = new Map<string, number>()
 		for (const node of initialNodes) {
-			const groupNoteHeight = getGroupNoteHeightForNode(node.id, initialNodes)
+			const groupNoteHeight = noteManager.getGroupNoteHeightForNode(node.id, initialNodes)
 			if (groupNoteHeight > 0) {
 				spacingMap.set(node.id, groupNoteHeight)
 			}
@@ -478,169 +483,23 @@
 				size: newNoteFromTool.size || { width: 200, height: 100 },
 				color: DEFAULT_NOTE_COLOR
 			}
-			onNotesChange([...notes, newNote])
+			noteManager.addNote(newNote)
 			nextNoteId += 1
 		}
 		exitNoteMode?.()
 		updateStores()
 	}
 
-	function updateNoteText(noteId: string, text: string) {
-		if (onNotesChange) {
-			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, text } : note)))
-		}
-		updateStores()
-	}
 
-	function deleteNote(noteId: string) {
-		if (onNotesChange) {
-			onNotesChange(notes.filter((note) => note.id !== noteId))
-		}
-		updateStores()
-	}
 
-	function updateNotePosition(noteId: string, position: { x: number; y: number }) {
-		if (onNotesChange) {
-			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, position } : note)))
-		}
-	}
-
-	function updateNoteSize(noteId: string, size: { width: number; height: number }) {
-		if (onNotesChange) {
-			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, size } : note)))
-		}
-	}
-
-	function updateNoteColor(noteId: string, color: NoteColor) {
-		if (onNotesChange) {
-			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, color } : note)))
-		}
-		updateStores()
-	}
-
-	function updateNoteLock(noteId: string, locked: boolean) {
-		if (onNotesChange) {
-			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, locked } : note)))
-		}
-		updateStores()
-	}
 
 	function handleCreateGroupNote(selectedNodeIds: string[]) {
-		if (selectedNodeIds.length === 0 || !onNotesChange) return
-
-		try {
-			const groupNote = createGroupNote(selectedNodeIds)
-			// For now, we need to store group notes as FlowNote format with additional properties
-			// We'll add dummy position/size that will be calculated dynamically in convertNotesToNodes
-			const lockedGroupNote = {
-				...groupNote,
-				position: { x: 0, y: 0 }, // Dummy values, will be calculated dynamically
-				size: { width: 300, height: 100 }, // Dummy values, will be calculated dynamically
-				locked: true,
-				isGroupNote: true,
-				containedNodeIds: groupNote.containedNodeIds,
-				type: 'group'
-			} as FlowNote & {
-				locked: boolean;
-				isGroupNote: boolean;
-				containedNodeIds: string[];
-				type: string;
-			}
-			onNotesChange([...notes, lockedGroupNote])
-			nextNoteId += 1
-		} catch (error) {
-			console.error('Failed to create group note:', error)
-		}
+		noteManager.createGroupNote(selectedNodeIds)
 		updateStores()
 	}
 
 
-	/**
-	 * Helper function to determine if a node needs additional spacing above it for group notes.
-	 * Returns the height needed above the node.
-	 */
-	function getGroupNoteHeightForNode(nodeId: string, layoutedNodes: (NodeDep & NodePos)[]): number {
-		for (const note of notes) {
-			const extendedNote = convertToExtendedNote(note as any)
-			if (isGroupNote(extendedNote) && extendedNote.containedNodeIds.includes(nodeId)) {
-				// Find the topmost node in this group by Y position
-				const containedNodes = layoutedNodes.filter(node =>
-					extendedNote.containedNodeIds.includes(node.id)
-				)
 
-				if (containedNodes.length > 0) {
-					const topmostNode = containedNodes.reduce((topMost, node) =>
-						node.position.y < topMost.position.y ? node : topMost
-					)
-
-					// If this is the topmost node in the group, return the needed height
-					if (topmostNode.id === nodeId) {
-						return 60 // Height for group note text
-					}
-				}
-			}
-		}
-		return 0
-	}
-
-	function convertNotesToNodes(currentNodes: Node[]): Node[] {
-		return notes.map((note) => {
-			const extendedNote = convertToExtendedNote(note as any)
-
-			if (isGroupNote(extendedNote)) {
-				// Calculate dynamic bounds for group notes
-				const bounds = calculateGroupNoteBounds(extendedNote, currentNodes, 60)
-
-				return {
-					id: extendedNote.id,
-					type: 'note',
-					position: bounds.position,
-					data: {
-						text: extendedNote.text,
-						color: extendedNote.color,
-						locked: (note as any).locked || true, // Group notes are locked by default
-						isGroupNote: true,
-						containedNodeIds: extendedNote.containedNodeIds,
-						onUpdate: (text: string) => updateNoteText(extendedNote.id, text),
-						onDelete: () => deleteNote(extendedNote.id),
-						onColorChange: (color: NoteColor) => updateNoteColor(extendedNote.id, color),
-						onSizeChange: (size: { width: number; height: number }) => updateNoteSize(extendedNote.id, size),
-						onLockToggle: (locked: boolean) => updateNoteLock(extendedNote.id, locked)
-					},
-					style: `width: ${bounds.size.width}px; height: ${bounds.size.height}px;`,
-					width: bounds.size.width,
-					height: bounds.size.height,
-					zIndex: -2000,
-					draggable: !(note as any).locked, // Don't allow dragging locked notes
-					selectable: true
-				}
-			} else {
-				// Handle regular notes
-				return {
-					id: extendedNote.id,
-					type: 'note',
-					position: extendedNote.position,
-					data: {
-						text: extendedNote.text,
-						color: extendedNote.color,
-						locked: (note as any).locked || false,
-						isGroupNote: false,
-						onUpdate: (text: string) => updateNoteText(extendedNote.id, text),
-						onDelete: () => deleteNote(extendedNote.id),
-						onColorChange: (color: NoteColor) => updateNoteColor(extendedNote.id, color),
-						onSizeChange: (size: { width: number; height: number }) => updateNoteSize(extendedNote.id, size),
-						onLockToggle: (locked: boolean) => updateNoteLock(extendedNote.id, locked)
-					},
-					style: `width: ${extendedNote.size.width}px; height: ${extendedNote.size.height}px;`,
-					width: extendedNote.size.width,
-					height: extendedNote.size.height,
-					zIndex: -2000,
-					draggable: !(note as any).locked, // Don't allow dragging locked notes
-					selectable: true
-				}
-			}
-		})
-	}
 
 	async function updateStores() {
 		if (graph.error) {
@@ -681,7 +540,7 @@
 
 		nodes = [
 			...finalNodes,
-			...convertNotesToNodes(finalNodes)
+			...noteManager.convertToNodes(finalNodes)
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -903,7 +762,7 @@
 				onnodedragstop={(event) => {
 					const node = event.targetNode
 					if (node && node.type === 'note') {
-						updateNotePosition(node.id, node.position)
+						noteManager.updatePosition(node.id, node.position)
 					}
 				}}
 				onmove={(event, viewport) => {
