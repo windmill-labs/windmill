@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
@@ -181,7 +181,7 @@ fn do_snowflake_inner<'a>(
 
         if skip_collect {
             handle_snowflake_result(result).await?;
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
         } else {
             let response = result
                 .parse_snowflake_response::<SnowflakeResponse>()
@@ -256,11 +256,7 @@ fn do_snowflake_inner<'a>(
                 row_map
             });
 
-            let rows_stream = if first_row_only {
-                rows_stream.take(1)
-            } else {
-                rows_stream
-            };
+            let rows_stream = rows_stream.take(if first_row_only { 1 } else { usize::MAX });
 
             if let Some(s3) = s3 {
                 let rows_stream =
@@ -272,8 +268,8 @@ fn do_snowflake_inner<'a>(
                 let rows = rows_stream
                     .collect::<Vec<_>>()
                     .await
-                    .iter()
-                    .map(to_raw_value)
+                    .into_iter()
+                    .map(|x| x.map(|v| to_raw_value(&v)))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(rows)
             }
@@ -321,6 +317,11 @@ pub async fn do_snowflake(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     // Check if the token is present in db_arg and use it if available
     let (token, token_is_keypair) = if let Some(token) = db_arg
@@ -442,7 +443,7 @@ pub async fn do_snowflake(
                 &http_client,
                 s3.clone(),
                 &reserved_variables,
-            )
+            )?
             .await?;
             results.push(result);
         }
