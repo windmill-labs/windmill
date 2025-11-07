@@ -3,6 +3,7 @@
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
 	import { buildFlowTimeline, hasInputSchemaChanged } from '../flows/flowDiff'
+	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -137,8 +138,6 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		onShowModuleDiff?: (moduleId: string) => void
-		onAcceptModule?: (moduleId: string) => void
-		onRejectModule?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
@@ -196,8 +195,6 @@
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
 		onShowModuleDiff = undefined,
-		onAcceptModule = undefined,
-		onRejectModule = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -217,6 +214,66 @@
 		useDataflow: Writable<boolean | undefined>
 		showAssets: Writable<boolean | undefined>
 	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
+
+	// Create diffManager instance for this FlowGraphV2
+	const diffManager = createFlowDiffManager()
+
+	// Validation: error if both diffBeforeFlow and moduleActions are provided
+	$effect(() => {
+		if (diffBeforeFlow && moduleActions) {
+			throw new Error('Cannot provide both diffBeforeFlow and moduleActions props to FlowGraphV2')
+		}
+	})
+
+	// Sync props to diffManager
+	$effect(() => {
+		if (diffBeforeFlow) {
+			// Set snapshot from diffBeforeFlow
+			diffManager.setSnapshot(diffBeforeFlow)
+			diffManager.setInputSchemas(diffBeforeFlow.schema, currentInputSchema)
+
+			// Set afterFlow from current modules
+			const afterFlowValue = {
+				modules: modules,
+				failure_module: failureModule,
+				preprocessor_module: preprocessorModule,
+				skip_expr: earlyStop ? '' : undefined,
+				cache_ttl: cache ? 300 : undefined
+			}
+			diffManager.setAfterFlow(afterFlowValue)
+		} else if (moduleActions) {
+			// Display-only mode: just set the module actions
+			diffManager.setModuleActions(moduleActions)
+		} else {
+			// No diff mode: clear everything
+			diffManager.clearSnapshot()
+		}
+	})
+
+	// Watch current flow changes and update afterFlow
+	$effect(() => {
+		// Only update if we have a snapshot (in diff mode)
+		if (diffManager.beforeFlow) {
+			const afterFlowValue = {
+				modules: modules,
+				failure_module: failureModule,
+				preprocessor_module: preprocessorModule,
+				skip_expr: earlyStop ? '' : undefined,
+				cache_ttl: cache ? 300 : undefined
+			}
+			diffManager.setAfterFlow(afterFlowValue)
+			diffManager.setInputSchemas(diffManager.beforeFlow.schema, currentInputSchema)
+		}
+	})
+
+	// Export methods for external access
+	export function getDiffManager() {
+		return diffManager
+	}
+
+	export function setBeforeFlow(flow: OpenFlow | undefined) {
+		diffManager.setSnapshot(flow)
+	}
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -390,47 +447,19 @@
 		}
 	}
 
-	// Compute diff when diffMode is enabled
-	let computedDiff = $derived.by(() => {
-		if (!diffBeforeFlow || !modules) {
-			return undefined
-		}
-
-		// Construct current flow value from props
-		const afterFlowValue = {
-			modules: modules,
-			failure_module: failureModule,
-			preprocessor_module: preprocessorModule,
-			skip_expr: earlyStop ? '' : undefined,
-			cache_ttl: cache ? 300 : undefined
-		}
-
-		// Use existing flowDiff utility - always unified mode (markRemovedAsShadowed: false)
-		return buildFlowTimeline(diffBeforeFlow.value, afterFlowValue, {
-			markRemovedAsShadowed: markRemovedAsShadowed,
-			markAsPending: true
-		})
-	})
-
-	// Create effective module actions from props or computed diff
-	let effectiveModuleActions = $derived(
-		moduleActions ?? computedDiff?.afterActions
-	)
+	// Use diffManager state for rendering
+	let effectiveModuleActions = $derived(diffManager.moduleActions)
 
 	let effectiveInputSchemaModified = $derived(
-		diffBeforeFlow && currentInputSchema
-			? hasInputSchemaChanged(diffBeforeFlow, { schema: currentInputSchema })
-			: false
+		effectiveModuleActions['Input']?.action === 'modified'
 	)
 
-	// Use merged flow modules when in diff mode, otherwise use raw modules
-	let effectiveModules = $derived(computedDiff?.mergedFlow.modules ?? modules)
+	// Use raw modules (diffManager handles merging internally via auto-computation)
+	let effectiveModules = $derived(modules)
 
-	let effectiveFailureModule = $derived(computedDiff?.mergedFlow.failure_module ?? failureModule)
+	let effectiveFailureModule = $derived(failureModule)
 
-	let effectivePreprocessorModule = $derived(
-		computedDiff?.mergedFlow.preprocessor_module ?? preprocessorModule
-	)
+	let effectivePreprocessorModule = $derived(preprocessorModule)
 
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = new ChangeTracker($state.snapshot(effectiveModules))
@@ -438,8 +467,6 @@
 	$inspect('HERE', effectiveModules)
 	$inspect('HERE', effectiveModuleActions)
 	$inspect('HERE', diffBeforeFlow)
-	$inspect('HERE', onAcceptModule)
-	$inspect('HERE', onRejectModule)
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -576,8 +603,7 @@
 				flowHasChanged,
 				chatInputEnabled,
 				onShowModuleDiff: untrack(() => onShowModuleDiff),
-				onAcceptModule: untrack(() => onAcceptModule),
-				onRejectModule: untrack(() => onRejectModule),
+				diffManager: diffManager,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => effectiveFailureModule),
