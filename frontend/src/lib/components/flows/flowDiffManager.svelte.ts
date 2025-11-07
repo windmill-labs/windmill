@@ -10,7 +10,8 @@ import type { ExtendedOpenFlow } from './types'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 import { buildFlowTimeline, type FlowTimeline } from './flowDiff'
-import { refreshStateStore, type StateStore } from '$lib/svelte5Utils.svelte'
+import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
 
@@ -89,8 +90,7 @@ export function createFlowDiffManager() {
 				if (schemaChanged) {
 					newActions['Input'] = {
 						action: 'modified',
-						pending: true,
-						description: 'Input schema changed'
+						pending: true
 					}
 				}
 			}
@@ -142,7 +142,10 @@ export function createFlowDiffManager() {
 	/**
 	 * Set input schemas for tracking schema changes
 	 */
-	function setInputSchemas(before: Record<string, any> | undefined, after: Record<string, any> | undefined) {
+	function setInputSchemas(
+		before: Record<string, any> | undefined,
+		after: Record<string, any> | undefined
+	) {
 		beforeInputSchema = before
 		afterInputSchema = after
 	}
