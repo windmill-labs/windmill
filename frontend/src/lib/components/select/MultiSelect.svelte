@@ -75,6 +75,8 @@
 		return untrack(() => processItems(args))
 	})
 
+	$inspect('items', items)
+
 	$effect(() => {
 		if (!open) filterText = ''
 	})
