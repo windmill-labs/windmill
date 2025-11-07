@@ -373,6 +373,11 @@
 							onKeyDown={() => {
 								licenseKeyChanged = true
 							}}
+							onBlur={() => {
+								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
+									$values[setting.key] = $values[setting.key].trim()
+								}
+							}}
 							bind:password={$values[setting.key]}
 						/>
 						<Button

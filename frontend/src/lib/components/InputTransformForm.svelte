@@ -67,6 +67,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		s3StorageConfigured?: boolean
 	}
 
 	let {
@@ -91,7 +92,8 @@
 		editor = $bindable(undefined),
 		otherArgs = {},
 		helperScript = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		s3StorageConfigured = true
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -159,7 +161,13 @@
 
 	function getPropertyType(arg: InputTransform | any): PropertyType {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
-		if (isAgentTool && arg?.type === 'static' && arg?.value === undefined) {
+		if (
+			isAgentTool &&
+			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
+		) {
+			if (arg?.type === 'static') {
+				arg.type = 'ai'
+			}
 			return 'ai'
 		}
 
@@ -563,7 +571,7 @@
 								if (e.detail === 'ai') {
 									// Switch to AI mode: static with no value
 									if (arg) {
-										arg.type = 'static'
+										arg.type = 'ai'
 										arg.value = undefined
 										arg.expr = undefined
 									}
@@ -792,6 +800,7 @@
 								bind:title={schema.properties[argName].title}
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
+								{s3StorageConfigured}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,
