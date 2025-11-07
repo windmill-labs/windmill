@@ -308,7 +308,6 @@
 
 	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
 		flowDiffManager.setModuleActions(actions)
-		graph?.setModuleActions(actions)
 	}
 
 	export function getModuleActions(): Record<string, ModuleActionInfo> {
@@ -322,13 +321,6 @@
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
 	}
-
-	// Register onChange callback to propagate moduleActions changes to graph
-	$effect(() => {
-		flowDiffManager.setOnChange((actions) => {
-			graph?.setModuleActions(actions)
-		})
-	})
 
 	// Handle accept module action
 	function handleAcceptModule(moduleId: string) {
@@ -538,6 +530,7 @@
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			diffBeforeFlow={flowDiffManager.beforeFlow}
+			moduleActions={flowDiffManager.moduleActions}
 			onShowModuleDiff={handleShowModuleDiff}
 			onAcceptModule={onAcceptModule ?? handleAcceptModule}
 			onRejectModule={onRejectModule ?? handleRejectModule}

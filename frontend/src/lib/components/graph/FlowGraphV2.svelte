@@ -412,13 +412,9 @@
 		})
 	})
 
-	// State for explicitly set module actions (via setModuleActions)
-	let explicitModuleActions = $state<Record<string, ModuleActionInfo> | undefined>(undefined)
-
-	// Create effective props that merge computed diff with explicit props
-	// Priority: explicit > prop > computed diff
+	// Create effective module actions from props or computed diff
 	let effectiveModuleActions = $derived(
-		explicitModuleActions ?? moduleActions ?? computedDiff?.afterActions
+		moduleActions ?? computedDiff?.afterActions
 	)
 
 	let effectiveInputSchemaModified = $derived(
@@ -449,15 +445,6 @@
 	let edges = $state.raw<Edge[]>([])
 
 	let height = $state(0)
-
-	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
-		console.log('HERE setModuleActions', actions)
-		explicitModuleActions = actions
-	}
-
-	export function getModuleActions(): Record<string, ModuleActionInfo> {
-		return effectiveModuleActions as Record<string, ModuleActionInfo>
-	}
 
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {

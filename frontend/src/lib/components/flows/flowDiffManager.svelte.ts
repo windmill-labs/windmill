@@ -78,6 +78,8 @@ export function createFlowDiffManager() {
 	 */
 	function updateModuleActions(newActions: Record<string, ModuleActionInfo>) {
 		moduleActions = newActions
+		console.log('updateModuleActions', newActions)
+		console.log('onChangeCallback', onChangeCallback)
 		onChangeCallback?.(newActions)
 	}
 
@@ -110,6 +112,7 @@ export function createFlowDiffManager() {
 		afterFlow: FlowValue,
 		options: ComputeDiffOptions = {}
 	): FlowTimeline | null {
+		console.log('computeDiff', beforeFlow, afterFlow)
 		if (!beforeFlow) {
 			return null
 		}
@@ -120,6 +123,8 @@ export function createFlowDiffManager() {
 		})
 
 		// Update module actions with the computed diff
+
+		console.log('timeline.afterActions', timeline.afterActions)
 		updateModuleActions(timeline.afterActions)
 
 		return timeline
@@ -181,7 +186,7 @@ export function createFlowDiffManager() {
 	 * Accept a module action (keep the changes)
 	 */
 	function acceptModule(id: string, options: AcceptModuleOptions) {
-		console.log('acceptModule', id)
+		console.log('acceptModule', id, moduleActions)
 		// Handle __ prefixed IDs for type-changed modules
 		const actualId = id.startsWith('__') ? id.substring(2) : id
 		const info = moduleActions[id]
