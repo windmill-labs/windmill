@@ -5,15 +5,12 @@ use windmill_common::{
     cache,
     error::{Error, Result},
     flows::{FlowModuleValue, FlowValue},
-    scripts::ScriptLang,
 };
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::{
-    extract_relative_imports, is_generated_from_raw_requirements,
-    LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
-};
+use crate::worker_lockfiles::extract_relative_imports;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -295,16 +292,7 @@ SELECT importer_node_id, imported_path
                 let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
                 let mut tx = db.begin().await?;
 
-                if (smd.language.is_some_and(|v| v == ScriptLang::Bun)
-                    && sd
-                        .lock
-                        .as_ref()
-                        .is_some_and(|v| v.contains("generatedFromPackageJson")))
-                    || (smd.language.is_some_and(|v| v == ScriptLang::Python3)
-                        && sd.lock.as_ref().is_some_and(|v| {
-                            v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
-                        }))
-                {
+                if is_generated_from_raw_requirements(&smd.language, &sd.lock) {
                     // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
                     // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
                     // to update_script_dependency_map will clear the dependency map.
@@ -350,7 +338,7 @@ SELECT importer_node_id, imported_path
                         match fmv {
                             // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
                             FlowModuleValue::RawScript { content, language, lock ,.. } => {
-                                if !is_generated_from_raw_requirements(Some(*language), lock) {
+                                if !is_generated_from_raw_requirements(&Some(*language), lock) {
                                     to_process.push((
                                         extract_relative_imports(
                                             content,

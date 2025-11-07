@@ -20,6 +20,7 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -373,15 +374,7 @@ pub async fn process_relative_imports(
                 db,
             )
             .await?;
-            if (script_lang.is_some_and(|v| v == ScriptLang::Bun)
-                && lock
-                    .as_ref()
-                    .is_some_and(|v| v.contains("generatedFromPackageJson")))
-                || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
-                    && lock
-                        .as_ref()
-                        .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
-            {
+            if is_generated_from_raw_requirements(script_lang, &lock) {
                 // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
                 // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
                 // to update_script_dependency_map will clear the dependency map.
@@ -443,17 +436,6 @@ pub async fn process_relative_imports(
     }
 
     Ok(())
-}
-
-pub fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
-    (lang.is_some_and(|v| v == ScriptLang::Bun)
-        && lock
-            .as_ref()
-            .is_some_and(|v| v.contains("generatedFromPackageJson")))
-        || (lang.is_some_and(|v| v == ScriptLang::Python3)
-            && lock
-                .as_ref()
-                .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
 }
 
 pub async fn trigger_dependents_to_recompute_dependencies(
@@ -1450,7 +1432,7 @@ async fn lock_modules<'c>(
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                if !is_generated_from_raw_requirements(Some(language), &lock) {
+                if !is_generated_from_raw_requirements(&Some(language), &lock) {
                     let relative_imports = get_imports();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
@@ -1463,7 +1445,7 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    if !is_generated_from_raw_requirements(Some(language), &lock) {
+                    if !is_generated_from_raw_requirements(&Some(language), &lock) {
                         let relative_imports = get_imports();
                         tx = dependency_map
                             .patch(relative_imports.clone(), e.id.clone(), tx)
@@ -2582,8 +2564,6 @@ async fn ansible_dep(
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
 
-pub const LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT: &str = "# from requirements.txt";
-
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2672,7 +2652,11 @@ async fn capture_dependency_job(
                 .await
                 .map(|res| {
                     if raw_deps {
-                        format!("{}\n{}", LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT, res)
+                        format!(
+                            "{}\n{}",
+                            windmill_common::lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
+                            res
+                        )
                     } else {
                         res
                     }

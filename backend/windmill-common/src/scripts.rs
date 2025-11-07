@@ -732,18 +732,32 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> crate::error::Result<i64> {
-    let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(base_hash.0)
-            .bind(w_id)
-            .fetch_one(&mut **tx)
-            .await?;
+) -> crate::error::Result<ClonedScript> {
+    let s = sqlx::query_as::<_, Script>(
+        "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+    )
+    .bind(base_hash.0)
+    .bind(w_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let s = if let Some(s) = s {
+        s
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Non-archived script with hash {} not found",
+            base_hash.0
+        )));
+    };
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -819,5 +833,5 @@ pub async fn clone_script<'c>(
     .execute(&mut **tx)
     .await?;
 
-    Ok(new_hash)
+    Ok(ClonedScript { old_script: ns, new_hash })
 }
