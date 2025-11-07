@@ -52,6 +52,8 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspend_number: Option<i32>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -98,8 +100,10 @@ where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
 {
     fn from_row(row: &sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        let base = BaseTrigger::from_row(row)?;
+
         Ok(Trigger {
-            base: BaseTrigger::from_row(row)?,
+            base,
             config: T::from_row(row)?,
             server_state: ServerState::from_row(row).ok(),
             error_handling: TriggerErrorHandling::from_row(row)?,
@@ -113,6 +117,7 @@ pub struct BaseTriggerData {
     pub script_path: String,
     pub is_flow: bool,
     pub enabled: Option<bool>,
+    pub queue_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

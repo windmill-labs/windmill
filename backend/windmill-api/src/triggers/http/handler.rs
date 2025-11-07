@@ -13,7 +13,7 @@ use crate::{
             RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
         },
         trigger_helpers::{
-            get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
+            get_runnable_format, get_suspend_number_for_queue_mode, trigger_runnable, trigger_runnable_and_wait_for_result,
             trigger_runnable_inner, RunnableId,
         },
         Trigger, TriggerCrud, TriggerData,
@@ -176,6 +176,7 @@ pub async fn insert_new_trigger_into_db(
     w_id: &str,
     trigger: &TriggerData<HttpConfigRequest>,
     route_path_key: &str,
+    suspend_number: Option<i32>,
 ) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -206,10 +207,11 @@ pub async fn insert_new_trigger_into_db(
                 is_static_website,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                suspend_number
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22, $23
             )
             "#,
             w_id,
@@ -233,7 +235,8 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.is_static_website,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            suspend_number
         )
         .execute(&mut *tx)
         .await?;
@@ -279,7 +282,8 @@ pub async fn create_many_http_triggers(
     let mut tx = user_db.begin(&authed).await?;
 
     for (new_http_trigger, route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter()) {
-        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger, route_path_key)
+        let suspend_number = get_suspend_number_for_queue_mode(new_http_trigger.base.queue_mode);
+        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger, route_path_key, suspend_number)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
@@ -434,10 +438,11 @@ impl TriggerCrud for HttpTrigger {
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
+        suspend_number: Option<i32>,
     ) -> Result<()> {
         let route_path_key = check_if_route_exist(db, &trigger.config, &w_id, None).await?;
 
-        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key).await?;
+        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key, suspend_number).await?;
 
         increase_trigger_version(tx).await?;
 
@@ -452,6 +457,7 @@ impl TriggerCrud for HttpTrigger {
         workspace_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
+        suspend_number: Option<i32>,
     ) -> Result<()> {
         if authed.is_admin {
             if trigger.config.route_path.is_empty() {
@@ -494,10 +500,11 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $18,
                 error_handler_path = $19,
                 error_handler_args = $20,
-                retry = $21
+                retry = $21,
+                suspend_number = $22
             WHERE
-                workspace_id = $22 AND
-                path = $23
+                workspace_id = $23 AND
+                path = $24
             "#,
                 route_path,
                 &route_path_key,
@@ -520,6 +527,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
+                suspend_number,
                 workspace_id,
                 path,
             )
@@ -551,10 +559,11 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $15,
                 error_handler_path = $16,
                 error_handler_args = $17,
-                retry = $18
+                retry = $18,
+                suspend_number = $19
             WHERE
-                workspace_id = $19 AND
-                path = $20
+                workspace_id = $20 AND
+                path = $21
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
@@ -574,6 +583,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
+                suspend_number,
                 workspace_id,
                 path,
             )

@@ -27,6 +27,18 @@ use windmill_common::{
     DB, INSTANCE_NAME,
 };
 
+const BASE_TRIGGER_FIELDS: [&'static str; 9] = [
+    "workspace_id",
+    "path",
+    "script_path",
+    "is_flow",
+    "edited_by",
+    "email",
+    "edited_at",
+    "extra_perms",
+    "suspend_number",
+];
+
 #[allow(unused)]
 #[async_trait]
 pub trait Listener: TriggerCrud + TriggerJobArgs {
@@ -60,16 +72,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         &self,
         db: &DB,
     ) -> Result<Vec<ListeningTrigger<Self::TriggerConfig>>> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-        ];
+        let mut fields = Vec::from(BASE_TRIGGER_FIELDS);
 
         if Self::SUPPORTS_SERVER_STATE {
             fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
@@ -106,6 +109,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
                 trigger_mode: true,
+                suspend_number: trigger.base.suspend_number,
             })
             .collect_vec();
 
@@ -155,6 +159,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_mode: false,
                 is_flow: capture.is_flow,
                 error_handling: None,
+                suspend_number: None,
             })
             .collect_vec();
 
@@ -809,6 +814,7 @@ pub struct ListeningTrigger<T> {
     pub script_path: String,
     pub trigger_mode: bool,
     pub error_handling: Option<TriggerErrorHandling>,
+    pub suspend_number: Option<i32>,
 }
 
 impl<T> ListeningTrigger<T> {
