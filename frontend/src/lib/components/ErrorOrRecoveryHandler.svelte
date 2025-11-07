@@ -502,7 +502,7 @@
 								channel_name: handlerExtraArgs['channel_name']
 							}
 						: undefined}
-					onselectedchannelchange={(channel) => {
+					onSelectedChannelChange={(channel) => {
 						handlerExtraArgs['channel'] = channel?.channel_id
 						handlerExtraArgs['channel_name'] = channel?.channel_name
 					}}
