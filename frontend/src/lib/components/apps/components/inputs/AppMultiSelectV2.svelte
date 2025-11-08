@@ -55,7 +55,11 @@
 	})
 
 	let selectedItems: string[] = $state([...new Set(outputs?.result.peak())].map(convertToValue))
-	$effect(() => setResultsFromSelectedItems(selectedItems))
+	$effect(() => {
+		selectedItems
+		// console.log('selectedItems', selectedItems)
+		untrack(() => setResultsFromSelectedItems(selectedItems))
+	})
 
 	let customItems: string[] = $state([])
 
