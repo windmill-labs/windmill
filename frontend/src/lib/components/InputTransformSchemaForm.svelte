@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService, type InputTransform } from '$lib/gen'
+	import { VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
@@ -73,6 +73,22 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
+	let s3StorageConfigured = $state(true)
+
+	async function checkS3Storage() {
+		try {
+			if ($workspaceStore) {
+				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
+			}
+		} catch (error) {
+			console.error('Failed to fetch workspace settings:', error)
+			s3StorageConfigured = true
+		}
+	}
+
+	checkS3Storage()
+
 	let keys: string[] = $state([])
 	$effect(() => {
 		let lkeys = Object.keys(schema?.properties ?? {})
@@ -110,6 +126,7 @@
 						bind:arg={args[argName]}
 						bind:schema
 						bind:argName={keys[index]}
+						argExtra={schema.properties?.[argName] ?? {}}
 						bind:inputCheck={
 							() => inputCheck[argName] ?? false, (value) => (inputCheck[argName] = value)
 						}
@@ -122,6 +139,7 @@
 						{enableAi}
 						{helperScript}
 						{isAgentTool}
+						{s3StorageConfigured}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}

@@ -401,8 +401,7 @@ pub async fn get_reserved_variables(
     value,
     description: "Custom workspace environment variable".to_string(),
     is_custom: true,
-})
-).collect()
+})).collect()
 }
 
 async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
@@ -439,7 +438,11 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
     custom_envs
 }
 
-pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> crate::error::Result<String> {
+pub async fn get_variable_or_self(
+    path: String,
+    db: &DB,
+    w_id: &str,
+) -> crate::error::Result<String> {
     if !path.starts_with("$var:") {
         return Ok(path);
     }

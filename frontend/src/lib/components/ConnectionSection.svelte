@@ -49,7 +49,7 @@
 		hideConnectButton?: boolean
 	} = $props()
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return
