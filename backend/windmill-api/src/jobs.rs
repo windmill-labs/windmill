@@ -1468,7 +1468,7 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        "SELECT j.created_by AS \"created_by\", coalesce(job_logs.logs, '') as logs, COALESCE(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
         FROM v2_job j
         LEFT JOIN job_logs ON job_logs.job_id = j.id
         WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
@@ -1497,11 +1497,21 @@ async fn get_job_logs(
         .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
+        if let Some(r) = get_logs_from_store(
+            record.log_offset.unwrap_or(0),
+            &logs,
+            &record.log_file_index,
+        )
+        .await
         {
             return r.map(content_plain);
         }
-        if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
+        if let Some(r) = get_logs_from_disk(
+            record.log_offset.unwrap_or(0),
+            &logs,
+            &record.log_file_index,
+        )
+        .await
         {
             return r.map(content_plain);
         }
@@ -4285,7 +4295,11 @@ pub async fn run_script_by_path_inner(
         timeout,
         None,
         // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
-        if run_query.parent_job.is_some() || run_query.root_job.is_some() { Some(2) } else { None },
+        if run_query.parent_job.is_some() || run_query.root_job.is_some() {
+            Some(2)
+        } else {
+            None
+        },
         push_authed.as_ref(),
         false,
         None,
