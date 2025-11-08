@@ -98,6 +98,47 @@ pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Opti
     let lower_code = code.to_lowercase();
     let param_start = lower_code.find("param")?;
 
+    // Verify that only comments and whitespace appear before "param"
+    let before_param = &code[..param_start];
+    let mut chars = before_param.chars().peekable();
+    let mut in_block_comment = false;
+
+    while let Some(ch) = chars.next() {
+        if in_block_comment {
+            // Check for end of block comment: #>
+            if ch == '#' && chars.peek() == Some(&'>') {
+                chars.next(); // consume '>'
+                in_block_comment = false;
+            }
+        } else {
+            match ch {
+                // Start of block comment: <#
+                '<' if chars.peek() == Some(&'#') => {
+                    chars.next(); // consume '#'
+                    in_block_comment = true;
+                }
+                // Single-line comment: consume until end of line
+                '#' => {
+                    while let Some(&next_ch) = chars.peek() {
+                        if next_ch == '\n' || next_ch == '\r' {
+                            break;
+                        }
+                        chars.next();
+                    }
+                }
+                // Whitespace is allowed
+                c if c.is_whitespace() => {}
+                // Any other character means there's code before param
+                _ => return None,
+            }
+        }
+    }
+
+    // If we're still in a block comment at the end, it's unclosed - invalid
+    if in_block_comment {
+        return None;
+    }
+
     // Skip whitespace and tabs after "param"
     let mut chars = code[param_start + 5..].char_indices();
     let mut paren_offset = param_start + 5;
@@ -139,7 +180,7 @@ pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Opti
         }
 
         match ch {
-            '`' if in_single_quote || in_double_quote => {
+            '`' if in_double_quote => {
                 // PowerShell escape character
                 escape_next = true;
             }
@@ -353,7 +394,7 @@ non_required="${5:-}"
 
     #[test]
     fn test_parse_powershell_sig() -> anyhow::Result<()> {
-        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO, [PSCustomObject]$Obj, [string[]]$Arr)"#;
+        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO, [PSCustomObject]$Obj, [string[]]$Arr, [Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message)"#;
         assert_eq!(
             parse_powershell_sig(code)?,
             MainArgSignature {
@@ -431,6 +472,14 @@ non_required="${5:-}"
                         default: None,
                         has_default: false,
                         oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "Message".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
                     }
                 ],
                 no_main_func: None,
@@ -441,70 +490,118 @@ non_required="${5:-}"
     }
 
     #[test]
-    fn test_parse_powershell_sig_with_nested_parens() -> anyhow::Result<()> {
-        // Test with nested parentheses in default values
-        let code = r#"param($Msg, [string]$Func = (Get-Date), $Complex = (Get-Item("file.txt")), $Nested = ((1 + 2) * 3))"#;
-        let result = parse_powershell_sig(code)?;
-
-        // Should parse 4 parameters without errors
-        assert_eq!(result.args.len(), 4);
-        assert_eq!(result.args[0].name, "Msg");
-        assert_eq!(result.args[1].name, "Func");
-        assert_eq!(result.args[2].name, "Complex");
-        assert_eq!(result.args[3].name, "Nested");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_powershell_sig_with_quoted_parens() -> anyhow::Result<()> {
-        // Test with parentheses inside quotes
-        let code = r#"param($Msg = "test (with parens)", $Msg2 = 'also (with parens)')"#;
-        let result = parse_powershell_sig(code)?;
-
-        // Should parse 2 parameters
-        assert_eq!(result.args.len(), 2);
-        assert_eq!(result.args[0].name, "Msg");
-        assert_eq!(result.args[0].default, Some(json!("test (with parens)")));
-        assert_eq!(result.args[1].name, "Msg2");
-        assert_eq!(result.args[1].default, Some(json!("also (with parens)")));
-
-        Ok(())
-    }
-
-    #[test]
     fn test_extract_powershell_param_block() {
-        // Test basic param block - contents only
-        let code = "param($x, $y)";
-        assert_eq!(extract_powershell_param_block(code, false), Some("$x, $y"));
+        // Basic cases
+        assert_eq!(
+            extract_powershell_param_block("param($Name, $Age)", true),
+            Some("param($Name, $Age)")
+        );
+        assert_eq!(
+            extract_powershell_param_block("param($Name, $Age)", false),
+            Some("$Name, $Age")
+        );
 
-        // Test basic param block - full block
-        assert_eq!(extract_powershell_param_block(code, true), Some("param($x, $y)"));
+        // Case insensitive and whitespace
+        assert_eq!(
+            extract_powershell_param_block("PARAM  ($Value)", false),
+            Some("$Value")
+        );
 
-        // Test with nested parentheses - contents only
-        let code = "param($x = Get-Func(1, 2), $y = (1 + 2))";
-        assert_eq!(extract_powershell_param_block(code, false), Some("$x = Get-Func(1, 2), $y = (1 + 2)"));
+        // Nested parentheses
+        assert_eq!(
+            extract_powershell_param_block("param([ValidateScript({$_ -gt 0})]$Count)", false),
+            Some("[ValidateScript({$_ -gt 0})]$Count")
+        );
 
-        // Test with nested parentheses - full block
-        assert_eq!(extract_powershell_param_block(code, true), Some("param($x = Get-Func(1, 2), $y = (1 + 2))"));
+        // Strings with parentheses
+        assert_eq!(
+            extract_powershell_param_block("param([string]$Path = 'C:\\file(1).txt')", false),
+            Some("[string]$Path = 'C:\\file(1).txt'")
+        );
+        assert_eq!(
+            extract_powershell_param_block(r#"param($Msg = "Hello (world)")"#, false),
+            Some(r#"$Msg = "Hello (world)""#)
+        );
+        assert_eq!(
+            extract_powershell_param_block(
+                r#"param([Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message)"#,
+                false
+            ),
+            Some(r#"[Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message"#)
+        );
 
-        // Test with whitespace - contents only
-        let code = "param  \t  ($x, $y)";
-        assert_eq!(extract_powershell_param_block(code, false), Some("$x, $y"));
+        // Escaped quotes
+        assert_eq!(
+            extract_powershell_param_block("param($Text = 'don''t')", false),
+            Some("$Text = 'don''t'")
+        );
+        assert_eq!(
+            extract_powershell_param_block(r#"param($Text = "He said `"Hi`"")"#, false),
+            Some(r#"$Text = "He said `"Hi`"""#)
+        );
 
-        // Test with whitespace - full block
-        assert_eq!(extract_powershell_param_block(code, true), Some("param  \t  ($x, $y)"));
+        // Multiline
+        let multiline = "param(\n    [string]$Name,\n    [int]$Age\n)";
+        assert!(extract_powershell_param_block(multiline, false).is_some());
 
-        // Test with parentheses in quotes - contents only
-        let code = r#"param($x = "test (parens)")"#;
-        assert_eq!(extract_powershell_param_block(code, false), Some(r#"$x = "test (parens)""#));
+        // Invalid cases
+        assert_eq!(extract_powershell_param_block("$x = 5", false), None);
+        assert_eq!(extract_powershell_param_block("param", false), None);
+        assert_eq!(extract_powershell_param_block("param($x", false), None);
 
-        // Test with parentheses in quotes - full block
-        assert_eq!(extract_powershell_param_block(code, true), Some(r#"param($x = "test (parens)")"#));
+        // Valid: param at beginning with single-line comments before
+        assert_eq!(
+            extract_powershell_param_block("# This is a comment\nparam($Name)", false),
+            Some("$Name")
+        );
+        assert_eq!(
+            extract_powershell_param_block("# Comment 1\n# Comment 2\n\nparam($Name)", false),
+            Some("$Name")
+        );
 
-        // Test with code after param block - full block
-        let code = "param($x)\nWrite-Host $x";
-        assert_eq!(extract_powershell_param_block(code, true), Some("param($x)"));
+        // Valid: param at beginning with block comment before
+        assert_eq!(
+            extract_powershell_param_block("<# Block comment #>\nparam($Name)", false),
+            Some("$Name")
+        );
+        assert_eq!(
+            extract_powershell_param_block(
+                "<#\n  Multi-line\n  block comment\n#>\nparam($Name)",
+                false
+            ),
+            Some("$Name")
+        );
+
+        // Valid: mixed comments and whitespace
+        assert_eq!(
+            extract_powershell_param_block(
+                "# Line comment\n<# Block comment #>\n\nparam($Name)",
+                false
+            ),
+            Some("$Name")
+        );
+
+        // Invalid: code before param
+        assert_eq!(
+            extract_powershell_param_block("$x = 5\nparam($Name)", false),
+            None
+        );
+        assert_eq!(
+            extract_powershell_param_block("Write-Host 'test'\nparam($Name)", false),
+            None
+        );
+
+        // Invalid: unclosed block comment
+        assert_eq!(
+            extract_powershell_param_block("<# Unclosed comment\nparam($Name)", false),
+            None
+        );
+
+        // Invalid: unclosed block comment
+        assert_eq!(
+            extract_powershell_param_block("function test-x{   param($Name)\n}", false),
+            None
+        );
     }
 
     #[test]
