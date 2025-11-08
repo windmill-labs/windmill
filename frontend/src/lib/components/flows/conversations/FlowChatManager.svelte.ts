@@ -371,17 +371,20 @@ class FlowChatManager {
 		let isCompleted = false
 
 		try {
+			const jobId = await JobService.runFlowByPath({
+				workspace: this.#workspace!,
+				path: this.#path!,
+				requestBody: { user_message: messageContent },
+				memoryId: currentConversationId
+			})
 			// Encode the payload as base64
-			const payload = { user_message: messageContent }
-			const payloadBase64 = btoa(JSON.stringify(payload))
 
 			// Build the EventSource URL
-			const streamUrl = `/api/w/${this.#workspace}/jobs/run_and_stream/f/${this.#path}`
+			const streamUrl = `/api/w/${this.#workspace}/jobs_u/getupdate_sse/${jobId}`
 			const url = new URL(streamUrl, window.location.origin)
-			url.searchParams.set('payload', payloadBase64)
-			url.searchParams.set('memory_id', currentConversationId)
 			url.searchParams.set('poll_delay_ms', '50')
-
+			url.searchParams.set('fast', 'true')
+			url.searchParams.set('only_result', 'true')
 			// Create EventSource connection
 			const eventSource = new EventSource(url.toString())
 			this.currentEventSource = eventSource
@@ -392,7 +395,7 @@ class FlowChatManager {
 			eventSource.onmessage = async (event) => {
 				try {
 					const data = JSON.parse(event.data)
-
+					console.log('data', data)
 					if (data.type === 'update') {
 						if (data.flow_stream_job_id) {
 							this.currentJobId = data.flow_stream_job_id
