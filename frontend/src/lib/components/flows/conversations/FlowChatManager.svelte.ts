@@ -18,6 +18,15 @@ export interface FlowChatManagerOptions {
 	path?: string
 }
 
+export function randomUUID() {
+	// Pure JS (RFC4122 v4) UUID implementation (no external dependencies)
+	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+		const r = (Math.random() * 16) | 0
+		const v = c === 'x' ? r : (r & 0x3) | 0x8
+		return v.toString(16)
+	})
+}
+
 class FlowChatManager {
 	// State
 	messages = $state<ChatMessage[]>([])
@@ -320,7 +329,7 @@ class FlowChatManager {
 		delete this.#conversationsCache[currentConversationId]
 
 		const userMessage: ChatMessage = {
-			id: crypto.randomUUID(),
+			id: randomUUID(),
 			content: this.inputMessage.trim(),
 			created_at: new Date().toISOString(),
 			message_type: 'user',
@@ -395,7 +404,6 @@ class FlowChatManager {
 			eventSource.onmessage = async (event) => {
 				try {
 					const data = JSON.parse(event.data)
-					console.log('data', data)
 					if (data.type === 'update') {
 						if (data.flow_stream_job_id) {
 							this.currentJobId = data.flow_stream_job_id
@@ -423,7 +431,7 @@ class FlowChatManager {
 								this.messages = [
 									...this.messages,
 									{
-										id: 'temp-' + crypto.randomUUID(),
+										id: 'temp-' + randomUUID(),
 										content: newContent,
 										created_at: new Date().toISOString(),
 										message_type: 'tool',
@@ -445,7 +453,7 @@ class FlowChatManager {
 								assistantMessageId.length === 0 &&
 								accumulatedContent.length > 0
 							) {
-								assistantMessageId = 'temp-' + crypto.randomUUID()
+								assistantMessageId = 'temp-' + randomUUID()
 								this.messages = [
 									...this.messages,
 									{

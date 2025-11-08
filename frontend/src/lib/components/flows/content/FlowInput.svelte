@@ -49,6 +49,7 @@
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { randomUUID } from '../conversations/FlowChatManager.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -491,7 +492,7 @@
 					<FlowChatInterface
 						onRunFlow={runFlowWithMessage}
 						createConversation={async () => {
-							const newConversationId = crypto.randomUUID()
+							const newConversationId = randomUUID()
 							return newConversationId
 						}}
 					/>

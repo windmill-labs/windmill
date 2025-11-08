@@ -65,6 +65,7 @@
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import { page } from '$app/state'
+	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -401,7 +402,7 @@
 	let path = $derived(page.params.path ?? '')
 
 	async function handleNewConversation({ clearMessages = true }: { clearMessages?: boolean }) {
-		const newConversationId = crypto.randomUUID()
+		const newConversationId = randomUUID()
 
 		// Add the new conversation to the sidebar (returns id of draft or new conversation)
 		if (flowConversationsSidebar) {

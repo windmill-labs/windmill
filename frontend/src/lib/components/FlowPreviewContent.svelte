@@ -39,6 +39,7 @@
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
+	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -469,7 +470,7 @@
 							return jobId ?? ''
 						}}
 						createConversation={async () => {
-							const newConversationId = crypto.randomUUID()
+							const newConversationId = randomUUID()
 							return newConversationId
 						}}
 					/>
