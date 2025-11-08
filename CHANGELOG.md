@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.574.1](https://github.com/windmill-labs/windmill/compare/v1.574.0...v1.574.1) (2025-11-08)
+
+
+### Bug Fixes
+
+* make get_logs work even for partial flow jobs ([d6421c2](https://github.com/windmill-labs/windmill/commit/d6421c2ea79993ef7815c50cf035d3b3425e271e))
+
 ## [1.574.0](https://github.com/windmill-labs/windmill/compare/v1.573.5...v1.574.0) (2025-11-07)
 
 
