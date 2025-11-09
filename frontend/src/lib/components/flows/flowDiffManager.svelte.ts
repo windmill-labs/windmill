@@ -14,6 +14,7 @@ import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
+import type DiffDrawer from '../DiffDrawer.svelte'
 
 /**
  * Options for accepting a module action (simplified)
@@ -63,6 +64,9 @@ export function createFlowDiffManager() {
 
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
+
+	// State: reference to DiffDrawer component for showing module diffs
+	let diffDrawer = $state<DiffDrawer | undefined>(undefined)
 
 	// Derived: whether there are any pending changes
 	const hasPendingChanges = $derived(Object.values(moduleActions).some((info) => info.pending))
@@ -390,6 +394,47 @@ export function createFlowDiffManager() {
 		}
 	}
 
+	/**
+	 * Set the DiffDrawer instance for showing module diffs
+	 */
+	function setDiffDrawer(drawer: DiffDrawer | undefined) {
+		diffDrawer = drawer
+	}
+
+	/**
+	 * Show diff for a specific module or Input schema
+	 */
+	function showModuleDiff(moduleId: string) {
+		if (!diffDrawer || !beforeFlow) return
+
+		if (moduleId === 'Input') {
+			// Show input schema diff
+			diffDrawer.openDrawer()
+			diffDrawer.setDiff({
+				mode: 'simple',
+				title: 'Flow Input Schema Diff',
+				original: { schema: beforeFlow.schema ?? {} },
+				current: { schema: afterInputSchema ?? {} }
+			})
+		} else {
+			// Show module diff
+			const beforeModule = getModuleFromFlow(moduleId, beforeFlow)
+			const afterModule = afterFlow
+				? dfs(moduleId, { value: afterFlow, summary: '' }, false)[0]
+				: undefined
+
+			if (beforeModule && afterModule) {
+				diffDrawer.openDrawer()
+				diffDrawer.setDiff({
+					mode: 'simple',
+					title: `Module Diff: ${moduleId}`,
+					original: beforeModule,
+					current: afterModule
+				})
+			}
+		}
+	}
+
 	return {
 		// State accessors
 		get beforeFlow() {
@@ -429,6 +474,10 @@ export function createFlowDiffManager() {
 		rejectModule,
 		acceptAll,
 		rejectAll,
-		revertToSnapshot
+		revertToSnapshot,
+
+		// Diff drawer management
+		setDiffDrawer,
+		showModuleDiff
 	}
 }

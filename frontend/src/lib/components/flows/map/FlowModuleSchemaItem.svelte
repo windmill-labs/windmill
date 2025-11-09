@@ -49,7 +49,6 @@
 		selected?: boolean
 		deletable?: boolean
 		moduleAction: ModuleActionInfo | undefined
-		onShowModuleDiff?: (moduleId: string) => void
 		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		retry?: boolean
 		cache?: boolean
@@ -93,7 +92,6 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
-		onShowModuleDiff = undefined,
 		diffManager,
 		retry = false,
 		cache = false,
@@ -282,11 +280,11 @@
 	>
 		{#if moduleAction?.pending && id}
 			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
-				{#if moduleAction.action === 'modified' && onShowModuleDiff}
+				{#if moduleAction.action === 'modified' && diffManager}
 					<Button
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
 						onClick={() => {
-							onShowModuleDiff?.(id)
+							diffManager?.showModuleDiff(id)
 						}}
 						startIcon={{ icon: DiffIcon }}
 					>

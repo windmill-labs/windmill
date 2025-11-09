@@ -23,7 +23,6 @@
 		mod: FlowModule
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
-		onShowModuleDiff?: (moduleId: string) => void
 		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
@@ -58,7 +57,6 @@
 		mod = $bindable(),
 		insertable,
 		moduleAction = undefined,
-		onShowModuleDiff = undefined,
 		diffManager,
 		annotation = undefined,
 		nodeState,
@@ -156,7 +154,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					{diffManager}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
@@ -192,7 +189,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					{diffManager}
 					on:changeId
 					on:delete
@@ -213,7 +209,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					{diffManager}
 					on:changeId
 					on:delete
@@ -234,7 +229,6 @@
 					{retries}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					{diffManager}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}

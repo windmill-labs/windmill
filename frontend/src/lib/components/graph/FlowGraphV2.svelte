@@ -51,6 +51,7 @@
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
@@ -136,7 +137,6 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
-		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
@@ -193,7 +193,6 @@
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
-		onShowModuleDiff = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -567,6 +566,7 @@
 	// 	centerViewport(width)
 	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
@@ -576,6 +576,11 @@
 	$effect(() => {
 		readFieldsRecursively(effectiveModules)
 		untrack(() => moduleTracker.track($state.snapshot(effectiveModules)))
+	})
+
+	// Wire up the diff drawer to the diffManager
+	$effect(() => {
+		diffManager.setDiffDrawer(diffDrawer)
 	})
 
 	let graph = $derived.by(() => {
@@ -604,7 +609,6 @@
 				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
-				onShowModuleDiff: untrack(() => onShowModuleDiff),
 				diffManager: diffManager,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
@@ -679,6 +683,7 @@
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
+<DiffDrawer bind:this={diffDrawer} />
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip"

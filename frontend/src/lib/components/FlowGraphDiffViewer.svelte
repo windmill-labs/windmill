@@ -4,13 +4,11 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
 	import { computeFlowModuleDiff } from './flows/flowDiff'
-	import DiffDrawer from './DiffDrawer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, Minus, Plus, SquareSplitHorizontal } from 'lucide-svelte'
 	import type { Viewport } from '@xyflow/svelte'
-	import { getModuleById } from './copilot/chat/flow/utils'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -22,7 +20,6 @@
 	let { beforeYaml, afterYaml }: Props = $props()
 
 	let parseError = $state<string | undefined>(undefined)
-	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 	let beforePaneSize = $state(50)
 	let viewMode = $state<'sidebyside' | 'unified'>('sidebyside')
@@ -68,36 +65,6 @@
 	function handleViewportChange(viewport: Viewport, isUserInitiated: boolean) {
 		if (isUserInitiated) {
 			sharedViewport = viewport
-		}
-	}
-
-	// Callback to show module diff
-	function handleShowModuleDiff(moduleId: string) {
-		if (!beforeFlow || !afterFlow) return
-
-		// Handle special case for Input schema diff
-		if (moduleId === 'Input') {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: 'Flow Input Schema Diff',
-				original: { schema: beforeFlow.schema ?? {} },
-				current: { schema: afterFlow.schema ?? {} }
-			})
-			return
-		}
-
-		const beforeModule = getModuleById(beforeFlow, moduleId)
-		const afterModule = getModuleById(afterFlow, moduleId)
-
-		if (beforeModule && afterModule) {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: `Module Diff: ${moduleId}`,
-				original: beforeModule,
-				current: afterModule
-			})
 		}
 	}
 
@@ -178,7 +145,6 @@
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
 									cache={beforeFlow.value.cache_ttl !== undefined}
 									moduleActions={beforeActions}
-									onShowModuleDiff={handleShowModuleDiff}
 									notSelectable={true}
 									insertable={false}
 									editMode={false}
@@ -210,7 +176,6 @@
 									earlyStop={afterFlow.value.skip_expr !== undefined}
 									cache={afterFlow.value.cache_ttl !== undefined}
 									currentInputSchema={afterFlow.schema}
-									onShowModuleDiff={handleShowModuleDiff}
 									markRemovedAsShadowed={true}
 									notSelectable={true}
 									insertable={false}
@@ -241,7 +206,6 @@
 						earlyStop={afterFlow.value.skip_expr !== undefined}
 						cache={afterFlow.value.cache_ttl !== undefined}
 						currentInputSchema={afterFlow.schema}
-						onShowModuleDiff={handleShowModuleDiff}
 						notSelectable={true}
 						insertable={false}
 						editMode={false}
@@ -253,8 +217,6 @@
 				</div>
 			{/if}
 		</div>
-		<!-- Nested DiffDrawer for module-level diffs -->
-		<DiffDrawer bind:this={moduleDiffDrawer} />
 	</div>
 {:else}
 	<div class="flex items-center justify-center h-full">

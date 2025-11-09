@@ -42,8 +42,6 @@
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
-	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { getModuleById } from '$lib/components/copilot/chat/flow/utils'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
@@ -417,39 +415,6 @@
 	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
-
-	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
-
-	// Callback to show module diff
-	function handleShowModuleDiff(moduleId: string) {
-		const beforeFlow = flowDiffManager.beforeFlow
-		if (!beforeFlow) return
-
-		// Handle special case for Input schema diff
-		if (moduleId === 'Input') {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: 'Flow Input Schema Diff',
-				original: { schema: beforeFlow.schema ?? {} },
-				current: { schema: flowStore.val.schema ?? {} }
-			})
-			return
-		}
-
-		const beforeModule = getModuleById(beforeFlow, moduleId)
-		const afterModule = getModuleById(flowStore.val, moduleId)
-
-		if (beforeModule && afterModule) {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: `Module Diff: ${moduleId}`,
-				original: beforeModule,
-				current: afterModule
-			})
-		}
-	}
 </script>
 
 <Portal name="flow-module">
@@ -527,7 +492,6 @@
 			{showJobStatus}
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
-			onShowModuleDiff={handleShowModuleDiff}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
@@ -743,8 +707,6 @@
 			{onHideJobStatus}
 		/>
 	</div>
-
-	<DiffDrawer bind:this={moduleDiffDrawer} />
 </div>
 
 {#if !disableTutorials}
