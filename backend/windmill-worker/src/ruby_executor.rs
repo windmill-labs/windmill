@@ -891,9 +891,23 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
 
 require 'json'
 a = JSON.parse(File.read("args.json"))
-res = main(SPREAD)
-File.open("result.json", "w") do |file|
-  file.write(JSON.generate(res))
+
+begin
+    res = main(SPREAD)
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(res))
+    end
+
+rescue => e
+    error = {
+        name: e.class.name,
+        stack: e.full_message,
+        message: e.message
+    }
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(error))
+    end
+    raise
 end
             "#
         .replace("INNER_CONTENT", inner_content)

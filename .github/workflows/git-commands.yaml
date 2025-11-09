@@ -40,11 +40,12 @@ jobs:
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Starting sqlx update...'
+              body: `Starting sqlx update...\n\n[View workflow run](${runUrl})`
             })
 
       - name: Checkout repository

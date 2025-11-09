@@ -2,9 +2,6 @@
 
 set -e
 
-# Default directory
-EE_DIR="../windmill-ee-private"
-
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -13,8 +10,6 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-
-./substitute_ee_code.sh --dir "$EE_DIR"
 
 # Check if running on macOS
 if [[ "$(uname)" == "Darwin" ]]; then

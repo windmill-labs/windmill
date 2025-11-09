@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.571.0
+  version: 1.574.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -62,6 +62,10 @@ components:
           type: string
         cache_ttl:
           type: number
+        flow_env:
+          type: object
+          additionalProperties:
+            type: string
         priority:
           type: number
         early_return:

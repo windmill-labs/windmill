@@ -4,7 +4,7 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { cleanInputs } from '../utils'
+	import { cleanFlow } from '../utils.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	interface Props {
@@ -21,7 +21,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#if flow}
-			<FlowViewer flow={cleanInputs(flow)} tab="raw" />
+			<FlowViewer flow={cleanFlow(flow)} tab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>

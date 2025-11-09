@@ -156,6 +156,7 @@
 			lastJobId = jobId
 			loadedFromObjectStore = ''
 			LOG_LIMIT = LOG_INC
+			scroll = true
 		}
 	})
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
@@ -294,9 +295,9 @@
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
-						>{@html html}</span
+						><br />{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
+							>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br />{/if}<span>{@html html}</span
 					>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>

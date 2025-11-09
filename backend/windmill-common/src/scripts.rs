@@ -17,7 +17,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
 use crate::worker::HUB_CACHE_DIR;
@@ -585,7 +585,7 @@ pub async fn get_hub_script_by_path(
                 && path
                     .split("/")
                     .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
             {
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
@@ -670,10 +670,9 @@ async fn get_full_hub_script_by_path_inner(
             Ok(response) => Ok(response),
             Err(e) => {
                 if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path
-                        .split("/")
-                        .next()
-                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    && path.split("/").next().is_some_and(|x| {
+                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
+                    })
                 {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
                     tracing::info!(
@@ -733,18 +732,32 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> crate::error::Result<i64> {
-    let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(base_hash.0)
-            .bind(w_id)
-            .fetch_one(&mut **tx)
-            .await?;
+) -> crate::error::Result<ClonedScript> {
+    let s = sqlx::query_as::<_, Script>(
+        "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+    )
+    .bind(base_hash.0)
+    .bind(w_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let s = if let Some(s) = s {
+        s
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Non-archived script with hash {} not found",
+            base_hash.0
+        )));
+    };
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -820,5 +833,5 @@ pub async fn clone_script<'c>(
     .execute(&mut **tx)
     .await?;
 
-    Ok(new_hash)
+    Ok(ClonedScript { old_script: ns, new_hash })
 }

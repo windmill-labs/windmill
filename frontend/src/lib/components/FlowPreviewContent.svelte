@@ -13,7 +13,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
@@ -39,6 +39,7 @@
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
+	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -469,7 +470,7 @@
 							return jobId ?? ''
 						}}
 						createConversation={async () => {
-							const newConversationId = crypto.randomUUID()
+							const newConversationId = randomUUID()
 							return newConversationId
 						}}
 					/>

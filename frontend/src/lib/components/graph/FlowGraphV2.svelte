@@ -620,6 +620,9 @@
 			expandedSubflows
 		)
 	})
+	let hideAssetsToggle = $derived(
+		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
+	)
 
 	$effect(() => {
 		;[graph, allowSimplifiedPoll, $showAssets]
@@ -728,7 +731,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
 						{@render leftHeader()}
@@ -764,7 +767,9 @@
 						class="!shadow-none gap-3"
 						style={leftHeader ? 'margin-top: 40px;' : ''}
 					>
-						<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
+						{#if !hideAssetsToggle}
+							<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
+						{/if}
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 						{/if}

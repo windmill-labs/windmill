@@ -9,6 +9,7 @@ export type PickableProperties = {
 	priorIds: Record<string, any>
 	previousId: string | undefined
 	hasResume: boolean
+	flow_env?: Record<string, any>
 }
 
 type StepPropPicker = {
@@ -156,7 +157,8 @@ export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, a
 			flow_input: schemaToObject(flow.schema as any, args),
 			priorIds: priorIds,
 			previousId: undefined,
-			hasResume: false
+			hasResume: false,
+			flow_env: flow.value.flow_env
 		},
 		extraLib: `
 /**
@@ -178,6 +180,17 @@ declare const results = ${JSON.stringify(priorIds)}
 * flow input as an object
 */
 declare const flow_input = ${JSON.stringify(flowInput)};
+
+${
+	flow.value.flow_env
+		? `
+/**
+* flow environment variables
+*/
+declare const flow_env = ${JSON.stringify(flow.value.flow_env)};
+`
+		: ''
+}
 		`
 	}
 }
@@ -218,7 +231,8 @@ export function getStepPropPicker(
 		flow_input: flowInput,
 		priorIds: priorIds,
 		previousId: previousIds[0],
-		hasResume: previousModule?.suspend != undefined
+		hasResume: previousModule?.suspend != undefined,
+		flow_env: flow.value.flow_env
 	}
 
 	if (pickableProperties.hasResume) {
@@ -230,7 +244,8 @@ export function getStepPropPicker(
 			flowInput,
 			priorIds,
 			previousModule?.suspend != undefined,
-			previousModule?.id
+			previousModule?.id,
+			flow.value.flow_env
 		),
 		pickableProperties
 	}
@@ -240,7 +255,8 @@ export function buildExtraLib(
 	flowInput: Record<string, any>,
 	results: Record<string, any>,
 	resume: boolean,
-	previousId: string | undefined
+	previousId: string | undefined,
+	flowEnv?: Record<string, any>
 ): string {
 	return `
 /**
@@ -274,6 +290,17 @@ declare const results = ${JSON.stringify(results)};
  * Result of the previous step
  */
 declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
+
+${
+	flowEnv
+		? `
+/**
+ * flow environment variables
+ */
+declare const flow_env = ${JSON.stringify(flowEnv)};
+`
+		: ''
+}
 
 ${
 	resume
