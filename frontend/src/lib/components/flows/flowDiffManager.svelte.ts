@@ -14,6 +14,7 @@ import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
+import { getAllSubmodules } from './flowExplorer'
 import type DiffDrawer from '../DiffDrawer.svelte'
 
 /**
@@ -259,6 +260,42 @@ export function createFlowDiffManager() {
 	}
 
 	/**
+	 * Helper to remove a module and all its children from tracking
+	 */
+	function removeModuleAndChildren(
+		id: string,
+		currentActions: Record<string, ModuleActionInfo>
+	): Record<string, ModuleActionInfo> {
+		const newActions = { ...currentActions }
+
+		// Remove the parent module
+		delete newActions[id]
+
+		// Get the module from the flow to find children
+		const flow = mergedFlow ? { value: mergedFlow, summary: '' } : beforeFlow
+		if (flow) {
+			const actualId = id.startsWith('__') ? id.substring(2) : id
+			const module = getModuleFromFlow(actualId, flow as ExtendedOpenFlow)
+
+			if (module) {
+				// Get all child module IDs recursively
+				const childIds = getAllSubmodules(module)
+					.flat()
+					.map((m) => m.id)
+
+				// Remove all children from tracking
+				childIds.forEach((childId) => {
+					delete newActions[childId]
+					// Also try with __ prefix in case it's a shadowed/removed module
+					delete newActions[`__${childId}`]
+				})
+			}
+		}
+
+		return newActions
+	}
+
+	/**
 	 * Accept a module action (keep the changes)
 	 * Removes the action from tracking after acceptance
 	 */
@@ -284,9 +321,9 @@ export function createFlowDiffManager() {
 		}
 
 		// Remove the action from tracking (no longer needs user decision)
+		// Also remove all children from tracking
 		if (moduleActions[id]) {
-			const newActions = { ...moduleActions }
-			delete newActions[id]
+			const newActions = removeModuleAndChildren(id, moduleActions)
 			updateModuleActions(newActions)
 		}
 
@@ -339,9 +376,9 @@ export function createFlowDiffManager() {
 		}
 
 		// Remove the action from tracking (no longer needs user decision)
+		// Also remove all children from tracking
 		if (moduleActions[id]) {
-			const newActions = { ...moduleActions }
-			delete newActions[id]
+			const newActions = removeModuleAndChildren(id, moduleActions)
 			updateModuleActions(newActions)
 		}
 
