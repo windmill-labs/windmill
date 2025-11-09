@@ -18,7 +18,7 @@
 		channels?: ChannelItem[]
 		teamId?: string
 		onError?: (error: Error) => void
-		onselectedchannelchange?: (channel: ChannelItem | undefined) => void
+		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
 	}
 
 	let {
@@ -30,7 +30,7 @@
 		channels = undefined,
 		teamId,
 		onError,
-		onselectedchannelchange
+		onSelectedChannelChange
 	}: Props = $props()
 
 	let isFetching = $state(false)
@@ -69,7 +69,7 @@
 	$effect(() => {
 		if (selectedChannel?.channel_id !== previousChannelId) {
 			previousChannelId = selectedChannel?.channel_id
-			onselectedchannelchange?.(selectedChannel)
+			onSelectedChannelChange?.(selectedChannel)
 		}
 	})
 

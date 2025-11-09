@@ -192,7 +192,7 @@ fn try_exact_property_access(
         let suffix = &expr[access_pattern_pos..];
         let maybe_key_name = if suffix.starts_with(DOT_PATTERN) {
             let key_name_pos = DOT_PATTERN.len();
-            Some(&expr[key_name_pos..])
+            Some(&suffix[key_name_pos..])
         } else if suffix.starts_with(START_BRACKET_PATTERN) {
             let key_name_pos = START_BRACKET_PATTERN.len();
             let suffix = &suffix[key_name_pos..];
@@ -220,36 +220,40 @@ fn try_exact_property_access(
 }
 
 async fn handle_full_regex(
-    captures: regex::Captures<'_>,
+    expr: &str,
     authed_client: &AuthedClient,
     by_id: &IdContext,
-) -> anyhow::Result<Box<RawValue>> {
-    let obj_name = captures.get(1).unwrap().as_str();
-    let obj_key = captures.get(2).unwrap().as_str();
-    let idx_o = captures.get(3).map(|y| y.as_str());
-    let rest = captures.get(4).map(|y| y.as_str());
-    let query = if let Some(idx) = idx_o {
-        match rest {
-            Some(rest) => Some(format!("{}{}", idx, rest)),
-            None => Some(idx.to_string()),
-        }
-    } else {
-        rest.map(|x| x.trim_start_matches('.').to_string())
-    };
+) -> Option<anyhow::Result<Box<RawValue>>> {
+    if let Some(captures) = RE_FULL.captures(&expr) {
+        let obj_name = captures.get(1).unwrap().as_str();
+        let obj_key = captures.get(2).unwrap().as_str();
+        let idx_o = captures.get(3).map(|y| y.as_str());
+        let rest = captures.get(4).map(|y| y.as_str());
+        let query = if let Some(idx) = idx_o {
+            match rest {
+                Some(rest) => Some(format!("{}{}", idx, rest)),
+                None => Some(idx.to_string()),
+            }
+        } else {
+            rest.map(|x| x.trim_start_matches('.').to_string())
+        };
 
-    let result = if obj_name == "results" {
-        authed_client
-            .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
-            .await
-    } else if obj_name == "flow_env" {
-        authed_client
-            .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
-            .await
-    } else {
-        unreachable!();
-    };
+        let result = if obj_name == "results" {
+            authed_client
+                .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
+                .await
+        } else if obj_name == "flow_env" {
+            authed_client
+                .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
+                .await
+        } else {
+            unreachable!();
+        };
 
-    return result;
+        return Some(result);
+    }
+
+    return None;
 }
 
 pub async fn eval_timeout(
@@ -299,8 +303,8 @@ pub async fn eval_timeout(
     }
 
     if let (Some(by_id), Some(authed_client)) = (by_id, authed_client) {
-        if let Some(captures) = RE_FULL.captures(&expr) {
-            return handle_full_regex(captures, authed_client, by_id).await;
+        if let Some(result) = handle_full_regex(&expr, authed_client, by_id).await {
+            return result;
         }
     }
 
@@ -444,9 +448,10 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
     s
 }
 lazy_static! {
-    static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#)
-            .unwrap();
+    static ref RE: Regex = Regex::new(
+        r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
+    )
+    .unwrap();
     static ref RE_FULL: Regex = Regex::new(
         r"(?m)^(results|flow_env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
     )
