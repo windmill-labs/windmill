@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { Save, Trash, XCircle, CheckCircle2, RotateCw, RotateCcw, Download, Upload, Plus } from 'lucide-svelte'
+	import {
+		Save,
+		Trash,
+		XCircle,
+		CheckCircle2,
+		RotateCw,
+		RotateCcw,
+		Download,
+		Upload,
+		Plus
+	} from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -11,6 +21,7 @@
 	import hubPaths from '$lib/hubPaths.json'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 
 	let {
 		idx = null,
@@ -23,14 +34,14 @@
 		isCollapsible = true,
 		showEmptyState = false
 	} = $props<{
-		idx?: number | null,
-		isSecondary?: boolean,
-		isLegacy?: boolean,
-		variant?: 'primary-sync' | 'primary-promotion' | 'secondary' | 'legacy' | 'standard',
-		mode?: 'sync' | 'promotion' | null,
-		repository?: GitSyncRepository | null,
-		onAdd?: (() => void) | null,
-		isCollapsible?: boolean,
+		idx?: number | null
+		isSecondary?: boolean
+		isLegacy?: boolean
+		variant?: 'primary-sync' | 'primary-promotion' | 'secondary' | 'legacy' | 'standard'
+		mode?: 'sync' | 'promotion' | null
+		repository?: GitSyncRepository | null
+		onAdd?: (() => void) | null
+		isCollapsible?: boolean
 		showEmptyState?: boolean
 	}>()
 
@@ -46,15 +57,18 @@
 		const abortController = new AbortController()
 
 		if (repo?.git_repo_resource_path) {
-			gitSyncContext.getTargetBranch(repo).then(branch => {
-				if (!abortController.signal.aborted) {
-					targetBranch = branch
-				}
-			}).catch(error => {
-				if (!abortController.signal.aborted) {
-					console.warn('Failed to get target branch:', error)
-				}
-			})
+			gitSyncContext
+				.getTargetBranch(repo)
+				.then((branch) => {
+					if (!abortController.signal.aborted) {
+						targetBranch = branch
+					}
+				})
+				.catch((error) => {
+					if (!abortController.signal.aborted) {
+						console.warn('Failed to get target branch:', error)
+					}
+				})
 		}
 
 		return () => {
@@ -65,29 +79,39 @@
 	// Compute already-used repository paths to exclude from picker
 	const usedRepositoryPaths = $derived(
 		gitSyncContext.repositories
-			.map((r, i) => i !== idx ? r.git_repo_resource_path : null)
+			.map((r, i) => (i !== idx ? r.git_repo_resource_path : null))
 			.filter((path): path is string => Boolean(path?.trim()))
 	)
 
 	// Determine display title based on variant and legacy status
 	const displayTitle = $derived(
-		variant === 'primary-sync' ? (mode === 'sync' ? 'Sync mode' : 'Promotion mode') :
-		variant === 'primary-promotion' ? 'Promotion mode' :
-		isLegacy ? 'Legacy promotion repository' :
-		isSecondary ? 'Secondary sync repository' :
-		`Repository #${(idx ?? 0) + 1}`
+		variant === 'primary-sync'
+			? mode === 'sync'
+				? 'Sync mode'
+				: 'Promotion mode'
+			: variant === 'primary-promotion'
+				? 'Promotion mode'
+				: isLegacy
+					? 'Legacy promotion repository'
+					: isSecondary
+						? 'Secondary sync repository'
+						: `Repository #${(idx ?? 0) + 1}`
 	)
 
 	// Determine display description based on variant and mode
 	const displayDescription = $derived(
-		(variant === 'primary-sync' || variant === 'primary-promotion') ?
-			(mode === 'sync' ? `Changes will be committed directly to the ${targetBranch} branch` :
-			mode === 'promotion' ? `Changes will be made to new branches whose promotion target is ${targetBranch}` :
-			null) :
-		null
+		variant === 'primary-sync' || variant === 'primary-promotion'
+			? mode === 'sync'
+				? `Changes will be committed directly to the ${targetBranch} branch`
+				: mode === 'promotion'
+					? `Changes will be made to new branches whose promotion target is ${targetBranch}`
+					: null
+			: null
 	)
 
-	const shouldShowEmptyState = $derived(showEmptyState || (!repo && (variant === 'primary-sync' || variant === 'primary-promotion')))
+	const shouldShowEmptyState = $derived(
+		showEmptyState || (!repo && (variant === 'primary-sync' || variant === 'primary-promotion'))
+	)
 
 	async function handleSave() {
 		if (!repo || idx === null) return
@@ -155,20 +179,11 @@
 {#snippet headerActions()}
 	{#if !isLegacy}
 		{#if validation?.hasChanges && validation?.isValid && !repo.isUnsavedConnection}
-			<Button
-				size="xs"
-				onclick={handleSave}
-				startIcon={{ icon: Save }}
-			>
+			<Button size="xs" onclick={handleSave} startIcon={{ icon: Save }}>
 				{repo.legacyImported ? 'Migrate and save' : 'Save changes'}
 			</Button>
 			{#if idx !== null && gitSyncContext.initialRepositories[idx] && !repo.legacyImported}
-				<Button
-					color="light"
-					size="xs"
-					onclick={handleRevert}
-					startIcon={{ icon: RotateCcw }}
-				>
+				<Button color="light" size="xs" onclick={handleRevert} startIcon={{ icon: RotateCcw }}>
 					Revert
 				</Button>
 			{/if}
@@ -203,12 +218,7 @@
 					viewBox="0 0 24 24"
 					stroke="currentColor"
 				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M5 15l7-7 7 7"
-					/>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
 				</svg>
 			{/if}
 		</button>
@@ -217,10 +227,10 @@
 		<div transition:fade|local={{ duration: 100 }}>
 			<Button
 				size="xs"
-				color="light"
-				variant="border"
+				variant="default"
 				onclick={initiateDelete}
 				startIcon={{ icon: Trash }}
+				destructive
 			>
 				Delete
 			</Button>
@@ -249,7 +259,7 @@
 	<div class="space-y-4">
 		<!-- Resource Picker -->
 		<div class="flex gap-2 items-center">
-			<div class="font-medium">Resource:</div>
+			<div class="font-semibold">Resource:</div>
 			<div class="flex-1">
 				<ResourcePicker
 					bind:value={repo.git_repo_resource_path}
@@ -261,7 +271,7 @@
 			{#if !emptyString(repo.git_repo_resource_path)}
 				<Button
 					disabled={emptyString(repo.script_path)}
-					color="dark"
+					variant="accent"
 					onclick={runGitSyncTestJob}
 					size="xs"
 				>
@@ -296,12 +306,18 @@
 					</a>
 					<span class="text-secondary">WARNING: Only read permissions are verified.</span>
 				</div>
+				{#if gitSyncTestJob.status === 'failure' && gitSyncTestJob.error}
+					<div class="text-red-600 text-xs mt-1">
+						Error: {gitSyncTestJob.error}
+					</div>
+				{/if}
 			{/if}
 
 			<!-- Warnings -->
 			{#if repo.legacyImported}
 				<Alert type="warning" title="Legacy git sync settings imported">
-					This repository was initialized from workspace-level legacy Git-Sync settings. Review the filters and press <b>Save</b> to migrate.
+					This repository was initialized from workspace-level legacy Git-Sync settings. Review the
+					filters and press <b>Save</b> to migrate.
 				</Alert>
 			{/if}
 
@@ -309,16 +325,18 @@
 				<Alert type="warning" title="Script version mismatch">
 					The git sync version for this repository is not latest. Current: <a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-					>{repo.script_path}</a>, latest:
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						>{repo.script_path}</a
+					>, latest:
 					<a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-					>{hubPaths.gitSync}</a>
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						>{hubPaths.gitSync}</a
+					>
 					<div class="flex mt-2">
 						<Button
 							size="xs"
-							color="dark"
+							variant="accent"
 							onclick={() => {
 								if (repo) {
 									repo.script_path = hubPaths.gitSync
@@ -333,7 +351,10 @@
 
 			<!-- Configuration -->
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
-				<DetectionFlow {idx} mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'} />
+				<DetectionFlow
+					{idx}
+					mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'}
+				/>
 			{:else}
 				<GitSyncFilterSettings
 					bind:git_repo_resource_path={repo.git_repo_resource_path}
@@ -348,11 +369,7 @@
 					useIndividualBranch={repo.use_individual_branch}
 				>
 					{#snippet actions()}
-						<Button
-							size="md"
-							onclick={handlePullSettings}
-							startIcon={{ icon: Download }}
-						>
+						<Button size="md" onclick={handlePullSettings} startIcon={{ icon: Download }}>
 							Pull settings
 						</Button>
 					{/snippet}
@@ -360,14 +377,16 @@
 
 				{#if !repo.isUnsavedConnection}
 					<div class="flex justify-between items-start">
-					<!-- Display mode settings as prominent text -->
-					<div class="flex-1 mr-4">
-						<GitSyncModeDisplay
-							mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'}
-							{targetBranch}
-							repository={repo}
-						/>
-					</div>
+						<!-- Display mode settings as prominent text -->
+						<div class="flex-1 mr-4">
+							<GitSyncModeDisplay
+								mode={variant === 'primary-promotion' || variant === 'legacy'
+									? 'promotion'
+									: 'sync'}
+								{targetBranch}
+								repository={repo}
+							/>
+						</div>
 
 						<!-- Manual sync section for existing repos -->
 						{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
@@ -376,8 +395,7 @@
 								<div class="flex gap-2">
 									<Button
 										size="xs"
-										color="dark"
-										variant="border"
+										variant="default"
 										onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
 										startIcon={{ icon: Download }}
 									>
@@ -385,8 +403,7 @@
 									</Button>
 									<Button
 										size="xs"
-										color="dark"
-										variant="border"
+										variant="default"
 										onclick={() => idx !== null && gitSyncContext.showPushModal(idx)}
 										startIcon={{ icon: Upload }}
 									>
@@ -399,7 +416,7 @@
 				{/if}
 			{/if}
 		{:else}
-			<div class="text-xs text-tertiary">Please select a Git repository resource.</div>
+			<div class="text-xs text-primary">Please select a Git repository resource.</div>
 		{/if}
 	</div>
 {/snippet}
@@ -411,16 +428,18 @@
 	<div class="rounded-lg border bg-surface p-4 mb-4">
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex flex-col">
-				<h3 class="text-xl font-semibold">{displayTitle}</h3>
+				<h3 class="text-xs font-semibold text-emphasis">{displayTitle}</h3>
 				{#if displayDescription}
-					<p class="text-sm text-secondary">{displayDescription}</p>
+					<p class="text-2xs text-secondary">{displayDescription}</p>
 				{/if}
 			</div>
 		</div>
 
-		<div class="flex flex-col items-center justify-center py-8 px-4 border-2 border-dashed rounded-md">
+		<div
+			class="flex flex-col items-center justify-center py-8 px-4 border-2 border-dashed rounded-md border-border-normal"
+		>
 			<div class="text-center mb-4">
-				<p class="text-secondary mb-2">
+				<p class="text-primary text-xs font-normal mb-2">
 					{#if mode === 'sync'}
 						No sync repository configured. Add one to enable direct synchronization.
 					{:else if mode === 'promotion'}
@@ -431,13 +450,7 @@
 				</p>
 			</div>
 			{#if onAdd}
-				<Button
-					size="md"
-					color="dark"
-					variant="border"
-					startIcon={{ icon: Plus }}
-					onclick={onAdd}
-				>
+				<Button unifiedSize="md" variant="default" startIcon={{ icon: Plus }} onclick={onAdd}>
 					Add {mode || 'repository'} repository
 				</Button>
 			{/if}
@@ -467,11 +480,13 @@
 				<div class="flex items-center gap-2">
 					<span class="text-lg font-semibold">{displayTitle}</span>
 					{#if repo.legacyImported}
-						<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200">
+						<span
+							class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-200"
+						>
 							Legacy Configuration
 						</span>
 					{/if}
-					<span class="text-xs text-tertiary pt-1 pl-8">
+					<span class="text-xs text-primary pt-1 pl-8">
 						{repo.git_repo_resource_path}
 					</span>
 				</div>

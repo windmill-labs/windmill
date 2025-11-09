@@ -123,6 +123,8 @@
 	$effect(() => {
 		editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
 	})
+
+	let suggestion: string | undefined = $state(undefined)
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -155,7 +157,7 @@
 					<Button
 						on:click={() => (previewOpen = true)}
 						startIcon={{ icon: Play }}
-						color="dark"
+						variant="accent"
 						size="sm">Test an iteration</Button
 					>
 				</div>
@@ -253,11 +255,10 @@
 								class="h-6"
 							>
 								{#snippet children({ item })}
-									<ToggleButton light small label="static" value="static" {item} />
+									<ToggleButton small label="static" value="static" {item} />
 
 									<ToggleButton
 										small
-										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
 										value="javascript"
 										icon={FunctionSquare}
@@ -281,12 +282,13 @@
 					</div>
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="border w-full mb-2 h-full max-h-[250px]"
+						class="border rounded-md overflow-auto w-full mb-2 h-full max-h-[250px]"
 						id="flow-editor-parallel-expression"
 						transition:slide={{ duration: 300 }}
 					>
 						<PropPickerWrapper
 							notSelectable
+							noPadding
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
@@ -313,7 +315,7 @@
 										}
 									}
 								}
-								class="small-editor"
+								class="h-full"
 								shouldBindKey={false}
 								extraLib={stepPropPicker.extraLib}
 							/>
@@ -354,9 +356,7 @@
 							bind:this={iteratorGen}
 							focused={iteratorFieldFocused}
 							arg={mod.value.iterator}
-							on:showExpr={(e) => {
-								editor?.setSuggestion(e.detail)
-							}}
+							on:showExpr={(e) => (suggestion = e.detail || undefined)}
 							on:setExpr={(e) => {
 								setExpr(e.detail)
 							}}
@@ -368,12 +368,11 @@
 				{#if mod.value.iterator.type == 'javascript'}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="border w-full"
+						class="border rounded-md overflow-auto w-full"
 						id="flow-editor-iterator-expression"
 						onkeyup={iteratorGen?.onKeyUp}
 					>
 						<PropPickerWrapper
-							alwaysOn
 							notSelectable
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
@@ -387,21 +386,25 @@
 							}}
 							noPadding
 						>
-							<SimpleEditor
-								bind:this={editor}
-								on:focus={() => {
-									iteratorFieldFocused = true
-								}}
-								on:blur={() => {
-									iteratorFieldFocused = false
-								}}
-								autofocus
-								lang="javascript"
-								bind:code={mod.value.iterator.expr}
-								class="small-editor"
-								shouldBindKey={false}
-								extraLib={stepPropPicker.extraLib}
-							/>
+							<div class="relative w-full h-full overflow-clip">
+								<SimpleEditor
+									small
+									bind:this={editor}
+									on:focus={() => {
+										iteratorFieldFocused = true
+									}}
+									on:blur={() => {
+										iteratorFieldFocused = false
+									}}
+									autofocus
+									lang="javascript"
+									bind:code={mod.value.iterator.expr}
+									class="h-full"
+									shouldBindKey={false}
+									extraLib={stepPropPicker.extraLib}
+									{suggestion}
+								/>
+							</div>
 						</PropPickerWrapper>
 					</div>
 				{:else}
@@ -416,12 +419,12 @@
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
 			<TabsV2 bind:selected>
 				<!-- <Tab value="retries">Retries</Tab> -->
-				<Tab value="early-stop">Early Stop/Break</Tab>
-				<Tab value="skip">Skip</Tab>
-				<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-				<Tab value="sleep">Sleep</Tab>
-				<Tab value="mock">Mock</Tab>
-				<Tab value="lifetime">Lifetime</Tab>
+				<Tab value="early-stop" label="Early Stop/Break" />
+				<Tab value="skip" label="Skip" />
+				<Tab value="suspend" label="Suspend/Approval/Prompt" />
+				<Tab value="sleep" label="Sleep" />
+				<Tab value="mock" label="Mock" />
+				<Tab value="lifetime" label="Lifetime" />
 
 				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">

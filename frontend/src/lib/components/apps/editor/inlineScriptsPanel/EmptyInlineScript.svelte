@@ -103,19 +103,9 @@
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab size="sm" value="workspacescripts">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Workspace Scripts
-						</div>
-					</Tab>
+					<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 
-					<Tab size="sm" value="hubscripts">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Scripts
-						</div>
-					</Tab>
+					<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">

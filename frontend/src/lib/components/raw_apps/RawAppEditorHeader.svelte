@@ -657,8 +657,7 @@
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
 					on:click={async () => {
 						if (!savedApp) {
@@ -773,7 +772,7 @@
 					>
 						<Badge
 							color="gray"
-							class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
+							class="center-center !bg-surface-secondary !text-primary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
 						>
 							<Pen size={14} />Path
 						</Badge>
@@ -820,7 +819,7 @@
 					<Bug size={14} />
 					<div>Debug runs</div>
 
-					<div class="text-2xs text-tertiary"
+					<div class="text-2xs text-primary"
 						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
 					>
 				</div>

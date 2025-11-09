@@ -141,7 +141,7 @@
 		/>
 	{/snippet}
 	{#snippet empty()}
-		<div class="text-center text-tertiary text-xs py-2">
+		<div class="text-center text-primary text-xs py-2">
 			{runnableId ? 'No previous inputs' : 'Save draft to see previous runs'}
 		</div>
 	{/snippet}

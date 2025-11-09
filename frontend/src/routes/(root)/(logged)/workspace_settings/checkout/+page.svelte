@@ -38,11 +38,11 @@
 				The checkout failed, your subscription has not been updated.
 			</Alert>
 		</div>
-		<p class="text-sm my-6 text-tertiary">
+		<p class="text-sm my-6 text-primary">
 			You will be redirected to the workspace settings page in 5 seconds...
 		</p>
 	{:else}
-		<p class="text-sm my-6 text-tertiary w-full text-center">
+		<p class="text-sm my-6 text-primary w-full text-center">
 			Waiting for your upgrade to be processed...
 		</p>
 	{/if}

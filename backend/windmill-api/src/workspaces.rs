@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
@@ -102,6 +102,9 @@ pub fn workspaced_service() -> Router {
             "/run_teams_message_test_job",
             post(run_teams_message_test_job),
         )
+        .route("/slack_oauth_config", get(get_slack_oauth_config))
+        .route("/slack_oauth_config", post(set_slack_oauth_config))
+        .route("/slack_oauth_config", delete(delete_slack_oauth_config))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_instance_groups", post(edit_instance_groups))
@@ -141,6 +144,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
+        .route("/create_fork", post(create_workspace_fork))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -159,6 +163,7 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/create_workspace_fork_branch", post(create_workspace_fork_branch))
         .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -175,7 +180,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
-        .route("/create_fork", post(create_workspace_fork))
+        .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -216,6 +221,10 @@ pub struct WorkspaceSettings {
     pub slack_command_script: Option<String>,
     pub teams_command_script: Option<String>,
     pub slack_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_oauth_client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_oauth_client_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -341,9 +350,7 @@ struct CreateWorkspace {
 struct CreateWorkspaceFork {
     id: String,
     name: String,
-    username: Option<String>,
     color: Option<String>,
-    parent_workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -439,7 +446,7 @@ async fn is_premium(
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
-        .await
+        .await?
         .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;
@@ -501,6 +508,8 @@ async fn get_settings(
             slack_command_script,
             teams_command_script,
             slack_email,
+            slack_oauth_client_id,
+            slack_oauth_client_secret,
             auto_invite_domain,
             auto_invite_operator,
             auto_add,
@@ -667,6 +676,122 @@ async fn run_slack_message_test_job(
     Ok(Json(RunSlackMessageTestJobResponse {
         job_uuid: uuid.to_string(),
     }))
+}
+
+#[derive(Deserialize)]
+struct SetSlackOAuthConfigRequest {
+    slack_oauth_client_id: String,
+    slack_oauth_client_secret: String,
+}
+
+#[derive(Serialize)]
+struct GetSlackOAuthConfigResponse {
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
+}
+
+async fn get_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<GetSlackOAuthConfigResponse> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let settings = sqlx::query_as!(
+        WorkspaceSettings,
+        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    // Mask the secret if it exists
+    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+
+    Ok(Json(GetSlackOAuthConfigResponse {
+        slack_oauth_client_id: settings.slack_oauth_client_id,
+        slack_oauth_client_secret: masked_secret,
+    }))
+}
+
+async fn set_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetSlackOAuthConfigRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if req.slack_oauth_client_id.is_empty() || req.slack_oauth_client_secret.is_empty() {
+        return Err(Error::BadRequest(
+            "Both client ID and client secret are required".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings
+         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2
+         WHERE workspace_id = $3",
+        &req.slack_oauth_client_id,
+        &req.slack_oauth_client_secret,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_slack_oauth_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("client_id", req.slack_oauth_client_id.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Slack OAuth config set for workspace {}", &w_id))
+}
+
+async fn delete_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings
+         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL
+         WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.delete_slack_oauth_config",
+        ActionKind::Delete,
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Slack OAuth config deleted for workspace {}",
+        &w_id
+    ))
 }
 
 async fn get_secondary_storage_names(
@@ -2768,30 +2893,32 @@ async fn clone_apps(
         app_id_mapping.insert(app.id, new_app_id);
     }
 
-    // Clone app versions
-    let app_versions = sqlx::query!(
-        "SELECT app_id, value, created_by, created_at, raw_app
+    {
+        // Clone app versions
+        let app_versions = sqlx::query!(
+            "SELECT app_id, value, created_by, created_at, raw_app
          FROM app_version 
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
-        source_workspace_id
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+            source_workspace_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
 
-    for version in app_versions {
-        if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-            sqlx::query!(
-                "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+        for version in app_versions {
+            if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+                sqlx::query!(
+                    "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
                  VALUES ($1, $2, $3, $4, $5)",
-                new_app_id,
-                version.value,
-                version.created_by,
-                version.created_at,
-                version.raw_app,
-            )
-            .execute(&mut **tx)
-            .await?;
+                    new_app_id,
+                    version.value,
+                    version.created_by,
+                    version.created_at,
+                    version.raw_app,
+                )
+                .execute(&mut **tx)
+                .await?;
+            }
         }
     }
 
@@ -2830,7 +2957,7 @@ async fn clone_apps(
 
             sqlx::query!(
                 "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5)",
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
                 new_app_id,
                 new_hash,
                 app_script.lock,
@@ -2896,18 +3023,37 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
+async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
+    return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
+}
+
+/// Return the uuids of the git sync jobs to create the branch before creating the fork
+async fn create_workspace_fork_branch(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nw): Json<CreateWorkspaceFork>,
+) -> JsonResult<Vec<Uuid>> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(format!(
+            "Forking workspaces is not available on app.windmill.dev"
+        )));
+    }
+
+    Ok(Json(
+        handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
+    ))
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
-    // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-    //     require_super_admin(&db, &authed.email).await?;
-    // }
-
     if *CLOUD_HOSTED {
         return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on Cloud"
+            "Forking workspaces is not available on app.windmill.dev"
         )));
     }
 
@@ -2923,29 +3069,6 @@ async fn create_workspace_fork(
 
     let forked_id = nw.id;
 
-    // Determine username early so we can use it in workspace creation
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(false);
-
-    let username = if automate_username_creation {
-        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
-            return Err(Error::BadRequest(
-                "username is not allowed when username creation is automated".to_string(),
-            ));
-        }
-        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
-    } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
-    };
-
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner, parent_workspace_id)
@@ -2953,7 +3076,7 @@ async fn create_workspace_fork(
         forked_id,
         nw.name,
         authed.email,
-        nw.parent_workspace_id,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -2970,18 +3093,19 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO usr
-            (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, $4)",
+           (workspace_id, email, username, is_admin)
+           SELECT $1, email, username, is_admin FROM usr
+         WHERE workspace_id = $3 AND email = $2
+        ",
         forked_id,
         authed.email,
-        username,
-        authed.is_admin,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
@@ -2989,7 +3113,7 @@ async fn create_workspace_fork(
            FROM usr
          WHERE workspace_id = $2",
         &forked_id,
-        &nw.parent_workspace_id
+        &parent_workspace_id
     )
     .execute(&mut *tx)
     .await?;

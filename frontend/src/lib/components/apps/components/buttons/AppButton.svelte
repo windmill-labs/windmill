@@ -235,6 +235,7 @@
 	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnSubmit={resolvedConfig.onSubmit}
 	doOnError={resolvedConfig.onError}
 	{errorHandledByComponent}
 	{id}
@@ -268,7 +269,7 @@
 		{/if}
 		{#key css}
 			<div
-				class="inline-flex"
+				class={twMerge('inline-flex', resolvedConfig.fillContainer ? 'w-full h-full' : '')}
 				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
 					? String(resolvedConfig.tooltip)
 					: undefined}
@@ -294,7 +295,7 @@
 					wrapperStyle={css?.container?.style}
 					disabled={resolvedConfig.disabled}
 					on:click={handleClick}
-					size={resolvedConfig.size}
+					extendedSize={resolvedConfig.size}
 					color={resolvedConfig.color}
 					loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
 				>

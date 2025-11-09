@@ -153,7 +153,7 @@
 		<div
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] text-tertiary text-sm select-none',
+				'z-[5002] text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
 				uiState.visible ? '' : 'pointer-events-none',
 				className
@@ -164,22 +164,22 @@
 		>
 			<div
 				class={twMerge(
-					'overflow-clip rounded-md bg-surface-secondary shadow-lg transition-height',
+					'overflow-clip rounded-md drop-shadow-base transition-height',
 					dropdownPos.isBelow ? '' : 'flex flex-col justify-end'
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
+				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-tertiary">
 					{@render header?.()}
 					{#if processedItems?.length === 0}
-						<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
+						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
 					{/if}
 					<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
 						{#each processedItems ?? [] as item, itemIndex}
 							{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 								<li
 									class={twMerge(
-										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
 										itemIndex === 0 ? 'mt-3' : 'mt-6'
 									)}
 								>
@@ -189,9 +189,12 @@
 							<li>
 								<button
 									class={twMerge(
-										'py-2 px-4 w-full font-normal text-left text-primary',
-										itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-										item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
+										itemIndex === keyArrowPos
+											? 'bg-surface-hover/60'
+											: item.value === value
+												? 'bg-surface-hover/60'
+												: 'hover:bg-surface-hover',
 										itemButtonWrapperClasses
 									)}
 									onclick={(e) => {
@@ -205,7 +208,7 @@
 									</span>
 									{@render endSnippet?.({ item, close: () => (open = false) })}
 									{#if item.subtitle}
-										<div class="text-xs text-tertiary">{item.subtitle}</div>
+										<div class="text-xs text-primary">{item.subtitle}</div>
 									{/if}
 								</button>
 							</li>

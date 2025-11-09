@@ -142,9 +142,8 @@
 				{/if}
 
 				<Button
-					variant="border"
-					size="xs"
-					color="light"
+					variant="default"
+					size="xs2"
 					on:click={async () => {
 						editor?.format()
 					}}

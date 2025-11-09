@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { MoreVertical } from 'lucide-svelte'
+	import { EllipsisVertical } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
@@ -19,6 +19,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
+	import { ButtonType } from './common/button/model'
 
 	interface Props {
 		aiId?: string | undefined
@@ -35,6 +36,8 @@
 		customMenu?: boolean
 		class?: string | undefined
 		enableFlyTransition?: boolean
+		size?: ButtonType.UnifiedSize
+		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
 	}
@@ -54,6 +57,8 @@
 		customMenu = false,
 		class: classNames = undefined,
 		enableFlyTransition = false,
+		size = 'md',
+		btnText = '',
 		buttonReplacement,
 		menu
 	}: Props = $props()
@@ -120,7 +125,7 @@
 		description: aiDescription,
 		callback: () => buttonEl?.click()
 	}}
-	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', classNames)}
+	class={twMerge('flex items-center justify-end', fixedHeight && 'h-8', classNames)}
 	use:melt={$trigger}
 	{disabled}
 	onclick={(e) => e.stopPropagation()}
@@ -142,11 +147,14 @@
 	{:else}
 		<Button
 			nonCaptureEvent
-			size="xs"
-			color="light"
-			startIcon={{ icon: MoreVertical }}
+			unifiedSize={size}
+			variant="subtle"
+			startIcon={{ icon: EllipsisVertical }}
 			btnClasses="bg-transparent"
-		/>
+			iconOnly
+		>
+			{btnText}
+		</Button>
 	{/if}
 </button>
 
@@ -161,7 +169,7 @@
 			{@render menu?.()}
 		{:else}
 			<div
-				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />

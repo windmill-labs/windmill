@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -1460,7 +1460,7 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Snippet } from 'svelte'
+import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
 
@@ -1522,7 +1522,7 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
-// Structured clone raises an error on $state values
+// Structured clone raises an error on $state values and some stuff like Window
 // $state.snapshot clones everything but prints warnings for some values (e.g. functions)
 import _clone from 'clone'
 export function clone<T>(t: T): T {
@@ -1622,3 +1622,36 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
+
+export function validateRetryConfig(retry: Retry | undefined): string | null {
+	if (retry?.exponential?.seconds !== undefined) {
+		const seconds = retry.exponential.seconds
+		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0) {
+			return 'Exponential backoff base (seconds) must be an integer ≥ 0'
+		}
+	}
+	return null
+}
+export type CssColor = keyof (typeof tokensFile)['tokens']['light']
+import tokensFile from './assets/tokens/tokens.json'
+import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+export function getCssColor(
+	color: CssColor,
+	{
+		alpha = 1,
+		format = 'css-var'
+	}: {
+		alpha?: number
+		format?: 'css-var' | 'hex-dark' | 'hex-light'
+	}
+): string {
+	if (format === 'hex-light') {
+		return tokensFile.tokens[lightModeName][color]
+	}
+	if (format === 'hex-dark') {
+		return tokensFile.tokens[darkModeName][color]
+	}
+	return `rgb(var(--color-${color}) / ${alpha})`
+}
+
+export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot

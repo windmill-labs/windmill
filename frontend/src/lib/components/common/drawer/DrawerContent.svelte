@@ -52,7 +52,7 @@
 			>
 				<CloseButton on:close Icon={CloseIcon} />
 			</div>
-			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
+			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
@@ -60,7 +60,7 @@
 			>
 		</div>
 		{#if actions}
-			<div class="flex gap-2 items-center justify-end">
+			<div class="flex gap-2 items-center justify-end shrink-0">
 				{@render actions?.()}
 			</div>
 		{/if}

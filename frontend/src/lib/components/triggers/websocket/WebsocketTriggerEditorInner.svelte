@@ -410,7 +410,7 @@
 				</Alert>
 			{/if}
 		</div>
-		<div class="flex flex-col gap-12 mt-6">
+		<div class="flex flex-col gap-6 mt-6">
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
@@ -430,7 +430,7 @@
 			<Section label={hideTarget ? 'Runnable options' : 'Runnable'} class="flex flex-col gap-4">
 				{#if !hideTarget}
 					<div>
-						<p class="text-xs mb-1 text-tertiary">
+						<p class="text-xs mb-1 text-primary">
 							Pick a script or flow to be triggered<Required required={true} />
 						</p>
 						<div class="flex flex-row mb-2">
@@ -447,8 +447,8 @@
 							/>
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
+									btnClasses="ml-4"
+									variant="accent"
 									size="xs"
 									disabled={!can_write}
 									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F19660'}
@@ -472,6 +472,7 @@
 							'Whether the runnable result should be sent as a message to the websocket server when not null.'
 					}}
 					disabled={!can_write}
+					textClass="font-semibold"
 				/>
 
 				<Toggle
@@ -485,6 +486,7 @@
 							'Allows the runnable result to be sent as a message to the WebSocket server if the result is a non-null error.'
 					}}
 					disabled={!can_write || !can_return_message}
+					textClass="font-semibold"
 				/>
 			</Section>
 
@@ -498,7 +500,7 @@
 			/>
 
 			<Section label="Initial messages">
-				<p class="text-xs mb-1 text-tertiary">
+				<p class="text-xs mb-1 text-primary">
 					Initial messages are sent at the beginning of the connection. They are sent in order.<br
 					/>
 					Raw messages and runnable results are supported.
@@ -619,8 +621,7 @@
 
 					<div class="flex items-baseline">
 						<Button
-							variant="border"
-							color="light"
+							variant="default"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -641,7 +642,7 @@
 			</Section>
 
 			<Section label="Filters">
-				<p class="text-xs mb-1 text-tertiary">
+				<p class="text-xs mb-1 text-primary">
 					Filters will limit the execution of the trigger to only messages that match all criteria.<br
 					/>
 					The JSON filter checks if the value at the key is equal or a superset of the filter value.
@@ -700,8 +701,7 @@
 
 					<div class="flex items-baseline">
 						<Button
-							variant="border"
-							color="light"
+							variant="default"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -726,8 +726,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler

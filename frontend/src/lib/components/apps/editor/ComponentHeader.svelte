@@ -308,8 +308,7 @@
 							</pre>
 				</div>
 				<Button
-					color="red"
-					variant="border"
+					variant="default"
 					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
 					>Open Debug Runs</Button
 				>

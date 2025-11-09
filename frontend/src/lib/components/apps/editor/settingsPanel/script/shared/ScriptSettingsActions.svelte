@@ -23,7 +23,7 @@
 			{#snippet text()}
 				{action.label}
 			{/snippet}
-			<Button color={action.color} on:click={action.callback} size="xs2" variant="border">
+			<Button color={action.color} on:click={action.callback} size="xs2" variant="default">
 				<div class="flex flex-row gap-1 items-center">
 					{#if action.icon}
 						<action.icon size={12} />

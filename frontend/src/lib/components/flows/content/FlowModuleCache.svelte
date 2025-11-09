@@ -26,10 +26,10 @@
 	{/snippet}
 
 	{#if flowModule.value.type != 'rawscript'}
-		<p
-			>The cache settings need to be set in the referenced script/flow settings directly. Cache for
-			hub scripts is not available yet.</p
-		>
+		<p class="text-xs text-secondary">
+			The cache settings need to be set in the referenced script/flow settings directly. Cache for
+			hub scripts is not available yet.
+		</p>
 	{:else}
 		<Toggle
 			checked={isCacheEnabled}

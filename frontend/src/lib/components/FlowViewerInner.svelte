@@ -9,7 +9,7 @@
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import { filteredContentForExport } from './flows/utils'
+	import { filteredContentForExport } from './flows/utils.svelte'
 
 	interface Props {
 		flow: {
@@ -66,8 +66,8 @@
 			maxLines = 100
 		}}
 	>
-		<Tab value="yaml">YAML</Tab>
-		<Tab value="json">JSON</Tab>
+		<Tab value="yaml" label="YAML" />
+		<Tab value="json" label="JSON" />
 		{#snippet content()}
 			<div class="relative pt-2">
 				<Button

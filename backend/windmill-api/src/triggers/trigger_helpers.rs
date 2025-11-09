@@ -46,7 +46,7 @@ struct ScriptInfo {
 
 #[derive(Debug, Deserialize)]
 struct PropertyDefinition {
-    r#type: Option<String>,
+    r#type: Option<Box<RawValue>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +119,11 @@ fn runnable_format_from_schema_without_preprocessor(
             if schema.as_ref().is_some_and(|schema| {
                 schema.properties.as_ref().is_some_and(|properties| {
                     properties.iter().any(|(key, def)| {
-                        key == "payload" && def.r#type.as_ref().is_some_and(|t| t == "array")
+                        key == "payload"
+                            && def.r#type.as_ref().is_some_and(|t| {
+                                let typ = t.get().trim();
+                                typ == "array" || (typ.starts_with('[') && typ.ends_with(']'))
+                            })
                     })
                 })
             }) =>
@@ -804,6 +808,8 @@ async fn trigger_script_with_retry_and_error_handler(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl,
             priority,
             apply_preprocessor,
@@ -825,6 +831,8 @@ async fn trigger_script_with_retry_and_error_handler(
             tag_override: tag.clone(),
             apply_preprocessor,
             trigger_path: Some(trigger_path),
+            custom_debounce_key,
+            debounce_delay_s,
         },
         _ => {
             return Err(windmill_common::error::Error::internal_err(format!(

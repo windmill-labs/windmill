@@ -17,7 +17,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
 use crate::worker::HUB_CACHE_DIR;
@@ -294,9 +294,15 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -311,8 +317,6 @@ pub struct Script {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -408,8 +412,13 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
@@ -419,7 +428,6 @@ pub struct NewScript {
     pub restart_unless_cancelled: Option<bool>,
     pub deployment_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub no_main_func: Option<bool>,
     pub codebase: Option<String>,
@@ -555,6 +563,7 @@ pub async fn get_hub_script_by_path(
 
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
+    //
     let result = http_get_from_hub(
         http_client,
         &format!("{}/raw/{}.ts", hub_base_url, path),
@@ -576,7 +585,7 @@ pub async fn get_hub_script_by_path(
                 && path
                     .split("/")
                     .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
             {
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
@@ -661,10 +670,9 @@ async fn get_full_hub_script_by_path_inner(
             Ok(response) => Ok(response),
             Err(e) => {
                 if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path
-                        .split("/")
-                        .next()
-                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    && path.split("/").next().is_some_and(|x| {
+                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
+                    })
                 {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
                     tracing::info!(
@@ -724,18 +732,32 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> crate::error::Result<i64> {
-    let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(base_hash.0)
-            .bind(w_id)
-            .fetch_one(&mut **tx)
-            .await?;
+) -> crate::error::Result<ClonedScript> {
+    let s = sqlx::query_as::<_, Script>(
+        "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+    )
+    .bind(base_hash.0)
+    .bind(w_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let s = if let Some(s) = s {
+        s
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Non-archived script with hash {} not found",
+            base_hash.0
+        )));
+    };
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -770,6 +792,8 @@ pub async fn clone_script<'c>(
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
         assets: s.assets,
+        debounce_delay_s: s.debounce_delay_s,
+        debounce_key: s.debounce_key,
     };
 
     let new_hash = hash_script(&ns);
@@ -788,14 +812,14 @@ pub async fn clone_script<'c>(
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
@@ -809,5 +833,5 @@ pub async fn clone_script<'c>(
     .execute(&mut **tx)
     .await?;
 
-    Ok(new_hash)
+    Ok(ClonedScript { old_script: ns, new_hash })
 }

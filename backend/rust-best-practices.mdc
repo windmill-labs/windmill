@@ -65,6 +65,7 @@ When generating code, especially involving `serde`, `sqlx`, and `tokio`, priorit
 
 ### SQLx Optimizations (Database Interaction)
 
+-   **CRITICAL - Never Use `SELECT *` in Worker-Executed Queries:** For any query that can potentially be executed by workers, **always** explicitly list the specific columns you need instead of using `SELECT *`. This is essential for backwards compatibility: when workers are running behind the API server version (common in distributed deployments), adding new columns to database tables will cause outdated workers to fail when they try to deserialize rows with unexpected columns. Always use explicit column lists like `SELECT id, workspace_id, path, created_at FROM table` instead of `SELECT * FROM table`.
 -   **Select Only Necessary Columns:** In `SELECT` queries, list specific column names rather than using `SELECT *`. This reduces data transferred from the database and the work needed for hydration/deserialization.
 -   **Batch Operations:** For multiple `INSERT`, `UPDATE`, or `DELETE` statements, prefer executing them in a single query if the database and driver support it efficiently (e.g., `INSERT INTO ... VALUES (...), (...), ...`). This minimizes round trips to the database.
 -   **Avoid N+1 Queries:** Do not loop through results of one query and execute a separate query for each item (e.g., fetching users, then querying for each user's profile in a loop). Instead, use JOINs or a single query with an `IN` clause to fetch related data efficiently.

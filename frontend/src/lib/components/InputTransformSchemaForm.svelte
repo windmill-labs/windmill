@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService, type InputTransform } from '$lib/gen'
+	import { VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
@@ -25,6 +25,7 @@
 		enableAi?: boolean
 		class?: string
 		helperScript?: DynamicInputTypes.HelperScript
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		pickableProperties = undefined,
 		enableAi = false,
 		class: clazz = '',
-		helperScript = undefined
+		helperScript = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -71,6 +73,22 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
+	let s3StorageConfigured = $state(true)
+
+	async function checkS3Storage() {
+		try {
+			if ($workspaceStore) {
+				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
+			}
+		} catch (error) {
+			console.error('Failed to fetch workspace settings:', error)
+			s3StorageConfigured = true
+		}
+	}
+
+	checkS3Storage()
+
 	let keys: string[] = $state([])
 	$effect(() => {
 		let lkeys = Object.keys(schema?.properties ?? {})
@@ -83,7 +101,7 @@
 
 <div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="mt-2">
+		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys
@@ -102,12 +120,13 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<ResizeTransitionWrapper class="mt-2 relative" innerClass="w-full" vertical>
+				<ResizeTransitionWrapper class="mt-6" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
 						bind:schema
 						bind:argName={keys[index]}
+						argExtra={schema.properties?.[argName] ?? {}}
 						bind:inputCheck={
 							() => inputCheck[argName] ?? false, (value) => (inputCheck[argName] = value)
 						}
@@ -119,6 +138,8 @@
 						{pickableProperties}
 						{enableAi}
 						{helperScript}
+						{isAgentTool}
+						{s3StorageConfigured}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}
@@ -127,7 +148,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-tertiary text-sm">No inputs</div>
+		<div class="text-primary text-xs mt-2">No inputs</div>
 	{/if}
 </div>
 
@@ -149,8 +170,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
 			<Button
-				variant="border"
-				color="blue"
+				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

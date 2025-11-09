@@ -9,6 +9,7 @@
 		required?: boolean
 		small?: boolean
 		onKeyDown?: (event: KeyboardEvent) => void
+		onBlur?: (event: FocusEvent) => void
 	}
 
 	let {
@@ -17,7 +18,8 @@
 		disabled = false,
 		required = false,
 		small = false,
-		onKeyDown
+		onKeyDown,
+		onBlur
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
@@ -31,7 +33,7 @@
 	<div class="absolute inset-y-0 right-0 flex items-center px-2">
 		<input bind:checked={hideValue} class="!hidden" id={randomId} type="checkbox" />
 		<label
-			class="bg-surface-secondary hover:bg-gray-400 rounded px-2 py-1 text-sm text-tertiary font-mono cursor-pointer"
+			class="bg-surface-secondary hover:bg-gray-400 rounded px-2 py-1 text-sm text-primary font-mono cursor-pointer"
 			for={randomId}>{hideValue ? 'show' : 'hide'}</label
 		>
 	</div>
@@ -43,6 +45,7 @@
 			type="password"
 			bind:value={password}
 			onkeydown={onKeyDown}
+			onblur={onBlur}
 			autocomplete="new-password"
 			{placeholder}
 			{disabled}
@@ -55,6 +58,7 @@
 			type="text"
 			bind:value={password}
 			onkeydown={bubble('keydown')}
+			onblur={onBlur}
 			autocomplete="new-password"
 			{placeholder}
 			{disabled}

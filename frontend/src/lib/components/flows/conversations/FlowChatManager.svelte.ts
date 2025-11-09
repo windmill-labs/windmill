@@ -1,5 +1,5 @@
 import type { FlowConversationMessage } from '$lib/gen/types.gen'
-import { FlowConversationService } from '$lib/gen'
+import { FlowConversationService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
@@ -18,6 +18,15 @@ export interface FlowChatManagerOptions {
 	path?: string
 }
 
+export function randomUUID() {
+	// Pure JS (RFC4122 v4) UUID implementation (no external dependencies)
+	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+		const r = (Math.random() * 16) | 0
+		const v = c === 'x' ? r : (r & 0x3) | 0x8
+		return v.toString(16)
+	})
+}
+
 class FlowChatManager {
 	// State
 	messages = $state<ChatMessage[]>([])
@@ -32,6 +41,7 @@ class FlowChatManager {
 	loadingMoreMessages = $state(false)
 	currentEventSource = $state<EventSource | undefined>(undefined)
 	pollingInterval = $state<ReturnType<typeof setInterval> | undefined>(undefined)
+	currentJobId = $state<string | undefined>(undefined)
 
 	// Private state
 	#conversationsCache = $state<Record<string, ChatMessage[]>>({})
@@ -69,6 +79,7 @@ class FlowChatManager {
 		this.stopPolling()
 		this.isLoading = false
 		this.isWaitingForResponse = false
+		this.currentJobId = undefined
 	}
 
 	// Public methods for component to call
@@ -84,6 +95,28 @@ class FlowChatManager {
 		this.messages = []
 		this.inputMessage = ''
 		this.page = 1
+	}
+
+	async cancelCurrentJob() {
+		if (!this.#workspace) {
+			return
+		}
+
+		try {
+			if (this.currentJobId) {
+				await JobService.cancelQueuedJob({
+					workspace: this.#workspace,
+					id: this.currentJobId,
+					requestBody: {}
+				})
+				sendUserToast(`Job ${this.currentJobId} cancelled`)
+			}
+		} catch (error) {
+			console.error('Error cancelling job:', error)
+			sendUserToast('Could not cancel job', true)
+		} finally {
+			this.cleanup()
+		}
 	}
 
 	async loadConversationMessages(conversationId?: string) {
@@ -296,7 +329,7 @@ class FlowChatManager {
 		delete this.#conversationsCache[currentConversationId]
 
 		const userMessage: ChatMessage = {
-			id: crypto.randomUUID(),
+			id: randomUUID(),
 			content: this.inputMessage.trim(),
 			created_at: new Date().toISOString(),
 			message_type: 'user',
@@ -347,17 +380,20 @@ class FlowChatManager {
 		let isCompleted = false
 
 		try {
+			const jobId = await JobService.runFlowByPath({
+				workspace: this.#workspace!,
+				path: this.#path!,
+				requestBody: { user_message: messageContent },
+				memoryId: currentConversationId
+			})
 			// Encode the payload as base64
-			const payload = { user_message: messageContent }
-			const payloadBase64 = btoa(JSON.stringify(payload))
 
 			// Build the EventSource URL
-			const streamUrl = `/api/w/${this.#workspace}/jobs/run_and_stream/f/${this.#path}`
+			const streamUrl = `/api/w/${this.#workspace}/jobs_u/getupdate_sse/${jobId}`
 			const url = new URL(streamUrl, window.location.origin)
-			url.searchParams.set('payload', payloadBase64)
-			url.searchParams.set('memory_id', currentConversationId)
 			url.searchParams.set('poll_delay_ms', '50')
-
+			url.searchParams.set('fast', 'true')
+			url.searchParams.set('only_result', 'true')
 			// Create EventSource connection
 			const eventSource = new EventSource(url.toString())
 			this.currentEventSource = eventSource
@@ -368,8 +404,10 @@ class FlowChatManager {
 			eventSource.onmessage = async (event) => {
 				try {
 					const data = JSON.parse(event.data)
-
 					if (data.type === 'update') {
+						if (data.flow_stream_job_id) {
+							this.currentJobId = data.flow_stream_job_id
+						}
 						// Process new stream content
 						if (data.new_result_stream) {
 							// Stop polling since we are receiving last step streaming
@@ -380,9 +418,6 @@ class FlowChatManager {
 								success
 							} = this.parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
-							if (accumulatedContent.length > 0 || type === 'tool_result') {
-								this.isWaitingForResponse = false
-							}
 
 							// Create tool message if type is tool_result
 							if (type === 'tool_result') {
@@ -396,7 +431,7 @@ class FlowChatManager {
 								this.messages = [
 									...this.messages,
 									{
-										id: 'temp-' + crypto.randomUUID(),
+										id: 'temp-' + randomUUID(),
 										content: newContent,
 										created_at: new Date().toISOString(),
 										message_type: 'tool',
@@ -418,7 +453,7 @@ class FlowChatManager {
 								assistantMessageId.length === 0 &&
 								accumulatedContent.length > 0
 							) {
-								assistantMessageId = 'temp-' + crypto.randomUUID()
+								assistantMessageId = 'temp-' + randomUUID()
 								this.messages = [
 									...this.messages,
 									{
@@ -478,6 +513,9 @@ class FlowChatManager {
 			console.error('No jobId returned from onRunFlow')
 			return
 		}
+
+		// Store the current job ID so it can be cancelled
+		this.currentJobId = jobId
 
 		if (isNewConversation) {
 			await this.#refreshConversations?.()

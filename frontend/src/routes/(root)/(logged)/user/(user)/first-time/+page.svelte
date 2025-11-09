@@ -22,6 +22,6 @@
 	</p>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button color="light" size="xs2" variant="contained" on:click={decline}>Skip</Button>
-		<Button color="dark" size="lg" on:click={startSetup}>Setup</Button>
+		<Button variant="accent" size="lg" on:click={startSetup}>Setup</Button>
 	</div>
 </CenteredModal>

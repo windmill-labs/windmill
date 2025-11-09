@@ -53,6 +53,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -97,6 +98,7 @@
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
+				sessionStorage.setItem('workspace', String(workspace))
 				localStorage.setItem('workspace', String(workspace))
 			} catch (e) {
 				console.error('Could not persist workspace to local storage', e)
@@ -146,7 +148,7 @@
 		$hubBaseUrlStore =
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			'https://hub.windmill.dev'
+			DEFAULT_HUB_BASE_URL
 	}
 
 	async function loadFavorites() {
@@ -502,7 +504,7 @@
 											}}
 											label="Ask AI"
 											class="!text-xs"
-											iconClasses="!text-violet-400 dark:!text-violet-400"
+											iconClasses="!text-ai-inverse dark:!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
@@ -576,7 +578,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
@@ -611,7 +613,6 @@
 					<OperatorMenu {favoriteLinks} />
 				</div>
 			{/if}
-
 			<!-- Legacy menu -->
 			<div
 				class={classNames(
@@ -690,7 +691,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>

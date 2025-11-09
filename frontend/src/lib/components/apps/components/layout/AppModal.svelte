@@ -29,6 +29,7 @@
 		render: boolean
 		onOpenRecomputeIds?: string[] | undefined
 		onCloseRecomputeIds?: string[] | undefined
+		preclickAction?: (() => Promise<void>) | undefined
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		noWFull = false,
 		render,
 		onOpenRecomputeIds = undefined,
-		onCloseRecomputeIds = undefined
+		onCloseRecomputeIds = undefined,
+		preclickAction
 	}: Props = $props()
 
 	const {
@@ -156,14 +158,16 @@
 					e?.stopPropagation()
 				}}
 				on:click={async (e) => {
+					await preclickAction?.()
 					$focusedGrid = {
 						parentComponentId: id,
 						subGridIndex: 0
 					}
 					disposable?.openDrawer()
 				}}
-				size={resolvedConfig.buttonSize}
+				extendedSize={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
+				variant="contained"
 			>
 				<div>{resolvedConfig.buttonLabel}</div>
 			</Button>
@@ -219,7 +223,7 @@
 									})}
 									class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 								>
-									<X class="text-tertiary" />
+									<X class="text-primary" />
 								</button>
 							</div>
 						</div>

@@ -73,6 +73,7 @@ pub fn workspaced_service() -> Router {
             get(file_resource_ext_to_resource_type),
         )
         .route("/type/create", post(create_resource_type))
+        .route("/mcp_tools/*path", get(get_mcp_tools))
 }
 
 pub fn public_service() -> Router {
@@ -797,13 +798,14 @@ async fn delete_resource(
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+    let deleted_path = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    not_found_if_none(deleted_path, "Resource", &path)?;
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
@@ -1247,13 +1249,16 @@ async fn delete_resource_type(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2",
+    let deleted_name = sqlx::query_scalar!(
+        "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2 RETURNING name",
         name,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+
+    not_found_if_none(deleted_name, "ResourceType", &name)?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1390,6 +1395,64 @@ where
     };
 
     Ok(resource)
+}
+
+/// Get list of tools from an MCP resource
+async fn get_mcp_tools(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Fetch the MCP resource from database
+    let resource_value_o = sqlx::query_scalar!(
+        "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    if resource_value_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
+    }
+
+    let resource_value = not_found_if_none(resource_value_o, "Resource", path)?
+        .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
+
+    // Parse MCP resource
+    let mcp_resource =
+        serde_json::from_str::<windmill_common::mcp_client::McpResource>(resource_value.0.get())
+            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+
+    // Create MCP client connection
+    let client = windmill_common::mcp_client::McpClient::from_resource(mcp_resource, &db, &w_id)
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Failed to connect to MCP server: {}", e)))?;
+
+    // Get raw MCP tools and convert to JSON
+    let tools: Vec<serde_json::Value> = client
+        .available_tools()
+        .iter()
+        .map(|tool| {
+            serde_json::to_value(tool)
+                .map_err(|e| Error::ExecutionErr(format!("Failed to serialize MCP tool: {}", e)))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Gracefully shutdown the client
+    if let Err(e) = client.shutdown().await {
+        tracing::warn!("Failed to shutdown MCP client: {}", e);
+    }
+
+    Ok(Json(tools))
 }
 
 #[derive(Deserialize, Serialize)]

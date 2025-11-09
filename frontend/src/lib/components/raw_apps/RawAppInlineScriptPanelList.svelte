@@ -31,8 +31,7 @@
 		<div class="flex flex-row gap-1">
 			<Button
 				size="xs"
-				color="light"
-				variant="border"
+				variant="default"
 				btnClasses="!rounded-full !p-1"
 				title="Create a new background runnable"
 				aria-label="Create a new background runnable"
@@ -63,7 +62,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary">No backend runnable</div>
+					<div class="text-xs text-primary">No backend runnable</div>
 				{/if}
 			</div>
 		</div>

@@ -142,7 +142,7 @@ export async function findResourceFile(path: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "Found two resource files for the same resource" +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -180,6 +180,14 @@ export async function handleScriptMetadata(
   }
 }
 
+export interface OutputFile {
+  path: string
+  contents: Uint8Array
+  hash: string
+  /** "contents" as text (changes automatically with "contents") */
+  readonly text: string
+}
+
 export async function handleFile(
   path: string,
   workspace: Workspace,
@@ -210,11 +218,14 @@ export async function handleFile(
 
     let bundleContent: string | Tarball | undefined = undefined;
 
+    let forceTar = false;
     if (codebase) {
+      let outputFiles: OutputFile[] = [];
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
         bundleContent = execSync(
-          codebase.customBundler + " " + path
+          codebase.customBundler + " " + path,
+          { maxBuffer: 1024 * 1024 * 50 }
         ).toString();
         log.info("Custom bundler executed for " + path);
       } else {
@@ -231,35 +242,42 @@ export async function handleFile(
           external: codebase.external,
           inject: codebase.inject,
           define: codebase.define,
+          loader: codebase.loader ?? { ".node": "file" },
+          outdir: '/',
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
+        outputFiles = out.outputFiles;
         log.info(
           `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
             0
           )}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
-      if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+      if (outputFiles.length > 1) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
         log.info(
-          `Using the following asset configuration for ${path}: ${JSON.stringify(
-            codebase.assets
-          )}`
+          `Found multiple output files for ${path}, creating a tarball... ${outputFiles.map((file) => file.path).join(", ")}`
         );
+        forceTar = true;
         const startTime = performance.now();
         const tarball = new archiveNpm.Tarball();
+        const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
+        const content = outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? '';
+        log.info(`Main content: ${content.length}chars`);
         tarball.append(
-          new File([bundleContent], "main.js", { type: "text/plain" })
+          new File([content], "main.js", { type: "text/plain" })
         );
-        for (const asset of codebase.assets) {
-          const data = fs.readFileSync(asset.from);
-          const blob = new Blob([data], { type: "text/plain" });
-          const file = new File([blob], asset.to);
-          tarball.append(file);
+        for (const file of outputFiles) {
+          if (file.path == "/" + mainPath) {
+            continue;
+          }
+          log.info(`Adding file: ${file.path.substring(1)}`);
+          const fil = new File([file.contents], file.path.substring(1));
+          tarball.append(fil);
         }
         const endTime = performance.now();
         log.info(
@@ -268,25 +286,52 @@ export async function handleFile(
           ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
         bundleContent = tarball;
+      } else {
+        if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+          const archiveNpm = await import("npm:@ayonli/jsext/archive");
+          log.info(
+            `Using the following asset configuration for ${path}: ${JSON.stringify(
+              codebase.assets
+            )}`
+          );
+          const startTime = performance.now();
+          const tarball = new archiveNpm.Tarball();
+          tarball.append(
+            new File([bundleContent], "main.js", { type: "text/plain" })
+          );
+          for (const asset of codebase.assets) {
+            const data = fs.readFileSync(asset.from);
+            const blob = new Blob([data], { type: "text/plain" });
+            const file = new File([blob], asset.to);
+            tarball.append(file);
+          }
+          const endTime = performance.now();
+          log.info(
+            `Finished creating tarball for ${path}: ${(
+              tarball.size / 1024
+            ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          );
+          bundleContent = tarball;
+        }
       }
     }
     let typed = opts?.skipScriptsMetadata
       ? undefined
       : (
-          await parseMetadataFile(
-            remotePath,
-            opts
-              ? {
-                  ...opts,
-                  path,
-                  workspaceRemote: workspace,
-                  schemaOnly: codebase ? true : undefined,
-                }
-              : undefined,
-            globalDeps,
-            codebases
-          )
-        )?.payload;
+        await parseMetadataFile(
+          remotePath,
+          opts
+            ? {
+              ...opts,
+              path,
+              workspaceRemote: workspace,
+              schemaOnly: codebase ? true : undefined,
+              globalDeps,
+              codebases
+            }
+            : undefined,
+        )
+      )?.payload;
 
     const workspaceId = workspace.workspaceId;
 
@@ -324,7 +369,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest();
+      typed.codebase = await codebase.getDigest(forceTar);
     }
 
     const requestBodyCommon: NewScript = {
@@ -349,7 +394,9 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
-      codebase: await codebase?.getDigest(),
+      debounce_key: typed?.debounce_key,
+      debounce_delay_s: typed?.debounce_delay_s,
+      codebase: await codebase?.getDigest(forceTar),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
     };
@@ -371,23 +418,25 @@ export async function handleFile(
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
-              remote.ws_error_handler_muted &&
+            remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
+            remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-              Boolean(remote.restart_unless_cancelled) &&
+            Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-              Boolean(remote.visible_to_runner_only) &&
+            Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
-              Boolean(remote.has_preprocessor) &&
+            Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            typed.debounce_key == remote["debounce_key"] &&
+            typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email)
         ) {
@@ -474,8 +523,7 @@ async function createScript(
       });
     } catch (e: any) {
       throw Error(
-        `Script creation for ${body.path} with parent ${
-          body.parent_hash
+        `Script creation for ${body.path} with parent ${body.parent_hash
         }  was not successful: ${e.body ?? e.message} `
       );
     }
@@ -501,8 +549,7 @@ async function createScript(
     });
     if (req.status != 201) {
       throw Error(
-        `Script snapshot creation was not successful: ${req.status} - ${
-          req.statusText
+        `Script snapshot creation was not successful: ${req.status} - ${req.statusText
         } - ${await req.text()} `
       );
     }
@@ -514,8 +561,8 @@ export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+      ? exts.map((x) => filePath.replace(".script.lock", x))
+      : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
     await Promise.all(
@@ -534,7 +581,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -935,7 +982,7 @@ async function generateMetadata(
   scriptPath: string | undefined
 ) {
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
   );
   if (scriptPath == "") {
     scriptPath = undefined;

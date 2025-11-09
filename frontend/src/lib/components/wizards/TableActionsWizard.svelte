@@ -10,13 +10,15 @@
 	import type {
 		ButtonComponent,
 		CheckboxComponent,
+		ModalComponent,
 		SelectComponent
 	} from '../apps/editor/component'
 	interface Props {
 		actionsOrder?: RichConfiguration | undefined
 		selectedId?: string | undefined
 		components:
-			| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+			| (BaseAppComponent &
+					(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
 			| undefined
 		trigger?: import('svelte').Snippet
 	}
@@ -71,11 +73,8 @@
 						/>
 						<Button
 							size="xs"
-							color="light"
-							startIcon={{
-								icon: Code
-							}}
-							variant="border"
+							startIcon={{ icon: Code }}
+							variant="default"
 							on:click={() => {
 								actionsOrder = undefined
 							}}
@@ -85,11 +84,8 @@
 					{:else}
 						<Button
 							size="xs"
-							color="light"
-							startIcon={{
-								icon: Code
-							}}
-							variant="border"
+							startIcon={{ icon: Code }}
+							variant="default"
 							on:click={() => {
 								actionsOrder = {
 									fieldType: 'text',

@@ -110,23 +110,27 @@
 	<Splitpanes>
 		<Pane size={55}>
 			{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
-				<RawAppInlineScriptEditor
-					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
-					{id}
-					bind:inlineScript={runnable.inlineScript}
-					bind:name={runnable.name}
-					bind:fields={runnable.fields}
-					{lastDeployedCode}
-					isLoading={testIsLoading}
-					onRun={testPreview}
-					onCancel={async () => {
-						if (jobLoader) {
-							await jobLoader.cancelJob()
-						}
-					}}
-					on:delete
-					path={appPath}
-				/>
+				{#if runnable.inlineScript.language == 'frontend'}
+					<div class="text-sm text-primary">Frontend scripts not supported for raw apps</div>
+				{:else}
+					<RawAppInlineScriptEditor
+						on:createScriptFromInlineScript={() =>
+							dispatch('createScriptFromInlineScript', runnable)}
+						{id}
+						bind:inlineScript={runnable.inlineScript}
+						bind:name={runnable.name}
+						bind:fields={runnable.fields}
+						isLoading={testIsLoading}
+						onRun={testPreview}
+						onCancel={async () => {
+							if (jobLoader) {
+								await jobLoader.cancelJob()
+							}
+						}}
+						on:delete
+						path={appPath}
+					/>
+				{/if}
 			{:else if runnable?.type == 'runnableByPath'}
 				<InlineScriptRunnableByPath
 					rawApps
@@ -147,8 +151,8 @@
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
-				<Tab value="inputs">Inputs</Tab>
-				<Tab value="test">Test</Tab>
+				<Tab value="inputs" label="Inputs" />
+				<Tab value="test" label="Test" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}
@@ -176,7 +180,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-tertiary text-sm">No inputs</div>
+							<div class="text-primary text-xs">No inputs</div>
 						{/if}
 					{:else if selectedTab == 'test'}
 						<SplitPanesWrapper>

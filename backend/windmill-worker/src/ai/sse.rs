@@ -41,6 +41,12 @@ pub struct OpenAISSEEvent {
     pub choices: Option<Vec<OpenAIChoice>>,
 }
 
+lazy_static::lazy_static! {
+    static ref DEBUG_SSE_STREAM: bool = std::env::var("DEBUG_SSE_STREAM")
+        .unwrap_or("false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+}
 pub trait SSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
 
@@ -54,6 +60,9 @@ pub trait SSEParser {
 
             // Convert chunk to string and add to buffer
             let chunk_str = String::from_utf8_lossy(&chunk);
+            if *DEBUG_SSE_STREAM {
+                tracing::info!("SSE chunk: {}", chunk_str);
+            }
             buffer.push_str(&chunk_str);
 
             // Process complete lines from buffer

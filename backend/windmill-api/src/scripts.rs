@@ -38,7 +38,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_worker::process_relative_imports;
+use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
@@ -46,7 +46,7 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::WarnAfterExt,
-    worker::CLOUD_HOSTED,
+    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
 
 use windmill_common::{
@@ -120,6 +120,10 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
 }
 
 pub fn global_service() -> Router {
@@ -127,6 +131,7 @@ pub fn global_service() -> Router {
         .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route("/hub/pick/*path", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -388,6 +393,7 @@ async fn create_snapshot_script(
     Path(w_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
+    // TODO: Check for debouncing here as well.
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
@@ -520,6 +526,8 @@ async fn create_script_internal<'c>(
 )> {
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
+    guard_script_from_debounce_data(&ns).await?;
+
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
     if ns.ws_error_handler_muted.is_some_and(|val| val) {
@@ -599,8 +607,10 @@ async fn create_script_internal<'c>(
             Ok(None)
         }
         (Some(p_hash), o) => {
+            // Lock the parent row to prevent concurrent updates with the same parent_hash
+            // This ensures linear lineage - only one script can have a given parent at a time
             if sqlx::query_scalar!(
-                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2 FOR UPDATE",
                 p_hash.0,
                 &w_id
             )
@@ -782,8 +792,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)",
         &w_id,
         &hash.0,
         ns.path,
@@ -821,7 +831,9 @@ async fn create_script_internal<'c>(
             None
         },
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok())
+        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        ns.debounce_key,
+        ns.debounce_delay_s,
     )
     .execute(&mut *tx)
     .await?;
@@ -1103,6 +1115,40 @@ pub async fn get_full_hub_script_by_path(
     ))
 }
 
+pub async fn pick_hub_script_by_path(
+    Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
+) -> impl IntoResponse {
+    let path_str = path.to_path();
+
+    // Extract version_id from path (format: {hub}/{version_id}/{summary})
+    let version_id = path_str.split('/').nth(1).unwrap_or("");
+
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    // Determine which hub to use based on version_id
+    // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub
+    let target_hub_url = if version_id
+        .parse::<i32>()
+        .is_ok_and(|v| v < windmill_common::PRIVATE_HUB_MIN_VERSION)
+    {
+        windmill_common::DEFAULT_HUB_BASE_URL
+    } else {
+        &hub_base_url
+    };
+
+    // Call the hub's pick endpoint: /scripts/{version_id}/pick
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/scripts/{}/pick", target_hub_url, version_id),
+        None,
+        &db,
+    )
+    .await?;
+
+    Ok::<_, Error>((status_code, headers, response))
+}
+
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1172,7 +1218,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -1776,7 +1822,11 @@ async fn archive_script_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1837,7 +1887,11 @@ async fn archive_script_by_hash(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(&script.path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     webhook.send_message(
         w_id.clone(),
@@ -2130,4 +2184,19 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Validates that script debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
+async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
+    {
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else {
+        Ok(())
+    }
 }

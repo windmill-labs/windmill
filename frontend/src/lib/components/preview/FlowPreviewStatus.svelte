@@ -18,16 +18,16 @@
 
 <div
 	class={twMerge(
-		'grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400',
+		'grid grid-cols-2 gap-4 mb-1 text-primary ',
 		extra && job && !hideJobId ? 'grid-cols-3' : 'grid-cols-2'
 	)}
 >
 	<JobStatus {job} />
 	{#if job && !hideJobId}
 		<div>
-			<div class="text-primary whitespace-nowrap truncate text-sm">
+			<div class="text-primary whitespace-nowrap truncate text-xs">
 				{#if ['flow', 'flowpreview', 'flownode'].includes(job.job_kind)}
-					<span class="font-semibold mr-1">Flow:</span>
+					<span class="font-semibold text-emphasis text-xs mr-1">Flow:</span>
 				{/if}
 				<a
 					rel="noreferrer"

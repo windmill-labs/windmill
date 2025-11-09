@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::future::Future;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -13,6 +14,7 @@ use async_recursion::async_recursion;
 use chrono::{DateTime, Utc};
 use futures::future::TryFutureExt;
 use itertools::Itertools;
+use quick_cache::sync::Cache;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 use regex::Regex;
@@ -33,10 +35,10 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
-use windmill_common::utils::now_from_db;
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::utils::{configure_client, now_from_db};
+use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -100,10 +102,10 @@ lazy_static::lazy_static! {
 }
 
 lazy_static::lazy_static! {
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(std::time::Duration::from_secs(20))
-        .connect_timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(10)))
         .build().unwrap();
 
 
@@ -137,7 +139,7 @@ pub struct CanceledBy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCompleted {
-    pub job: Arc<MiniPulledJob>,
+    pub job: MiniCompletedJob,
     pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
@@ -154,18 +156,19 @@ pub struct JobCompleted {
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
-    job_running: Arc<QueuedJob>,
+    job_running: QueuedJobV2,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
+
+    let id = job_running.id;
     if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
         tracing::info!("cancelling job {:?}", job_running.id);
-        let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
                 .clone()
@@ -179,10 +182,11 @@ pub async fn cancel_single_job<'c>(
                 &Connection::from(db.clone()),
             )
             .await;
+            let memory_peak = job_running.memory_peak.unwrap_or(0);
             let add_job = add_completed_job_error(
                 &db,
-                &MiniPulledJob::from(&job_running),
-                job_running.mem_peak.unwrap_or(0),
+                &MiniCompletedJob::from(job_running),
+                memory_peak,
                 Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
                 e,
                 "server",
@@ -210,7 +214,7 @@ pub async fn cancel_single_job<'c>(
         }
     }
 
-    Ok((tx, Some(job_running.id)))
+    Ok((tx, Some(id)))
 }
 
 pub async fn cancel_job<'c>(
@@ -223,26 +227,36 @@ pub async fn cancel_job<'c>(
     force_cancel: bool,
     require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
+    //TODO fetch mini completed job instead of QueuedJob
+    let job = get_queued_job_v2(&mut *tx, &id).await?;
+
 
     if job.is_none() {
         return Ok((tx, None));
     }
 
-    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
+    let mut job = job.unwrap();
+
+    if require_anonymous && job.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
 
-    let mut job = job.unwrap();
+
+    if job.workspace_id != w_id {
+        return Err(Error::BadRequest(
+            "You are not authorized to cancel this job belonging to another workspace".to_string(),
+        ));
+    }
+
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
             if job.parent_job.is_none() {
                 break;
             }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+            match get_queued_job_v2(&mut *tx, &job.parent_job.unwrap()).await? {
                 Some(j) => {
                     job = j;
                 }
@@ -252,7 +266,7 @@ pub async fn cancel_job<'c>(
     }
 
     // prevent cancelling a future tick of a schedule
-    if let Some(schedule_path) = job.schedule_path.as_ref() {
+    if let Some(schedule_path) = job.schedule_path().as_ref() {
         let now = now_from_db(&mut *tx).await?;
         if job.scheduled_for > now {
             return Err(Error::BadRequest(
@@ -265,7 +279,7 @@ pub async fn cancel_job<'c>(
         }
     }
 
-    let job = Arc::new(job);
+    let job = job;
 
     // get all children using recursive CTE
     let mut jobs_to_cancel = sqlx::query!(
@@ -307,7 +321,7 @@ ORDER BY depth, id
     let (ntx, _) = cancel_single_job(
         username,
         reason.clone(),
-        job.clone(),
+        job,
         w_id,
         tx,
         db,
@@ -334,13 +348,13 @@ ORDER BY depth, id
         }
     }
     for job_id in jobs_to_cancel {
-        let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
+        let job = get_queued_job_v2(&mut *tx, &job_id).await?;
 
         if let Some(job) = job {
             let (ntx, _) = cancel_single_job(
                 username,
                 reason.clone(),
-                Arc::new(job),
+                job,
                 w_id,
                 tx,
                 db,
@@ -428,6 +442,8 @@ pub async fn push_init_job<'c>(
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         }),
@@ -484,6 +500,8 @@ pub async fn push_periodic_bash_job<'c>(
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         }),
@@ -549,7 +567,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM v2_as_queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND q.canceled_by IS NULL",
     )
     .bind(w_id)
     .bind(script_path)
@@ -698,7 +716,7 @@ where
 
 pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    completed_job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
@@ -709,7 +727,7 @@ pub async fn add_completed_job_error(
     #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
-        &queued_job.tag,
+        &completed_job.tag,
         |s| {
             let counter = prometheus::register_int_counter!(prometheus::Opts::new(
                 "worker_execution_failed",
@@ -728,13 +746,13 @@ pub async fn add_completed_job_error(
     let result = WrappedError { error: e };
     tracing::error!(
         "job {} in {} did not succeed: {}",
-        queued_job.id,
-        queued_job.workspace_id,
+        completed_job.id,
+        completed_job.workspace_id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
     let _ = add_completed_job(
         db,
-        &queued_job,
+        &completed_job,
         false,
         false,
         Json(&result),
@@ -753,11 +771,18 @@ pub async fn add_completed_job_error(
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
+
+    // Cache for restart_unless_cancelled flag - keyed by (hash, workspace_id)
+    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
+
+    // Cache for workspace error handler settings with 60s TTL
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    completed_job: &MiniCompletedJob,
     success: bool,
     skipped: bool,
     result: Json<&T>,
@@ -783,7 +808,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let (opt_uuid, duration, _skip_downstream_error_handlers) = (|| {
         commit_completed_job(
             db,
-            queued_job,
+            completed_job,
             success,
             skipped,
             result,
@@ -819,12 +844,12 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     #[cfg(feature = "cloud")]
-    apply_completed_job_cloud_usage(db, queued_job, duration);
+    apply_completed_job_cloud_usage(db, completed_job, duration);
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
     crate::jobs_ee::apply_completed_job_error_handlers(
         db,
-        queued_job,
+        completed_job,
         success,
         result,
         &canceled_by,
@@ -832,92 +857,17 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     )
     .await;
 
-    restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
+    restart_job_if_perpetual(db, completed_job, &canceled_by).await?;
 
-    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
-    if !skipped && flow_is_done {
-        let chat_input_enabled = queued_job.parse_chat_input_enabled();
-        if chat_input_enabled.unwrap_or(false) {
-            // Get conversation_id from flow_status.memory_id
-            let flow_status = queued_job.parse_flow_status();
-            let conversation_id = flow_status.and_then(|fs| fs.memory_id);
-
-            if let Some(conversation_id) = conversation_id {
-                // get flow value
-                let parent_job = queued_job.parent_job.unwrap_or(queued_job.id);
-                let flow_value = sqlx::query!(
-                    "SELECT f.value as \"value: Json<FlowValue>\" FROM v2_job j JOIN flow_version f ON f.id = j.runnable_id WHERE j.id = $1 AND j.workspace_id = $2",
-                    parent_job,
-                    &queued_job.workspace_id
-                )
-                .fetch_optional(db)
-                .await?
-                .map(|row| row.value.0);
-
-                let last_module_is_ai_agent = flow_value
-                    .as_ref()
-                    .and_then(|flow_value| {
-                        flow_value.modules.last().and_then(|m| m.get_value().ok())
-                    })
-                    .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
-                    .unwrap_or(false);
-
-                // Only create assistant message if last module is NOT an AI agent, or there was an error
-                if !last_module_is_ai_agent || success == false {
-                    let value = serde_json::to_value(result.0).map_err(|e| {
-                        Error::internal_err(format!("Failed to serialize result: {e}"))
-                    })?;
-
-                    let content = match value {
-                        // If it's an Object with "output" key AND the output is a String, return it
-                        serde_json::Value::Object(mut map)
-                            if map.contains_key("output")
-                                && matches!(
-                                    map.get("output"),
-                                    Some(serde_json::Value::String(_))
-                                ) =>
-                        {
-                            if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                                s
-                            } else {
-                                // prettify the whole result
-                                serde_json::to_string_pretty(&map)
-                                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                            }
-                        }
-                        // Otherwise, if the whole value is a String, return it
-                        serde_json::Value::String(s) => s,
-                        // Otherwise, prettify the whole result
-                        v => serde_json::to_string_pretty(&v)
-                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
-                    };
-
-                    // Insert new assistant message
-                    let mut tx = db.begin().await?;
-                    add_message_to_conversation_tx(
-                        &mut tx,
-                        conversation_id,
-                        Some(queued_job.id),
-                        &content,
-                        MessageType::Assistant,
-                        None,
-                        success,
-                    )
-                    .await?;
-                    tx.commit().await?;
-                }
-            }
-        }
-    }
 
     // tracing::error!("4 {:?}", start.elapsed());
 
-    Ok((queued_job.id, duration))
+    Ok((completed_job.id, duration))
 }
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     success: bool,
     skipped: bool,
     result: Json<&T>,
@@ -1136,13 +1086,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = handle_maybe_scheduled_job(
+                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
                         queued_job,
                         &schedule,
                         &script_path,
                         &queued_job.workspace_id,
-                    )
+                    ))
                     .await
                     {
                         match err {
@@ -1246,7 +1196,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     tracing::info!(
         %job_id,
         root_job = ?queued_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
-        path = &queued_job.runnable_path(),
+        path = &queued_job.runnable_path,
         job_kind = ?queued_job.kind,
         started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
         duration = ?duration,
@@ -1267,7 +1217,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
 async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     result: Json<&T>,
 ) -> Option<Result<(Option<Uuid>, i64, bool), Error>> {
     let result_size = result.size() / 1024 / 1024;
@@ -1303,7 +1253,7 @@ async fn check_result_size<T: ValidableJson>(
 
 async fn restart_job_if_perpetual(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     canceled_by: &Option<CanceledBy>,
 ) -> Result<(), Error> {
     if !queued_job.is_flow_step() && queued_job.kind == JobKind::Script && canceled_by.is_none() {
@@ -1329,18 +1279,27 @@ async fn restart_job_if_perpetual(
 
 async fn restart_job_if_perpetual_inner(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     hash: ScriptHash,
 ) -> Result<(), Error> {
-    let restart = sqlx::query_scalar!(
-        "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &queued_job.workspace_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or(false);
+    let cache_key = (hash.0, queued_job.workspace_id.clone());
+
+    let restart = if let Some(cached) = RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key) {
+        cached
+    } else {
+        let restart = sqlx::query_scalar!(
+            "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+            hash.0,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+
+        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, restart);
+        restart
+    };
 
     if restart {
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -1360,17 +1319,25 @@ async fn restart_job_if_perpetual_inner(
             None
         };
 
-        let ehm = HashMap::new();
+        let args = sqlx::query_scalar!(
+            "SELECT args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default();
         let (_uuid, tx) = push(
             db,
             tx,
             &queued_job.workspace_id,
             JobPayload::ScriptHash {
                 hash,
-                path: queued_job.runnable_path().to_string(),
+                path: queued_job.runnable_path.clone().unwrap_or_default(),
                 custom_concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                concurrent_limit: queued_job.concurrent_limit,
-                concurrency_time_window_s: queued_job.concurrency_time_window_s,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
                 cache_ttl: queued_job.cache_ttl,
                 dedicated_worker: None,
                 language: queued_job
@@ -1379,12 +1346,11 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
+                // TODO(debouncing): handle properly
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             },
-            queued_job
-                .args
-                .as_ref()
-                .map(|x| PushArgs::from(&x.0))
-                .unwrap_or_else(|| PushArgs::from(&ehm)),
+            PushArgs::from(&args.0),
             &queued_job.created_by,
             &queued_job.permissioned_as_email,
             queued_job.permissioned_as.clone(),
@@ -1398,9 +1364,9 @@ async fn restart_job_if_perpetual_inner(
             false,
             false,
             None,
-            queued_job.visible_to_owner,
+            true,
             Some(queued_job.tag.clone()),
-            queued_job.timeout,
+            None,
             None,
             queued_job.priority,
             None,
@@ -1417,7 +1383,7 @@ async fn restart_job_if_perpetual_inner(
 #[cfg(feature = "cloud")]
 fn apply_completed_job_cloud_usage(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     _duration: i64,
 ) {
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
@@ -1428,9 +1394,6 @@ fn apply_completed_job_cloud_usage(
         let email2 = email.clone();
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
-            let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
-                .await
-                .premium;
             let result = tokio::time::timeout(std::time::Duration::from_secs(10), async move {
                 // Update workspace usage
                 let workspace_result = sqlx::query!(
@@ -1447,22 +1410,30 @@ fn apply_completed_job_cloud_usage(
                     tracing::error!("Failed to update workspace usage for {}: {:#}", w_id, e);
                 }
 
-                // Update user usage for non-premium workspaces
-                if !premium_workspace {
-                    let user_result = sqlx::query!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage)
-                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                        &email,
-                        additional_usage as i32
-                    )
-                    .execute(&db)
-                    .await;
+                match windmill_common::workspaces::get_team_plan_status(&db, &w_id).await {
+                    Ok(team_plan_status) => {
+                        // Update user usage for non-premium workspaces
+                        if !team_plan_status.premium {
+                            let user_result = sqlx::query!(
+                                "INSERT INTO usage (id, is_workspace, month_, usage)
+                                VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
+                                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
+                                &email,
+                                additional_usage as i32
+                            )
+                            .execute(&db)
+                            .await;
 
-                    if let Err(e) = user_result {
-                        tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            if let Err(e) = user_result {
+                                tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        tracing::error!("Failed to get team plan status to update usage for workspace {w_id}: {err:#}");
                     }
-                }
+                };
+                
             }).await;
 
             if let Err(_) = result {
@@ -1477,7 +1448,7 @@ fn apply_completed_job_cloud_usage(
 }
 
 pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     db: &Pool<Postgres>,
     result: Json<&T>,
 ) -> Result<(), Error> {
@@ -1513,7 +1484,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
 }
 
 pub async fn report_error_to_workspace_handler_or_critical_side_channel(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     db: &Pool<Postgres>,
     error_message: String,
 ) -> () {
@@ -1575,32 +1546,76 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 }
 
 pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     is_canceled: bool,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
 
-    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-        r#"
-            SELECT
-                error_handler,
-                error_handler_extra_args,
-                error_handler_muted_on_cancel
-            FROM 
-                workspace_settings
-            WHERE 
-                workspace_id = $1
-        "#,
-    )
-    .bind(&w_id)
-    .fetch_optional(db)
-    .await
-    .context("fetching error handler info from workspace_settings")?
-    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+    // Try to get from cache first, checking if entry is still valid (within 60s TTL)
+    let now = chrono::Utc::now().timestamp();
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+        if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+            if cached.3 > now {
+                // Cache hit and not expired
+                (cached.0.clone(), cached.1.clone(), cached.2)
+            } else {
+                // Cache expired, fetch from database
+                let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                    r#"
+                        SELECT
+                            error_handler,
+                            error_handler_extra_args,
+                            error_handler_muted_on_cancel
+                        FROM
+                            workspace_settings
+                        WHERE
+                            workspace_id = $1
+                    "#,
+                )
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await
+                .context("fetching error handler info from workspace_settings")?
+                .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
 
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = row_result;
+                // Update cache with 60s TTL
+                let expiry = now + 60;
+                WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                    w_id.clone(),
+                    (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+                );
+                row_result
+            }
+        } else {
+            // Cache miss, fetch from database
+            let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                r#"
+                    SELECT
+                        error_handler,
+                        error_handler_extra_args,
+                        error_handler_muted_on_cancel
+                    FROM
+                        workspace_settings
+                    WHERE
+                        workspace_id = $1
+                "#,
+            )
+            .bind(&w_id)
+            .fetch_optional(db)
+            .await
+            .context("fetching error handler info from workspace_settings")?
+            .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+
+            // Store in cache with 60s TTL
+            let expiry = now + 60;
+            WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                w_id.clone(),
+                (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+            );
+            row_result
+        };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1658,7 +1673,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
 
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     schedule: &Schedule,
     script_path: &str,
     w_id: &str,
@@ -1966,6 +1981,142 @@ pub struct MiniPulledJob {
     pub permissioned_as_end_user_email: Option<String>,
 }
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+
+pub struct MiniCompletedJob {
+    pub id: Uuid,
+    pub workspace_id: String,
+    pub runnable_id: Option<ScriptHash>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub parent_job: Option<Uuid>,
+    // pub root_job: Option<Uuid>,
+    pub flow_innermost_root_job: Option<Uuid>,
+    pub runnable_path: Option<String>,
+    pub kind: JobKind,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissioned_as: String,
+    pub created_by: String,
+    pub script_lang: Option<ScriptLang>,
+    pub permissioned_as_email: String,
+    pub flow_step_id: Option<String>,
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger: Option<String>,
+    pub priority: Option<i16>,
+    pub concurrent_limit: Option<i32>,
+    pub tag: String,
+    pub cache_ttl: Option<i32>,
+}
+
+impl From<QueuedJobV2> for MiniCompletedJob {
+    fn from(job: QueuedJobV2) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id,
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path,
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as,
+            created_by: job.created_by,
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email,
+            flow_step_id: job.flow_step_id,
+            trigger_kind: job.trigger_kind,
+            trigger: job.trigger,
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag,
+            cache_ttl: job.cache_ttl,
+
+        }
+    }
+}
+
+impl From<MiniPulledJob> for MiniCompletedJob {
+    fn from(job: MiniPulledJob) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id,
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            // root_job: job.root_job,,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path,
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as,
+            created_by: job.created_by,
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email,
+            flow_step_id: job.flow_step_id,
+            trigger_kind: job.trigger_kind,
+            trigger: job.trigger,
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag,
+            cache_ttl: job.cache_ttl,
+        }
+    }
+}
+
+impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
+    fn from(job: Arc<MiniPulledJob>) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id.clone(),
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path.clone(),
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as.clone(),
+            created_by: job.created_by.clone(),
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email.clone(),
+            flow_step_id: job.flow_step_id.clone(),
+            trigger_kind: job.trigger_kind.clone(),
+            trigger: job.trigger.clone(),
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag.clone(),
+            cache_ttl: job.cache_ttl,
+        }
+    }
+}
+
+impl MiniCompletedJob {
+    pub fn is_flow_step(&self) -> bool {
+        self.flow_step_id.is_some()
+    }
+    pub fn schedule_path(&self) -> Option<String> {
+        schedule_path(&self.trigger_kind, &self.trigger)
+    }
+
+    pub fn is_flow(&self) -> bool {
+        self.kind.is_flow()
+    }
+
+    pub fn is_dependency(&self) -> bool {
+        self.kind.is_dependency()
+    }
+
+}
+
+fn schedule_path(trigger_kind: &Option<JobTriggerKind>, trigger: &Option<String>) -> Option<String> {
+    if trigger_kind.as_ref().is_some_and(|t| matches!(t, JobTriggerKind::Schedule)) {
+        trigger.clone()
+    } else {
+        None
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct FlowStatusChatInputEnabled {
     chat_input_enabled: Option<bool>,
@@ -2052,15 +2203,7 @@ impl MiniPulledJob {
     }
 
     pub fn schedule_path(&self) -> Option<String> {
-        if self
-            .trigger_kind
-            .as_ref()
-            .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
-        {
-            self.trigger.clone()
-        } else {
-            None
-        }
+        schedule_path(&self.trigger_kind, &self.trigger)
     }
 
     pub async fn mark_as_started_if_step(&self, db: &DB) -> Result<(), Error> {
@@ -2257,6 +2400,57 @@ pub async fn get_mini_pulled_job<'c>(
     Ok(job)
 }
 
+
+pub struct QueuedJobV2 {
+    pub id: Uuid,
+    pub workspace_id: String,
+    pub runnable_id: Option<ScriptHash>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub parent_job: Option<Uuid>,
+    // pub root_job: Option<Uuid>,
+    pub flow_innermost_root_job: Option<Uuid>,
+    pub runnable_path: Option<String>,
+    pub kind: JobKind,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissioned_as: String,
+    pub created_by: String,
+    pub script_lang: Option<ScriptLang>,
+    pub permissioned_as_email: String,
+    pub flow_step_id: Option<String>,
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger: Option<String>,
+    pub priority: Option<i16>,
+    pub concurrent_limit: Option<i32>,
+    pub tag: String,
+    pub cache_ttl: Option<i32>,
+    pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub worker: Option<String>,
+    pub memory_peak: Option<i32>,
+    pub running: bool,
+}
+
+impl QueuedJobV2 {
+    pub fn schedule_path(&self) -> Option<String> {
+        schedule_path(&self.trigger_kind, &self.trigger)
+    }
+}
+
+pub async fn get_queued_job_v2<'c>(
+    e: impl PgExecutor<'c>, job_id: &Uuid) -> error::Result<Option<QueuedJobV2>> {
+    let job = sqlx::query_as!(
+        QueuedJobV2,
+        "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
+        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, r.ping as last_ping, worker, memory_peak, running
+             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+            WHERE j.id = $1",
+        job_id,
+
+    )
+    .fetch_optional(e)
+    .await?;
+    Ok(job)
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
@@ -2274,7 +2468,7 @@ impl PulledJobResult {
             PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => Err(
                 PulledJobResultToJobErr::MissingConcurrencyKey(JobCompleted {
                     preprocessed_args: None,
-                    job: Arc::new(job.job),
+                    job: MiniCompletedJob::from(job.job),
                     success: false,
                     result: Arc::new(windmill_common::worker::to_raw_value(&json!({
                         "name": "InternalErr",
@@ -2415,8 +2609,7 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = false
-            || (job.is_dependency() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
+        let has_concurent_limit = job.is_dependency() && job.concurrent_limit.is_some() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -2681,7 +2874,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
-fn fullpath_with_workspace(
+pub fn fullpath_with_workspace(
     workspace_id: &str,
     script_path: Option<&String>,
     job_kind: &JobKind,
@@ -3112,33 +3305,29 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .unwrap_or(false))
 }
 
-async fn get_queued_job_tx<'c>(
-    id: Uuid,
-    w_id: &str,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(Into::into)
+pub fn get_mini_completed_job<
+'a,
+'e,
+A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
+>(id: &'a Uuid, w_id: &'a str, db: A) -> impl Future<Output = error::Result<Option<MiniCompletedJob>>> + Send + 'a {
+    async move {        
+     let mut conn = db.acquire().await?;
+        sqlx::query_as!(
+            MiniCompletedJob,
+            "SELECT 
+            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl
+            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
+            WHERE j.id = $1 AND j.workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(Into::into)
+    }
 }
 
-pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await
-    .map_err(Into::into)
-}
 
 pub enum PushIsolationLevel<'c> {
     IsolatedRoot(DB),
@@ -3266,10 +3455,7 @@ lazy_static::lazy_static! {
 const SUPERADMIN_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[cfg(feature = "cloud")]
-async fn is_superadmin_cached(
-    db: &Pool<Postgres>,
-    email: &str,
-) -> Result<bool, Error> {
+async fn is_superadmin_cached(db: &Pool<Postgres>, email: &str) -> Result<bool, Error> {
     let now = std::time::Instant::now();
 
     // Try to get from cache first
@@ -3283,18 +3469,19 @@ async fn is_superadmin_cached(
     }
 
     // Cache miss or expired, fetch from database
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        email
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
+    let is_super_admin =
+        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+            .fetch_optional(db)
+            .await?
+            .unwrap_or(false);
 
     // Update cache
     {
         let mut cache = SUPERADMIN_CACHE.write().await;
-        cache.insert(email.to_string(), (is_super_admin, now + SUPERADMIN_CACHE_TTL));
+        cache.insert(
+            email.to_string(),
+            (is_super_admin, now + SUPERADMIN_CACHE_TTL),
+        );
     }
 
     Ok(is_super_admin)
@@ -3340,11 +3527,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(
-    db: Pool<Postgres>,
-    workspace_id: String,
-    email: Option<String>,
-) {
+fn increment_usage_async(db: Pool<Postgres>, workspace_id: String, email: Option<String>) {
     tokio::task::spawn(async move {
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             // Update workspace usage
@@ -3400,7 +3583,8 @@ pub async fn push<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
-    scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    #[allow(unused_mut)]
+    mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
@@ -3418,11 +3602,13 @@ pub async fn push<'c, 'd>(
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
     end_user_email: Option<String>,
     // If we know there is already a debounce job, we can use this for debouncing.
+    // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
+        let team_plan_status =
+            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await?;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -3437,7 +3623,11 @@ pub async fn push<'c, 'd>(
             increment_usage_async(
                 _db.clone(),
                 workspace_id.to_string(),
-                if !team_plan_status.premium { Some(email.to_string()) } else { None },
+                if !team_plan_status.premium {
+                    Some(email.to_string())
+                } else {
+                    None
+                },
             );
 
             // Return the current usage + 1 to account for this job
@@ -3498,7 +3688,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let in_queue = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE email = $1",
+                        "SELECT COUNT(id) FROM v2_job WHERE permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -3512,7 +3702,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let concurrent_runs = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE running = true AND email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE q.running = true AND j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -3596,6 +3786,7 @@ pub async fn push<'c, 'd>(
     }
 
     let mut preprocessed = None;
+    #[allow(unused)] 
     let (
         script_hash,
         script_path,
@@ -3610,6 +3801,8 @@ pub async fn push<'c, 'd>(
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
+        custom_debounce_key,
+        debounce_delay_s,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -3622,6 +3815,8 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             priority,
             apply_preprocessor,
+            custom_debounce_key,
+            debounce_delay_s,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -3641,6 +3836,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 dedicated_worker,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::FlowScript {
@@ -3666,6 +3863,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
+            None, // custom_debounce_key removed for flow steps
+            None, // debounce_delay_s removed for flow steps
         ),
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
@@ -3693,6 +3892,8 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::AppScript {
@@ -3712,6 +3913,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             cache_ttl,
+            None,
+            None,
             None,
             None,
         ),
@@ -3746,6 +3949,8 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::Code(RawCode {
@@ -3759,6 +3964,8 @@ pub async fn push<'c, 'd>(
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
+            custom_debounce_key,
+            debounce_delay_s,
         }) => (
             hash,
             path,
@@ -3773,6 +3980,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
+            custom_debounce_key,
+            debounce_delay_s,
         ),
         JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
             Some(hash.0),
@@ -3787,6 +3996,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             dedicated_worker,
+            None,
+            None,
             None,
         ),
 
@@ -3805,6 +4016,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
 
         // CLI usage, is not modifying db, no need for debouncing.
@@ -3814,6 +4027,8 @@ pub async fn push<'c, 'd>(
             None,
             JobKind::FlowDependencies,
             Some(flow_value),
+            None,
+            None,
             None,
             None,
             None,
@@ -3858,6 +4073,8 @@ pub async fn push<'c, 'd>(
                 None,
                 dedicated_worker,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::AppDependencies { path, version } => (
@@ -3865,6 +4082,8 @@ pub async fn push<'c, 'd>(
             Some(path.clone()),
             None,
             JobKind::AppDependencies,
+            None,
+            None,
             None,
             None,
             None,
@@ -3924,6 +4143,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
             (
@@ -3940,6 +4161,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::SingleStepFlow {
@@ -3959,6 +4182,8 @@ pub async fn push<'c, 'd>(
             tag_override,
             trigger_path,
             apply_preprocessor,
+            custom_debounce_key,
+            debounce_delay_s,
         } => {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
@@ -4094,6 +4319,8 @@ pub async fn push<'c, 'd>(
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
+                debounce_key: custom_debounce_key.clone(),
+                debounce_delay_s,
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 concurrency_key: custom_concurrency_key.clone(),
@@ -4102,6 +4329,7 @@ pub async fn push<'c, 'd>(
                 skip_expr: None,
                 preprocessor_module: None,
                 chat_input_enabled: None,
+                flow_env: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
@@ -4119,6 +4347,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
@@ -4146,11 +4376,16 @@ pub async fn push<'c, 'd>(
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let mut concurrent_limit = value.concurrent_limit;
 
+            let custom_debounce_key = value.debounce_key.clone();
+            let mut debounce_delay_s = value.debounce_delay_s;
+
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
                 concurrent_limit = None;
+                // TODO: May be re-enable?
+                debounce_delay_s = None;
                 preprocessed = Some(false);
             }
 
@@ -4185,6 +4420,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 dedicated_worker,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
@@ -4235,6 +4472,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4258,6 +4497,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::DeploymentCallback { path } => (
@@ -4274,12 +4515,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
         JobPayload::Identity => (
             None,
             None,
             None,
             JobKind::Identity,
+            None,
+            None,
             None,
             None,
             None,
@@ -4304,12 +4549,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
         JobPayload::AIAgent { path } => (
             None,
             Some(path),
             None,
             JobKind::AIAgent,
+            None,
+            None,
             None,
             None,
             None,
@@ -4329,7 +4578,10 @@ pub async fn push<'c, 'd>(
     // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
         &script_path,
-        cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
+        cfg!(feature = "private")
+            && job_kind.is_dependency()
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
         custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrent_limit = Some(1);
@@ -4355,6 +4607,8 @@ pub async fn push<'c, 'd>(
     }
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
+        Some(0)
+    } else if job_kind == JobKind::Dependencies {
         Some(0)
     } else {
         final_priority
@@ -4475,10 +4729,17 @@ pub async fn push<'c, 'd>(
         job_kind.is_dependency(),
         script_path.clone(),
         *WMDEBUG_NO_DJOB_DEBOUNCING,
+        *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
         // We only do debouncing for jobs triggered by relative imports
         // We do not want this be the case for normal djobs, since they will always be sequential.
         args.args.contains_key("triggered_by_relative_import"),
     ) {
+        (_, _, _, _, false, _) => {
+            tracing::warn!(
+                "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
+                Please update workers to enable debouncing feature."
+            );
+        }
         // === DEPENDENCY JOB DEBOUNCING ===
         //
         // Debouncing consolidates multiple dependency job requests into a single execution,
@@ -4489,7 +4750,8 @@ pub async fn push<'c, 'd>(
         // 2. Job is a dependency job
         // 3. Object path is provided (script/flow/app path)
         // 4. Fallback mode is disabled (normal operation)
-        // 5. Job was created by relative imports (triggered by dependency chain)
+        // 5. min version supports debouncing
+        // 6. Job was created by relative imports (triggered by dependency chain)
         //
         // How it works:
         //
@@ -4509,7 +4771,7 @@ pub async fn push<'c, 'd>(
         //   - Retrieve all accumulated nodes/components from debounce_stale_data
         //   - Process all collected dependencies in single execution
         //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true) => {
+        (true, true, Some(obj_path), false, true, true) => {
             // Generate unique debounce key: "workspace_id:object_path:dependency"
             // This ensures each workspace+path combination has independent debounce window
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
@@ -4590,7 +4852,7 @@ pub async fn push<'c, 'd>(
                 );
 
                 sqlx::query!(
-                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2)",
+                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
                     &debounce_key,
                     job_id,
                 )
@@ -4642,6 +4904,25 @@ pub async fn push<'c, 'd>(
             );
         }
     };
+
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if schedule_path.is_none() {
+        if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
+            &job_id,
+            debounce_delay_s,
+            custom_debounce_key,
+            workspace_id,
+            script_path.clone(),
+            &job_kind,
+            &args,
+            &mut scheduled_for_o,
+            &mut tx,
+        )
+        .await?
+        {
+            return Ok((debounced_job_id, tx));
+        }
+    }
 
     if concurrent_limit.is_some() {
         insert_concurrency_key(
@@ -5006,11 +5287,11 @@ async fn restarted_flows_resolution(
 > {
     let row = sqlx::query!(
         "SELECT
-            script_path, script_hash AS \"script_hash: ScriptHash\",
-            job_kind AS \"job_kind!: JobKind\",
-            flow_status AS \"flow_status: Json<Box<RawValue>>\",
-            raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-        FROM v2_as_completed_job WHERE id = $1 and workspace_id = $2",
+            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
+            j.kind AS \"job_kind!: JobKind\",
+            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
+            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
         completed_flow_id,
         workspace_id,
     )
@@ -5381,15 +5662,20 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
                     });
 
-                    let new_hash = windmill_common::scripts::clone_script(
+                    let cloned_script = windmill_common::scripts::clone_script(
                         base_hash,
                         &job.workspace_id,
                         deployment_message,
                         &mut tx,
                     )
                     .await?;
-
-                    new_hash
+                    if is_generated_from_raw_requirements(&Some(cloned_script.old_script.language), &cloned_script.old_script.lock.map(|v| v.to_string())) {
+                        return Err(Error::BadRequest(format!(
+                            "Script at path {} is generated from raw requirements, not overriding",
+                            job.runnable_path()
+                        )));
+                    }
+                    cloned_script.new_hash
                 }
                 JobKind::FlowDependencies => {
                     sqlx::query_scalar!(
@@ -5430,6 +5716,11 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
 
             job.runnable_id.replace(new_id.into());
 
+            if !*windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+                tx.commit().await?;
+                tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+                return Ok(());
+            }
             // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
             //
             // For flows and apps, retrieve all nodes/components that were accumulated

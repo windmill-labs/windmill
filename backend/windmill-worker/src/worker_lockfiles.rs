@@ -20,6 +20,7 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -373,15 +374,7 @@ pub async fn process_relative_imports(
                 db,
             )
             .await?;
-            if (script_lang.is_some_and(|v| v == ScriptLang::Bun)
-                && lock
-                    .as_ref()
-                    .is_some_and(|v| v.contains("generatedFromPackageJson")))
-                || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
-                    && lock
-                        .as_ref()
-                        .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
-            {
+            if is_generated_from_raw_requirements(script_lang, &lock) {
                 // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
                 // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
                 // to update_script_dependency_map will clear the dependency map.
@@ -417,7 +410,7 @@ pub async fn process_relative_imports(
         // Script might have no relative imports but still be referenced by someone else.
         match timeout(
             core::time::Duration::from_secs(60),
-            trigger_dependents_to_recompute_dependencies(
+            Box::pin(trigger_dependents_to_recompute_dependencies(
                 w_id,
                 script_path,
                 deployment_message,
@@ -427,7 +420,7 @@ pub async fn process_relative_imports(
                 permissioned_as,
                 db,
                 already_visited,
-            ),
+            )),
         )
         .warn_after_seconds(10)
         .await
@@ -533,6 +526,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
+            // TODO: Make it query only non-archived
             match sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
                 s.importer_path.clone(),
@@ -805,8 +799,8 @@ pub async fn handle_flow_dependency_job(
 
     let modified_ids;
     let errors;
-    (flow.modules, tx, modified_ids, errors) = lock_modules(
-        flow.modules,
+    (flow, tx, modified_ids, errors) = lock_flow_value(
+        flow,
         &job,
         mem_peak,
         canceled_by,
@@ -821,7 +815,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
-        raw_deps,
+        &raw_deps,
         &mut dependency_map,
     )
     .await?;
@@ -1000,6 +994,133 @@ struct LockModuleError {
     error: Error,
 }
 
+// Process entire FlowValue including failure_module and preprocessor_module
+async fn lock_flow_value<'c>(
+    mut flow: FlowValue,
+    job: &MiniPulledJob,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    job_path: &str,
+    base_internal_url: &str,
+    token: &str,
+    locks_to_reload: &Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
+    skip_flow_update: bool,
+    raw_deps: &Option<HashMap<String, String>>,
+    dependency_map: &mut ScopedDependencyMap,
+) -> Result<(
+    FlowValue,
+    sqlx::Transaction<'c, sqlx::Postgres>,
+    Vec<String>,
+    Vec<LockModuleError>,
+)> {
+    let mut all_modified_ids = Vec::new();
+    let mut all_errors = Vec::new();
+
+    // Process main modules
+    let (updated_modules, updated_tx, modules_modified_ids, modules_errors) = lock_modules(
+        flow.modules,
+        job,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        db,
+        tx,
+        worker_name,
+        worker_dir,
+        job_path,
+        base_internal_url,
+        token,
+        locks_to_reload,
+        occupancy_metrics,
+        skip_flow_update,
+        &raw_deps,
+        dependency_map,
+    )
+    .await?;
+
+    tx = updated_tx;
+    flow.modules = updated_modules;
+    all_modified_ids.extend(modules_modified_ids);
+    all_errors.extend(modules_errors);
+
+    // Process failure_module if it exists
+    if let Some(failure_module) = flow.failure_module {
+        let (updated_failure_modules, updated_tx, failure_modified_ids, failure_errors) =
+            lock_modules(
+                vec![*failure_module],
+                job,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                tx,
+                worker_name,
+                worker_dir,
+                job_path,
+                base_internal_url,
+                token,
+                locks_to_reload,
+                occupancy_metrics,
+                skip_flow_update,
+                &raw_deps,
+                dependency_map,
+            )
+            .await?;
+
+        tx = updated_tx;
+        all_modified_ids.extend(failure_modified_ids);
+        all_errors.extend(failure_errors);
+
+        flow.failure_module = updated_failure_modules.into_iter().next().map(Box::new);
+    }
+
+    // Process preprocessor_module if it exists
+    if let Some(preprocessor_module) = flow.preprocessor_module {
+        let (
+            updated_preprocessor_modules,
+            updated_tx,
+            preprocessor_modified_ids,
+            preprocessor_errors,
+        ) = lock_modules(
+            vec![*preprocessor_module],
+            job,
+            mem_peak,
+            canceled_by,
+            job_dir,
+            db,
+            tx,
+            worker_name,
+            worker_dir,
+            job_path,
+            base_internal_url,
+            token,
+            locks_to_reload,
+            occupancy_metrics,
+            skip_flow_update,
+            &raw_deps,
+            dependency_map,
+        )
+        .await?;
+
+        tx = updated_tx;
+        all_modified_ids.extend(preprocessor_modified_ids);
+        all_errors.extend(preprocessor_errors);
+
+        flow.preprocessor_module = updated_preprocessor_modules
+            .into_iter()
+            .next()
+            .map(Box::new);
+    }
+
+    Ok((flow, tx, all_modified_ids, all_errors))
+}
+
 // TODO: Maybe use [FlowValue::traverse_leafs]
 // IMPORTANT: If updating this function, make sure you also update [FlowValue::traverse_leafs]
 async fn lock_modules<'c>(
@@ -1018,7 +1139,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
-    raw_deps: Option<HashMap<String, String>>,
+    raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -1030,8 +1151,6 @@ async fn lock_modules<'c>(
     let mut modified_ids = Vec::new();
     let mut errors = Vec::new();
     for mut e in modules.into_iter() {
-        let id = e.id.clone();
-        let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
             path,
@@ -1046,6 +1165,8 @@ async fn lock_modules<'c>(
             assets,
         } = e.get_value()?
         else {
+            let mut nmodified_ids = Vec::new();
+            let mut nerrors = Vec::new();
             match e.get_value()? {
                 FlowModuleValue::ForloopFlow {
                     iterator,
@@ -1056,7 +1177,7 @@ async fn lock_modules<'c>(
                     parallelism,
                 } => {
                     let nmodules;
-                    (nmodules, tx, modified_ids, errors) = Box::pin(lock_modules(
+                    (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -1072,7 +1193,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1088,7 +1209,6 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
-                    nmodified_ids = vec![];
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
@@ -1109,7 +1229,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            &raw_deps,
                             dependency_map,
                         ))
                         .await?;
@@ -1122,7 +1242,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids, errors) = Box::pin(lock_modules(
+                    (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -1138,7 +1258,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1151,7 +1271,6 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::BranchOne { branches, default, default_node } => {
                     let mut nbranches = vec![];
-                    nmodified_ids = vec![];
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
@@ -1172,7 +1291,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            &raw_deps,
                             dependency_map,
                         ))
                         .await?;
@@ -1183,7 +1302,8 @@ async fn lock_modules<'c>(
                     }
                     let ndefault;
                     let ninner_errors;
-                    (ndefault, tx, nmodified_ids, ninner_errors) = Box::pin(lock_modules(
+                    let ninner_modified_ids;
+                    (ndefault, tx, ninner_modified_ids, ninner_errors) = Box::pin(lock_modules(
                         default,
                         job,
                         mem_peak,
@@ -1199,11 +1319,12 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
+                    nmodified_ids.extend(ninner_modified_ids);
                     e.value = FlowModuleValue::BranchOne {
                         branches: nbranches,
                         default: ndefault,
@@ -1234,9 +1355,57 @@ async fn lock_modules<'c>(
                     .execute(&mut *tx)
                     .await?;
                 }
+                FlowModuleValue::AIAgent { input_transforms, mut tools } => {
+                    // Extract FlowModules from tools and track their original indices
+                    // MCP tools don't need locking, so we filter them out
+                    let mut flow_modules = Vec::new();
+                    let mut flow_module_indices = Vec::new();
+
+                    for (idx, tool) in tools.iter().enumerate() {
+                        if let Some(flow_module) = Option::<FlowModule>::from(tool) {
+                            // Convert AgentTool -> FlowModule for locking
+                            flow_modules.push(flow_module);
+                            flow_module_indices.push(idx);
+                        }
+                    }
+
+                    // Lock only the FlowModule-type tools
+                    let locked_flow_modules;
+                    (locked_flow_modules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
+                        flow_modules,
+                        job,
+                        mem_peak,
+                        canceled_by,
+                        job_dir,
+                        db,
+                        tx,
+                        worker_name,
+                        worker_dir,
+                        job_path,
+                        base_internal_url,
+                        token,
+                        locks_to_reload,
+                        occupancy_metrics,
+                        skip_flow_update,
+                        &raw_deps,
+                        dependency_map,
+                    ))
+                    .await?;
+
+                    let mut locked_iter = locked_flow_modules.into_iter();
+                    for idx in flow_module_indices {
+                        let locked = locked_iter.next().ok_or_else(|| {
+                            Error::internal_err("locked tool module should exist".to_string())
+                        })?;
+                        tools[idx] = locked.into();
+                    }
+
+                    e.value = FlowModuleValue::AIAgent { input_transforms, tools }.into();
+                }
                 _ => (),
             };
             modified_ids.extend(nmodified_ids);
+            errors.extend(nerrors);
             new_flow_modules.push(e);
             continue;
         };
@@ -1252,19 +1421,23 @@ async fn lock_modules<'c>(
             .await?;
         }
 
-        let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
-        let relative_imports = extract_relative_imports(
-            &content,
-            &format!("{dep_path}/flow"),
-            &Some(language.clone()),
-        );
+        let get_imports = || {
+            let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
+            extract_relative_imports(
+                &content,
+                &format!("{dep_path}/flow"),
+                &Some(language.clone()),
+            )
+        };
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                tx = dependency_map
-                    .patch(relative_imports.clone(), e.id.clone(), tx)
-                    .await?;
-
+                if !is_generated_from_raw_requirements(&Some(language), &lock) {
+                    let relative_imports = get_imports();
+                    tx = dependency_map
+                        .patch(relative_imports.clone(), e.id.clone(), tx)
+                        .await?;
+                }
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1272,9 +1445,12 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    tx = dependency_map
-                        .patch(relative_imports.clone(), e.id.clone(), tx)
-                        .await?;
+                    if !is_generated_from_raw_requirements(&Some(language), &lock) {
+                        let relative_imports = get_imports();
+                        tx = dependency_map
+                            .patch(relative_imports.clone(), e.id.clone(), tx)
+                            .await?;
+                    }
 
                     new_flow_modules.push(e);
                     continue;
@@ -1323,7 +1499,8 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                if !raw_deps {
+                if !raw_deps && !skip_flow_update {
+                    let relative_imports = get_imports();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
@@ -1341,7 +1518,7 @@ async fn lock_modules<'c>(
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
-                errors.push(LockModuleError { id, error });
+                errors.push(LockModuleError { id: e.id.clone(), error });
                 None
             }
         };
@@ -2387,8 +2564,6 @@ async fn ansible_dep(
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
 
-pub const LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT: &str = "# from requirements.txt";
-
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2477,7 +2652,11 @@ async fn capture_dependency_job(
                 .await
                 .map(|res| {
                     if raw_deps {
-                        format!("{}\n{}", LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT, res)
+                        format!(
+                            "{}\n{}",
+                            windmill_common::lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
+                            res
+                        )
                     } else {
                         res
                     }

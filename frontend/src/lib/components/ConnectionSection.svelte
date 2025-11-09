@@ -15,21 +15,41 @@
 		team_name: string
 	}
 
-	export let platform: 'slack' | 'teams'
-	export let teamName: string | undefined
-	export let display_name: string | undefined
-	export let scriptPath: string
-	export let initialPath: string
-	export let onDisconnect: () => Promise<void>
-	export let onSelect: () => Promise<void>
-	export let connectHref: string | undefined
-	export let createScriptHref: string
-	export let createFlowHref: string
-	export let documentationLink: string
-	export let onLoadSettings: () => void
-	export let itemKind: 'flow' | 'script' = 'script'
+	let {
+		platform,
+		teamName,
+		display_name,
+		scriptPath = $bindable(),
+		initialPath = $bindable(),
+		itemKind = $bindable('script' as 'flow' | 'script'),
+		onDisconnect,
+		onSelect,
+		connectHref,
+		createScriptHref,
+		createFlowHref,
+		documentationLink,
+		onLoadSettings,
+		workspaceConfig,
+		hideConnectButton = false
+	}: {
+		platform: 'slack' | 'teams'
+		teamName: string | undefined
+		display_name: string | undefined
+		scriptPath: string
+		initialPath: string
+		itemKind: 'flow' | 'script'
+		onDisconnect: () => Promise<void>
+		onSelect: () => Promise<void>
+		connectHref: string | undefined
+		createScriptHref: string
+		createFlowHref: string
+		documentationLink: string
+		onLoadSettings: () => void
+		workspaceConfig?: import('svelte').Snippet
+		hideConnectButton?: boolean
+	} = $props()
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return
@@ -72,6 +92,10 @@
 	</Description>
 </div>
 
+{#if workspaceConfig}
+	{@render workspaceConfig()}
+{/if}
+
 {#if teamName}
 	<div class="flex flex-col gap-2 max-w-sm">
 		<div class="flex flex-row gap-2">
@@ -79,9 +103,8 @@
 				size="sm"
 				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
 				btnClasses="mt-2"
-				variant="border"
 				disabled={!$enterpriseLicense && platform === 'teams'}
-				on:click={onDisconnect}
+				onclick={onDisconnect}
 			>
 				Disconnect {platform.charAt(0).toUpperCase() + platform.slice(1)}
 				{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
@@ -99,14 +122,13 @@
 			</Button>
 		{/if}
 	</div>
-{:else}
+{:else if !hideConnectButton}
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row gap-2 items-center">
 			{#if platform === 'teams'}
 				<Button
-					size="xs"
-					color="dark"
-					on:click={connectTeams}
+					unifiedSize="md"
+					onclick={connectTeams}
 					startIcon={{ icon: MsTeamsIcon }}
 					disabled={!selectedTeam || !$enterpriseLicense}
 				>
@@ -123,7 +145,7 @@
 					/>
 				{/if}
 			{:else}
-				<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
+				<Button size="xs" variant="accent" href={connectHref} startIcon={{ icon: Slack }}>
 					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
 				</Button>
 			{/if}
@@ -136,7 +158,7 @@
 	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
 	<div class="relative">
 		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
-			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40"></div>
+			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled z-40"></div>
 		{/if}
 		<ScriptPicker
 			kinds={['script']}
@@ -148,7 +170,7 @@
 		/>
 	</div>
 
-	<div class="prose text-2xs text-tertiary">
+	<div class="prose text-2xs text-primary">
 		Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
 		connection, templates for a <a href="{$hubBaseUrlStore}/scripts/{platform}/1405/">script</a>
 		and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
