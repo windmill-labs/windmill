@@ -78,6 +78,7 @@ pub fn filter_schema_by_input_transforms(
                     !val.is_empty() && val != "null"
                 }
                 InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+                InputTransform::Ai => false,
             };
             if is_completed {
                 Some(key.clone())
