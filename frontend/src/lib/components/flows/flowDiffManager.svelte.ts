@@ -243,6 +243,7 @@ export function createFlowDiffManager() {
 		} else if (id === 'failure') {
 			flowStore.val.value.failure_module = undefined
 		} else {
+			console.log('CACA deleteModuleFromFlow', id, flowStore.val)
 			const { modules } = getIndexInNestedModules(flowStore.val, id)
 			const index = modules.findIndex((m) => m.id === id)
 			if (index >= 0) {
@@ -268,7 +269,14 @@ export function createFlowDiffManager() {
 		// Handle removed modules: delete them from the flow if flowStore is provided
 		if (info.action === 'removed' && options.flowStore) {
 			const actualId = id.startsWith('__') ? id.substring(2) : id
-			deleteModuleFromFlow(actualId, options.flowStore)
+			// delete from merged flow
+			if (mergedFlow) {
+				const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
+				const index = modules.findIndex((m) => m.id === actualId)
+				if (index >= 0) {
+					modules.splice(index, 1)
+				}
+			}
 		}
 
 		// Remove the action from tracking (no longer needs user decision)

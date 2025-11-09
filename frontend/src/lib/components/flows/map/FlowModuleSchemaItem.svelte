@@ -299,7 +299,7 @@
 						color="green"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							if (id) diffManager.acceptModule(id, {})
+							if (id) diffManager.acceptModule(id, { flowStore: flowEditorContext?.flowStore })
 						}}
 					>
 						✓ Accept
@@ -309,7 +309,7 @@
 						color="red"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							if (id) diffManager.rejectModule(id, {})
+							if (id) diffManager.rejectModule(id, { flowStore: flowEditorContext?.flowStore })
 						}}
 					>
 						✗ Reject
