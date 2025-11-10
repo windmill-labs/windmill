@@ -47,7 +47,6 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 lazy_static::lazy_static! {
     static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+)\}|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?\r?$"#).unwrap();
 
-    pub static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
     static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[([\w\[\]]+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?\r?"#).unwrap();
 }
 
@@ -83,6 +82,136 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
     Ok(Some(args))
+}
+
+/// Extract a PowerShell param() block, handling nested parentheses.
+///
+/// # Arguments
+/// * `code` - The PowerShell code to extract from
+/// * `include_keyword` - If true, returns the full block including "param(...)"
+///                       If false, returns only the contents between the parentheses
+///
+/// # Returns
+/// The extracted param block or contents, or None if not found.
+pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Option<&str> {
+    // Find "param" keyword (case-insensitive)
+    let lower_code = code.to_lowercase();
+    let param_start = lower_code.find("param")?;
+
+    // Verify that only comments and whitespace appear before "param"
+    let before_param = &code[..param_start];
+    let mut chars = before_param.chars().peekable();
+    let mut in_block_comment = false;
+
+    while let Some(ch) = chars.next() {
+        if in_block_comment {
+            // Check for end of block comment: #>
+            if ch == '#' && chars.peek() == Some(&'>') {
+                chars.next(); // consume '>'
+                in_block_comment = false;
+            }
+        } else {
+            match ch {
+                // Start of block comment: <#
+                '<' if chars.peek() == Some(&'#') => {
+                    chars.next(); // consume '#'
+                    in_block_comment = true;
+                }
+                // Single-line comment: consume until end of line
+                '#' => {
+                    while let Some(&next_ch) = chars.peek() {
+                        if next_ch == '\n' || next_ch == '\r' {
+                            break;
+                        }
+                        chars.next();
+                    }
+                }
+                // Whitespace is allowed
+                c if c.is_whitespace() => {}
+                // Any other character means there's code before param
+                _ => return None,
+            }
+        }
+    }
+
+    // If we're still in a block comment at the end, it's unclosed - invalid
+    if in_block_comment {
+        return None;
+    }
+
+    // Skip whitespace and tabs after "param"
+    let mut chars = code[param_start + 5..].char_indices();
+    let mut paren_offset = param_start + 5;
+
+    // Skip whitespace to find opening paren
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '(' {
+            paren_offset += idx;
+            break;
+        } else if !ch.is_whitespace() && ch != '\t' {
+            // Found non-whitespace, non-paren character - not a valid param block
+            return None;
+        }
+    }
+
+    // Now parse from the opening parenthesis
+    let remaining = &code[paren_offset..];
+    let mut chars = remaining.char_indices();
+
+    // Skip the opening '('
+    if let Some((_, ch)) = chars.next() {
+        if ch != '(' {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    let mut depth = 1;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+    let content_start = paren_offset + 1; // Start after the opening '('
+
+    for (idx, ch) in chars {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '`' if in_double_quote => {
+                // PowerShell escape character
+                escape_next = true;
+            }
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+            }
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+            }
+            '(' if !in_single_quote && !in_double_quote => {
+                depth += 1;
+            }
+            ')' if !in_single_quote && !in_double_quote => {
+                depth -= 1;
+                if depth == 0 {
+                    // Found the matching closing parenthesis
+                    // idx is the position of ')' relative to paren_offset
+                    if include_keyword {
+                        // Return full block including "param" keyword and closing paren
+                        return Some(&code[param_start..paren_offset + idx + 1]);
+                    } else {
+                        // Return only contents between parentheses
+                        return Some(&code[content_start..paren_offset + idx]);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 enum ParserState {
@@ -137,10 +266,9 @@ fn parse_powershell_single_typ(typ: &str) -> Typ {
 }
 
 fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let param_wrapper = RE_POWERSHELL_PARAM.captures(code);
+    let param_wrapper = extract_powershell_param_block(code, false);
     let mut args = vec![];
     if let Some(param_wrapper) = param_wrapper {
-        let param_wrapper = param_wrapper.get(1).unwrap().as_str();
         let params = split_pwsh_args(param_wrapper);
         for param in params {
             if let Some(cap) = RE_POWERSHELL_ARGS.captures(param) {
@@ -266,7 +394,7 @@ non_required="${5:-}"
 
     #[test]
     fn test_parse_powershell_sig() -> anyhow::Result<()> {
-        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO, [PSCustomObject]$Obj, [string[]]$Arr)"#;
+        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO, [PSCustomObject]$Obj, [string[]]$Arr, [Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message)"#;
         assert_eq!(
             parse_powershell_sig(code)?,
             MainArgSignature {
@@ -344,6 +472,14 @@ non_required="${5:-}"
                         default: None,
                         has_default: false,
                         oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "Message".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
                     }
                 ],
                 no_main_func: None,
@@ -351,6 +487,121 @@ non_required="${5:-}"
             }
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_extract_powershell_param_block() {
+        // Basic cases
+        assert_eq!(
+            extract_powershell_param_block("param($Name, $Age)", true),
+            Some("param($Name, $Age)")
+        );
+        assert_eq!(
+            extract_powershell_param_block("param($Name, $Age)", false),
+            Some("$Name, $Age")
+        );
+
+        // Case insensitive and whitespace
+        assert_eq!(
+            extract_powershell_param_block("PARAM  ($Value)", false),
+            Some("$Value")
+        );
+
+        // Nested parentheses
+        assert_eq!(
+            extract_powershell_param_block("param([ValidateScript({$_ -gt 0})]$Count)", false),
+            Some("[ValidateScript({$_ -gt 0})]$Count")
+        );
+
+        // Strings with parentheses
+        assert_eq!(
+            extract_powershell_param_block("param([string]$Path = 'C:\\file(1).txt')", false),
+            Some("[string]$Path = 'C:\\file(1).txt'")
+        );
+        assert_eq!(
+            extract_powershell_param_block(r#"param($Msg = "Hello (world)")"#, false),
+            Some(r#"$Msg = "Hello (world)""#)
+        );
+        assert_eq!(
+            extract_powershell_param_block(
+                r#"param([Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message)"#,
+                false
+            ),
+            Some(r#"[Parameter(Mandatory)][ValidateSet('Green', 'Blue', 'Red')][string]$Message"#)
+        );
+
+        // Escaped quotes
+        assert_eq!(
+            extract_powershell_param_block("param($Text = 'don''t')", false),
+            Some("$Text = 'don''t'")
+        );
+        assert_eq!(
+            extract_powershell_param_block(r#"param($Text = "He said `"Hi`"")"#, false),
+            Some(r#"$Text = "He said `"Hi`"""#)
+        );
+
+        // Multiline
+        let multiline = "param(\n    [string]$Name,\n    [int]$Age\n)";
+        assert!(extract_powershell_param_block(multiline, false).is_some());
+
+        // Invalid cases
+        assert_eq!(extract_powershell_param_block("$x = 5", false), None);
+        assert_eq!(extract_powershell_param_block("param", false), None);
+        assert_eq!(extract_powershell_param_block("param($x", false), None);
+
+        // Valid: param at beginning with single-line comments before
+        assert_eq!(
+            extract_powershell_param_block("# This is a comment\nparam($Name)", false),
+            Some("$Name")
+        );
+        assert_eq!(
+            extract_powershell_param_block("# Comment 1\n# Comment 2\n\nparam($Name)", false),
+            Some("$Name")
+        );
+
+        // Valid: param at beginning with block comment before
+        assert_eq!(
+            extract_powershell_param_block("<# Block comment #>\nparam($Name)", false),
+            Some("$Name")
+        );
+        assert_eq!(
+            extract_powershell_param_block(
+                "<#\n  Multi-line\n  block comment\n#>\nparam($Name)",
+                false
+            ),
+            Some("$Name")
+        );
+
+        // Valid: mixed comments and whitespace
+        assert_eq!(
+            extract_powershell_param_block(
+                "# Line comment\n<# Block comment #>\n\nparam($Name)",
+                false
+            ),
+            Some("$Name")
+        );
+
+        // Invalid: code before param
+        assert_eq!(
+            extract_powershell_param_block("$x = 5\nparam($Name)", false),
+            None
+        );
+        assert_eq!(
+            extract_powershell_param_block("Write-Host 'test'\nparam($Name)", false),
+            None
+        );
+
+        // Invalid: unclosed block comment
+        assert_eq!(
+            extract_powershell_param_block("<# Unclosed comment\nparam($Name)", false),
+            None
+        );
+
+        // Invalid: unclosed block comment
+        assert_eq!(
+            extract_powershell_param_block("function test-x{   param($Name)\n}", false),
+            None
+        );
     }
 
     #[test]
