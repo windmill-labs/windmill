@@ -61,10 +61,6 @@ pub trait SSEParser {
                         tracing::info!("SSE event: {:?}", event);
                     }
 
-                    if event.data == "[DONE]" {
-                        return Ok(());
-                    }
-
                     self.parse_event_data(&event.data).await?;
                 }
                 Err(e) => {
@@ -97,50 +93,58 @@ impl OpenAISSEParser {
 
 impl SSEParser for OpenAISSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
-        let event: OpenAISSEEvent = serde_json::from_str(data).map_err(|e| {
-            Error::internal_err(format!("Failed to parse SSE chunk {}: {}", data, e))
-        })?;
+        if data == "[DONE]" {
+            return Ok(());
+        }
 
-        if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
-            if let Some(delta) = choices.remove(0).delta {
-                if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
-                    self.accumulated_content.push_str(&content);
-                    let event = StreamingEvent::TokenDelta { content };
-                    self.stream_event_processor
-                        .send(event, &mut self.events_str)
-                        .await?;
-                }
+        let event: Option<OpenAISSEEvent> = serde_json::from_str(data)
+            .inspect_err(|e| {
+                tracing::error!("Failed to parse SSE as an OpenAI event {}: {}", data, e);
+            })
+            .ok();
 
-                if let Some(tool_calls) = delta.tool_calls {
-                    for (idx, tool_call) in tool_calls.into_iter().enumerate() {
-                        let idx = tool_call.index.unwrap_or_else(|| idx as i64);
+        if let Some(event) = event {
+            if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
+                if let Some(delta) = choices.remove(0).delta {
+                    if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
+                        self.accumulated_content.push_str(&content);
+                        let event = StreamingEvent::TokenDelta { content };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
 
-                        if let Some(function) = tool_call.function {
-                            if let Some(tool_call) = self.accumulated_tool_calls.get_mut(&idx) {
-                                if let Some(arguments) = function.arguments {
-                                    tool_call.function.arguments += &arguments;
-                                }
-                            } else {
-                                let fun_name = function.name.unwrap_or_default();
-                                let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
-                                let event = StreamingEvent::ToolCall {
-                                    call_id: call_id.clone(),
-                                    function_name: fun_name.clone(),
-                                };
-                                self.stream_event_processor
-                                    .send(event, &mut self.events_str)
-                                    .await?;
-                                self.accumulated_tool_calls.insert(
-                                    idx,
-                                    OpenAIToolCall {
-                                        id: call_id,
-                                        function: OpenAIFunction {
-                                            name: fun_name,
-                                            arguments: function.arguments.unwrap_or_default(),
+                    if let Some(tool_calls) = delta.tool_calls {
+                        for (idx, tool_call) in tool_calls.into_iter().enumerate() {
+                            let idx = tool_call.index.unwrap_or_else(|| idx as i64);
+
+                            if let Some(function) = tool_call.function {
+                                if let Some(tool_call) = self.accumulated_tool_calls.get_mut(&idx) {
+                                    if let Some(arguments) = function.arguments {
+                                        tool_call.function.arguments += &arguments;
+                                    }
+                                } else {
+                                    let fun_name = function.name.unwrap_or_default();
+                                    let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
+                                    let event = StreamingEvent::ToolCall {
+                                        call_id: call_id.clone(),
+                                        function_name: fun_name.clone(),
+                                    };
+                                    self.stream_event_processor
+                                        .send(event, &mut self.events_str)
+                                        .await?;
+                                    self.accumulated_tool_calls.insert(
+                                        idx,
+                                        OpenAIToolCall {
+                                            id: call_id,
+                                            function: OpenAIFunction {
+                                                name: fun_name,
+                                                arguments: function.arguments.unwrap_or_default(),
+                                            },
+                                            r#type: "function".to_string(),
                                         },
-                                        r#type: "function".to_string(),
-                                    },
-                                );
+                                    );
+                                }
                             }
                         }
                     }
