@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.574.2](https://github.com/windmill-labs/windmill/compare/v1.574.1...v1.574.2) (2025-11-10)
+
+
+### Bug Fixes
+
+* **backend:** improve pwsh param block parsing ([#7096](https://github.com/windmill-labs/windmill/issues/7096)) ([51cba95](https://github.com/windmill-labs/windmill/commit/51cba95d3961ec637fd5060556f0e7a8a8bdbb88))
+* **backend:** improve sse parsing ([#7100](https://github.com/windmill-labs/windmill/issues/7100)) ([2e245ac](https://github.com/windmill-labs/windmill/commit/2e245accc5f641f64a2cd28fc181e6a806c407e2))
+* fix multiselect in list for apps ([9e4882c](https://github.com/windmill-labs/windmill/commit/9e4882c0a919303480f5a431db3c05b1d5855d37))
+* make ai chat works with unicode messages ([2d54dfb](https://github.com/windmill-labs/windmill/commit/2d54dfbf05f21faa14655b7124daa291a9d8d66d))
+* preproccessor ui and expanding preprocessor support ([#6872](https://github.com/windmill-labs/windmill/issues/6872)) ([fc5034e](https://github.com/windmill-labs/windmill/commit/fc5034e94d513bab2feb0ebb2aff822bbb42e4aa))
+* proper error handling in pulled job preprocessor ([#7098](https://github.com/windmill-labs/windmill/issues/7098)) ([84992cd](https://github.com/windmill-labs/windmill/commit/84992cd8ffa94e009aeb6b25db224a3001581e15))
+
 ## [1.574.1](https://github.com/windmill-labs/windmill/compare/v1.574.0...v1.574.1) (2025-11-08)
 
 
