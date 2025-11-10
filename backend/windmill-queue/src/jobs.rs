@@ -2459,9 +2459,11 @@ pub struct PulledJobResult {
     pub error_while_preprocessing: Option<String>
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum PulledJobResultToJobErr {
+    #[error("missing concurrency key")]
     MissingConcurrencyKey(JobCompleted),
+    #[error("pulled job preprocessor error: {}", .0.result)]
     ErrorWhilePreprocessing(JobCompleted),
 }
 

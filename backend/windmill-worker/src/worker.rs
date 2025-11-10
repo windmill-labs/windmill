@@ -851,7 +851,12 @@ pub fn start_interactive_worker_shell(
                                     if let Err(err) =
                                         job_completed_tx.send_job(jc.clone(), true).await
                                     {
-                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref(), err)
+                                        let e_fmt = match e {
+                                            Ok(_) => "unknown error".to_owned(),
+                                            Err(e) => e.to_string(),
+                                        };
+
+                                        tracing::error!("An error occurred while sending job completed ({e_fmt}): {:#?}", err)
                                     }
                                     Ok(None)
                                 }
@@ -1697,7 +1702,12 @@ pub async fn run_worker(
                                     if let Err(err) =
                                         job_completed_tx.send_job(jc.clone(), true).await
                                     {
-                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref(),  err)
+                                        let e_fmt = match e {
+                                            Ok(_) => "unknown error".to_owned(),
+                                            Err(e) => e.to_string(),
+                                        };
+
+                                        tracing::error!("An error occurred while sending job completed ({e_fmt}): {:#?}", err)
                                     }
                                     Ok(None)
                                 }
