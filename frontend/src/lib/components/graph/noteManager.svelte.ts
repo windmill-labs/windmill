@@ -2,11 +2,15 @@ import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import type { NoteColor } from './noteColors'
 import { calculateNodesBounds } from './util'
-import { cacheTextHeight } from './groupNoteSpacing'
 
 export type NodePosition = {
 	id: string
 	position: { x: number; y: number }
+}
+
+export type TextHeightCacheEntry = {
+	content: string
+	height: number
 }
 
 /**
@@ -14,7 +18,13 @@ export type NodePosition = {
  * This is now a stateless utility that operates on passed note data
  */
 export class NoteManager {
+	#cache: Record<string, TextHeightCacheEntry> = $state({})
+
 	constructor() {}
+
+	getCache(): Record<string, TextHeightCacheEntry> {
+		return this.#cache
+	}
 
 	/**
 	 * Add a new note from the note tool
@@ -126,7 +136,8 @@ export class NoteManager {
 		// Find bounds of all contained nodes
 		const bounds = calculateNodesBounds(containedNodes)
 
-		const padding = 20
+		const padding = 16
+
 		return {
 			position: {
 				x: bounds.minX - padding,
@@ -178,7 +189,7 @@ export class NoteManager {
 			onTextHeightChange: (textHeight: number) => {
 				onTextHeightChange(note.id, textHeight)
 				// Cache the text height for improved performance
-				cacheTextHeight(note.id, note.text, textHeight)
+				this.cacheTextHeight(note.id, note.text, textHeight)
 			}
 		}
 	}
@@ -214,5 +225,64 @@ export class NoteManager {
 				selectable: true
 			}
 		})
+	}
+
+	/**
+	 * Caches text height measurements based on content hash
+	 */
+	cacheTextHeight(noteId: string, content: string, height: number): void {
+		this.#cache[noteId] = { content, height }
+	}
+
+	/**
+	 * Gets cached text height if content hasn't changed, otherwise returns undefined
+	 */
+	getCachedTextHeight(noteId: string, content: string): number | undefined {
+		const cached = this.#cache[noteId]
+		if (cached && cached.content === content) {
+			return cached.height
+		}
+		return undefined
+	}
+
+	/**
+	 * Gets the text height for a note, using cache if available or fallback
+	 */
+	getTextHeight(
+		noteId: string,
+		content: string,
+		runtimeHeights: Record<string, number>,
+		defaultHeight: number = 60
+	): number {
+		// Try cached height first
+		const cachedHeight = this.getCachedTextHeight(noteId, content)
+		if (cachedHeight !== undefined) {
+			return cachedHeight
+		}
+
+		// Fall back to runtime heights
+		const runtimeHeight = runtimeHeights[noteId]
+		if (runtimeHeight !== undefined) {
+			// Update cache for future use
+			this.cacheTextHeight(noteId, content, runtimeHeight)
+			return runtimeHeight
+		}
+
+		// Default fallback
+		return defaultHeight
+	}
+
+	/**
+	 * Clears the entire text height cache (useful for testing or when needed)
+	 */
+	clearTextHeightCache(): void {
+		this.#cache = {}
+	}
+
+	/**
+	 * Removes a specific note from the cache
+	 */
+	removeTextHeight(noteId: string): void {
+		delete this.#cache[noteId]
 	}
 }

@@ -71,7 +71,7 @@
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
-	import { computeGroupNoteSpacing } from './groupNoteSpacing'
+	import { buildNodeSpacingMap } from './groupNoteUtils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -264,7 +264,11 @@
 	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
-	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
+	function layoutNodes(
+		nodes: NodeDep[],
+		groupNotes: FlowNote[] = [],
+		noteTextHeights: Record<string, number> = {}
+	): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
 		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
 			console.debug('layoutNodes', 'same nodes')
@@ -283,6 +287,9 @@
 		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
+
+		// Build spacing map for group notes - this integrates with D3's layout algorithm
+		const nodeSpacingMap = buildNodeSpacingMap(nodes, groupNotes, noteTextHeights, noteManager)
 		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
@@ -304,9 +311,12 @@
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
 				.nodeSize((d) => {
+					const nodeId = d?.data?.['id'] ?? ''
+					const baseHeight = NODE.height + NODE.gap.vertical
+					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
 					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
+						(nodeWidths[nodeId] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						baseHeight + extraSpacing
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -314,7 +324,12 @@
 			const layout = sugiyama()
 				.decross(decrossTwoLayer())
 				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+				.nodeSize((d) => {
+					const nodeId = d?.data?.['id'] ?? ''
+					const baseHeight = NODE.height + NODE.gap.vertical
+					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
+					return [NODE.width + NODE.gap.horizontal, baseHeight + extraSpacing]
+				})
 			boxSize = layout(dag as any)
 		}
 
@@ -332,7 +347,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: (des.y || 0) + yOffset
+				y: (des.y || 0) + yOffset + (nodeSpacingMap[des.data.id] ?? 0) / 2
 			}
 		}))
 	}
@@ -465,20 +480,11 @@
 				id: n.id,
 				parentIds: n.parentIds,
 				offset: n.data.offset ?? 0
-			}))
-		)
-		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
-
-		// Apply group note spacing adjustments
-		const groupNoteSpacingResult = computeGroupNoteSpacing(
-			newNodes.map((n) => ({ id: n.id, position: n.position })),
-			notes ?? [],
+			})),
+			notes?.filter((note) => note.type === 'group') ?? [],
 			noteTextHeights
 		)
-		newNodes = newNodes.map((n) => ({
-			...n,
-			position: groupNoteSpacingResult.newNodePositions[n.id] || n.position
-		}))
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
@@ -691,8 +697,6 @@
 	export function zoomOut() {
 		viewportSynchronizer?.zoomOut()
 	}
-
-	$inspect('dbg notes & nodes', notes, nodes)
 </script>
 
 {#if insertable}

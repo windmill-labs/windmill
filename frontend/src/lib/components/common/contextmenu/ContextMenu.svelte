@@ -45,8 +45,6 @@
 		console.log('Context menu event detected:', event)
 		// Let Melt UI handle this
 	}
-
-	$inspect('dbg context menu', $open)
 </script>
 
 <div

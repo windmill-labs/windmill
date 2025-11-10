@@ -92,8 +92,11 @@
 	})
 
 	// Track content height and notify parent
+	let previousContainerHeight = $state(0)
 	$effect(() => {
-		if (containerHeight > 0) {
+		if (containerHeight > 0 && containerHeight !== previousContainerHeight) {
+			console.log('dbg containerHeight', containerHeight)
+			previousContainerHeight = containerHeight
 			data.onTextHeightChange?.(containerHeight)
 		}
 	})
@@ -188,8 +191,10 @@
 
 	<!-- Note content -->
 	<div
-		bind:clientHeight={containerHeight}
-		class="w-full min-h-[60px] max-h-[400px] h-fit rounded-md"
+		class={twMerge(
+			'w-full min-h-[60px] max-h-[400px] rounded-md ',
+			data.isGroupNote ? '' : 'h-full'
+		)}
 	>
 		{#if editMode}
 			<!-- Edit mode: show textarea -->
@@ -197,22 +202,23 @@
 				bind:this={textareaElement}
 				bind:value={textContent}
 				class={twMerge(
-					'windmillapp w-full h-auto min-h-[60px] max-h-[400px] shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
+					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
 					colorConfig.text
 				)}
 				placeholder="Add your note here... (Markdown supported)"
 				onblur={handleTextSave}
 				spellcheck="false"
-				style="field-sizing: content;"
+				style:height={data.isGroupNote ? `${containerHeight > 0 ? containerHeight : 60}px` : '100%'}
 			></textarea>
 		{:else}
 			<!-- Render mode: show markdown or empty state -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={twMerge(
-					'w-full h-fit min-h-[60px] max-h-[400px] overflow-auto cursor-pointer flex items-start justify-start rounded-md p-4'
+					'w-full h-fit overflow-auto cursor-pointer flex items-start justify-start rounded-md p-4'
 				)}
 				ondblclick={handleDoubleClick}
+				bind:clientHeight={containerHeight}
 			>
 				{#if data.text}
 					<div

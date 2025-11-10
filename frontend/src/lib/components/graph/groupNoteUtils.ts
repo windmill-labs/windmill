@@ -1,6 +1,11 @@
 import type { Node } from '@xyflow/svelte'
-import type { FlowNote } from '$lib/gen'
 import { NODE } from './util'
+import type { FlowNote } from '../../gen'
+import type { NoteManager } from './noteManager.svelte'
+
+type NodeDep = { id: string; parentIds?: string[]; offset?: number }
+
+const GROUP_NOTE_PADDING = 20
 
 export interface GroupNoteBounds {
 	x: number
@@ -18,7 +23,7 @@ export function computeGroupNoteBounds(
 	nodes: Node[],
 	textHeight: number = 60
 ): GroupNoteBounds {
-	const containedNodes = nodes.filter(node => containedNodeIds.includes(node.id))
+	const containedNodes = nodes.filter((node) => containedNodeIds.includes(node.id))
 
 	if (containedNodes.length === 0) {
 		throw new Error('No nodes contained in group note')
@@ -30,7 +35,7 @@ export function computeGroupNoteBounds(
 	let minY = Infinity
 	let maxY = -Infinity
 
-	containedNodes.forEach(node => {
+	containedNodes.forEach((node) => {
 		minX = Math.min(minX, node.position.x)
 		maxX = Math.max(maxX, node.position.x + NODE.width)
 		minY = Math.min(minY, node.position.y)
@@ -43,39 +48,106 @@ export function computeGroupNoteBounds(
 	return {
 		x: minX - padding,
 		y: minY - padding - textHeight, // Position text above the nodes
-		width: maxX - minX + (padding * 2),
-		height: maxY - minY + (padding * 2) + textHeight
+		width: maxX - minX + padding * 2,
+		height: maxY - minY + padding * 2 + textHeight
 	}
 }
 
 /**
- * Gets the topmost node from a list of contained nodes
+ * Finds the topmost node in a group based on topological ordering
+ * Uses parent-child relationships to determine hierarchy
  */
-export function getTopMostNode(containedNodeIds: string[], nodes: Node[]): Node | null {
-	const containedNodes = nodes.filter(node => containedNodeIds.includes(node.id))
+function findTopmostNodeInGroup(groupNote: FlowNote, nodes: NodeDep[]): NodeDep | undefined {
+	if (!groupNote.contained_node_ids?.length) {
+		return undefined
+	}
+
+	const containedNodes = nodes.filter((node) => groupNote.contained_node_ids?.includes(node.id))
 
 	if (containedNodes.length === 0) {
-		return null
+		return undefined
 	}
 
-	return containedNodes.reduce((topMost, node) =>
-		node.position.y < topMost.position.y ? node : topMost
-	)
+	// Find the node with the fewest parents (or no parents) - this will be topmost in the flow
+	const nodesByParentCount = containedNodes.map((node) => ({
+		node,
+		parentCount: node.parentIds?.length || 0
+	}))
+
+	// Sort by parent count, then by appearance in nodes array to ensure deterministic results
+	nodesByParentCount.sort((a, b) => {
+		if (a.parentCount !== b.parentCount) {
+			return a.parentCount - b.parentCount
+		}
+		// If same parent count, use original node order as tiebreaker
+		const aIndex = nodes.findIndex((n) => n.id === a.node.id)
+		const bIndex = nodes.findIndex((n) => n.id === b.node.id)
+		return aIndex - bIndex
+	})
+
+	return nodesByParentCount[0]?.node
 }
 
 /**
- * Validates that all contained nodes exist in the provided nodes array
+ * Gets the extra spacing needed for a specific node due to group notes
+ * Returns 0 if the node doesn't need extra spacing
  */
-export function validateGroupNote(note: FlowNote, nodes: Node[]): FlowNote {
-	if (note.type !== 'group' || !note.contained_node_ids) {
-		return note
+export function getNodeGroupNoteSpacing(
+	nodeId: string,
+	groupNotes: FlowNote[],
+	nodes: NodeDep[],
+	noteTextHeights: Record<string, number>,
+	noteManager: NoteManager
+): number {
+	for (const groupNote of groupNotes) {
+		if (groupNote.contained_node_ids?.includes(nodeId)) {
+			const topmostNode = findTopmostNodeInGroup(groupNote, nodes)
+
+			// Only the topmost node gets the spacing
+			if (topmostNode?.id === nodeId) {
+				const textHeight = noteManager.getTextHeight(
+					groupNote.id,
+					groupNote.text,
+					noteTextHeights,
+					60
+				)
+				return textHeight + GROUP_NOTE_PADDING
+			}
+		}
+	}
+	return 0
+}
+
+/**
+ * Builds a map of node IDs to their required extra spacing for group notes
+ * This is called during the layout process to integrate with D3's nodeSize function
+ */
+export function buildNodeSpacingMap(
+	nodes: NodeDep[],
+	groupNotes: FlowNote[],
+	noteTextHeights: Record<string, number>,
+	noteManager: NoteManager
+): Record<string, number> {
+	const spacingMap: Record<string, number> = {}
+
+	// Only process if we have group notes
+	if (groupNotes.length === 0) {
+		return spacingMap
 	}
 
-	const validNodeIds = nodes.map(node => node.id)
-	const validContainedNodeIds = note.contained_node_ids.filter(id => validNodeIds.includes(id))
-
-	return {
-		...note,
-		contained_node_ids: validContainedNodeIds
+	// For each node, calculate if it needs extra spacing
+	for (const node of nodes) {
+		const extraSpacing = getNodeGroupNoteSpacing(
+			node.id,
+			groupNotes,
+			nodes,
+			noteTextHeights,
+			noteManager
+		)
+		if (extraSpacing > 0) {
+			spacingMap[node.id] = extraSpacing
+		}
 	}
+
+	return spacingMap
 }
