@@ -221,6 +221,9 @@
 	// Initialize note manager (now stateless)
 	const noteManager = new NoteManager()
 
+	// Runtime text height tracking for notes (not stored in FlowNote)
+	let noteTextHeights = $state<Record<string, number>>({})
+
 	// Selection manager - create one if not provided
 	let actualSelectionManager = selectionManager || new SelectionManager()
 
@@ -339,7 +342,8 @@
 			const groupNoteHeight = noteManager.getGroupNoteHeightForNode(
 				notes ?? [],
 				node.id,
-				initialNodes
+				initialNodes,
+				noteTextHeights
 			)
 			if (groupNoteHeight > 0) {
 				spacingMap.set(node.id, groupNoteHeight)
@@ -527,9 +531,17 @@
 
 		nodes = [
 			...finalNodes,
-			...noteManager.convertToNodes(notes ?? [], finalNodes, (newNotes) => {
-				notes = newNotes
-			})
+			...noteManager.convertToNodes(
+				notes ?? [],
+				finalNodes,
+				noteTextHeights,
+				(newNotes) => {
+					notes = newNotes
+				},
+				(noteId, height) => {
+					noteTextHeights[noteId] = height
+				}
+			)
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -708,6 +720,7 @@
 	}
 
 	$inspect('dbg notes & nodes', notes, nodes)
+	$inspect('dbg noteTextHeights', noteTextHeights)
 </script>
 
 {#if insertable}

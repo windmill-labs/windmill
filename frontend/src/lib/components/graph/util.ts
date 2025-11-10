@@ -126,3 +126,27 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 
 	return r
 }
+
+/**
+ * Calculate the bounding box for a collection of nodes
+ * @param nodes - Array of nodes with position.x and position.y properties
+ * @returns The bounds { minX, minY, maxX, maxY }
+ */
+export function calculateNodesBounds(
+	nodes: Array<{ position: { x: number; y: number } }>
+): { minX: number; minY: number; maxX: number; maxY: number } {
+	return nodes.reduce(
+		(acc, node) => ({
+			minX: Math.min(acc.minX, node.position.x),
+			minY: Math.min(acc.minY, node.position.y),
+			maxX: Math.max(acc.maxX, node.position.x + NODE.width),
+			maxY: Math.max(acc.maxY, node.position.y + NODE.height)
+		}),
+		{
+			minX: Infinity,
+			minY: Infinity,
+			maxX: -Infinity,
+			maxY: -Infinity
+		}
+	)
+}

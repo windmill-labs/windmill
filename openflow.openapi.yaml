@@ -143,12 +143,26 @@ components:
         color:
           type: string
           description: Color of the note (e.g., "yellow", "#ffff00")
+        type:
+          type: string
+          enum: [free, group]
+          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+        locked:
+          type: boolean
+          default: false
+          description: Whether the note is locked and cannot be edited or moved
+        contained_node_ids:
+          type: array
+          items:
+            type: string
+          description: For group notes, the IDs of nodes contained within this group
       required:
         - id
         - text
         - position
         - size
         - color
+        - type
 
     RetryIf:
       type: object

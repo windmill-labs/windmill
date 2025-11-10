@@ -197,12 +197,25 @@ pub struct FlowValue {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum FlowNoteType {
+    Free,
+    Group,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowNote {
     pub id: String,
     pub text: String,
     pub position: FlowNotePosition,
     pub size: FlowNoteSize,
     pub color: String,
+    #[serde(rename = "type")]
+    pub note_type: FlowNoteType,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contained_node_ids: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

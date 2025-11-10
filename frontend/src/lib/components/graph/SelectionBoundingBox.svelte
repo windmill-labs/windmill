@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Node } from '@xyflow/svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
-	import { NODE } from './util'
+	import { calculateNodesBounds } from './util'
 
 	interface Props {
 		selectedNodes: Node[]
@@ -17,17 +17,7 @@
 		}
 
 		// Calculate flow coordinates bounds
-		let minX = Infinity
-		let maxX = -Infinity
-		let minY = Infinity
-		let maxY = -Infinity
-
-		selectedNodes.forEach(node => {
-			minX = Math.min(minX, node.position.x)
-			maxX = Math.max(maxX, node.position.x + NODE.width)
-			minY = Math.min(minY, node.position.y)
-			maxY = Math.max(maxY, node.position.y + NODE.height)
-		})
+		const { minX, minY, maxX, maxY } = calculateNodesBounds(selectedNodes)
 
 		// Add padding in flow coordinates
 		const flowBounds = {
@@ -78,7 +68,9 @@
 			z-index: 10;
 		"
 	>
-		<div class="absolute -top-6 left-0 text-xs text-accent font-medium bg-surface px-2 py-1 rounded shadow pointer-events-none">
+		<div
+			class="absolute -top-6 left-0 text-xs text-accent font-medium bg-surface px-2 py-1 rounded shadow pointer-events-none"
+		>
 			{selectedNodes.length} nodes selected
 		</div>
 	</div>
