@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use eventsource_stream::Eventsource;
 use reqwest::Response;
 use serde::Deserialize;
 use serde_json;
@@ -51,38 +52,23 @@ pub trait SSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
 
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
+        let mut stream = response.bytes_stream().eventsource();
 
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result
-                .map_err(|e| Error::internal_err(format!("Failed to read chunk: {}", e)))?;
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(event) => {
+                    if *DEBUG_SSE_STREAM {
+                        tracing::info!("SSE event: {:?}", event);
+                    }
 
-            // Convert chunk to string and add to buffer
-            let chunk_str = String::from_utf8_lossy(&chunk);
-            if *DEBUG_SSE_STREAM {
-                tracing::info!("SSE chunk: {}", chunk_str);
-            }
-            buffer.push_str(&chunk_str);
-
-            // Process complete lines from buffer
-            while let Some(newline_pos) = buffer.find("\n\n") {
-                let line = buffer.drain(..newline_pos + 2).collect::<String>();
-                let line = line.trim_end_matches('\n');
-
-                // Skip empty lines and comments
-                if line.is_empty() || line.starts_with(':') {
-                    continue;
-                }
-
-                // Parse SSE data field
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        // OpenAI sends [DONE] to indicate end of stream
+                    if event.data == "[DONE]" {
                         return Ok(());
                     }
 
-                    self.parse_event_data(data).await?;
+                    self.parse_event_data(&event.data).await?;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse SSE event: {}", e);
                 }
             }
         }
