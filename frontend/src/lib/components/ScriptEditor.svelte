@@ -48,6 +48,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
@@ -741,7 +742,7 @@
 									<CaptureTable
 										bind:this={captureTable}
 										{hasPreprocessor}
-										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+										canHavePreprocessor={canHavePreprocessor(lang)}
 										isFlow={false}
 										path={stablePathForCaptures}
 										canEdit={true}
