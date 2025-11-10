@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use serde_json::json;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
@@ -18,6 +19,7 @@ use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
+use windmill_common::worker::error_to_value;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -58,7 +60,6 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
-use windmill_queue::preprocess_dependency_job;
 use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
 
@@ -112,7 +113,7 @@ use crate::{
     bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
-        build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
+        build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
@@ -802,6 +803,7 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
+// TODO: Test
 pub fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
@@ -841,10 +843,17 @@ pub fn start_interactive_worker_shell(
 
                         match job {
                             Ok(j) => match j.to_pulled_job() {
-                                Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                Ok(j) => Ok(j.clone().map(NextJob::Sql)),
+                                ref e @ (Err(PulledJobResultToJobErr::MissingConcurrencyKey(
+                                    ref jc,
+                                ))
+                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(
+                                    ref jc,
+                                ))) => {
+                                    if let Err(err) =
+                                        job_completed_tx.send_job(jc.clone(), true).await
+                                    {
+                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref().unwrap_err(), err)
                                     }
                                     Ok(None)
                                 }
@@ -1605,30 +1614,23 @@ pub async fn run_worker(
                             }
                         };
 
-                        // Essential debouncing job preprocessing.
-                        if let Ok(windmill_queue::PulledJobResult {
-                            job: Some(ref mut pulled_job),
-                            ..
-                        }) = &mut job
-                        {
-                            match timeout(
+                        // Preprocess pulled job result
+                        if let Ok(ref mut pulled_job_res) = job {
+                            if let Err(e) = timeout(
+                                // Will fail if longer than 10 seconds
                                 core::time::Duration::from_secs(10),
-                                preprocess_dependency_job(pulled_job, &db),
+                                pulled_job_res.preprocess(db),
                             )
                             .warn_after_seconds(2)
                             .await
+                            // Flatten result
+                            .map_err(error::Error::from)
+                            .and_then(|r| r)
                             {
-                                Ok(Err(e)) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                Err(e) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                _ => {}
+                                pulled_job_res.error_while_preprocessing = Some(error_to_value(&e));
                             }
                         }
+
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
                         let err_pull = job.is_ok();
@@ -1688,9 +1690,16 @@ pub async fn run_worker(
                         match job {
                             Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
                                 Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                ref e @ (Err(PulledJobResultToJobErr::MissingConcurrencyKey(
+                                    ref jc,
+                                ))
+                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(
+                                    ref jc,
+                                ))) => {
+                                    if let Err(err) =
+                                        job_completed_tx.send_job(jc.clone(), true).await
+                                    {
+                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref().clone().unwrap_err(),  err)
                                     }
                                     Ok(None)
                                 }

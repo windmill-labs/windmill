@@ -7,7 +7,7 @@ use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     cmp::Reverse,
@@ -1700,6 +1700,13 @@ pub fn load_env_vars(
             )
         })
         .collect()
+}
+
+pub fn error_to_value(err: &error::Error) -> serde_json::Value {
+    match err {
+        error::Error::JsonErr(err) => err.clone(),
+        _ => json!({"message": err.to_string(), "name": err.name()}),
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
