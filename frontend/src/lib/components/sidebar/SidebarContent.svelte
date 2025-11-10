@@ -36,7 +36,8 @@
 		Database,
 		Pyramid,
 		Trash2,
-		MailIcon
+		MailIcon,
+		FileText
 	} from 'lucide-svelte'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
@@ -202,6 +203,14 @@
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-assets',
 			aiDescription: 'Button to navigate to assets'
+		},
+		{
+			label: 'Requirements',
+			href: `${base}/requirements`,
+			icon: FileText,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-requirements',
+			aiDescription: 'Button to navigate to requirements'
 		}
 	])
 	let defaultExtraTriggerLinks = $derived([

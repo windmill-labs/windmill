@@ -1612,7 +1612,7 @@ pub async fn run_worker(
                         }) = &mut job
                         {
                             match timeout(
-                                core::time::Duration::from_secs(10),
+                                core::time::Duration::from_secs(30),
                                 preprocess_dependency_job(pulled_job, &db),
                             )
                             .warn_after_seconds(2)

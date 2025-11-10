@@ -20,6 +20,7 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::raw_requirements::RawRequirements;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -156,14 +157,19 @@ pub async fn handle_dependency_job(
         job.runnable_path()
     );
     let script_path = job.runnable_path();
-    let raw_deps = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("raw_deps")
-                .is_some_and(|y| y.to_string().as_str() == "true")
-        })
-        .unwrap_or(false);
+
+    let raw_requirements_content_o =
+        RawRequirements::get_latest_for_runnable(script_path, &job.workspace_id, db).await?;
+
+    let raw_deps = raw_requirements_content_o.is_some()
+        || job
+            .args
+            .as_ref()
+            .map(|x| {
+                x.get("raw_deps")
+                    .is_some_and(|y| y.to_string().as_str() == "true")
+            })
+            .unwrap_or(false);
 
     let npm_mode = if job
         .script_lang
@@ -226,7 +232,11 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &script_data.code,
+        // TODO(claude): add explanations with backlinking to beginning of the function where i set raw_deps to true if this is some.
+        raw_requirements_content_o
+            .as_ref()
+            .map(|rr| &rr.content)
+            .unwrap_or(&script_data.code),
         mem_peak,
         canceled_by,
         job_dir,

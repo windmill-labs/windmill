@@ -62,7 +62,10 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
+use windmill_common::{
+    utils::{configure_client, GIT_VERSION},
+    BASE_URL, INSTANCE_NAME,
+};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -103,6 +106,7 @@ mod integration;
 mod live_migrations;
 #[cfg(feature = "http_trigger")]
 mod openapi;
+mod raw_requirements;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;

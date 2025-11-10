@@ -733,6 +733,14 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+<<<<<<< Updated upstream
+=======
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
+// TODO: What if dependency job fails, there is script with NULL in the lock
+>>>>>>> Stashed changes
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
@@ -740,7 +748,15 @@ pub async fn clone_script<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<i64> {
     let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
+        sqlx::query_as::<_, Script>("SELECT
+                workspace_id, hash, path, parent_hashes, summary, description, content, \
+                created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+                draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+                dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+                delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+                codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
+
+             FROM script WHERE hash = $1 AND workspace_id = $2")
             .bind(base_hash.0)
             .bind(w_id)
             .fetch_one(&mut **tx)

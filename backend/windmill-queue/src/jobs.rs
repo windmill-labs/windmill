@@ -5558,22 +5558,6 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
         && !*WMDEBUG_NO_DJOB_DEBOUNCING
     {
         return Box::pin(async move {
-            // Only used for testing in tests/relative_imports.rs
-            // Give us some space to work with.
-            #[cfg(debug_assertions)]
-            if let Some(duration) = job
-                .args
-                .as_ref()
-                .map(|x| {
-                    x.get("dbg_sleep_between_pull_and_debounce_key_removal")
-                        .map(|v| serde_json::from_str::<u32>(v.get()).ok())
-                        .flatten()
-                })
-                .flatten()
-            {
-                tracing::debug!("going to sleep",);
-                sleep(std::time::Duration::from_secs(duration as u64)).await;
-            }
 
             tracing::debug!(
                 "Processing debounce cleanup for dependency job {} at path {:?}",
@@ -5624,6 +5608,31 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                     );
                     e
             })?;
+            // // Only used for testing in tests/relative_imports.rs
+            // // Give us some space to work with.
+            // #[cfg(debug_assertions)]
+            // if let Some(duration) = job
+            //     .args
+            //     .as_ref()
+            //     .map(|x| {
+            //         x.get("dbg_sleep_between_pull_and_debounce_key_removal")
+            //             .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+            //             .flatten()
+            //     })
+            //     .flatten()
+            // {
+            // }
+            tracing::debug!("going to sleep",);
+            tracing::debug!("going to sleep",);
+            tracing::debug!("going to sleep",);
+            sleep(std::time::Duration::from_secs(30 as u64)).await;
+            tracing::debug!("woken up",);
+
+            tracing::debug!("going to sleep",);
+            tracing::debug!("going to sleep",);
+            tracing::debug!("going to sleep",);
+            sleep(std::time::Duration::from_secs(10 as u64)).await;
+            tracing::debug!("woken up",);
 
             let Some(base_hash) = job.runnable_id else {
                 return Err(Error::InternalErr(

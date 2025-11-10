@@ -51,6 +51,7 @@
 		Calendar,
 		CheckCircle,
 		Code,
+		FileText,
 		Pen,
 		Plus,
 		Rocket,
@@ -98,6 +99,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import RequirementViewer from './RequirementViewer.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -158,6 +160,7 @@
 	let args: Record<string, any> = $state(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
+	let requirementViewer: RequirementViewer | undefined = $state()
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -190,6 +193,24 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
+
+	function showRequirements() {
+		if (!script.path) return
+		
+		// Extract directory path from script path
+		const pathParts = script.path.split('/')
+		const directoryPath = pathParts.slice(0, -1).join('/') || '/'
+		
+		// TODO: Replace with actual API call to get requirements for this path
+		// For now, mock the requirements data
+		const mockRequirement = {
+			content: 'requests>=2.31.0\\npandas>=2.0.0\\nnumpy>=1.24.0',
+			language: 'python',
+			description: `Requirements for ${directoryPath}`
+		}
+		
+		requirementViewer?.openViewer(directoryPath, mockRequirement.content, mockRequirement.language, mockRequirement.description)
+	}
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
@@ -1759,6 +1780,19 @@
 							/>
 						</div>
 					{/if}
+					
+					{#if script.path}
+						<Button
+							btnClasses="hidden lg:inline-flex"
+							startIcon={{ icon: FileText }}
+							variant="border"
+							color="light"
+							size="xs"
+							on:click={showRequirements}
+						>
+							Requirements
+						</Button>
+					{/if}
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
@@ -1852,3 +1886,5 @@
 {:else}
 	Script Builder not available to operators
 {/if}
+
+<RequirementViewer bind:this={requirementViewer} />
