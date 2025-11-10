@@ -38,7 +38,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
-use windmill_common::worker::{error_to_value, Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
