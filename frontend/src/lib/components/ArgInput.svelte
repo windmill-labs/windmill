@@ -14,7 +14,7 @@
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Button, SecondsInput } from './common'
+	import { Alert, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -126,6 +126,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
+		s3StorageConfigured?: boolean
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -185,6 +186,7 @@
 		appPath = undefined,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
+		s3StorageConfigured = true,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -1454,6 +1456,15 @@
 		</div>
 	{:else if !noMargin}
 		<div class="mb-2"></div>
+	{/if}
+
+	{#if !s3StorageConfigured && extra['x-no-s3-storage-workspace-warning']}
+		<Alert
+			type="warning"
+			title={extra['x-no-s3-storage-workspace-warning']}
+			size="xs"
+			titleClass="text-2xs"
+		/>
 	{/if}
 </div>
 
