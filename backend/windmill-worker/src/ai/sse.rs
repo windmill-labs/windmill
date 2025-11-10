@@ -65,24 +65,34 @@ pub trait SSEParser {
             }
             buffer.push_str(&chunk_str);
 
-            // Process complete lines from buffer
+            // Process complete events from buffer (delimited by \n\n)
             while let Some(newline_pos) = buffer.find("\n\n") {
-                let line = buffer.drain(..newline_pos + 2).collect::<String>();
-                let line = line.trim_end_matches('\n');
+                let event_block = buffer.drain(..newline_pos + 2).collect::<String>();
 
-                // Skip empty lines and comments
-                if line.is_empty() || line.starts_with(':') {
-                    continue;
-                }
+                // Process each line in the event block separately
+                for line in event_block.lines() {
+                    let line = line.trim();
 
-                // Parse SSE data field
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        // OpenAI sends [DONE] to indicate end of stream
-                        return Ok(());
+                    // Skip empty lines and comments
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
                     }
 
-                    self.parse_event_data(data).await?;
+                    // Parse SSE data field
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            // OpenAI sends [DONE] to indicate end of stream
+                            return Ok(());
+                        }
+
+                        self.parse_event_data(data).await.map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to parse SSE data ({}...): {}",
+                                &data[..data.len().min(100)],
+                                e
+                            ))
+                        })?;
+                    }
                 }
             }
         }
