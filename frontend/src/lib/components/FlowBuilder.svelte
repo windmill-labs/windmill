@@ -1051,7 +1051,7 @@
 							variant="subtle"
 							size="xs"
 							on:click={async () => {
-								select('triggers')
+								select('Trigger')
 								const selected = primaryScheduleIndex ?? scheduleIndex
 								if (selected) {
 									triggersState.selectedTriggerIndex = selected
@@ -1144,7 +1144,7 @@
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
-							select('triggers')
+							select('Trigger')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
 							showCaptureHint.set(true)

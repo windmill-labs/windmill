@@ -121,7 +121,6 @@
 		notes?: FlowNote[]
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
-		onNotesChange?: (notes: FlowNote[]) => void
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -210,8 +209,7 @@
 		suspendStatus = {},
 		flowHasChanged = false,
 		noteMode = false,
-		notes = [],
-		onNotesChange = undefined,
+		notes = $bindable(),
 		exitNoteMode = undefined,
 		chatInputEnabled = false,
 		sharedViewport = undefined,
@@ -220,15 +218,8 @@
 		multiSelectEnabled = false
 	}: Props = $props()
 
-	// Initialize note manager
-	const noteManager = new NoteManager(notes)
-	noteManager.setOnNotesChangeCallback(onNotesChange || (() => {}))
-	noteManager.setUpdateStoresCallback(updateStores)
-
-	// Update note manager when notes prop changes
-	$effect(() => {
-		noteManager.setNotes(notes)
-	})
+	// Initialize note manager (now stateless)
+	const noteManager = new NoteManager()
 
 	// Selection manager - create one if not provided
 	let actualSelectionManager = selectionManager || new SelectionManager()
@@ -345,19 +336,23 @@
 		// First, collect all nodes that need spacing above them
 		const spacingMap = new Map<string, number>()
 		for (const node of initialNodes) {
-			const groupNoteHeight = noteManager.getGroupNoteHeightForNode(node.id, initialNodes)
+			const groupNoteHeight = noteManager.getGroupNoteHeightForNode(
+				notes ?? [],
+				node.id,
+				initialNodes
+			)
 			if (groupNoteHeight > 0) {
 				spacingMap.set(node.id, groupNoteHeight)
 			}
 		}
 
 		// Apply spacing - move nodes down by the cumulative spacing above them
-		const adjustedNodes = initialNodes.map(node => {
+		const adjustedNodes = initialNodes.map((node) => {
 			let totalSpacingAbove = 0
 
 			// Calculate total spacing needed above this node from all group notes above it
 			for (const [spacingNodeId, spacing] of spacingMap) {
-				const spacingNode = initialNodes.find(n => n.id === spacingNodeId)
+				const spacingNode = initialNodes.find((n) => n.id === spacingNodeId)
 				if (spacingNode && spacingNode.position.y <= node.position.y) {
 					totalSpacingAbove += spacing
 				}
@@ -475,31 +470,23 @@
 
 	function onNoteAdded(newNoteFromTool: any) {
 		// Add the note to our separate notes array if a note was created
-		if (newNoteFromTool && onNotesChange) {
-			const newNote: FlowNote = {
+		if (newNoteFromTool) {
+			const newNote = {
 				id: `note-${nextNoteId}`,
 				text: '',
 				position: newNoteFromTool.position,
 				size: newNoteFromTool.size || { width: 200, height: 100 },
 				color: DEFAULT_NOTE_COLOR
 			}
-			noteManager.addNote(newNote)
+			notes = noteManager.addNote(notes ?? [], newNote)
 			nextNoteId += 1
 		}
 		exitNoteMode?.()
-		updateStores()
 	}
-
-
-
 
 	function handleCreateGroupNote(selectedNodeIds: string[]) {
-		noteManager.createGroupNote(selectedNodeIds)
-		updateStores()
+		notes = noteManager.createGroupNote(notes ?? [], selectedNodeIds)
 	}
-
-
-
 
 	async function updateStores() {
 		if (graph.error) {
@@ -540,7 +527,9 @@
 
 		nodes = [
 			...finalNodes,
-			...noteManager.convertToNodes(finalNodes)
+			...noteManager.convertToNodes(notes ?? [], finalNodes, (newNotes) => {
+				notes = newNotes
+			})
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -640,7 +629,7 @@
 	})
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets]
+		;[graph, allowSimplifiedPoll, $showAssets, notes]
 		untrack(() => updateStores())
 	})
 
@@ -718,7 +707,7 @@
 		viewportSynchronizer?.zoomOut()
 	}
 
-	$inspect('dbg modules', modules, nodes)
+	$inspect('dbg notes & nodes', notes, nodes)
 </script>
 
 {#if insertable}
@@ -762,7 +751,7 @@
 				onnodedragstop={(event) => {
 					const node = event.targetNode
 					if (node && node.type === 'note') {
-						noteManager.updatePosition(node.id, node.position)
+						notes = noteManager.updatePosition(notes ?? [], node.id, node.position)
 					}
 				}}
 				onmove={(event, viewport) => {
@@ -792,7 +781,10 @@
 				{/if}
 
 				<NodeContextMenu
-					selectedNodeIds={actualSelectionManager.selectedIds.filter(id => !id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result'))}
+					selectedNodeIds={actualSelectionManager.selectedIds.filter(
+						(id) =>
+							!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
+					)}
 					onCreateGroupNote={handleCreateGroupNote}
 				>
 					<SelectionBoundingBox

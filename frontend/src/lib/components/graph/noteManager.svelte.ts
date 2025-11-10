@@ -13,50 +13,15 @@ type NodePos = { position: { x: number; y: number } }
 
 /**
  * Utility class for managing flow notes including regular and group notes
+ * This is now a stateless utility that operates on passed note data
  */
 export class NoteManager {
-	private notes = $state<FlowNote[]>([])
-	private onNotesChangeCallback?: (notes: FlowNote[]) => void
-	private updateStoresCallback?: () => void
-
-	constructor(initialNotes: FlowNote[] = []) {
-		this.notes = initialNotes
-	}
-
-	/**
-	 * Set the callback function to be called when notes change
-	 */
-	setOnNotesChangeCallback(callback: (notes: FlowNote[]) => void) {
-		this.onNotesChangeCallback = callback
-	}
-
-	/**
-	 * Set the callback function to be called when stores need updating
-	 */
-	setUpdateStoresCallback(callback: () => void) {
-		this.updateStoresCallback = callback
-	}
-
-	/**
-	 * Get current notes array
-	 */
-	getNotes(): FlowNote[] {
-		return this.notes
-	}
-
-	/**
-	 * Update notes array
-	 */
-	setNotes(newNotes: FlowNote[]) {
-		this.notes = newNotes
-	}
+	constructor() {}
 
 	/**
 	 * Add a new note from the note tool
 	 */
-	addNote(newNoteFromTool: any) {
-		if (!this.onNotesChangeCallback) return
-
+	addNote(notes: FlowNote[], newNoteFromTool: any): FlowNote[] {
 		// Add the note to our separate notes array if a note was created
 		if (newNoteFromTool) {
 			const newNote: FlowNote = {
@@ -66,99 +31,89 @@ export class NoteManager {
 				size: { width: newNoteFromTool.width || 300, height: newNoteFromTool.height || 100 },
 				color: newNoteFromTool.data?.color || 'yellow'
 			}
-			this.onNotesChangeCallback([...this.notes, newNote])
+			return [...notes, newNote]
 		}
+		return notes
 	}
 
 	/**
 	 * Update note text
 	 */
-	updateText(noteId: string, text: string) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(
-			this.notes.map((note) => (note.id === noteId ? { ...note, text } : note))
-		)
-		this.updateStoresCallback?.()
+	updateText(notes: FlowNote[], noteId: string, text: string): FlowNote[] {
+		return notes.map((note) => (note.id === noteId ? { ...note, text } : note))
 	}
 
 	/**
 	 * Delete a note
 	 */
-	delete(noteId: string) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(this.notes.filter((note) => note.id !== noteId))
-		this.updateStoresCallback?.()
+	delete(notes: FlowNote[], noteId: string): FlowNote[] {
+		return notes.filter((note) => note.id !== noteId)
 	}
 
 	/**
 	 * Update note position
 	 */
-	updatePosition(noteId: string, position: { x: number; y: number }) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(
-			this.notes.map((note) => (note.id === noteId ? { ...note, position } : note))
-		)
+	updatePosition(
+		notes: FlowNote[],
+		noteId: string,
+		position: { x: number; y: number }
+	): FlowNote[] {
+		return notes.map((note) => (note.id === noteId ? { ...note, position } : note))
 	}
 
 	/**
 	 * Update note size
 	 */
-	updateSize(noteId: string, size: { width: number; height: number }) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(
-			this.notes.map((note) => (note.id === noteId ? { ...note, size } : note))
-		)
+	updateSize(
+		notes: FlowNote[],
+		noteId: string,
+		size: { width: number; height: number }
+	): FlowNote[] {
+		return notes.map((note) => (note.id === noteId ? { ...note, size } : note))
 	}
 
 	/**
 	 * Update note color
 	 */
-	updateColor(noteId: string, color: NoteColor) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(
-			this.notes.map((note) => (note.id === noteId ? { ...note, color } : note))
-		)
-		this.updateStoresCallback?.()
+	updateColor(notes: FlowNote[], noteId: string, color: NoteColor): FlowNote[] {
+		return notes.map((note) => (note.id === noteId ? { ...note, color } : note))
 	}
 
 	/**
 	 * Update note lock state
 	 */
-	updateLock(noteId: string, locked: boolean) {
-		if (!this.onNotesChangeCallback) return
-		this.onNotesChangeCallback(
-			this.notes.map((note) => (note.id === noteId ? { ...note, locked } as any : note))
-		)
-		this.updateStoresCallback?.()
+	updateLock(notes: FlowNote[], noteId: string, locked: boolean): FlowNote[] {
+		return notes.map((note) => (note.id === noteId ? ({ ...note, locked } as any) : note))
 	}
 
 	/**
 	 * Create a group note from selected node IDs
 	 */
-	createGroupNote(selectedNodeIds: string[]) {
-		if (selectedNodeIds.length === 0 || !this.onNotesChangeCallback) return
+	createGroupNote(notes: FlowNote[], selectedNodeIds: string[]): FlowNote[] {
+		if (selectedNodeIds.length === 0) return notes
 
 		try {
 			const groupNote = createGroupNote(selectedNodeIds)
 			// For now, we need to store group notes as FlowNote format with additional properties
 			// We'll add dummy position/size that will be calculated dynamically in convertNotesToNodes
-			const lockedGroupNote = {
+			const newGroupNote = {
 				...groupNote,
 				position: { x: 0, y: 0 }, // Dummy values, will be calculated dynamically
 				size: { width: 300, height: 100 }, // Dummy values, will be calculated dynamically
-				locked: true,
+				locked: false, // Group notes are not locked, just not movable/resizable
 				isGroupNote: true,
 				containedNodeIds: groupNote.containedNodeIds,
 				type: 'group'
 			} as FlowNote & {
-				locked: boolean;
-				isGroupNote: boolean;
-				containedNodeIds: string[];
-				type: string;
+				locked: boolean
+				isGroupNote: boolean
+				containedNodeIds: string[]
+				type: string
 			}
-			this.onNotesChangeCallback([...this.notes, lockedGroupNote])
+			return [...notes, newGroupNote]
 		} catch (error) {
 			console.error('Failed to create group note:', error)
+			return notes
 		}
 	}
 
@@ -166,12 +121,16 @@ export class NoteManager {
 	 * Helper function to determine if a node needs additional spacing above it for group notes.
 	 * Returns the height needed above the node.
 	 */
-	getGroupNoteHeightForNode(nodeId: string, layoutedNodes: (NodeDep & NodePos)[]): number {
-		for (const note of this.notes) {
+	getGroupNoteHeightForNode(
+		notes: FlowNote[],
+		nodeId: string,
+		layoutedNodes: (NodeDep & NodePos)[]
+	): number {
+		for (const note of notes) {
 			const extendedNote = convertToExtendedNote(note as any)
 			if (isGroupNote(extendedNote) && extendedNote.containedNodeIds.includes(nodeId)) {
 				// Find the topmost node in this group by Y position
-				const containedNodes = layoutedNodes.filter(node =>
+				const containedNodes = layoutedNodes.filter((node) =>
 					extendedNote.containedNodeIds.includes(node.id)
 				)
 
@@ -193,8 +152,12 @@ export class NoteManager {
 	/**
 	 * Convert notes to SvelteFlow nodes
 	 */
-	convertToNodes(currentNodes: Node[]): Node[] {
-		return this.notes.map((note) => {
+	convertToNodes(
+		notes: FlowNote[],
+		currentNodes: Node[],
+		onNotesChange: (notes: FlowNote[]) => void
+	): Node[] {
+		return notes.map((note) => {
 			const extendedNote = convertToExtendedNote(note as any)
 
 			if (isGroupNote(extendedNote)) {
@@ -208,20 +171,35 @@ export class NoteManager {
 					data: {
 						text: extendedNote.text,
 						color: extendedNote.color,
-						locked: (note as any).locked || true, // Group notes are locked by default
+						locked: false, // Group notes are not locked - they can be edited
 						isGroupNote: true,
 						containedNodeIds: extendedNote.containedNodeIds,
-						onUpdate: (text: string) => this.updateText(extendedNote.id, text),
-						onDelete: () => this.delete(extendedNote.id),
-						onColorChange: (color: NoteColor) => this.updateColor(extendedNote.id, color),
-						onSizeChange: (size: { width: number; height: number }) => this.updateSize(extendedNote.id, size),
-						onLockToggle: (locked: boolean) => this.updateLock(extendedNote.id, locked)
+						onUpdate: (text: string) => {
+							const newNotes = this.updateText(notes, extendedNote.id, text)
+							onNotesChange(newNotes)
+						},
+						onDelete: () => {
+							const newNotes = this.delete(notes, extendedNote.id)
+							onNotesChange(newNotes)
+						},
+						onColorChange: (color: NoteColor) => {
+							const newNotes = this.updateColor(notes, extendedNote.id, color)
+							onNotesChange(newNotes)
+						},
+						onSizeChange: (size: { width: number; height: number }) => {
+							const newNotes = this.updateSize(notes, extendedNote.id, size)
+							onNotesChange(newNotes)
+						},
+						onLockToggle: (locked: boolean) => {
+							const newNotes = this.updateLock(notes, extendedNote.id, locked)
+							onNotesChange(newNotes)
+						}
 					},
 					style: `width: ${bounds.size.width}px; height: ${bounds.size.height}px;`,
 					width: bounds.size.width,
 					height: bounds.size.height,
 					zIndex: -2000,
-					draggable: !(note as any).locked, // Don't allow dragging locked notes
+					draggable: false, // Group notes cannot be moved - position is determined by contained nodes
 					selectable: true
 				}
 			} else {
@@ -235,11 +213,26 @@ export class NoteManager {
 						color: extendedNote.color,
 						locked: (note as any).locked || false,
 						isGroupNote: false,
-						onUpdate: (text: string) => this.updateText(extendedNote.id, text),
-						onDelete: () => this.delete(extendedNote.id),
-						onColorChange: (color: NoteColor) => this.updateColor(extendedNote.id, color),
-						onSizeChange: (size: { width: number; height: number }) => this.updateSize(extendedNote.id, size),
-						onLockToggle: (locked: boolean) => this.updateLock(extendedNote.id, locked)
+						onUpdate: (text: string) => {
+							const newNotes = this.updateText(notes, extendedNote.id, text)
+							onNotesChange(newNotes)
+						},
+						onDelete: () => {
+							const newNotes = this.delete(notes, extendedNote.id)
+							onNotesChange(newNotes)
+						},
+						onColorChange: (color: NoteColor) => {
+							const newNotes = this.updateColor(notes, extendedNote.id, color)
+							onNotesChange(newNotes)
+						},
+						onSizeChange: (size: { width: number; height: number }) => {
+							const newNotes = this.updateSize(notes, extendedNote.id, size)
+							onNotesChange(newNotes)
+						},
+						onLockToggle: (locked: boolean) => {
+							const newNotes = this.updateLock(notes, extendedNote.id, locked)
+							onNotesChange(newNotes)
+						}
 					},
 					style: `width: ${extendedNote.size.width}px; height: ${extendedNote.size.height}px;`,
 					width: extendedNote.size.width,

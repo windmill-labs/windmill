@@ -426,10 +426,7 @@
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			{noteMode}
-			notes={flowStore.val.value?.notes || []}
-			onNotesChange={(newNotes) => {
-				flowStore.val.value.notes = newNotes
-			}}
+			bind:notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectionManager}
 			{workspace}
