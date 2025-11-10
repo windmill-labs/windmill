@@ -2632,14 +2632,22 @@ impl PulledJobResult {
                             args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
                         });
 
-                        let new_hash = windmill_common::scripts::clone_script(
+                        let cloned_script = windmill_common::scripts::clone_script(
                             base_hash,
                             &pulled_job.workspace_id,
                             deployment_message,
                             &mut tx,
                         )
                         .await?;
-                        new_hash
+
+                        if is_generated_from_raw_requirements(&Some(cloned_script.old_script.language), &cloned_script.old_script.lock.map(|v| v.to_string())) {
+                            return Err(Error::BadRequest(format!(
+                                "Script at path {} is generated from raw requirements, not overriding",
+                                pulled_job.runnable_path()
+                            )));
+                        }
+
+                        cloned_script.new_hash
                     }
                     JobKind::FlowDependencies => {
                         sqlx::query_scalar!(
