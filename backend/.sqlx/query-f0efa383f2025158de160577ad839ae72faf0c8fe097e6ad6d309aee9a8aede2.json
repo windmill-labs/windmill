@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow_version\n                        (workspace_id, path, value, schema, created_by)\n\n                        SELECT workspace_id, path, value, schema, created_by\n                        FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3\n\n                        RETURNING id\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f0efa383f2025158de160577ad839ae72faf0c8fe097e6ad6d309aee9a8aede2"
+}

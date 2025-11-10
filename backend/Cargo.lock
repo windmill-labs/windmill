@@ -15725,6 +15725,7 @@ dependencies = [
  "serde_urlencoded",
  "sql-builder",
  "sqlx",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "ulid",
