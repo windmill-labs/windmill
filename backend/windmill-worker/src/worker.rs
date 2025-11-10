@@ -11,7 +11,6 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
-use serde_json::json;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
