@@ -10,7 +10,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
-		kind?: HubScriptKind & string
+		kind?: (HubScriptKind | 'preprocessor') & string
 		filter?: string
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
