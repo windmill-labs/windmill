@@ -61,10 +61,6 @@ pub trait SSEParser {
                         tracing::info!("SSE event: {:?}", event);
                     }
 
-                    if event.data == "[DONE]" {
-                        return Ok(());
-                    }
-
                     self.parse_event_data(&event.data).await?;
                 }
                 Err(e) => {
@@ -97,9 +93,13 @@ impl OpenAISSEParser {
 
 impl SSEParser for OpenAISSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        if data == "[DONE]" {
+            return Ok(());
+        }
+
         let event: Option<OpenAISSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
-                tracing::error!("Failed to parse SSE event {}: {}", data, e);
+                tracing::error!("Failed to parse SSE as an OpenAI event {}: {}", data, e);
             })
             .ok();
 
