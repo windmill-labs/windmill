@@ -1175,6 +1175,7 @@ async fn lock_modules<'c>(
                     skip_failures,
                     parallel,
                     parallelism,
+                    optimized,
                 } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
@@ -1204,6 +1205,7 @@ async fn lock_modules<'c>(
                         skip_failures,
                         parallel,
                         parallelism,
+                        optimized,
                     }
                     .into()
                 }

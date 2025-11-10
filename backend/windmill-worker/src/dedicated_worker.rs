@@ -12,6 +12,8 @@ use tokio::{
     process::Command,
     task::JoinHandle,
 };
+use uuid::Uuid;
+use windmill_common::cache::FlowData;
 use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
@@ -26,6 +28,8 @@ use windmill_common::{
 };
 use windmill_queue::append_logs;
 use windmill_queue::MiniPulledJob;
+#[cfg(feature = "enterprise")]
+use windmill_queue::{DedicatedWorkerJob, FlowRunners};
 
 use anyhow::Context;
 
@@ -34,7 +38,13 @@ use crate::{common::start_child_process, JobCompletedSender, MAX_BUFFERED_DEDICA
 use futures::{future, Future};
 use std::{collections::HashMap, task::Poll};
 
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{mpsc::Receiver, RwLock};
+
+// Global registry of dynamic runner pools, keyed by flow root job ID
+lazy_static::lazy_static! {
+    static ref FLOW_RUNNERS: Arc<RwLock<HashMap<String, DedicatedWorker>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
 
 fn conditional_polling<T>(
     fut: impl Future<Output = T>,
@@ -68,7 +78,7 @@ pub async fn handle_dedicated_process(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     job_completed_tx: JobCompletedSender,
     token: &str,
-    mut jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    mut jobs_rx: Receiver<DedicatedWorkerJob>,
     worker_name: &str,
     db: &DB,
     script_path: &str,
@@ -76,6 +86,7 @@ pub async fn handle_dedicated_process(
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
 
+    use tokio::sync::oneshot;
     use windmill_queue::{JobCompleted, MiniCompletedJob};
 
     use crate::{handle_child::process_status, PROXY_ENVS};
@@ -133,7 +144,11 @@ pub async fn handle_dedicated_process(
         }
     });
 
-    let mut jobs: VecDeque<MiniCompletedJob> = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
+    let mut jobs: VecDeque<(
+        MiniCompletedJob,
+        Option<Arc<FlowRunners>>,
+        Option<oneshot::Sender<()>>,
+    )> = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
     // let mut i = 0;
     // let mut j = 0;
     let mut alive = true;
@@ -178,21 +193,21 @@ pub async fn handle_dedicated_process(
                     }
                     tracing::debug!("processed job: |{line}|");
                     if line.starts_with("wm_res[") {
-                        let job = jobs.pop_front().expect("pop");
+                        let (job, flow_runners, done_tx) = jobs.pop_front().expect("pop");
                         tracing::info!("job completed on dedicated worker {script_path}: {}", job.id);
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
                                 let result = Arc::new(result);
                                 append_logs(&job.id, &job.workspace_id,  logs.clone(), &db.into()).await;
                                 if line.starts_with("wm_res[success]:") {
-                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None }, true).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None, flow_runners, done_tx }, true).await.unwrap()
                                 } else {
-                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None }, true).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None, flow_runners, done_tx }, true).await.unwrap()
                                 }
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send_job(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None }, true).await.unwrap();
+                                job_completed_tx.send_job(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None, has_stream: Some(false), from_cache: None, flow_runners, done_tx }, true).await.unwrap();
                             },
                         };
                         logs = init_log.clone();
@@ -211,12 +226,12 @@ pub async fn handle_dedicated_process(
                     break;
                 }
             },
-            job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
+            dedicated_job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
                 // i += 1;
-                if let Some(job) = job {
+                if let Some(DedicatedWorkerJob { job, flow_runners, done_tx }) = dedicated_job {
                     let id = job.id;
                     let args = serde_json::to_string(&job.args).expect("serialize");
-                    jobs.push_back(MiniCompletedJob::from(job));
+                    jobs.push_back((MiniCompletedJob::from(job), flow_runners, done_tx));
                     tracing::info!("received job and adding to queue on dedicated worker for {script_path}: {} (queue_size: {})", id, jobs.len());
 
                     // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
@@ -242,11 +257,7 @@ pub async fn handle_dedicated_process(
     Ok(())
 }
 
-type DedicatedWorker = (
-    String,
-    Sender<std::sync::Arc<MiniPulledJob>>,
-    Option<JoinHandle<()>>,
-);
+type DedicatedWorker = (String, Sender<DedicatedWorkerJob>, Option<JoinHandle<()>>);
 
 // spawn one dedicated worker per compatible steps of the flow, associating the node id to the dedicated worker channel send
 #[async_recursion]
@@ -262,14 +273,14 @@ async fn spawn_dedicated_workers_for_flow(
     base_internal_url: &str,
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
+    flow_job_id: Option<&str>,
 ) -> Vec<DedicatedWorker> {
     let mut workers = vec![];
-    let mut script_path_to_worker: HashMap<String, Sender<std::sync::Arc<MiniPulledJob>>> =
-        HashMap::new();
+    let mut script_path_to_worker: HashMap<String, Sender<DedicatedWorkerJob>> = HashMap::new();
     for module in modules.iter() {
         let value = module.get_value();
         if let Ok(value) = value {
-            match &value {
+            match value {
                 FlowModuleValue::Script { path, hash, .. } => {
                     let key = format!(
                         "{}:{}",
@@ -292,6 +303,7 @@ async fn spawn_dedicated_workers_for_flow(
                             worker_name,
                             job_completed_tx,
                             Some(module.id.clone()),
+                            flow_job_id,
                         )
                         .await
                         {
@@ -300,7 +312,13 @@ async fn spawn_dedicated_workers_for_flow(
                         }
                     }
                 }
-                FlowModuleValue::ForloopFlow { modules, .. } => {
+                FlowModuleValue::ForloopFlow { mut modules, modules_node, .. } => {
+                    use windmill_common::flows::resolve_modules;
+
+                    resolve_modules(db, w_id, &mut modules, modules_node, true)
+                        .await
+                        .ok();
+
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
                         w_id,
@@ -312,6 +330,7 @@ async fn spawn_dedicated_workers_for_flow(
                         base_internal_url,
                         worker_name,
                         job_completed_tx,
+                        flow_job_id,
                     )
                     .await;
                     workers.extend(w);
@@ -328,14 +347,15 @@ async fn spawn_dedicated_workers_for_flow(
                         base_internal_url,
                         worker_name,
                         job_completed_tx,
+                        flow_job_id,
                     )
                     .await;
                     workers.extend(w);
                 }
                 FlowModuleValue::BranchOne { branches, default, .. } => {
                     for modules in branches
-                        .iter()
-                        .map(|x| &x.modules)
+                        .into_iter()
+                        .map(|x| x.modules)
                         .chain(std::iter::once(default))
                     {
                         let w = spawn_dedicated_workers_for_flow(
@@ -349,6 +369,7 @@ async fn spawn_dedicated_workers_for_flow(
                             base_internal_url,
                             worker_name,
                             job_completed_tx,
+                            flow_job_id,
                         )
                         .await;
                         workers.extend(w);
@@ -367,6 +388,7 @@ async fn spawn_dedicated_workers_for_flow(
                             base_internal_url,
                             worker_name,
                             job_completed_tx,
+                            flow_job_id,
                         )
                         .await;
                         workers.extend(w);
@@ -389,6 +411,7 @@ async fn spawn_dedicated_workers_for_flow(
                         worker_name,
                         job_completed_tx,
                         Some(module.id.clone()),
+                        flow_job_id,
                     )
                     .await
                     {
@@ -398,15 +421,16 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::FlowScript { id, language, .. } => {
                     let spawn = cache::flow::fetch_script(
                         &windmill_common::worker::Connection::Sql(db.clone()),
-                        *id,
+                        id,
                     )
                     .await
                     .map(|data| SpawnWorker::RawScript {
                         path: "".to_string(),
                         content: data.code.clone(),
                         lock: data.lock.clone(),
-                        lang: *language,
+                        lang: language,
                     });
+                    tracing::info!("spawn: {:?}", spawn);
                     match spawn {
                         Ok(spawn) => {
                             if let Some(dedi_w) = spawn_dedicated_worker(
@@ -420,6 +444,7 @@ async fn spawn_dedicated_workers_for_flow(
                                 worker_name,
                                 job_completed_tx,
                                 Some(module.id.clone()),
+                                flow_job_id,
                             )
                             .await
                             {
@@ -444,6 +469,50 @@ async fn spawn_dedicated_workers_for_flow(
     workers
 }
 
+pub async fn spawn_flow_job_runners(
+    job: &MiniPulledJob,
+    flow: &FlowValue,
+    killpill_tx: &KillpillSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    db: &DB,
+    worker_dir: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    job_completed_tx: &JobCompletedSender,
+    flow_job_id: &str,
+) -> (
+    HashMap<String, Sender<DedicatedWorkerJob>>,
+    Vec<JoinHandle<()>>,
+) {
+    let workers = spawn_dedicated_workers_for_flow(
+        &flow.modules,
+        &job.workspace_id,
+        job.runnable_path(),
+        killpill_tx.clone(),
+        &killpill_rx,
+        db,
+        &worker_dir,
+        base_internal_url,
+        &worker_name,
+        &job_completed_tx,
+        Some(flow_job_id),
+    )
+    .await;
+
+    tracing::info!("spawned dedicated workers for flow: {:?}", workers);
+
+    let mut dedicated_handles = vec![];
+    let mut hm = HashMap::new();
+    workers.into_iter().for_each(|(path, sender, handle)| {
+        tracing::info!("spawned dedicated worker for flow: {}", path.as_str());
+        if let Some(h) = handle {
+            dedicated_handles.push(h);
+        }
+        hm.insert(path, sender);
+    });
+    (hm, dedicated_handles)
+}
+
 pub async fn create_dedicated_worker_map(
     killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
@@ -453,7 +522,7 @@ pub async fn create_dedicated_worker_map(
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
 ) -> (
-    HashMap<String, Sender<std::sync::Arc<MiniPulledJob>>>,
+    HashMap<String, Sender<DedicatedWorkerJob>>,
     bool,
     Vec<JoinHandle<()>>,
 ) {
@@ -493,6 +562,7 @@ pub async fn create_dedicated_worker_map(
                             base_internal_url,
                             &worker_name,
                             &job_completed_tx,
+                            None,
                         )
                         .await;
                         workers.into_iter().for_each(|(path, sender, handle)| {
@@ -524,6 +594,7 @@ pub async fn create_dedicated_worker_map(
                 base_internal_url,
                 &worker_name,
                 &job_completed_tx,
+                None,
                 None,
             )
             .await
@@ -566,6 +637,7 @@ async fn spawn_dedicated_worker(
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
     node_id: Option<String>,
+    flow_job_id: Option<&str>,
 ) -> Option<DedicatedWorker> {
     use windmill_common::{
         error::Error,
@@ -585,17 +657,20 @@ async fn spawn_dedicated_worker(
 
     #[cfg(feature = "enterprise")]
     {
-        let (dedicated_worker_tx, dedicated_worker_rx) = tokio::sync::mpsc::channel::<
-            std::sync::Arc<MiniPulledJob>,
-        >(MAX_BUFFERED_DEDICATED_JOBS);
+        let (dedicated_worker_tx, dedicated_worker_rx) =
+            tokio::sync::mpsc::channel::<DedicatedWorkerJob>(MAX_BUFFERED_DEDICATED_JOBS);
         let killpill_rx = killpill_rx.resubscribe();
         let db2 = db.clone();
         let base_internal_url = base_internal_url.to_string();
         let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
         let job_dir = format!(
-            "{}/dedicated{}",
+            "{}/dedicated{}{}",
             worker_dir,
+            flow_job_id
+                .as_ref()
+                .map(|x| format!("-{x}"))
+                .unwrap_or_else(|| "".to_string()),
             node_id
                 .as_ref()
                 .map(|x| format!("-{x}"))

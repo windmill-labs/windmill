@@ -350,6 +350,7 @@ pub fn start_background_processor(
                         stop_early_override,
                         &worker_name,
                         job_completed_sender.clone(),
+                        None,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -431,6 +432,8 @@ pub async fn process_result(
                     duration,
                     has_stream: Some(has_stream),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -495,6 +498,8 @@ pub async fn process_result(
                     duration,
                     has_stream: Some(has_stream),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -571,6 +576,8 @@ pub async fn process_completed_job(
         preprocessed_args,
         has_stream,
         from_cache,
+        flow_runners,
+        done_tx,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -661,12 +668,18 @@ pub async fn process_completed_job(
                     None,
                     worker_name,
                     job_completed_tx,
+                    flow_runners,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
                 .warn_after_seconds(10)
                 .await?;
                 add_time!(bench, "updated flow status END");
+                if let Some(done_tx) = done_tx {
+                    done_tx
+                        .send(())
+                        .expect("done receiver should still be alive");
+                }
                 return Ok(r);
             }
         }
@@ -707,6 +720,7 @@ pub async fn process_completed_job(
                     None,
                     worker_name,
                     job_completed_tx,
+                    None,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
@@ -809,6 +823,7 @@ pub async fn handle_job_error(
             None,
             worker_name,
             job_completed_tx.clone(),
+            None,
             #[cfg(feature = "benchmark")]
             bench,
         )

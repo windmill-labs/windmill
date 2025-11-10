@@ -187,6 +187,22 @@
 						/>
 					</div>
 					<div class="flex-shrink-0">
+						<div class="mb-2 text-sm font-bold">Optimized</div>
+						<Toggle
+							bind:checked={mod.value.optimized}
+							on:change={({ detail }) => {
+								;(mod.value as ForloopFlow).optimized = detail
+							}}
+							options={{
+								right: 'Optimized execution'
+							}}
+							class="whitespace-nowrap"
+						/>
+						<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+							Optimized execution will start the runners for the first iteration only.
+						</Tooltip>
+					</div>
+					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold">Run in parallel</div>
 						<Toggle
 							bind:checked={mod.value.parallel}

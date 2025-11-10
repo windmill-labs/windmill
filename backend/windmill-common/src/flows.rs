@@ -867,6 +867,8 @@ pub enum FlowModuleValue {
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         parallelism: Option<InputTransform>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        optimized: Option<bool>,
     },
 
     /// While loop node
@@ -987,6 +989,7 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
+    optimized: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -1025,6 +1028,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 skip_failures: untagged.skip_failures.unwrap_or(true),
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
+                optimized: untagged.optimized,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged

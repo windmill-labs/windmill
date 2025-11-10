@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
+use crate::dedicated_worker::spawn_flow_job_runners;
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -51,7 +52,7 @@ use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
-    ScriptHashInfo, DB,
+    KillpillSender, ScriptHashInfo, DB,
 };
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -64,7 +65,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
+    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
@@ -88,6 +89,7 @@ pub async fn update_flow_status_after_job_completion(
     stop_early_override: Option<bool>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
@@ -121,6 +123,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.has_triggered_error_handler,
             worker_name,
             job_completed_tx.clone(),
+            flow_runners.clone(),
             #[cfg(feature = "benchmark")]
             bench,
         ))
@@ -147,6 +150,7 @@ pub async fn update_flow_status_after_job_completion(
                     rec.has_triggered_error_handler,
                     worker_name,
                     job_completed_tx.clone(),
+                    flow_runners.clone(),
                     #[cfg(feature = "benchmark")]
                     bench,
                 ))
@@ -285,6 +289,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     has_triggered_error_handler: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    mut flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     let mut has_triggered_error_handler = has_triggered_error_handler;
@@ -914,6 +919,12 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             _ => {
                 // this case is when when not a parallel loops/branchall and not an in progress loop/branchall
+
+                if is_loop {
+                    // once we're out of the loop, we should discard the flow runners
+                    // TODO: adapt the behavior to handle nested loops inside optimized loops
+                    flow_runners = None;
+                }
 
                 if stop_early && is_loop {
                     // if we're stopping early inside a (non-parallel) loop, we don't want to bubble up the stop_early to the parent => we only want to break the loop (see conditions in match above)
@@ -1565,6 +1576,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
             job_completed_tx,
             worker_name,
+            flow_runners,
         ))
         .warn_after_seconds(10)
         .await
@@ -2044,6 +2056,7 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: JobCompletedSender,
     worker_name: &str,
+    flow_runners: Option<Arc<FlowRunners>>,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
     let status = flow_job
@@ -2101,6 +2114,8 @@ pub async fn handle_flow(
             same_worker_tx,
             worker_dir,
             worker_name,
+            flow_runners.clone(),
+            job_completed_tx.clone(),
         ))
         .warn_after_seconds(10)
         .await?;
@@ -2185,6 +2200,7 @@ struct PushNextFlowJobRec {
     flow_job: Arc<MiniPulledJob>,
     status: FlowStatus,
 }
+
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
@@ -2197,6 +2213,8 @@ async fn push_next_flow_job(
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     worker_name: &str,
+    flow_runners: Option<Arc<FlowRunners>>,
+    job_completed_tx: JobCompletedSender,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -3028,13 +3046,38 @@ async fn push_next_flow_job(
         }
     };
 
+    let flow_runners = match next_status {
+        NextStatus::NextLoopIteration { start_runners: true, .. } => {
+            let (fake_killpill_tx, killpill_rx) = KillpillSender::new(1);
+            let (new_flow_runners, new_flow_runner_handles) = spawn_flow_job_runners(
+                &flow_job,
+                &flow,
+                &fake_killpill_tx,
+                &killpill_rx,
+                db,
+                worker_dir,
+                &client.base_internal_url,
+                worker_name,
+                &job_completed_tx,
+                flow_job.id.to_string().as_str(),
+            )
+            .await;
+
+            let flow_runners =
+                FlowRunners { runners: new_flow_runners, handles: new_flow_runner_handles };
+            Some(Arc::new(flow_runners))
+        },
+        _ => flow_runners,
+    };
+
     // Also check `flow_job.same_worker` for [`JobKind::Flow`] jobs as it's no
     // more reflected to the flow value on push.
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    let continue_on_same_worker =
-        (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
+    let continue_on_same_worker = (flow.same_worker || job_same_worker || flow_runners.is_some())
+        && module.suspend.is_none()
+        && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
@@ -3083,6 +3126,7 @@ async fn push_next_flow_job(
             NextStatus::NextLoopIteration {
                 next: ForloopNextIteration { new_args, .. },
                 simple_input_transforms,
+                ..
             } => {
                 let mut args = if let Ok(args) = nargs {
                     args.as_ref().clone()
@@ -3594,7 +3638,7 @@ async fn push_next_flow_job(
 
     if continue_on_same_worker {
         same_worker_tx
-            .send(SameWorkerPayload { job_id: first_uuid, recoverable: true })
+            .send(SameWorkerPayload { job_id: first_uuid, recoverable: true, flow_runners })
             .warn_after_seconds(3)
             .await
             .map_err(to_anyhow)?;
@@ -3701,6 +3745,7 @@ enum NextStatus {
     NextLoopIteration {
         next: ForloopNextIteration,
         simple_input_transforms: Option<HashMap<String, InputTransform>>,
+        start_runners: bool,
     },
     AllFlowJobs {
         branchall: Option<BranchAllStatus>,
@@ -3981,11 +4026,19 @@ async fn compute_next_flow_transform(
                 db,
                 module,
                 delete_after_use,
+                false,
             )
             .await
         }
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
-        FlowModuleValue::ForloopFlow { modules, modules_node, iterator, parallel, .. } => {
+        FlowModuleValue::ForloopFlow {
+            modules,
+            modules_node,
+            iterator,
+            parallel,
+            optimized,
+            ..
+        } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
                 && !parallel
@@ -4024,6 +4077,7 @@ async fn compute_next_flow_transform(
                     Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
                 }
                 ForLoopStatus::NextIteration(ns) => {
+                    let start_runners = ns.index == 0 && optimized.unwrap_or(false);
                     next_loop_iteration(
                         flow,
                         status,
@@ -4035,6 +4089,7 @@ async fn compute_next_flow_transform(
                         db,
                         module,
                         delete_after_use,
+                        start_runners,
                     )
                     .await
                 }
@@ -4299,6 +4354,7 @@ async fn next_loop_iteration(
     db: &sqlx::Pool<sqlx::Postgres>,
     module: &FlowModule,
     delete_after_use: bool,
+    start_runners: bool,
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
@@ -4316,7 +4372,7 @@ async fn next_loop_iteration(
             ContinuePayload::SingleJob(
                 payload_from_simple_module(value, db, flow_job, module, inner_path()).await?,
             ),
-            NextStatus::NextLoopIteration { next: ns, simple_input_transforms },
+            NextStatus::NextLoopIteration { next: ns, simple_input_transforms, start_runners },
         ));
     }
 
@@ -4340,7 +4396,7 @@ async fn next_loop_iteration(
             timeout: None,
             on_behalf_of: None,
         }),
-        NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None },
+        NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None, start_runners },
     ))
 }
 

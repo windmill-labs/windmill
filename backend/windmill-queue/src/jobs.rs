@@ -24,6 +24,9 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -36,6 +39,7 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::lockfiles::is_generated_from_raw_requirements;
+use windmill_common::flows::Flow;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -137,7 +141,7 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: MiniCompletedJob,
     pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
@@ -151,6 +155,10 @@ pub struct JobCompleted {
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
     pub from_cache: Option<bool>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    #[serde(skip)]
+    pub done_tx: Option<oneshot::Sender<()>>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -2267,6 +2275,8 @@ pub struct JobAndPerms {
     pub parent_runnable_path: Option<String>,
     pub token: String,
     pub precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
@@ -2298,6 +2308,7 @@ impl PulledJob {
             parent_runnable_path: self.parent_runnable_path,
             token,
             precomputed_agent_info: None,
+            flow_runners: None,
         }
     }
 }
@@ -2488,6 +2499,8 @@ impl PulledJobResult {
                     duration: None,
                     has_stream: Some(false),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 }),
             ),
             PulledJobResult { job: Some(job), error_while_preprocessing: Some(e), .. } => Err(
@@ -2507,6 +2520,8 @@ impl PulledJobResult {
                     duration: None,
                     has_stream: Some(false),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
@@ -5751,10 +5766,37 @@ async fn restarted_flows_resolution(
     ))
 }
 
+
+
+// Wrapper struct to send both job and optional flow_runners to dedicated workers
+pub struct DedicatedWorkerJob {
+    pub job: Arc<MiniPulledJob>,
+    #[cfg(feature = "enterprise")]
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    pub done_tx: Option<oneshot::Sender<()>>,
+}
+
+#[derive(Debug)]
+pub struct FlowRunners {
+    pub runners: HashMap<String, Sender<DedicatedWorkerJob>>,
+    pub handles: Vec<JoinHandle<()>>,
+}
+
+impl Drop for FlowRunners {
+    fn drop(&mut self) {
+        tracing::info!("dropping flow runners");
+        for handle in self.handles.iter() {
+            handle.abort();
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 
 pub async fn get_same_worker_job(

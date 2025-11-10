@@ -9,6 +9,8 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
+#[cfg(feature = "enterprise")]
+use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 #[cfg(feature = "enterprise")]
@@ -1589,7 +1591,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     let mut logs = "".to_string();

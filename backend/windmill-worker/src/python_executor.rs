@@ -34,6 +34,8 @@ use windmill_common::{
 
 #[cfg(feature = "enterprise")]
 use windmill_common::variables::get_secret_value_as_admin;
+#[cfg(feature = "enterprise")]
+use windmill_queue::DedicatedWorkerJob;
 
 use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
@@ -546,7 +548,6 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -2150,7 +2151,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     use crate::{PyV, PyVAlias};

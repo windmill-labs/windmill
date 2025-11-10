@@ -3,6 +3,8 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
+#[cfg(feature = "enterprise")]
+use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
@@ -528,7 +530,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {
