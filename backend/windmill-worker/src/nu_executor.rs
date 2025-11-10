@@ -283,6 +283,9 @@ async fn run<'a>(
         )
         .await;
 
+        // let plugin_registry = format!("{job_dir}/plugin-registry");
+        // File::create(&plugin_registry).await?;
+        //
         let nu_executable = if cfg!(windows) {
             "nu"
         } else {
@@ -298,6 +301,16 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
+            // TODO(v1):
+            // "--plugins",
+            // &format!(
+            //     "[{}]",
+            //     plugins
+            //         .into_iter()
+            //         .map(|pl| format!("{NU_CACHE_DIR}/plugins/bin/nu_plugin_{pl}"))
+            //         .collect_vec()
+            //         .join(",")
+            // ),
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
