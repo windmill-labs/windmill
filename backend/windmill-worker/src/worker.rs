@@ -853,7 +853,7 @@ pub fn start_interactive_worker_shell(
                                     if let Err(err) =
                                         job_completed_tx.send_job(jc.clone(), true).await
                                     {
-                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref().unwrap_err(), err)
+                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref(), err)
                                     }
                                     Ok(None)
                                 }
@@ -886,7 +886,7 @@ pub fn start_interactive_worker_shell(
                             token,
                             precomputed_agent_info: precomputed_bundle,
                         } = extract_job_and_perms(job, &conn).await;
-                        
+
                         let authed_client = AuthedClient::new(
                             base_internal_url.to_owned(),
                             job.workspace_id.clone(),
@@ -895,7 +895,7 @@ pub fn start_interactive_worker_shell(
                         );
 
                         let arc_job = Arc::new(job);
-                        
+
                         let _ = handle_queued_job(
                             arc_job.clone(),
                             raw_code,
@@ -1699,7 +1699,7 @@ pub async fn run_worker(
                                     if let Err(err) =
                                         job_completed_tx.send_job(jc.clone(), true).await
                                     {
-                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref().clone().unwrap_err(),  err)
+                                        tracing::error!("An error occurred while sending job completed ({:#?}): {:#?}", e.as_ref(),  err)
                                     }
                                     Ok(None)
                                 }

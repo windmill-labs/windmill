@@ -2459,16 +2459,12 @@ pub struct PulledJobResult {
     pub error_while_preprocessing: Option<serde_json::Value>
 }
 
-// TODO: Add proper implementation
 #[derive(Debug)]
 pub enum PulledJobResultToJobErr {
     MissingConcurrencyKey(JobCompleted),
     ErrorWhilePreprocessing(JobCompleted),
 }
 
-// impl Debug for PulledJobResultToJobsErr {
-    
-// }
 
 impl PulledJobResult {
     pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
