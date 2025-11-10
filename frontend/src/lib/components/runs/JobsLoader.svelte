@@ -336,6 +336,7 @@
 				// to get enough data for the concurrency graph
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
+				computeCompletedJobs()
 				loading = false
 			})
 		} else {

@@ -714,7 +714,6 @@
 	async function loadExtra() {
 		if (jobsLoader) {
 			lastFetchWentToEnd = await jobsLoader.loadExtraJobs()
-			console.log(lastFetchWentToEnd)
 		}
 	}
 
