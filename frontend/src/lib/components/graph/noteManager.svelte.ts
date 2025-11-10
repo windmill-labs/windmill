@@ -2,9 +2,12 @@ import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import type { NoteColor } from './noteColors'
 import { calculateNodesBounds } from './util'
+import { cacheTextHeight } from './groupNoteSpacing'
 
-type NodeDep = { id: string; parentIds?: string[]; offset?: number }
-type NodePos = { position: { x: number; y: number } }
+export type NodePosition = {
+	id: string
+	position: { x: number; y: number }
+}
 
 /**
  * Utility class for managing flow notes including regular and group notes
@@ -137,42 +140,6 @@ export class NoteManager {
 	}
 
 	/**
-	 * Helper function to determine if a node needs additional spacing above it for group notes.
-	 * Returns the height needed above the node (text height + padding).
-	 */
-	getGroupNoteHeightForNode(
-		notes: FlowNote[],
-		nodeId: string,
-		layoutedNodes: (NodeDep & NodePos)[],
-		noteTextHeights: Record<string, number>
-	): number {
-		const PADDING = 20 // Fixed padding above and below the note text
-
-		for (const note of notes) {
-			if (note.type === 'group' && note.contained_node_ids?.includes(nodeId)) {
-				// Find the topmost node in this group by Y position
-				const containedNodes = layoutedNodes.filter((node) =>
-					note.contained_node_ids?.includes(node.id)
-				)
-
-				if (containedNodes.length > 0) {
-					const topmostNode = containedNodes.reduce((topMost, node) =>
-						node.position.y < topMost.position.y ? node : topMost
-					)
-
-					// If this is the topmost node in the group, return the needed height
-					if (topmostNode.id === nodeId) {
-						// Use actual text height if available, otherwise default to 60
-						const textHeight = noteTextHeights[note.id] || 60
-						return textHeight + PADDING
-					}
-				}
-			}
-		}
-		return 0
-	}
-
-	/**
 	 * Create common data object for note nodes
 	 */
 	private createNoteData(
@@ -210,6 +177,8 @@ export class NoteManager {
 			},
 			onTextHeightChange: (textHeight: number) => {
 				onTextHeightChange(note.id, textHeight)
+				// Cache the text height for improved performance
+				cacheTextHeight(note.id, note.text, textHeight)
 			}
 		}
 	}

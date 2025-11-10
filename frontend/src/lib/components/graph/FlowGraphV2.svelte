@@ -71,6 +71,7 @@
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
+	import { computeGroupNoteSpacing } from './groupNoteSpacing'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -318,7 +319,7 @@
 		}
 
 		const yOffset = insertable ? 100 : 0
-		const initialNodes = dag.descendants().map((des) => ({
+		return dag.descendants().map((des) => ({
 			id: des.data.id,
 			position: {
 				x: des.x
@@ -334,45 +335,6 @@
 				y: (des.y || 0) + yOffset
 			}
 		}))
-
-		// Apply group note spacing adjustments
-		// First, collect all nodes that need spacing above them
-		const spacingMap = new Map<string, number>()
-		for (const node of initialNodes) {
-			const groupNoteHeight = noteManager.getGroupNoteHeightForNode(
-				notes ?? [],
-				node.id,
-				initialNodes,
-				noteTextHeights
-			)
-			if (groupNoteHeight > 0) {
-				spacingMap.set(node.id, groupNoteHeight)
-			}
-		}
-
-		// Apply spacing - move nodes down by the cumulative spacing above them
-		const adjustedNodes = initialNodes.map((node) => {
-			let totalSpacingAbove = 0
-
-			// Calculate total spacing needed above this node from all group notes above it
-			for (const [spacingNodeId, spacing] of spacingMap) {
-				const spacingNode = initialNodes.find((n) => n.id === spacingNodeId)
-				if (spacingNode && spacingNode.position.y <= node.position.y) {
-					totalSpacingAbove += spacing
-				}
-			}
-
-			return {
-				...node,
-				position: {
-					...node.position,
-					y: node.position.y + totalSpacingAbove
-				}
-			}
-		})
-
-		lastNodes = [nodes, adjustedNodes]
-		return adjustedNodes
 	}
 
 	let eventHandler = {
@@ -468,7 +430,7 @@
 		actualSelectionManager.handleKeyDown(event, nodes)
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyUp(_event: KeyboardEvent) {
 		// Keep for potential future use
 	}
 
@@ -506,6 +468,17 @@
 			}))
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
+
+		// Apply group note spacing adjustments
+		const groupNoteSpacingResult = computeGroupNoteSpacing(
+			newNodes.map((n) => ({ id: n.id, position: n.position })),
+			notes ?? [],
+			noteTextHeights
+		)
+		newNodes = newNodes.map((n) => ({
+			...n,
+			position: groupNoteSpacingResult.newNodePositions[n.id] || n.position
+		}))
 
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
@@ -720,7 +693,6 @@
 	}
 
 	$inspect('dbg notes & nodes', notes, nodes)
-	$inspect('dbg noteTextHeights', noteTextHeights)
 </script>
 
 {#if insertable}
