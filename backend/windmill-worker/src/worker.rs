@@ -802,7 +802,6 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
-// TODO: Test
 pub fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
@@ -1626,7 +1625,7 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(error_to_value(&e));
+                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
                             }
                         }
 

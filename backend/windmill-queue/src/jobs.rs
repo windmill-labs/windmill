@@ -2456,7 +2456,7 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
-    pub error_while_preprocessing: Option<serde_json::Value>
+    pub error_while_preprocessing: Option<String>
 }
 
 #[derive(Debug)]
@@ -2493,7 +2493,10 @@ impl PulledJobResult {
                     preprocessed_args: None,
                     job: MiniCompletedJob::from(job.job),
                     success: false,
-                    result: Arc::new(windmill_common::worker::to_raw_value(&e)),
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "Pulled job preprocessing error",
+                        "message": e
+                    }))),
                     result_columns: None,
                     mem_peak: 0,
                     cached_res_path: None,
