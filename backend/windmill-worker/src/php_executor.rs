@@ -20,7 +20,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
     NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
@@ -325,8 +325,7 @@ try {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &*PHP_PATH };
-        start_child_process(php_cmd, executable, false).await?
+        start_child_process(php_cmd, &*PHP_PATH, false).await?
     };
 
     handle_child(

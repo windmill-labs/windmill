@@ -27,7 +27,7 @@ use crate::{
         read_file_content, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
     TZ_ENV,
 };
@@ -572,8 +572,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { POWERSHELL_PATH.as_str() };
-        start_child_process(cmd, executable, false).await?
+        start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?
     };
 
     handle_child(

@@ -26,7 +26,7 @@ use crate::{
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, JAVA_CACHE_DIR,
+    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
     JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
@@ -705,8 +705,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { java_executable };
-        start_child_process(cmd, executable, false).await?
+        start_child_process(cmd, java_executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

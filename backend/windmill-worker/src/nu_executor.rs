@@ -16,7 +16,7 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, NSJAIL_PATH, PATH_ENV,
+    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
@@ -324,8 +324,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { nu_executable };
-        start_child_process(cmd, executable, false).await?
+        start_child_process(cmd, nu_executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

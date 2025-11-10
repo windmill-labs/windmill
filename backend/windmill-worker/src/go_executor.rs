@@ -23,7 +23,7 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
     NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -407,8 +407,7 @@ func Run(req Req) (interface{{}}, error){{
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &compiled_executable_name };
-        start_child_process(run_go, executable, false).await?
+        start_child_process(run_go, &compiled_executable_name, false).await?
     };
     let handle_result = handle_child(
         &job.id,

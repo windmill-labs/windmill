@@ -22,7 +22,7 @@ use crate::{
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
     NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::{
@@ -1479,9 +1479,7 @@ try {{
             bun_cmd
         };
 
-        let executable = if *ENABLE_UNSHARE_PID {
-            "unshare"
-        } else if annotation.nodejs {
+        let executable = if annotation.nodejs {
             &*NODE_BIN_PATH
         } else {
             &*BUN_PATH

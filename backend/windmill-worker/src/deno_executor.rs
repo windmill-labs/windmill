@@ -11,7 +11,7 @@ use crate::{
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, ENABLE_UNSHARE_PID, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -420,8 +420,7 @@ try {{
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { DENO_PATH.as_str() };
-        start_child_process(deno_cmd, executable, false).await?
+        start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);

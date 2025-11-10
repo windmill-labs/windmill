@@ -39,7 +39,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -215,8 +215,7 @@ exit $exit_status
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { BIN_BASH.as_str() };
-        start_child_process(bash_cmd, executable, false).await?
+        start_child_process(bash_cmd, BIN_BASH.as_str(), false).await?
     };
     handle_child(
         &job.id,

@@ -28,7 +28,7 @@ use crate::{
     },
     handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
@@ -859,8 +859,7 @@ mount {{
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { ruby_executable };
-        start_child_process(cmd, executable, false).await?
+        start_child_process(cmd, ruby_executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

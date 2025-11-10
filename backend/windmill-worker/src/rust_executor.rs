@@ -23,7 +23,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
     TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -587,8 +587,7 @@ pub async fn handle_rust_job(
             run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { compiled_executable_name };
-        start_child_process(run_rust, executable, false).await?
+        start_child_process(run_rust, compiled_executable_name, false).await?
     };
     handle_child(
         &job.id,

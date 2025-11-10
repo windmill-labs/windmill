@@ -34,7 +34,7 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    DISABLE_NSJAIL, DISABLE_NUSER, ENABLE_UNSHARE_PID, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, PY_INSTALL_DIR, PyVAlias, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -1261,12 +1261,7 @@ fi
         #[cfg(windows)]
         ansible_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
 
-        let executable = if *ENABLE_UNSHARE_PID {
-            "unshare"
-        } else {
-            ANSIBLE_PLAYBOOK_PATH.as_str()
-        };
-        start_child_process(ansible_cmd, executable, false).await?
+        start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str(), false).await?
     };
 
     handle_child(

@@ -31,7 +31,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process,
     },
     handle_child::handle_child,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, ENABLE_UNSHARE_PID, HOME_ENV,
+    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV,
     NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
@@ -629,8 +629,7 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        let executable = if *ENABLE_UNSHARE_PID { "unshare" } else { &compiled_executable_name };
-        start_child_process(run_csharp, executable, true).await?
+        start_child_process(run_csharp, &compiled_executable_name, true).await?
     };
 
     handle_child(
