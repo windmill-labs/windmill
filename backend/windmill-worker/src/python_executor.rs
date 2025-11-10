@@ -840,7 +840,6 @@ mount {{
         let mut python_cmd = build_command_with_isolation(
             &python_path,
             &args,
-            enable_isolation,
         );
         python_cmd
             .current_dir(job_dir)

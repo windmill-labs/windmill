@@ -283,7 +283,6 @@ async fn run<'a>(
         )
         .await;
 
-
         let nu_executable = if cfg!(windows) {
             "nu"
         } else {

@@ -47,6 +47,7 @@ services:
       - MODE=worker
       - WORKER_GROUP=default
       - METRICS_ADDR=1
+      - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy

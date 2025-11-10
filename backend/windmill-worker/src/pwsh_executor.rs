@@ -505,7 +505,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-
         let cmd_args;
 
         #[cfg(unix)]

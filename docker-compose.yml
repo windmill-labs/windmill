@@ -64,6 +64,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
+      - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -95,6 +96,7 @@ services:
       - WORKER_GROUP=native
       - NUM_WORKERS=8
       - SLEEP_QUEUE=200
+      - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -117,6 +119,7 @@ services:
   #     - DATABASE_URL=${DATABASE_URL}
   #     - MODE=worker
   #     - WORKER_GROUP=reports
+  #     - ENABLE_UNSHARE_PID=true
   #   depends_on:
   #     db:
   #       condition: service_healthy

@@ -580,8 +580,6 @@ pub async fn handle_csharp_job(
 
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
-
-
         #[cfg(unix)]
         let compiled_executable_name = "./Main".to_string();
         #[cfg(windows)]

@@ -824,7 +824,6 @@ mount {{
         )
         .await;
 
-
         let ruby_executable = if cfg!(windows) {
             "ruby.exe"
         } else {

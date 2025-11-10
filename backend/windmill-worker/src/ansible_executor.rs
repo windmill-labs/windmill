@@ -1240,7 +1240,7 @@ fi
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let ansible_args: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+        let ansible_args: Vec<&str> = cmd_args.iter().map(|s| s.as_ref()).collect();
         let mut ansible_cmd = build_command_with_isolation(
             ANSIBLE_PLAYBOOK_PATH.as_str(),
             &ansible_args,

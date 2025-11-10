@@ -1428,7 +1428,6 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-
         let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
             let args = vec!["--preserve-symlinks", script_path.as_str()];

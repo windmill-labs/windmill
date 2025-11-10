@@ -653,7 +653,6 @@ async fn run<'a>(
         )
         .await;
 
-
         let java_executable = if cfg!(windows) {
             "java"
         } else {

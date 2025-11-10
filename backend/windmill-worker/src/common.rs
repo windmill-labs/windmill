@@ -635,27 +635,16 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
-/// Helper function to build a Command with optional PID namespace isolation via unshare.
-/// Automatically detects whether to enable isolation based on ENABLE_UNSHARE_PID flag.
-///
-/// # Panics
-/// Panics if ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. This should never happen
-/// because the worker checks at startup that unshare is available when ENABLE_UNSHARE_PID is set.
 pub fn build_command_with_isolation(
     program: &str,
     args: &[&str],
 ) -> Command {
     use tokio::process::Command;
 
-    let enable_isolation = *crate::ENABLE_UNSHARE_PID;
-
-    if enable_isolation {
-        // Check if unshare is available on the system
+    if *crate::ENABLE_UNSHARE_PID {
         if let Some(unshare_path) = crate::UNSHARE_PATH.as_ref() {
-            // Wrap with unshare for PID namespace isolation using configurable flags
             let mut cmd = Command::new(unshare_path);
 
-            // Parse and apply the isolation flags from UNSHARE_ISOLATION_FLAGS
             let flags = crate::UNSHARE_ISOLATION_FLAGS.as_str();
             for flag in flags.split_whitespace() {
                 cmd.arg(flag);
@@ -666,16 +655,12 @@ pub fn build_command_with_isolation(
             cmd.args(args);
             cmd
         } else {
-            // This should be unreachable because we check at worker startup that
-            // if ENABLE_UNSHARE_PID is true, UNSHARE_PATH must be available.
-            // If we reach here, it's a bug.
             panic!(
-                "BUG: build_command_with_isolation called but UNSHARE_PATH is None. \
+                "BUG: ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. \
                 This should have been caught at worker startup."
             );
         }
     } else {
-        // Direct execution without isolation
         let mut cmd = Command::new(program);
         cmd.args(args);
         cmd
