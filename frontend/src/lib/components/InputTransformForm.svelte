@@ -3,7 +3,8 @@
 		'flow_input',
 		'results',
 		'resource',
-		'variable'
+		'variable',
+		'flow_env'
 	])
 </script>
 
@@ -67,6 +68,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		s3StorageConfigured?: boolean
 	}
 
 	let {
@@ -91,7 +93,8 @@
 		editor = $bindable(undefined),
 		otherArgs = {},
 		helperScript = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		s3StorageConfigured = true
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -798,6 +801,7 @@
 								bind:title={schema.properties[argName].title}
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
+								{s3StorageConfigured}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,

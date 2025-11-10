@@ -106,7 +106,7 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'flex items-center flex-wrap',
+		'flex items-center flex-wrap relative',
 		inputBaseClass,
 		inputSizeClasses[size],
 		inputBorderClass({ forceFocus: open && !disabled }),

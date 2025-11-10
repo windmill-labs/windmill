@@ -30,6 +30,12 @@
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import {
+		canHavePreprocessor,
+		canHaveTrigger,
+		canHaveApproval,
+		canHaveFailure
+	} from '$lib/script_helpers'
 
 	const dispatch = createEventDispatcher()
 
@@ -94,17 +100,17 @@
 		kind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (kind == 'trigger') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveTrigger(lang as SupportedLanguage)
 		} else if (kind == 'script') {
 			return true
 		} else if (kind == 'approval') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHaveApproval(lang as SupportedLanguage)
 		} else if (kind == 'flow') {
 			return false
 		} else if (kind == 'preprocessor') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHavePreprocessor(lang as SupportedLanguage)
 		} else if (kind == 'failure') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveFailure(lang as SupportedLanguage)
 		}
 	}
 

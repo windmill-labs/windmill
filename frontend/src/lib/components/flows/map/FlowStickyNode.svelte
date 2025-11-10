@@ -66,7 +66,7 @@
 				onClick={() => ($selectedId = 'constants')}
 			/>
 			{#snippet text()}
-				Static inputs
+				Environment Variables
 			{/snippet}
 		</Popover>
 	{/if}
