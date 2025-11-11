@@ -1,4 +1,4 @@
-import type { FlowNote, Job, OpenFlow } from '$lib/gen'
+import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
