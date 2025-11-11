@@ -496,7 +496,8 @@
 				noteTextHeights,
 				(noteId: string, height: number) => {
 					noteTextHeights[noteId] = height
-				}
+				},
+				editMode
 			)
 		]
 		edges = [
@@ -745,25 +746,28 @@
 				{#if noteMode}
 					<NoteTool {exitNoteMode} />
 				{/if}
-				<NodeContextMenu
-					selectedNodeIds={actualSelectionManager.selectedIds.filter(
-						(id) =>
-							!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
-					)}
-				>
-					<SelectionBoundingBox
-						selectedNodes={nodes.filter((node) =>
-							actualSelectionManager.selectedIds.includes(node.id)
-						)}
-					/>
-				</NodeContextMenu>
 
-				<SelectionTool
-					selectionMode={actualSelectionManager.mode}
-					onNodesSelected={(nodeIds, addToExisting) =>
-						actualSelectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
-					{nodes}
-				/>
+				{#if multiSelectEnabled}
+					<NodeContextMenu
+						selectedNodeIds={actualSelectionManager.selectedIds.filter(
+							(id) =>
+								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
+						)}
+					>
+						<SelectionBoundingBox
+							selectedNodes={nodes.filter((node) =>
+								actualSelectionManager.selectedIds.includes(node.id)
+							)}
+						/>
+					</NodeContextMenu>
+
+					<SelectionTool
+						selectionMode={actualSelectionManager.mode}
+						onNodesSelected={(nodeIds, addToExisting) =>
+							actualSelectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
+						{nodes}
+					/>
+				{/if}
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">

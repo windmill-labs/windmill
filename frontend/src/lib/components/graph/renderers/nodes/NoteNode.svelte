@@ -8,6 +8,8 @@
 	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	interface Props {
 		data: {
@@ -16,12 +18,8 @@
 			color: NoteColor
 			locked?: boolean
 			isGroupNote?: boolean
-			// Callback props for view mode (when no NoteEditor context)
-			onUpdate?: (text: string) => void
-			onDelete?: () => void
-			onColorChange?: (color: NoteColor) => void
-			onSizeChange?: (size: { width: number; height: number }) => void
-			onLockToggle?: (locked: boolean) => void
+			editMode?: boolean
+			// Callback for layout calculations (needed in both edit and view modes)
 			onTextHeightChange?: (height: number) => void
 		}
 		selected?: boolean
@@ -32,22 +30,28 @@
 
 	// Get NoteEditor context for edit mode
 	const noteEditorContext = getNoteEditorContext()
-	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor)
+	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor && data.editMode)
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	const note = $derived(
+		flowStore?.val.value?.notes?.find((note) => note.id === data.noteId) ?? undefined
+	)
 
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
-	let textContent = $state(data.text ?? '')
 	let containerHeight = $state(0)
+
+	// Derived values. If in edit mode, use the note text from the flow store. If not, use the data text.
+	let textContent = $derived(note?.text ?? data.text ?? '')
+	const color = $derived((note?.color as NoteColor) ?? data.color ?? DEFAULT_NOTE_COLOR)
+	const locked = $derived(note?.locked ?? data.locked ?? false)
 
 	function handleTextSave() {
 		// Only update parent when done editing
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.updateText(data.noteId, textContent)
-		} else {
-			// Fallback to callback in view mode
-			data.onUpdate?.(textContent)
 		}
 	}
 
@@ -57,9 +61,6 @@
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.deleteNote(data.noteId)
-		} else {
-			// Fallback to callback in view mode
-			data.onDelete?.()
 		}
 	}
 
@@ -67,9 +68,6 @@
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.updateColor(data.noteId, color)
-		} else {
-			// Fallback to callback in view mode
-			data.onColorChange?.(color)
 		}
 	}
 
@@ -78,22 +76,19 @@
 		event?.stopPropagation?.()
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 			// Use NoteEditor context in edit mode
-			noteEditorContext.noteEditor.updateLock(data.noteId, !data.locked)
-		} else {
-			// Fallback to callback in view mode
-			data.onLockToggle?.(!data.locked)
+			noteEditorContext.noteEditor.updateLock(data.noteId, !locked)
 		}
 	}
 
 	// Get color configuration for current color
-	const colorConfig = $derived(NOTE_COLORS[data.color] || NOTE_COLORS[DEFAULT_NOTE_COLOR])
+	const colorConfig = $derived(NOTE_COLORS[color])
 
 	function handleDoubleClick(event: Event) {
 		event.preventDefault()
 		event.stopPropagation()
 
 		// Don't allow editing if note is locked or edit mode is not available
-		if (data.locked || !isEditModeAvailable) {
+		if (locked || !isEditModeAvailable) {
 			return
 		}
 
@@ -132,6 +127,9 @@
 	})
 
 	let colorPickerIsOpen = $state(false)
+
+	$inspect('dbg note', note)
+	$inspect('dbg textContent', textContent)
 </script>
 
 <div
@@ -170,24 +168,24 @@
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
-					title={data.locked ? 'Unlock note' : 'Lock note'}
-					aria-label={data.locked ? 'Unlock note' : 'Lock note'}
-					startIcon={{ icon: data.locked ? Lock : Unlock }}
+					title={locked ? 'Unlock note' : 'Lock note'}
+					aria-label={locked ? 'Unlock note' : 'Lock note'}
+					startIcon={{ icon: locked ? Lock : Unlock }}
 					onClick={handleLockToggle}
 					iconOnly
 				/>
 
 				<!-- Color picker -->
-				{#if !data.locked}
+				{#if !locked}
 					<NoteColorPicker
-						selectedColor={data.color}
+						selectedColor={color}
 						onColorChange={handleColorChange}
 						bind:isOpen={colorPickerIsOpen}
 					/>
 				{/if}
 
 				<!-- Delete button -->
-				{#if !data.locked}
+				{#if !locked}
 					<Button
 						variant="subtle"
 						unifiedSize="sm"
@@ -210,13 +208,13 @@
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
 			>
-				{data.locked
+				{locked
 					? 'Note is locked'
 					: isEditModeAvailable
 						? 'Double click to edit'
 						: 'View only mode'}
 			</div>
-		{:else if !data.locked && isEditModeAvailable}
+		{:else if !locked && isEditModeAvailable}
 			<div
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
@@ -256,14 +254,14 @@
 				ondblclick={handleDoubleClick}
 				bind:clientHeight={containerHeight}
 			>
-				{#if data.text}
+				{#if textContent}
 					<div
 						class={twMerge(
 							'w-full text-xs rounded-md break-words overflow-hidden',
 							colorConfig.text
 						)}
 					>
-						<GfmMarkdown md={data.text} noPadding />
+						<GfmMarkdown md={textContent} noPadding />
 					</div>
 				{:else}
 					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>
@@ -275,7 +273,7 @@
 	</div>
 
 	<!-- Node resizer - only visible when selected and not locked and edit mode is available -->
-	{#if !data.locked && isEditModeAvailable}
+	{#if !locked && isEditModeAvailable}
 		<NodeResizer
 			isVisible={selected && !dragging}
 			minWidth={200}
@@ -289,9 +287,6 @@
 					if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 						// Use NoteEditor context in edit mode
 						noteEditorContext.noteEditor.updateSize(data.noteId, size)
-					} else {
-						// Fallback to callback in view mode
-						data.onSizeChange?.(size)
 					}
 				}
 			}}

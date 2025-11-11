@@ -162,7 +162,8 @@ export class NoteManager {
 	private createNoteData(
 		note: FlowNote,
 		onTextHeightChange: (noteId: string, height: number) => void,
-		isGroupNote: boolean
+		isGroupNote: boolean,
+		editMode: boolean
 	) {
 		return {
 			noteId: note.id,
@@ -170,6 +171,7 @@ export class NoteManager {
 			color: note.color,
 			locked: note.locked || false,
 			isGroupNote,
+			editMode,
 			...(isGroupNote && { containedNodeIds: note.contained_node_ids || [] }),
 			// Note: Edit callbacks will be added by NoteNode when NoteEditor context is available
 			onTextHeightChange: (textHeight: number) => {
@@ -187,7 +189,8 @@ export class NoteManager {
 		notes: FlowNote[],
 		currentNodes: Node[],
 		textHeights: Record<string, number>,
-		onTextHeightChange: (noteId: string, height: number) => void
+		onTextHeightChange: (noteId: string, height: number) => void,
+		editMode: boolean = false
 	): Node[] {
 		return notes.map((note) => {
 			const isGroupNote = note.type === 'group'
@@ -201,7 +204,7 @@ export class NoteManager {
 				id: note.id,
 				type: 'note',
 				position,
-				data: this.createNoteData(note, onTextHeightChange, isGroupNote),
+				data: this.createNoteData(note, onTextHeightChange, isGroupNote, editMode),
 				style: `width: ${size.width}px; height: ${size.height}px;`,
 				width: size.width,
 				height: size.height,
