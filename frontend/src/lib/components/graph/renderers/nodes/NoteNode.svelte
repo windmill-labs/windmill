@@ -116,7 +116,6 @@
 	let previousContainerHeight = $state(0)
 	$effect(() => {
 		if (containerHeight > 0 && containerHeight !== previousContainerHeight) {
-			console.log('dbg containerHeight', containerHeight)
 			previousContainerHeight = containerHeight
 			data.onTextHeightChange?.(containerHeight)
 		}
