@@ -12,9 +12,9 @@ use tokio::{
     process::Command,
     task::JoinHandle,
 };
-use uuid::Uuid;
-use windmill_common::cache::FlowData;
 use windmill_common::error::Error;
+#[cfg(feature = "enterprise")]
+use windmill_common::flows::FlowNodeId;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::KillpillSender;
@@ -263,7 +263,9 @@ type DedicatedWorker = (String, Sender<DedicatedWorkerJob>, Option<JoinHandle<()
 #[async_recursion]
 #[cfg(feature = "enterprise")]
 async fn spawn_dedicated_workers_for_flow(
-    modules: &Vec<FlowModule>,
+    mut modules: Vec<FlowModule>,
+    failure_module: Option<&Box<FlowModule>>,
+    modules_node: Option<FlowNodeId>,
     w_id: &str,
     path: &str,
     killpill_tx: KillpillSender,
@@ -274,9 +276,27 @@ async fn spawn_dedicated_workers_for_flow(
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
     flow_job_id: Option<&str>,
+    parent_module_id: Option<String>,
 ) -> Vec<DedicatedWorker> {
+    use crate::worker_flow::is_simple_modules;
+
     let mut workers = vec![];
     let mut script_path_to_worker: HashMap<String, Sender<DedicatedWorkerJob>> = HashMap::new();
+
+    if let Some(modules_node) = modules_node {
+        modules = cache::flow::fetch_flow(db, modules_node)
+            .await
+            .map(|data| data.value().modules.clone())
+            .unwrap();
+    }
+
+    let simple_parent_module_id =
+        if parent_module_id.is_some() && is_simple_modules(&modules, failure_module) {
+            parent_module_id
+        } else {
+            None
+        };
+
     for module in modules.iter() {
         let value = module.get_value();
         if let Ok(value) = value {
@@ -302,7 +322,11 @@ async fn spawn_dedicated_workers_for_flow(
                             base_internal_url,
                             worker_name,
                             job_completed_tx,
-                            Some(module.id.clone()),
+                            Some(
+                                simple_parent_module_id
+                                    .clone()
+                                    .unwrap_or_else(|| module.id.clone()),
+                            ),
                             flow_job_id,
                         )
                         .await
@@ -312,15 +336,11 @@ async fn spawn_dedicated_workers_for_flow(
                         }
                     }
                 }
-                FlowModuleValue::ForloopFlow { mut modules, modules_node, .. } => {
-                    use windmill_common::flows::resolve_modules;
-
-                    resolve_modules(db, w_id, &mut modules, modules_node, true)
-                        .await
-                        .ok();
-
+                FlowModuleValue::ForloopFlow { modules, modules_node, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
-                        &modules,
+                        modules,
+                        failure_module,
+                        modules_node,
                         w_id,
                         path,
                         killpill_tx.clone(),
@@ -331,13 +351,16 @@ async fn spawn_dedicated_workers_for_flow(
                         worker_name,
                         job_completed_tx,
                         flow_job_id,
+                        Some(module.id.clone()),
                     )
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::WhileloopFlow { modules, .. } => {
+                FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
-                        &modules,
+                        modules,
+                        failure_module,
+                        modules_node,
                         w_id,
                         path,
                         killpill_tx.clone(),
@@ -348,18 +371,21 @@ async fn spawn_dedicated_workers_for_flow(
                         worker_name,
                         job_completed_tx,
                         flow_job_id,
+                        Some(module.id.clone()),
                     )
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::BranchOne { branches, default, .. } => {
-                    for modules in branches
+                FlowModuleValue::BranchOne { branches, default, default_node, .. } => {
+                    for (modules, modules_node) in branches
                         .into_iter()
-                        .map(|x| x.modules)
-                        .chain(std::iter::once(default))
+                        .map(|x| (x.modules, x.modules_node))
+                        .chain(std::iter::once((default, default_node)))
                     {
                         let w = spawn_dedicated_workers_for_flow(
-                            &modules,
+                            modules,
+                            failure_module,
+                            modules_node,
                             w_id,
                             path,
                             killpill_tx.clone(),
@@ -370,6 +396,7 @@ async fn spawn_dedicated_workers_for_flow(
                             worker_name,
                             job_completed_tx,
                             flow_job_id,
+                            None,
                         )
                         .await;
                         workers.extend(w);
@@ -378,7 +405,9 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::BranchAll { branches, .. } => {
                     for branch in branches {
                         let w = spawn_dedicated_workers_for_flow(
-                            &branch.modules,
+                            branch.modules,
+                            failure_module,
+                            branch.modules_node,
                             w_id,
                             path,
                             killpill_tx.clone(),
@@ -389,6 +418,7 @@ async fn spawn_dedicated_workers_for_flow(
                             worker_name,
                             job_completed_tx,
                             flow_job_id,
+                            None,
                         )
                         .await;
                         workers.extend(w);
@@ -410,7 +440,11 @@ async fn spawn_dedicated_workers_for_flow(
                         base_internal_url,
                         worker_name,
                         job_completed_tx,
-                        Some(module.id.clone()),
+                        Some(
+                            simple_parent_module_id
+                                .clone()
+                                .unwrap_or_else(|| module.id.clone()),
+                        ),
                         flow_job_id,
                     )
                     .await
@@ -443,7 +477,11 @@ async fn spawn_dedicated_workers_for_flow(
                                 base_internal_url,
                                 worker_name,
                                 job_completed_tx,
-                                Some(module.id.clone()),
+                                Some(
+                                    simple_parent_module_id
+                                        .clone()
+                                        .unwrap_or_else(|| module.id.clone()),
+                                ),
                                 flow_job_id,
                             )
                             .await
@@ -469,9 +507,10 @@ async fn spawn_dedicated_workers_for_flow(
     workers
 }
 
-pub async fn spawn_flow_job_runners(
+pub async fn spawn_flow_module_runners(
     job: &MiniPulledJob,
-    flow: &FlowValue,
+    module: &FlowModule,
+    failure_module: Option<&Box<FlowModule>>,
     killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
@@ -479,13 +518,14 @@ pub async fn spawn_flow_job_runners(
     base_internal_url: &str,
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
-    flow_job_id: &str,
 ) -> (
     HashMap<String, Sender<DedicatedWorkerJob>>,
     Vec<JoinHandle<()>>,
 ) {
     let workers = spawn_dedicated_workers_for_flow(
-        &flow.modules,
+        vec![module.clone()],
+        failure_module,
+        None,
         &job.workspace_id,
         job.runnable_path(),
         killpill_tx.clone(),
@@ -495,7 +535,8 @@ pub async fn spawn_flow_job_runners(
         base_internal_url,
         &worker_name,
         &job_completed_tx,
-        Some(flow_job_id),
+        Some(job.id.to_string().as_str()),
+        None,
     )
     .await;
 
@@ -552,7 +593,9 @@ pub async fn create_dedicated_worker_map(
                     });
                     if let Ok(flow) = value {
                         let workers = spawn_dedicated_workers_for_flow(
-                            &flow.modules,
+                            flow.modules,
+                            flow.failure_module.as_ref(),
+                            None,
                             &_wp.workspace_id,
                             &_wp.path,
                             killpill_tx.clone(),
@@ -562,6 +605,7 @@ pub async fn create_dedicated_worker_map(
                             base_internal_url,
                             &worker_name,
                             &job_completed_tx,
+                            None,
                             None,
                         )
                         .await;
@@ -644,7 +688,6 @@ async fn spawn_dedicated_worker(
         scripts::{ScriptHash, ScriptLang},
         utils::rd_string,
     };
-    use windmill_queue::MiniPulledJob;
 
     use crate::{build_envs, get_script_content_by_hash, ContentReqLangEnvs};
 

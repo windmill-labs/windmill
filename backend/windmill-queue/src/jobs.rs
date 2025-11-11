@@ -39,7 +39,6 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::lockfiles::is_generated_from_raw_requirements;
-use windmill_common::flows::Flow;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -5780,14 +5779,52 @@ pub struct DedicatedWorkerJob {
 pub struct FlowRunners {
     pub runners: HashMap<String, Sender<DedicatedWorkerJob>>,
     pub handles: Vec<JoinHandle<()>>,
+    pub job_id: Uuid,
 }
 
 impl Drop for FlowRunners {
     fn drop(&mut self) {
-        tracing::info!("dropping flow runners");
-        for handle in self.handles.iter() {
-            handle.abort();
-        }
+        let total_runners = self.handles.len();
+        tracing::info!("dropping {} flow runners for job {}", total_runners, self.job_id);
+
+        // First, drop all senders to signal workers to stop gracefully
+        self.runners.clear();
+
+        // Spawn a background task to wait with timeout and abort if needed
+        let handles = std::mem::take(&mut self.handles);
+        let job_id = self.job_id;
+
+        tokio::spawn(async move {
+            // Extract abort handles before consuming the join handles
+            let abort_handles: Vec<_> = handles.iter().map(|h| h.abort_handle()).collect();
+
+            // Wait up to 5 seconds for natural termination
+            let timeout_result = tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                futures::future::join_all(handles)
+            ).await;
+
+            match timeout_result {
+                Ok(_) => {
+                    tracing::info!("all {} flow runners for job {} terminated gracefully", total_runners, job_id);
+                }
+                Err(_) => {
+                    // Timeout reached, abort only the handles that haven't finished
+                    let mut aborted = 0;
+                    for abort_handle in abort_handles {
+                        if !abort_handle.is_finished() {
+                            abort_handle.abort();
+                            aborted += 1;
+                        }
+                    }
+                    let graceful = total_runners - aborted;
+                    tracing::warn!(
+                        "flow runners for job {}: {} terminated gracefully, {} aborted after 5s timeout",
+                        job_id, graceful, aborted
+                    );
+                }
+            }
+        });
     }
 }
 

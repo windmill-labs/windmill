@@ -111,7 +111,6 @@ use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
 use crate::common::StreamNotifier;
-use crate::dedicated_worker::spawn_flow_job_runners;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::handle_bash_job,
@@ -2596,27 +2595,6 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            // let flow_runners = if flow_data.flow.same_worker {
-            //     let (fake_killpill_tx, _) = KillpillSender::new(1);
-            //     let (new_flow_runners, new_flow_runner_handles) = spawn_flow_job_runners(
-            //         &job,
-            //         flow_data.clone(),
-            //         &fake_killpill_tx,
-            //         killpill_rx,
-            //         db,
-            //         worker_dir,
-            //         base_internal_url,
-            //         worker_name,
-            //         &job_completed_tx,
-            //     )
-            //     .await;
-
-            //     let flow_runners =
-            //         FlowRunners { runners: new_flow_runners, handles: new_flow_runner_handles };
-            //     Some(Arc::new(flow_runners))
-            // } else {
-            //     None
-            // };
             Box::pin(handle_flow(
                 job,
                 &flow_data,
@@ -2858,6 +2836,7 @@ pub async fn handle_queued_job(
             conn,
             Some(started.elapsed().as_millis() as i64),
             has_stream,
+            flow_runners,
         )
         .await
     }

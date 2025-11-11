@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
-use crate::dedicated_worker::spawn_flow_job_runners;
+use crate::dedicated_worker::spawn_flow_module_runners;
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -289,7 +289,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     has_triggered_error_handler: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
-    mut flow_runners: Option<Arc<FlowRunners>>,
+    flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     let mut has_triggered_error_handler = has_triggered_error_handler;
@@ -439,7 +439,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             args
         }));
 
-
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
             let args = args
                 .as_ref()
@@ -478,7 +477,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 _ => None,
                             };
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                       
+
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
@@ -747,7 +746,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
-
                         )
                         .await?;
                     }
@@ -919,12 +917,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             _ => {
                 // this case is when when not a parallel loops/branchall and not an in progress loop/branchall
-
-                if is_loop {
-                    // once we're out of the loop, we should discard the flow runners
-                    // TODO: adapt the behavior to handle nested loops inside optimized loops
-                    flow_runners = None;
-                }
 
                 if stop_early && is_loop {
                     // if we're stopping early inside a (non-parallel) loop, we don't want to bubble up the stop_early to the parent => we only want to break the loop (see conditions in match above)
@@ -3046,36 +3038,27 @@ async fn push_next_flow_job(
         }
     };
 
-    let flow_runners = match next_status {
-        NextStatus::NextLoopIteration { start_runners: true, .. } => {
-            let (fake_killpill_tx, killpill_rx) = KillpillSender::new(1);
-            let (new_flow_runners, new_flow_runner_handles) = spawn_flow_job_runners(
-                &flow_job,
-                &flow,
-                &fake_killpill_tx,
-                &killpill_rx,
-                db,
-                worker_dir,
-                &client.base_internal_url,
-                worker_name,
-                &job_completed_tx,
-                flow_job.id.to_string().as_str(),
-            )
-            .await;
+    let start_runners = matches!(
+        next_status,
+        NextStatus::NextLoopIteration { start_runners: true, .. }
+    );
 
-            let flow_runners =
-                FlowRunners { runners: new_flow_runners, handles: new_flow_runner_handles };
-            Some(Arc::new(flow_runners))
-        },
-        _ => flow_runners,
-    };
+    let do_not_pass_runners = matches!(next_status, NextStatus::NextStep { .. })
+        && flow_runners
+            .as_ref()
+            .is_some_and(|fr| fr.job_id == flow_job.id);
+
+    tracing::info!("do_not_pass_runners: {do_not_pass_runners}");
 
     // Also check `flow_job.same_worker` for [`JobKind::Flow`] jobs as it's no
     // more reflected to the flow value on push.
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    let continue_on_same_worker = (flow.same_worker || job_same_worker || flow_runners.is_some())
+    let continue_on_same_worker = (flow.same_worker
+        || job_same_worker
+        || start_runners
+        || (flow_runners.is_some() && !do_not_pass_runners))
         && module.suspend.is_none()
         && module.sleep.is_none();
 
@@ -3637,6 +3620,35 @@ async fn push_next_flow_job(
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
 
     if continue_on_same_worker {
+        let flow_runners = if start_runners {
+            tracing::info!("start flow runners for job: {}", first_uuid);
+            let (fake_killpill_tx, killpill_rx) = KillpillSender::new(1);
+            let (new_flow_runners, new_flow_runner_handles) = spawn_flow_module_runners(
+                &flow_job,
+                module,
+                flow.failure_module.as_ref(),
+                &fake_killpill_tx,
+                &killpill_rx,
+                db,
+                worker_dir,
+                &client.base_internal_url,
+                worker_name,
+                &job_completed_tx,
+            )
+            .await;
+
+            let flow_runners = FlowRunners {
+                runners: new_flow_runners,
+                handles: new_flow_runner_handles,
+                job_id: flow_job.id,
+            };
+            Some(Arc::new(flow_runners))
+        } else if !do_not_pass_runners {
+            flow_runners
+        } else {
+            None
+        };
+
         same_worker_tx
             .send(SameWorkerPayload { job_id: first_uuid, recoverable: true, flow_runners })
             .warn_after_seconds(3)

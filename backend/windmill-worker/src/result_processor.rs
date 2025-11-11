@@ -31,8 +31,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_mini_completed_job, CanceledBy, JobCompleted, MiniCompletedJob, MiniPulledJob,
-    ValidableJson, WrappedError, INIT_SCRIPT_TAG,
+    append_logs, get_mini_completed_job, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob,
+    MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -414,6 +414,7 @@ pub async fn process_result(
     conn: &Connection,
     duration: Option<i64>,
     has_stream: bool,
+    flow_runners: Option<Arc<FlowRunners>>,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -432,7 +433,7 @@ pub async fn process_result(
                     duration,
                     has_stream: Some(has_stream),
                     from_cache: None,
-                    flow_runners: None,
+                    flow_runners,
                     done_tx: None,
                 },
             )
