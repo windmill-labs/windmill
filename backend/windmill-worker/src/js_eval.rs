@@ -192,7 +192,7 @@ fn try_exact_property_access(
         let suffix = &expr[access_pattern_pos..];
         let maybe_key_name = if suffix.starts_with(DOT_PATTERN) {
             let key_name_pos = DOT_PATTERN.len();
-            Some(&expr[key_name_pos..])
+            Some(&suffix[key_name_pos..])
         } else if suffix.starts_with(START_BRACKET_PATTERN) {
             let key_name_pos = START_BRACKET_PATTERN.len();
             let suffix = &suffix[key_name_pos..];
