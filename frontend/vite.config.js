@@ -11,7 +11,7 @@ const version = JSON.parse(json)
 const config = {
 	server: {
 		https: process.env.HTTPS === 'true',
-		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz'],
+		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz', 'windmill.xyz'],
 		port: 3000,
 		proxy: {
 			'^/api/w/[^/]+/s3_proxy/.*': {
