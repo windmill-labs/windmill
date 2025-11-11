@@ -342,7 +342,7 @@
 		}
 
 		const yOffset = insertable ? 100 : 0
-		return dag.descendants().map((des) => ({
+		const newNodes = dag.descendants().map((des) => ({
 			id: des.data.id,
 			position: {
 				x: des.x
@@ -358,6 +358,9 @@
 				y: (des.y || 0) + yOffset + (nodeSpacingMap[des.data.id] ?? 0) / 2
 			}
 		}))
+
+		lastNodes = [nodes, newNodes]
+		return newNodes
 	}
 
 	let eventHandler = {

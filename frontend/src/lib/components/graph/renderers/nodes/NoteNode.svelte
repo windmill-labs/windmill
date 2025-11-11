@@ -41,13 +41,6 @@
 	const locked = $derived(data.locked ?? false)
 	const textForDisplay = $derived(data.text ?? '')
 
-	// Sync textContent with data.text when not in edit mode
-	$effect(() => {
-		if (!editMode) {
-			textContent = data.text ?? ''
-		}
-	})
-
 	function handleTextSave() {
 		// Only update when done editing
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
