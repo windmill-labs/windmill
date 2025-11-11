@@ -350,7 +350,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
             format!(
-                "dbname={} {} host={} {} {}",
+                "dbname={} {} host={} {} {} {}",
                 res.dbname,
                 res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
                 res.host,
@@ -358,6 +358,9 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
                     .map(|p| format!("password={}", p))
                     .unwrap_or_default(),
                 res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+                res.sslmode
+                    .map(|s| format!("sslmode={}", s))
+                    .unwrap_or_default(),
             )
         }
         #[cfg(feature = "mysql")]
