@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { useSvelteFlow, type XYPosition } from '@xyflow/svelte'
+	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { DEFAULT_NOTE_COLOR } from './noteColors'
 
 	interface Props {
-		onNoteAdded?: (note: any) => void
+		exitNoteMode?: () => void
 	}
 
-	let { onNoteAdded }: Props = $props()
+	let { exitNoteMode }: Props = $props()
+
+	// Get NoteEditor context for direct note creation
+	const noteEditorContext = getNoteEditorContext()
 
 	const { screenToFlowPosition, getViewport } = useSvelteFlow()
 
@@ -64,11 +69,20 @@
 			height: Math.abs(absoluteEndPosition.y - absoluteStartPosition.y) / zoom
 		}
 
-		// Create the actual note with the calculated size and position
-		onNoteAdded?.({
-			position,
-			size
-		})
+		// Create the actual note using NoteEditor context
+		if (noteEditorContext?.noteEditor) {
+			noteEditorContext.noteEditor.addNote({
+				text: '',
+				position,
+				size,
+				color: DEFAULT_NOTE_COLOR,
+				type: 'free',
+				locked: false
+			})
+		}
+
+		// Exit note mode after creating note
+		exitNoteMode?.()
 
 		// Reset state
 		isDrawing = false
@@ -107,7 +121,7 @@
 				startPosition = null
 			} else {
 				// Exit note mode
-				onNoteAdded?.(null)
+				exitNoteMode?.()
 			}
 		}
 	}}

@@ -1,6 +1,5 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
-import type { NoteColor } from './noteColors'
 import { calculateNodesBounds } from './util'
 
 export type NodePosition = {
@@ -32,95 +31,6 @@ export class NoteManager {
 
 	getCache(): Record<string, TextHeightCacheEntry> {
 		return this.#cache
-	}
-
-	/**
-	 * Add a new note from the note tool
-	 */
-	addNote(notes: FlowNote[], newNoteFromTool: any): FlowNote[] {
-		// Add the note to our separate notes array if a note was created
-		if (newNoteFromTool) {
-			const newNote: FlowNote = {
-				id: newNoteFromTool.id,
-				text: newNoteFromTool.data?.text || '',
-				position: newNoteFromTool.position,
-				size: { width: newNoteFromTool.width || 300, height: newNoteFromTool.height || 100 },
-				color: newNoteFromTool.data?.color || 'yellow',
-				type: 'free',
-				locked: false
-			}
-			return [...notes, newNote]
-		}
-		return notes
-	}
-
-	/**
-	 * Update note text
-	 */
-	updateText(notes: FlowNote[], noteId: string, text: string): FlowNote[] {
-		return notes.map((note) => (note.id === noteId ? { ...note, text } : note))
-	}
-
-	/**
-	 * Delete a note
-	 */
-	delete(notes: FlowNote[], noteId: string): FlowNote[] {
-		return notes.filter((note) => note.id !== noteId)
-	}
-
-	/**
-	 * Update note position
-	 */
-	updatePosition(
-		notes: FlowNote[],
-		noteId: string,
-		position: { x: number; y: number }
-	): FlowNote[] {
-		return notes.map((note) => (note.id === noteId ? { ...note, position } : note))
-	}
-
-	/**
-	 * Update note size
-	 */
-	updateSize(
-		notes: FlowNote[],
-		noteId: string,
-		size: { width: number; height: number }
-	): FlowNote[] {
-		return notes.map((note) => (note.id === noteId ? { ...note, size } : note))
-	}
-
-	/**
-	 * Update note color
-	 */
-	updateColor(notes: FlowNote[], noteId: string, color: NoteColor): FlowNote[] {
-		return notes.map((note) => (note.id === noteId ? { ...note, color } : note))
-	}
-
-	/**
-	 * Update note lock state
-	 */
-	updateLock(notes: FlowNote[], noteId: string, locked: boolean): FlowNote[] {
-		return notes.map((note) => (note.id === noteId ? { ...note, locked } : note))
-	}
-
-	/**
-	 * Create a group note from selected node IDs
-	 */
-	createGroupNote(notes: FlowNote[], selectedNodeIds: string[]): FlowNote[] {
-		if (selectedNodeIds.length === 0) return notes
-
-		const newGroupNote: FlowNote = {
-			id: `group-${Date.now()}`,
-			text: '',
-			position: { x: 0, y: 0 }, // Will be calculated dynamically
-			size: { width: 300, height: 100 }, // Will be calculated dynamically
-			color: 'gray',
-			type: 'group',
-			locked: false,
-			contained_node_ids: selectedNodeIds
-		}
-		return [...notes, newGroupNote]
 	}
 
 	/**
@@ -159,46 +69,21 @@ export class NoteManager {
 	}
 
 	/**
-	 * Create common data object for note nodes
+	 * Create common data object for note nodes (rendering-only version)
 	 */
 	private createNoteData(
 		note: FlowNote,
-		notes: FlowNote[],
-		onNotesChange: (notes: FlowNote[]) => void,
 		onTextHeightChange: (noteId: string, height: number) => void,
 		isGroupNote: boolean
 	) {
 		return {
+			noteId: note.id,
 			text: note.text,
 			color: note.color,
 			locked: note.locked || false,
 			isGroupNote,
 			...(isGroupNote && { containedNodeIds: note.contained_node_ids || [] }),
-			onUpdate: (text: string) => {
-				const newNotes = this.updateText(notes, note.id, text)
-				onNotesChange(newNotes)
-				this.render()
-			},
-			onDelete: () => {
-				const newNotes = this.delete(notes, note.id)
-				onNotesChange(newNotes)
-				this.render()
-			},
-			onColorChange: (color: NoteColor) => {
-				const newNotes = this.updateColor(notes, note.id, color)
-				onNotesChange(newNotes)
-				this.render()
-			},
-			onSizeChange: (size: { width: number; height: number }) => {
-				const newNotes = this.updateSize(notes, note.id, size)
-				onNotesChange(newNotes)
-				this.render()
-			},
-			onLockToggle: (locked: boolean) => {
-				const newNotes = this.updateLock(notes, note.id, locked)
-				onNotesChange(newNotes)
-				this.render()
-			},
+			// Note: Edit callbacks will be added by NoteNode when NoteEditor context is available
 			onTextHeightChange: (textHeight: number) => {
 				onTextHeightChange(note.id, textHeight)
 				// Cache the text height for improved performance
@@ -208,13 +93,12 @@ export class NoteManager {
 	}
 
 	/**
-	 * Convert notes to SvelteFlow nodes
+	 * Convert notes to SvelteFlow nodes (rendering-only)
 	 */
 	convertToNodes(
 		notes: FlowNote[],
 		currentNodes: Node[],
 		textHeights: Record<string, number>,
-		onNotesChange: (notes: FlowNote[]) => void,
 		onTextHeightChange: (noteId: string, height: number) => void
 	): Node[] {
 		return notes.map((note) => {
@@ -229,7 +113,7 @@ export class NoteManager {
 				id: note.id,
 				type: 'note',
 				position,
-				data: this.createNoteData(note, notes, onNotesChange, onTextHeightChange, isGroupNote),
+				data: this.createNoteData(note, onTextHeightChange, isGroupNote),
 				style: `width: ${size.width}px; height: ${size.height}px;`,
 				width: size.width,
 				height: size.height,

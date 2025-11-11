@@ -44,6 +44,8 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { NoteEditor } from './graph/noteEditor.svelte'
+	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { cleanInputs } from './flows/utils'
 	import {
 		Calendar,
@@ -635,6 +637,10 @@
 		modulesTestStates,
 		outputPickerOpenFns
 	})
+
+	// Set up NoteEditor context for note editing capabilities
+	const noteEditor = new NoteEditor(flowStore)
+	setNoteEditorContext(noteEditor)
 
 	setContext(
 		'FlowGraphAssetContext',

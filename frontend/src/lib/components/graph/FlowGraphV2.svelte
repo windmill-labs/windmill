@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { DEFAULT_NOTE_COLOR } from './noteColors'
 	import { getContext, onDestroy, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -152,6 +151,7 @@
 		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		exitNoteMode?: () => void
+		onNotePositionUpdate?: (noteId: string, position: { x: number; y: number }) => void
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
@@ -210,8 +210,9 @@
 		suspendStatus = {},
 		flowHasChanged = false,
 		noteMode = false,
-		notes = $bindable(),
+		notes = undefined,
 		exitNoteMode = undefined,
+		onNotePositionUpdate = undefined,
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
@@ -426,7 +427,6 @@
 	let height = $state(0)
 
 	// Note feature state
-	let nextNoteId = $state(1)
 
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
@@ -447,26 +447,6 @@
 
 	function handleKeyUp(_event: KeyboardEvent) {
 		// Keep for potential future use
-	}
-
-	function onNoteAdded(newNoteFromTool: any) {
-		// Add the note to our separate notes array if a note was created
-		if (newNoteFromTool) {
-			const newNote = {
-				id: `note-${nextNoteId}`,
-				text: '',
-				position: newNoteFromTool.position,
-				size: newNoteFromTool.size || { width: 200, height: 100 },
-				color: DEFAULT_NOTE_COLOR
-			}
-			notes = noteManager.addNote(notes ?? [], newNote)
-			nextNoteId += 1
-		}
-		exitNoteMode?.()
-	}
-
-	function handleCreateGroupNote(selectedNodeIds: string[]) {
-		notes = noteManager.createGroupNote(notes ?? [], selectedNodeIds)
 	}
 
 	async function updateStores() {
@@ -514,10 +494,7 @@
 				notes ?? [],
 				finalNodes,
 				noteTextHeights,
-				(newNotes) => {
-					notes = newNotes
-				},
-				(noteId, height) => {
+				(noteId: string, height: number) => {
 					noteTextHeights[noteId] = height
 				}
 			)
@@ -740,7 +717,7 @@
 				onnodedragstop={(event) => {
 					const node = event.targetNode
 					if (node && node.type === 'note') {
-						notes = noteManager.updatePosition(notes ?? [], node.id, node.position)
+						onNotePositionUpdate?.(node.id, node.position)
 					}
 				}}
 				onmove={(event, viewport) => {
@@ -766,15 +743,13 @@
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
 
 				{#if noteMode}
-					<NoteTool {onNoteAdded} />
+					<NoteTool {exitNoteMode} />
 				{/if}
-
 				<NodeContextMenu
 					selectedNodeIds={actualSelectionManager.selectedIds.filter(
 						(id) =>
 							!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
 					)}
-					onCreateGroupNote={handleCreateGroupNote}
 				>
 					<SelectionBoundingBox
 						selectedNodes={nodes.filter((node) =>

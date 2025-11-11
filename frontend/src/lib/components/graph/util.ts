@@ -132,9 +132,12 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
  * @param nodes - Array of nodes with position.x and position.y properties
  * @returns The bounds { minX, minY, maxX, maxY }
  */
-export function calculateNodesBounds(
-	nodes: Array<{ position: { x: number; y: number } }>
-): { minX: number; minY: number; maxX: number; maxY: number } {
+export function calculateNodesBounds(nodes: Array<{ position: { x: number; y: number } }>): {
+	minX: number
+	minY: number
+	maxX: number
+	maxY: number
+} {
 	return nodes.reduce(
 		(acc, node) => ({
 			minX: Math.min(acc.minX, node.position.x),
@@ -149,4 +152,12 @@ export function calculateNodesBounds(
 			maxY: -Infinity
 		}
 	)
+}
+
+/**
+ * Generate a random unique ID for notes
+ * @returns A random string ID
+ */
+export function generateId(): string {
+	return 'note-' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 }

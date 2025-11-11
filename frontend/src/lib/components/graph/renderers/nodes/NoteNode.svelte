@@ -7,13 +7,16 @@
 	import NoteColorPicker from '../../NoteColorPicker.svelte'
 	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
 	import { Button } from '$lib/components/common'
+	import { getNoteEditorContext } from '../../noteEditor.svelte'
 
 	interface Props {
 		data: {
+			noteId: string
 			text: string
 			color: NoteColor
 			locked?: boolean
 			isGroupNote?: boolean
+			// Callback props for view mode (when no NoteEditor context)
 			onUpdate?: (text: string) => void
 			onDelete?: () => void
 			onColorChange?: (color: NoteColor) => void
@@ -27,6 +30,10 @@
 
 	let { data, selected = false, dragging = false }: Props = $props()
 
+	// Get NoteEditor context for edit mode
+	const noteEditorContext = getNoteEditorContext()
+	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor)
+
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
@@ -35,24 +42,47 @@
 
 	function handleTextSave() {
 		// Only update parent when done editing
-		data.onUpdate?.(textContent)
+		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
+			// Use NoteEditor context in edit mode
+			noteEditorContext.noteEditor.updateText(data.noteId, textContent)
+		} else {
+			// Fallback to callback in view mode
+			data.onUpdate?.(textContent)
+		}
 	}
 
 	function handleDelete(event?: Event) {
 		event?.preventDefault?.()
 		event?.stopPropagation?.()
-		// Call the delete callback
-		data.onDelete?.()
+		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
+			// Use NoteEditor context in edit mode
+			noteEditorContext.noteEditor.deleteNote(data.noteId)
+		} else {
+			// Fallback to callback in view mode
+			data.onDelete?.()
+		}
 	}
 
 	function handleColorChange(color: NoteColor) {
-		data.onColorChange?.(color)
+		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
+			// Use NoteEditor context in edit mode
+			noteEditorContext.noteEditor.updateColor(data.noteId, color)
+		} else {
+			// Fallback to callback in view mode
+			data.onColorChange?.(color)
+		}
 	}
 
 	function handleLockToggle(event?: Event) {
 		event?.preventDefault?.()
 		event?.stopPropagation?.()
-		data.onLockToggle?.(!data.locked)
+		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
+			// Use NoteEditor context in edit mode
+			noteEditorContext.noteEditor.updateLock(data.noteId, !data.locked)
+		} else {
+			// Fallback to callback in view mode
+			data.onLockToggle?.(!data.locked)
+		}
 	}
 
 	// Get color configuration for current color
@@ -62,8 +92,8 @@
 		event.preventDefault()
 		event.stopPropagation()
 
-		// Don't allow editing if note is locked
-		if (data.locked) {
+		// Don't allow editing if note is locked or edit mode is not available
+		if (data.locked || !isEditModeAvailable) {
 			return
 		}
 
@@ -127,49 +157,51 @@
 	onmouseleave={handleMouseLeave}
 	role="note"
 >
-	<!-- Action buttons -->
-	<div class="absolute -top-10 -right-2.5 p-2 w-32 h-12 group flex justify-end">
-		<div
-			class={twMerge(
-				'hidden group-hover:flex flex-row gap-2 h-fit',
-				hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
-			)}
-		>
-			<!-- Lock/Unlock button -->
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				title={data.locked ? 'Unlock note' : 'Lock note'}
-				aria-label={data.locked ? 'Unlock note' : 'Lock note'}
-				startIcon={{ icon: data.locked ? Lock : Unlock }}
-				onClick={handleLockToggle}
-				iconOnly
-			/>
-
-			<!-- Color picker -->
-			{#if !data.locked}
-				<NoteColorPicker
-					selectedColor={data.color}
-					onColorChange={handleColorChange}
-					bind:isOpen={colorPickerIsOpen}
-				/>
-			{/if}
-
-			<!-- Delete button -->
-			{#if !data.locked}
+	<!-- Action buttons - only show in edit mode -->
+	{#if isEditModeAvailable}
+		<div class="absolute -top-10 -right-2.5 p-2 w-32 h-12 group flex justify-end">
+			<div
+				class={twMerge(
+					'hidden group-hover:flex flex-row gap-2 h-fit',
+					hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
+				)}
+			>
+				<!-- Lock/Unlock button -->
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
-					title="Delete note"
-					aria-label="Delete note"
-					startIcon={{ icon: X }}
-					onClick={handleDelete}
+					title={data.locked ? 'Unlock note' : 'Lock note'}
+					aria-label={data.locked ? 'Unlock note' : 'Lock note'}
+					startIcon={{ icon: data.locked ? Lock : Unlock }}
+					onClick={handleLockToggle}
 					iconOnly
-					destructive
 				/>
-			{/if}
+
+				<!-- Color picker -->
+				{#if !data.locked}
+					<NoteColorPicker
+						selectedColor={data.color}
+						onColorChange={handleColorChange}
+						bind:isOpen={colorPickerIsOpen}
+					/>
+				{/if}
+
+				<!-- Delete button -->
+				{#if !data.locked}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						title="Delete note"
+						aria-label="Delete note"
+						startIcon={{ icon: X }}
+						onClick={handleDelete}
+						iconOnly
+						destructive
+					/>
+				{/if}
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	<!-- Hover help text -->
 	{#if hovering || selected}
@@ -178,9 +210,13 @@
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
 			>
-				{data.locked ? 'Note is locked' : 'Double click to edit'}
+				{data.locked
+					? 'Note is locked'
+					: isEditModeAvailable
+						? 'Double click to edit'
+						: 'View only mode'}
 			</div>
-		{:else if !data.locked}
+		{:else if !data.locked && isEditModeAvailable}
 			<div
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
@@ -238,8 +274,8 @@
 		{/if}
 	</div>
 
-	<!-- Node resizer - only visible when selected and not locked -->
-	{#if !data.locked}
+	<!-- Node resizer - only visible when selected and not locked and edit mode is available -->
+	{#if !data.locked && isEditModeAvailable}
 		<NodeResizer
 			isVisible={selected && !dragging}
 			minWidth={200}
@@ -248,8 +284,15 @@
 			handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
 			onResizeEnd={(_, params) => {
 				// Update note size when resizing ends
-				if (data.onSizeChange && params.width !== undefined && params.height !== undefined) {
-					data.onSizeChange({ width: params.width, height: params.height })
+				if (params.width !== undefined && params.height !== undefined) {
+					const size = { width: params.width, height: params.height }
+					if (isEditModeAvailable && noteEditorContext?.noteEditor) {
+						// Use NoteEditor context in edit mode
+						noteEditorContext.noteEditor.updateSize(data.noteId, size)
+					} else {
+						// Fallback to callback in view mode
+						data.onSizeChange?.(size)
+					}
 				}
 			}}
 		/>

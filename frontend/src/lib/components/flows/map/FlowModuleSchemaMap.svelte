@@ -42,6 +42,7 @@
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
+	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -110,6 +111,9 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
+	// Get NoteEditor context for note position updates
+	const noteEditorContext = getNoteEditorContext()
 
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
@@ -426,7 +430,7 @@
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			{noteMode}
-			bind:notes={flowStore.val.value.notes}
+			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectionManager}
 			{workspace}
@@ -655,6 +659,12 @@
 			{onOpenPreview}
 			{onHideJobStatus}
 			exitNoteMode={() => (noteMode = false)}
+			onNotePositionUpdate={(noteId, position) => {
+				// Update note position via NoteEditor context in edit mode
+				if (noteEditorContext?.noteEditor) {
+					noteEditorContext.noteEditor.updatePosition(noteId, position)
+				}
+			}}
 			multiSelectEnabled
 		/>
 	</div>
