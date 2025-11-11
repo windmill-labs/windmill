@@ -98,6 +98,8 @@ pub async fn do_mssql(
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.return_last_result {
         SqlResultCollectionStrategy::LastStatementAllRows
+    } else if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+        SqlResultCollectionStrategy::AllStatementsAllRows
     } else {
         annotations.result_collection
     };
