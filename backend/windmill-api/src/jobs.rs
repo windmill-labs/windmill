@@ -1781,6 +1781,7 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
     pub allow_wildcards: Option<bool>,
+    pub trigger_kind: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1812,6 +1813,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             is_not_schedule: lcq.is_not_schedule,
             concurrency_key: lcq.concurrency_key,
             allow_wildcards: lcq.allow_wildcards,
+            trigger_kind: lcq.trigger_kind,
         }
     }
 }
@@ -1933,6 +1935,10 @@ pub fn filter_list_queue_query(
 
     if lq.is_not_schedule.unwrap_or(false) {
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
+    }
+
+    if let Some(tk) = &lq.trigger_kind {
+        sqlb.and_where_eq("v2_job.trigger_kind", "?".bind(tk));
     }
 
     sqlb
@@ -7639,6 +7645,10 @@ pub fn filter_list_completed_query(
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
+    if let Some(tk) = &lq.trigger_kind {
+        sqlb.and_where_eq("v2_job.trigger_kind", "?".bind(tk));
+    }
+
     sqlb
 }
 
@@ -7715,6 +7725,7 @@ pub struct ListCompletedQuery {
     pub concurrency_key: Option<String>,
     pub worker: Option<String>,
     pub allow_wildcards: Option<bool>,
+    pub trigger_kind: Option<String>,
 }
 
 async fn list_completed_jobs(

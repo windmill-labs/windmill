@@ -26,6 +26,7 @@
 		concurrencyKey?: string | null
 		worker?: string | null
 		tag?: string | null
+		triggerKind?: string | null
 		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
 		showSkipped?: boolean | undefined
 		argFilter: string
@@ -52,6 +53,7 @@
 			| 'worker'
 			| 'tag'
 			| 'schedulePath'
+			| 'triggerKind'
 		small?: boolean
 		calendarSmall?: boolean
 	}
@@ -62,6 +64,7 @@
 		concurrencyKey = $bindable(null),
 		worker = $bindable(null),
 		tag = $bindable(null),
+		triggerKind = $bindable(null),
 		success = $bindable(undefined),
 		showSkipped = $bindable(undefined),
 		argFilter = $bindable(),
@@ -103,6 +106,8 @@
 			filterBy = 'tag'
 		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
 			filterBy = 'schedulePath'
+		} else if (triggerKind !== null && triggerKind !== '' && filterBy !== 'triggerKind') {
+			filterBy = 'triggerKind'
 		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
 			filterBy = 'worker'
 		}
@@ -120,7 +125,7 @@
 	let displayedSchedule = $derived(schedulePath)
 	let displayedWorker = $derived(worker)
 	$effect(() => {
-		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
+		;(path || user || folder || label || worker || concurrencyKey || tag || triggerKind || schedulePath) &&
 			untrack(() => autosetFilter())
 	})
 
@@ -131,6 +136,7 @@
 		label = null
 		concurrencyKey = null
 		tag = null
+		triggerKind = null
 		schedulePath = undefined
 		worker = null
 	}
@@ -204,6 +210,7 @@
 							{ label: 'Concurrency key', value: 'concurrencyKey' },
 							{ label: 'Label', value: 'label' },
 							{ label: 'Tag', value: 'tag' },
+							{ label: 'Trigger', value: 'triggerKind' },
 							{ label: 'Worker', value: 'worker' }
 						]}
 						{item}
@@ -431,6 +438,31 @@
 							bind:value={displayedSchedule}
 						/>
 					</div>
+				{/key}
+			</RunOption>
+		{:else if filterBy === 'triggerKind'}
+			<RunOption label="Trigger Kind" for="triggerKind">
+				{#key triggerKind}
+					<Select
+						items={safeSelectItems([
+							'webhook',
+							'http',
+							'websocket',
+							'kafka',
+							'email',
+							'nats',
+							'schedule',
+							'app',
+							'ui',
+							'postgres',
+							'sqs',
+							'gcp'
+						])}
+						bind:value={() => triggerKind ?? undefined, (v) => (triggerKind = v ?? null)}
+						clearable
+						onClear={() => ((triggerKind = null), dispatch('reset'))}
+						id="triggerKind"
+					/>
 				{/key}
 			</RunOption>
 		{:else if filterBy === 'worker'}

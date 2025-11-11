@@ -67,6 +67,7 @@
 	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
 	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
 	let tag: string | null = $state(page.url.searchParams.get('tag'))
+	let triggerKind: string | null = $state(page.url.searchParams.get('trigger_kind'))
 
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
@@ -123,6 +124,7 @@
 		label = page.url.searchParams.get('label')
 		concurrencyKey = page.url.searchParams.get('concurrency_key')
 		tag = page.url.searchParams.get('tag')
+		triggerKind = page.url.searchParams.get('trigger_kind')
 		worker = page.url.searchParams.get('worker')
 		allowWildcards = page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
@@ -324,6 +326,12 @@
 			searchParams.delete('allow_wildcards')
 		}
 
+		if (triggerKind) {
+			searchParams.set('trigger_kind', triggerKind)
+		} else {
+			searchParams.delete('trigger_kind')
+		}
+
 		if (graph != 'RunChart') {
 			searchParams.set('graph', graph)
 		} else {
@@ -471,6 +479,18 @@
 		schedulePath = undefined
 		worker = e.detail
 		allowWildcards = false
+	}
+
+	function filterByTriggerKind(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = null
+		triggerKind = e.detail
 	}
 
 	let calendarChangeTimeout: number | undefined = $state(undefined)
@@ -744,6 +764,7 @@
 			jobKindsCat,
 			concurrencyKey,
 			tag,
+			triggerKind,
 			graph,
 			maxTs,
 			minTs,
@@ -836,6 +857,7 @@
 	bind:externalJobs
 	bind:extendedJobs
 	{concurrencyKey}
+	{triggerKind}
 	{argError}
 	{resultError}
 	{tag}
@@ -1031,6 +1053,7 @@
 						bind:label
 						bind:concurrencyKey
 						bind:tag
+						bind:triggerKind
 						bind:worker
 						bind:path
 						bind:success
@@ -1284,6 +1307,7 @@
 									on:filterByConcurrencyKey={filterByConcurrencyKey}
 									on:filterByTag={filterByTag}
 									on:filterBySchedule={filterBySchedule}
+									on:filterByTriggerKind={filterByTriggerKind}
 									on:filterByWorker={filterByWorker}
 									bind:this={runsTable}
 								></RunsTable>

@@ -161,6 +161,7 @@
 		folder={null}
 		concurrencyKey={null}
 		tag={null}
+		triggerKind={null}
 		success="running"
 		argFilter={undefined}
 		bind:loading

@@ -8100,6 +8100,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: trigger_kind
+          description: filter by trigger kind (webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All queued jobs
@@ -8469,6 +8474,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: trigger_kind
+          description: filter by trigger kind (webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All jobs
@@ -14442,6 +14452,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: trigger_kind
+          description: filter by trigger kind (webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: time

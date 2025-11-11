@@ -39,6 +39,7 @@
 		externalJobs?: Job[] | undefined
 		concurrencyKey: string | null
 		tag: string | null
+		triggerKind: string | null
 		showSkipped?: boolean
 		extendedJobs?: ExtendedJobs | undefined
 		argError?: string
@@ -78,6 +79,7 @@
 		externalJobs = $bindable(undefined),
 		concurrencyKey,
 		tag,
+		triggerKind,
 		extendedJobs = $bindable(undefined),
 		argError = '',
 		resultError = '',
@@ -217,7 +219,8 @@
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
 				perPage,
-				allowWildcards: allowWildcards ? true : undefined
+				allowWildcards: allowWildcards ? true : undefined,
+				triggerKind: triggerKind === null || triggerKind === '' ? undefined : triggerKind
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -267,7 +270,8 @@
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
 				perPage,
-				allowWildcards
+				allowWildcards,
+				triggerKind: triggerKind === null || triggerKind === '' ? undefined : triggerKind
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -548,6 +552,7 @@
 			jobKinds,
 			concurrencyKey,
 			tag,
+			triggerKind,
 			lookback,
 			user,
 			folder,
