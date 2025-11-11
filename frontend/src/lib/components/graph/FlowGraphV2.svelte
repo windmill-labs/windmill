@@ -220,8 +220,15 @@
 		multiSelectEnabled = false
 	}: Props = $props()
 
-	// Initialize note manager with notes function
-	const noteManager = new NoteManager(() => notes ?? [])
+	// Initialize note manager with notes function and nodes setter/getter
+	const noteManager = new NoteManager(
+		() => notes ?? [],
+		(newNodes) => {
+			nodes = newNodes
+		},
+		() => nodes,
+		editMode
+	)
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})

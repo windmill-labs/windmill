@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { NodeResizer } from '@xyflow/svelte'
-	import { X, Lock, Unlock } from 'lucide-svelte'
+	import { X, Lock, LockOpen } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { fade } from 'svelte/transition'
@@ -8,8 +8,6 @@
 	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	interface Props {
 		data: {
@@ -32,25 +30,27 @@
 	const noteEditorContext = getNoteEditorContext()
 	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor && data.editMode)
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext') || {}
-	const note = $derived(
-		flowStore?.val.value?.notes?.find((note) => note.id === data.noteId) ?? undefined
-	)
-
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
+	let textContent = $state(data.text ?? '')
 	let containerHeight = $state(0)
 
-	// Derived values. If in edit mode, use the note text from the flow store. If not, use the data text.
-	let textContent = $derived(note?.text ?? data.text ?? '')
-	const color = $derived((note?.color as NoteColor) ?? data.color ?? DEFAULT_NOTE_COLOR)
-	const locked = $derived(note?.locked ?? data.locked ?? false)
+	// Use data props directly - they're kept in sync by NoteManager observer
+	const color = $derived(data.color ?? DEFAULT_NOTE_COLOR)
+	const locked = $derived(data.locked ?? false)
+	const textForDisplay = $derived(data.text ?? '')
+
+	// Sync textContent with data.text when not in edit mode
+	$effect(() => {
+		if (!editMode) {
+			textContent = data.text ?? ''
+		}
+	})
 
 	function handleTextSave() {
-		// Only update parent when done editing
+		// Only update when done editing
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
-			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.updateText(data.noteId, textContent)
 		}
 	}
@@ -59,14 +59,12 @@
 		event?.preventDefault?.()
 		event?.stopPropagation?.()
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
-			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.deleteNote(data.noteId)
 		}
 	}
 
 	function handleColorChange(color: NoteColor) {
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
-			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.updateColor(data.noteId, color)
 		}
 	}
@@ -75,7 +73,6 @@
 		event?.preventDefault?.()
 		event?.stopPropagation?.()
 		if (isEditModeAvailable && noteEditorContext?.noteEditor) {
-			// Use NoteEditor context in edit mode
 			noteEditorContext.noteEditor.updateLock(data.noteId, !locked)
 		}
 	}
@@ -92,7 +89,6 @@
 			return
 		}
 
-		textContent = data.text ?? '' // Initialize local state with current data
 		editMode = true
 		// Focus the textarea after a short delay to ensure it's rendered
 		setTimeout(() => {
@@ -127,9 +123,6 @@
 	})
 
 	let colorPickerIsOpen = $state(false)
-
-	$inspect('dbg note', note)
-	$inspect('dbg textContent', textContent)
 </script>
 
 <div
@@ -170,7 +163,7 @@
 					unifiedSize="sm"
 					title={locked ? 'Unlock note' : 'Lock note'}
 					aria-label={locked ? 'Unlock note' : 'Lock note'}
-					startIcon={{ icon: locked ? Lock : Unlock }}
+					startIcon={{ icon: locked ? Lock : LockOpen }}
 					onClick={handleLockToggle}
 					iconOnly
 				/>
@@ -203,7 +196,7 @@
 
 	<!-- Hover help text -->
 	{#if hovering || selected}
-		{#if !editMode && data.text}
+		{#if !editMode && isEditModeAvailable}
 			<div
 				in:fade={{ duration: 200 }}
 				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
@@ -254,14 +247,14 @@
 				ondblclick={handleDoubleClick}
 				bind:clientHeight={containerHeight}
 			>
-				{#if textContent}
+				{#if textForDisplay}
 					<div
 						class={twMerge(
 							'w-full text-xs rounded-md break-words overflow-hidden',
 							colorConfig.text
 						)}
 					>
-						<GfmMarkdown md={textContent} noPadding />
+						<GfmMarkdown md={textForDisplay} noPadding />
 					</div>
 				{:else}
 					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>
