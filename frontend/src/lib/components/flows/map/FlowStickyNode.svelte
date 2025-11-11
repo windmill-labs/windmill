@@ -33,6 +33,7 @@
 	}: Props = $props()
 
 	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 </script>
 
 <div class="flex flex-row gap-2 p-1 rounded-md bg-surface">
@@ -41,7 +42,7 @@
 			unifiedSize="sm"
 			wrapperClasses="min-w-36"
 			startIcon={{ icon: Settings }}
-			selected={selectionManager.getSelectedId()?.startsWith('settings')}
+			selected={selectedId?.startsWith('settings')}
 			variant="default"
 			title="Settings"
 			onClick={() => selectionManager.selectId('settings')}
@@ -64,7 +65,7 @@
 				wrapperClasses="h-full"
 				unifiedSize="sm"
 				startIcon={{ icon: DollarSign }}
-				selected={selectionManager.getSelectedId() === 'constants'}
+				selected={selectedId === 'constants'}
 				variant="default"
 				iconOnly
 				onClick={() => selectionManager.selectId('constants')}

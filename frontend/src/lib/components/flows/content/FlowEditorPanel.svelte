@@ -66,6 +66,8 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
+	const selectedId = $derived(selectionManager.getSelectedId())
+
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
@@ -96,9 +98,9 @@
 			{/each}
 		</div>
 	</div>
-{:else if selectionManager.getSelectedId()?.startsWith('settings')}
+{:else if selectedId?.startsWith('settings')}
 	<FlowSettings {enableAi} {noEditor} />
-{:else if selectionManager.getSelectedId() === 'Input'}
+{:else if selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
@@ -111,15 +113,15 @@
 		{onTestFlow}
 		{previewOpen}
 	/>
-{:else if selectionManager.getSelectedId() === 'Result'}
+{:else if selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
-{:else if selectionManager.getSelectedId() === 'constants'}
+{:else if selectedId === 'constants'}
 	<FlowConstants {noEditor} />
-{:else if selectionManager.getSelectedId() === 'failure'}
+{:else if selectedId === 'failure'}
 	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
-{:else if selectionManager.getSelectedId() === 'preprocessor'}
+{:else if selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
-{:else if selectionManager.getSelectedId() === 'Trigger'}
+{:else if selectedId === 'Trigger'}
 	<TriggersEditor
 		on:applyArgs
 		on:addPreprocessor={async () => {
@@ -153,7 +155,7 @@
 		schema={flowStore.val.schema}
 		{onDeployTrigger}
 	/>
-{:else if selectionManager.getSelectedId()?.startsWith('subflow:')}
+{:else if selectedId?.startsWith('subflow:')}
 	<div class="p-4"
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
@@ -162,7 +164,7 @@
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
-		{#key selectionManager.getSelectedId()}
+		{#key selectedId}
 			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}

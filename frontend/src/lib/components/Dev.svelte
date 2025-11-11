@@ -476,7 +476,7 @@
 					let ids = dfs(flowStore.val.value.modules ?? [], (m) => m.id)
 					flowStateStore.val = Object.fromEntries(ids.map((k) => [k, {}]))
 				} catch (e) {}
-				inferModuleArgs(selectionManager.getSelectedId()!)
+				inferModuleArgs(selectedId!)
 			}
 		} catch (e) {
 			console.error('issue setting new flowstore', e)
@@ -620,7 +620,7 @@
 		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
-		selectionManager.getSelectedId() && untrack(() => inferModuleArgs(selectionManager.getSelectedId()!))
+		selectedId && untrack(() => inferModuleArgs(selectedId!))
 	})
 
 	let localModuleStates: Record<string, GraphModuleState> = $state({})
@@ -642,7 +642,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowModuleSchemaMap?.isNodeVisible('result') && selectionManager.getSelectedId() !== 'Result') {
+				if (flowModuleSchemaMap?.isNodeVisible('result') && selectedId !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
@@ -667,6 +667,8 @@
 	}
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
+
+	const selectedId = $derived(selectionManager.getSelectedId())
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

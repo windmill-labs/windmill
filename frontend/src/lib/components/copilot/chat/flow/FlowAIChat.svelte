@@ -27,6 +27,7 @@
 
 	const { flowStore, flowStateStore, selectionManager, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
@@ -84,7 +85,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: selectionManager.getSelectedId()!
+				selectedId: selectedId!
 			}
 		},
 		// flow apply/reject
@@ -382,7 +383,7 @@
 				value: match[2].trim()
 			}))
 
-			if (id === selectionManager.getSelectedId()!) {
+			if (id === selectedId!) {
 				exprsToSet?.set({})
 				const argsToUpdate = {}
 				for (const { input, value } of parsedInputs) {
@@ -611,7 +612,7 @@
 
 	$effect(() => {
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
-			selectionManager.getSelectedId(),
+			selectedId,
 			flowStore.val,
 			flowStateStore.val,
 			$currentEditor
@@ -626,7 +627,6 @@
 
 	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
-		const selectedId = selectionManager.getSelectedId()
 		if (
 			$currentEditor?.type === 'script' &&
 			selectedId &&

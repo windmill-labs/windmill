@@ -70,6 +70,8 @@
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
+	const selectedId = $derived(selectionManager.getSelectedId())
+
 	interface Props {
 		flowModule: FlowModule
 		failureModule?: boolean
@@ -215,7 +217,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[selectionManager.getSelectedId()!]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[selectedId!]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -252,7 +254,7 @@
 	)
 
 	$effect.pre(() => {
-		selectionManager.getSelectedId() && untrack(() => onSelectedIdChange())
+		selectedId && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -404,7 +406,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							selectionManager.getSelectedId()!,
+							selectedId!,
 							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
@@ -468,7 +470,7 @@
 												automaticLayout={true}
 												cmdEnterAction={async () => {
 													selected = 'test'
-													if (selectionManager.getSelectedId() == flowModule.id) {
+													if (selectedId == flowModule.id) {
 														if (flowModule.value.type === 'rawscript' && editor) {
 															flowModule.value.content = editor.getCode()
 														}
@@ -578,8 +580,7 @@
 														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={flowStateStore.val[selectionManager.getSelectedId()!]?.schema ??
-															{}}
+														schema={flowStateStore.val[selectedId!]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -610,7 +611,7 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={flowStateStore.val[selectionManager.getSelectedId()!]?.schema ?? {}}
+												schema={flowStateStore.val[selectedId!]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
@@ -624,7 +625,7 @@
 													active={flowModule.retry !== undefined}
 													label="Retries"
 												/>
-												{#if !selectionManager.getSelectedId()?.includes('failure')}
+												{#if !selectedId?.includes('failure')}
 													<Tab value="runtime" label="Runtime" />
 													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab

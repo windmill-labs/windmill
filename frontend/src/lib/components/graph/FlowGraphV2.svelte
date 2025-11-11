@@ -179,7 +179,7 @@
 		testModuleStates = undefined,
 		moduleActions = undefined,
 		inputSchemaModified = undefined,
-		selectionManager = undefined,
+		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
 		newFlow = false,
 		insertable = false,
@@ -234,10 +234,11 @@
 	let noteTextHeights = $state<Record<string, number>>({})
 
 	// Selection manager - create one if not provided
-	let actualSelectionManager = selectionManager || new SelectionManager()
+	let selectionManager = selectionManagerProp || new SelectionManager()
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	setGraphContext({
-		selectionManager: actualSelectionManager,
+		selectionManager: selectionManager,
 		useDataflow,
 		showAssets
 	})
@@ -365,7 +366,7 @@
 
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
-			actualSelectionManager.selectId(label)
+			selectionManager.selectId(label)
 			onDeleteBranch?.(detail)
 		},
 		insert: (detail) => {
@@ -375,7 +376,7 @@
 			if (!notSelectable) {
 				// TODO: Handle Ctrl/Cmd and Shift modifiers when node-level click events are available
 				// For now, normal click behavior
-				actualSelectionManager.selectId(modId)
+				selectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
 		},
@@ -452,7 +453,7 @@
 
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
-		actualSelectionManager.handleKeyDown(event, nodes)
+		selectionManager.handleKeyDown(event, nodes)
 	}
 
 	function handleKeyUp(_event: KeyboardEvent) {
@@ -577,7 +578,7 @@
 				testModuleStates: untrack(() => testModuleStates),
 				moduleActions: untrack(() => moduleActions),
 				inputSchemaModified: untrack(() => inputSchemaModified),
-				selectedId: untrack(() => actualSelectionManager.getSelectedId()),
+				selectedId: untrack(() => selectedId),
 				path,
 				newFlow,
 				cache,
@@ -599,7 +600,7 @@
 			eventHandler,
 			success,
 			$useDataflow,
-			untrack(() => actualSelectionManager.getSelectedId()),
+			untrack(() => selectedId),
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
@@ -642,14 +643,14 @@
 	})
 
 	let showDataflow = $derived(
-		actualSelectionManager.getSelectedId() !== undefined &&
-			actualSelectionManager.getSelectedId() !== null &&
-			!actualSelectionManager.getSelectedId()?.startsWith('constants') &&
-			!actualSelectionManager.getSelectedId()?.startsWith('settings') &&
-			actualSelectionManager.getSelectedId() !== 'failure' &&
-			actualSelectionManager.getSelectedId() !== 'preprocessor' &&
-			actualSelectionManager.getSelectedId() !== 'Result' &&
-			actualSelectionManager.getSelectedId() !== 'Trigger'
+		selectedId !== undefined &&
+			selectedId !== null &&
+			!selectedId?.startsWith('constants') &&
+			!selectedId?.startsWith('settings') &&
+			selectedId !== 'failure' &&
+			selectedId !== 'preprocessor' &&
+			selectedId !== 'Result' &&
+			selectedId !== 'Trigger'
 	)
 	let debouncedWidth: number | undefined = $state(undefined)
 	let timeout: number | undefined = $state(undefined)
@@ -721,8 +722,8 @@
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
-					if (actualSelectionManager.mode === 'normal') {
-						actualSelectionManager.clearSelection()
+					if (selectionManager.mode === 'normal') {
+						selectionManager.clearSelection()
 					}
 				}}
 				onnodedragstop={(event) => {
@@ -759,22 +760,20 @@
 
 				{#if multiSelectEnabled}
 					<NodeContextMenu
-						selectedNodeIds={actualSelectionManager.selectedIds.filter(
+						selectedNodeIds={selectionManager.selectedIds.filter(
 							(id) =>
 								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
 						)}
 					>
 						<SelectionBoundingBox
-							selectedNodes={nodes.filter((node) =>
-								actualSelectionManager.selectedIds.includes(node.id)
-							)}
+							selectedNodes={nodes.filter((node) => selectionManager.selectedIds.includes(node.id))}
 						/>
 					</NodeContextMenu>
 
 					<SelectionTool
-						selectionMode={actualSelectionManager.mode}
+						selectionMode={selectionManager.mode}
 						onNodesSelected={(nodeIds, addToExisting) =>
-							actualSelectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
+							selectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
 						{nodes}
 					/>
 				{/if}
@@ -789,19 +788,19 @@
 							<div class="flex items-center gap-2">
 								<ControlButton
 									onclick={() => {
-										actualSelectionManager.mode =
-											actualSelectionManager.mode === 'normal' ? 'rect-select' : 'normal'
+										selectionManager.mode =
+											selectionManager.mode === 'normal' ? 'rect-select' : 'normal'
 									}}
 									title="Toggle rectangle selection"
-									class={actualSelectionManager.mode === 'rect-select'
+									class={selectionManager.mode === 'rect-select'
 										? 'text-accent !bg-surface-selected'
 										: ''}
 								>
 									<MousePointer size="14" />
 								</ControlButton>
-								{#if actualSelectionManager.selectedIds.length > 0}
+								{#if selectionManager.selectedIds.length > 0}
 									<span class="text-xs text-secondary"
-										>{actualSelectionManager.selectedIds.length} selected</span
+										>{selectionManager.selectedIds.length} selected</span
 									>
 								{/if}
 							</div>

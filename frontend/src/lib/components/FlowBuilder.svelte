@@ -564,7 +564,7 @@
 					encodeState({
 						flow: flowStore.val,
 						path: $pathStore,
-						selectedId: selectionManager.getSelectedId(),
+						selectedId: selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
 						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
 						loadedFromHistory: {
@@ -580,6 +580,7 @@
 	}
 
 	const selectionManager = new SelectionManager()
+	const selectedIdStore = $derived(selectionManager.getSelectedId())
 	// Initialize with selected id if provided
 	if (selectedId) {
 		selectionManager.selectId(selectedId)
@@ -588,7 +589,7 @@
 	}
 
 	export function getSelectedId() {
-		return selectionManager.getSelectedId()
+		return selectedIdStore
 	}
 
 	const previewArgsStore = $state({ val: initialArgs })
@@ -721,7 +722,7 @@
 			case 'ArrowDown': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf(selectionManager.getSelectedId()!)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
 						selectionManager.selectId(ids[idx + 1])
 						event.preventDefault()
@@ -732,7 +733,7 @@
 			case 'ArrowUp': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf(selectionManager.getSelectedId()!)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
 						selectionManager.selectId(ids[idx - 1])
 						event.preventDefault()
@@ -881,7 +882,7 @@
 		setContext('customUi', customUi)
 	})
 	$effect.pre(() => {
-		if (flowStore.val || selectionManager.getSelectedId()) {
+		if (flowStore.val || selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
 			untrack(() => saveSessionDraft())
 		}
@@ -945,7 +946,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowEditor?.isNodeVisible('result') && selectionManager.getSelectedId() !== 'Result') {
+				if (flowEditor?.isNodeVisible('result') && selectedIdStore !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
