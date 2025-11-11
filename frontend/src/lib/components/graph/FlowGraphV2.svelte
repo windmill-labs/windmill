@@ -620,7 +620,7 @@
 	})
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, notes]
+		;[graph, allowSimplifiedPoll, $showAssets, noteManager.renderCount]
 		untrack(() => updateStores())
 	})
 

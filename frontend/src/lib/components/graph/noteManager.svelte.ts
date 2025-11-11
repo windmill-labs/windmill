@@ -19,8 +19,16 @@ export type TextHeightCacheEntry = {
  */
 export class NoteManager {
 	#cache: Record<string, TextHeightCacheEntry> = $state({})
+	renderCount = $state(0)
 
 	constructor() {}
+
+	/**
+	 * Triggers a re-render of the graph by incrementing the render count
+	 */
+	render(): void {
+		this.renderCount++
+	}
 
 	getCache(): Record<string, TextHeightCacheEntry> {
 		return this.#cache
@@ -169,22 +177,27 @@ export class NoteManager {
 			onUpdate: (text: string) => {
 				const newNotes = this.updateText(notes, note.id, text)
 				onNotesChange(newNotes)
+				this.render()
 			},
 			onDelete: () => {
 				const newNotes = this.delete(notes, note.id)
 				onNotesChange(newNotes)
+				this.render()
 			},
 			onColorChange: (color: NoteColor) => {
 				const newNotes = this.updateColor(notes, note.id, color)
 				onNotesChange(newNotes)
+				this.render()
 			},
 			onSizeChange: (size: { width: number; height: number }) => {
 				const newNotes = this.updateSize(notes, note.id, size)
 				onNotesChange(newNotes)
+				this.render()
 			},
 			onLockToggle: (locked: boolean) => {
 				const newNotes = this.updateLock(notes, note.id, locked)
 				onNotesChange(newNotes)
+				this.render()
 			},
 			onTextHeightChange: (textHeight: number) => {
 				onTextHeightChange(note.id, textHeight)
@@ -232,6 +245,7 @@ export class NoteManager {
 	 */
 	cacheTextHeight(noteId: string, content: string, height: number): void {
 		this.#cache[noteId] = { content, height }
+		this.render()
 	}
 
 	/**
@@ -277,6 +291,7 @@ export class NoteManager {
 	 */
 	clearTextHeightCache(): void {
 		this.#cache = {}
+		this.render()
 	}
 
 	/**
@@ -284,5 +299,6 @@ export class NoteManager {
 	 */
 	removeTextHeight(noteId: string): void {
 		delete this.#cache[noteId]
+		this.render()
 	}
 }
