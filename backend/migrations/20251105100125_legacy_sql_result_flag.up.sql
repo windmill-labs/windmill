@@ -74,15 +74,22 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  UPDATE app_version SET value = update_all_modules(value::jsonb)::json;
+  UPDATE draft SET value = update_all_modules(value::jsonb)::json;
+  UPDATE flow SET value = update_all_modules(value);
+  UPDATE flow_version SET value = update_all_modules(value);
+  UPDATE flow_node SET code = update_string(code) WHERE id IN (
+    SELECT v FROM flow_version_lite, unnest(find_sql_flow_nodes_ids(value)) as v
+  );
+  UPDATE script SET content = update_string(content) WHERE language IN ('bigquery', 'postgresql', 'duckdb', 'mssql', 'oracledb', 'snowflake', 'mysql');
 
-UPDATE app_version SET value = update_all_modules(value::jsonb)::json;
-UPDATE draft SET value = update_all_modules(value::jsonb)::json;
-UPDATE flow SET value = update_all_modules(value);
-UPDATE flow_version SET value = update_all_modules(value);
-UPDATE flow_node SET code = update_string(code) WHERE id IN (
-	SELECT v FROM flow_version_lite, unnest(find_sql_flow_nodes_ids(value)) as v
-);
-UPDATE script SET content = update_string(content) WHERE language IN ('bigquery', 'postgresql', 'duckdb', 'mssql', 'oracledb', 'snowflake', 'mysql');
+EXCEPTION WHEN OTHERS THEN
+  -- ✅ LOG ERROR WITHOUT STOPPING THE MIGRATION
+  RAISE WARNING 'Migration failed: %', SQLERRM;
+END;
+$$;
 
 DROP FUNCTION IF EXISTS update_all_modules(jsonb);
 DROP FUNCTION IF EXISTS update_string(text);
