@@ -142,7 +142,7 @@
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
 						onError={(e) => {
-							const errorMsg = typeof e?.body === 'string' ? e.body : (e?.message || 'Unknown error')
+							const errorMsg = typeof (e as any)?.body === 'string' ? (e as any).body : (e?.message || 'Unknown error')
 							sendUserToast('Failed to load teams: ' + errorMsg, true)
 						}}
 					/>
