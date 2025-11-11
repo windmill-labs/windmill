@@ -220,8 +220,8 @@
 		multiSelectEnabled = false
 	}: Props = $props()
 
-	// Initialize note manager (now stateless)
-	const noteManager = new NoteManager()
+	// Initialize note manager with notes function
+	const noteManager = new NoteManager(() => notes ?? [])
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})

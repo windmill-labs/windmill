@@ -20,13 +20,101 @@ export class NoteManager {
 	#cache: Record<string, TextHeightCacheEntry> = $state({})
 	renderCount = $state(0)
 
-	constructor() {}
+	// Track notes for layout change detection
+	#notes: () => FlowNote[]
+	#previousStructuralState: { count: number; groupMemberships: Record<string, string[]> } = $state({
+		count: 0,
+		groupMemberships: {}
+	})
+
+	constructor(notes: () => FlowNote[]) {
+		this.#notes = notes
+
+		// Effect to monitor structural changes in notes
+		$effect(() => {
+			const currentNotes = this.#notes()
+			const currentState = this.#extractStructuralState(currentNotes)
+			const hasStructuralChanges = this.#hasStructuralChanges(currentState, this.#previousStructuralState)
+
+			if (hasStructuralChanges) {
+				this.#previousStructuralState = currentState
+				this.render()
+			}
+		})
+	}
+
 
 	/**
 	 * Triggers a re-render of the graph by incrementing the render count
 	 */
 	render(): void {
 		this.renderCount++
+	}
+
+	/**
+	 * Extract structural state from notes for change detection
+	 */
+	#extractStructuralState(notes: FlowNote[]): { count: number; groupMemberships: Record<string, string[]> } {
+		const groupMemberships: Record<string, string[]> = {}
+
+		// Extract group memberships for group notes
+		notes
+			.filter((note) => note.type === 'group')
+			.forEach((note) => {
+				if (note.contained_node_ids) {
+					groupMemberships[note.id] = [...note.contained_node_ids].sort() // Sort for consistent comparison
+				}
+			})
+
+		return {
+			count: notes.length,
+			groupMemberships
+		}
+	}
+
+	/**
+	 * Check if there are structural changes that affect layout
+	 */
+	#hasStructuralChanges(
+		current: { count: number; groupMemberships: Record<string, string[]> },
+		previous: { count: number; groupMemberships: Record<string, string[]> }
+	): boolean {
+		// Check if note count changed
+		if (current.count !== previous.count) {
+			return true
+		}
+
+		// Check if group memberships changed
+		const currentGroups = Object.keys(current.groupMemberships)
+		const previousGroups = Object.keys(previous.groupMemberships)
+
+		// Different number of group notes
+		if (currentGroups.length !== previousGroups.length) {
+			return true
+		}
+
+		// Check each group's membership
+		for (const groupId of currentGroups) {
+			const currentMembers = current.groupMemberships[groupId]
+			const previousMembers = previous.groupMemberships[groupId]
+
+			// Group didn't exist before or membership changed
+			if (!previousMembers || !this.#arraysEqual(currentMembers, previousMembers)) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * Helper to compare two sorted arrays for equality
+	 */
+	#arraysEqual(a: string[], b: string[]): boolean {
+		if (a.length !== b.length) {
+			return false
+		}
+		return a.every((value, index) => value === b[index])
 	}
 
 	getCache(): Record<string, TextHeightCacheEntry> {
