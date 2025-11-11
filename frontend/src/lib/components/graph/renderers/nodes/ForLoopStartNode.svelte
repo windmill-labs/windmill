@@ -5,7 +5,6 @@
 	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import type { ForLoopStartN } from '../../graphBuilder.svelte'
-	import { getGraphContext } from '../../graphContext'
 	interface Props {
 		data: ForLoopStartN['data']
 	}
@@ -51,8 +50,6 @@
 		return 'none'
 	}
 	let filteredInput = $derived(filterIterFromInput($pickablePropertiesFiltered?.flow_input))
-
-	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -60,7 +57,7 @@
 		<VirtualItem
 			label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
 			selectable={false}
-			selected={selectionManager?.isNodeSelected(data.id)}
+			selected={false}
 			id={data.id}
 			hideId
 			on:select={(e) => {

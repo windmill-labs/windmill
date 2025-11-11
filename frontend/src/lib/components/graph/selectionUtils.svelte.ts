@@ -170,11 +170,6 @@ export class SelectionManager {
 		return [...this.selectedIds]
 	}
 
-	// Get primary selected node ID (for backwards compatibility)
-	get primarySelectedId(): string | undefined {
-		return this.getSelectedId()
-	}
-
 	// Handle keyboard shortcuts
 	handleKeyDown(event: KeyboardEvent, nodes?: Node[]) {
 		if (event.key === 'Escape') {
