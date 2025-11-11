@@ -70,6 +70,7 @@ fn is_public_route_whitelisted(path: &str) -> bool {
         "/api/workspaces/users",
         "/api/users/whoami",
         "/public/*",
+        "/a/*",
     ];
 
     for pattern in &whitelist {
