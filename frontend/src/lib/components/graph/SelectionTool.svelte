@@ -140,6 +140,9 @@
 
 		return nodes
 			.filter((node) => {
+				// Exclude note nodes from selection (similar to "Select All" behavior)
+				if (node.type === 'note') return false
+
 				const nodeMinX = node.position.x
 				const nodeMaxX = node.position.x + NODE.width
 				const nodeMinY = node.position.y
