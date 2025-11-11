@@ -156,8 +156,7 @@ export function buildNodeSpacingMap(
  * Creates a stable hash of the noteTextHeights object for cache comparison
  */
 export function hashNoteTextHeights(noteTextHeights: Record<string, number>): string {
-	const entries = Object.entries(noteTextHeights)
-		.sort(([a], [b]) => a.localeCompare(b)) // Sort for stable hash
+	const entries = Object.entries(noteTextHeights).sort(([a], [b]) => a.localeCompare(b)) // Sort for stable hash
 
 	return JSON.stringify(entries)
 }
@@ -165,10 +164,13 @@ export function hashNoteTextHeights(noteTextHeights: Record<string, number>): st
 /**
  * Extracts note state signature for layout cache comparison
  */
-export function getNoteStateSignature(groupNotes: FlowNote[], noteTextHeights: Record<string, number>) {
+export function getNoteStateSignature(
+	groupNotes: FlowNote[],
+	noteTextHeights: Record<string, number>
+) {
 	return {
 		notesCount: groupNotes.length,
-		noteIds: groupNotes.map(n => n.id).sort(),
+		noteIds: groupNotes.map((n) => n.id).sort(),
 		textHeightHash: hashNoteTextHeights(noteTextHeights)
 	}
 }
@@ -180,11 +182,11 @@ export function getNoteStateSignature(groupNotes: FlowNote[], noteTextHeights: R
 export function getLayoutSignature(notes: FlowNote[]) {
 	return {
 		notesCount: notes.length,
-		noteIds: notes.map(n => n.id).sort(),
+		noteIds: notes.map((n) => n.id).sort(),
 		// Group memberships affect layout spacing
 		groupMemberships: notes
-			.filter(note => note.type === 'group')
-			.map(note => ({
+			.filter((note) => note.type === 'group')
+			.map((note) => ({
 				id: note.id,
 				containedIds: note.contained_node_ids?.slice().sort() || []
 			}))
@@ -198,7 +200,7 @@ export function getLayoutSignature(notes: FlowNote[]) {
  */
 export function getPropertySignature(notes: FlowNote[]) {
 	return notes
-		.map(note => ({
+		.map((note) => ({
 			id: note.id,
 			text: note.text,
 			color: note.color,
@@ -207,4 +209,44 @@ export function getPropertySignature(notes: FlowNote[]) {
 			size: { ...note.size }
 		}))
 		.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/**
+ * Calculates z-index values for all notes in a single graph traversal
+ * Group notes are ordered by their topmost node's hierarchy position
+ * Free notes get undefined z-index to use SvelteFlow's native behavior
+ */
+export function calculateAllNoteZIndexes(
+	notes: FlowNote[],
+	nodes: NodeDep[]
+): Record<string, number | undefined> {
+	const zIndexMap: Record<string, number | undefined> = {}
+
+	// Create a mapping from node ID to its hierarchy position (topological order)
+	const nodeHierarchyMap: Record<string, number> = {}
+	nodes.forEach((node, index) => {
+		nodeHierarchyMap[node.id] = index
+	})
+
+	// Process each note
+	for (const note of notes) {
+		if (note.type === 'free') {
+			// Free notes use SvelteFlow's native z-index behavior (last selected on top)
+			zIndexMap[note.id] = undefined
+		} else if (note.type === 'group') {
+			// Group notes get z-index based on topmost contained node's hierarchy
+			const topmostNode = findTopmostNodeInGroup(note, nodes)
+			if (topmostNode) {
+				const hierarchyPosition = nodeHierarchyMap[topmostNode.id] ?? 0
+				// Higher hierarchy position = lower z-index (appears behind)
+				// Use negative values starting from -2000 to stay below other elements
+				zIndexMap[note.id] = hierarchyPosition - 2000
+			} else {
+				// Fallback for group notes without valid contained nodes
+				zIndexMap[note.id] = -2000
+			}
+		}
+	}
+
+	return zIndexMap
 }

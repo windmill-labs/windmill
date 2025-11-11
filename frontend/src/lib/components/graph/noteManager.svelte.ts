@@ -1,7 +1,11 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import { calculateNodesBounds } from './util'
-import { getLayoutSignature, getPropertySignature } from './groupNoteUtils'
+import {
+	getLayoutSignature,
+	getPropertySignature,
+	calculateAllNoteZIndexes
+} from './groupNoteUtils'
 import { deepEqual } from 'fast-equals'
 
 export type NodePosition = {
@@ -191,7 +195,8 @@ export class NoteManager {
 		currentNodes: Node[],
 		textHeights: Record<string, number>,
 		onTextHeightChange: (noteId: string, height: number) => void,
-		editMode: boolean = false
+		editMode: boolean = false,
+		zIndex?: number
 	): Node {
 		const isGroupNote = note.type === 'group'
 
@@ -208,7 +213,7 @@ export class NoteManager {
 			style: `width: ${size.width}px; height: ${size.height}px;`,
 			width: size.width,
 			height: size.height,
-			zIndex: -2000,
+			zIndex: zIndex ?? -2000, // Use provided zIndex or fallback
 			draggable: isGroupNote ? false : editMode && !note.locked,
 			selectable: true
 		}
@@ -222,10 +227,21 @@ export class NoteManager {
 		currentNodes: Node[],
 		textHeights: Record<string, number>,
 		onTextHeightChange: (noteId: string, height: number) => void,
-		editMode: boolean = false
+		editMode: boolean = false,
+		flowNodes?: { id: string; parentIds?: string[]; offset?: number }[]
 	): Node[] {
+		// Calculate z-indexes for all notes in a single traversal
+		const zIndexMap = flowNodes ? calculateAllNoteZIndexes(notes, flowNodes) : {}
+
 		return notes.map((note) =>
-			this.convertNoteToNode(note, currentNodes, textHeights, onTextHeightChange, editMode)
+			this.convertNoteToNode(
+				note,
+				currentNodes,
+				textHeights,
+				onTextHeightChange,
+				editMode,
+				zIndexMap[note.id]
+			)
 		)
 	}
 

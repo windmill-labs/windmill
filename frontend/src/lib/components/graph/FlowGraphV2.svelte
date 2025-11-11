@@ -524,7 +524,12 @@
 				(noteId: string, height: number) => {
 					noteTextHeights[noteId] = height
 				},
-				editMode
+				editMode,
+				Object.values(graph.nodes).map((n) => ({
+					id: n.id,
+					parentIds: n.parentIds,
+					offset: n.data.offset ?? 0
+				}))
 			)
 		]
 		edges = [
@@ -764,6 +769,7 @@
 				preventScrolling={scroll}
 				zoomOnDoubleClick={false}
 				elementsSelectable={false}
+				elevateNodesOnSelect={false}
 				{proOptions}
 				nodesDraggable={false}
 				--background-color={false}
