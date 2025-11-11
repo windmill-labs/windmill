@@ -83,6 +83,9 @@ BEGIN
   UPDATE flow_node SET code = update_string(code) WHERE id IN (
     SELECT v FROM flow_version_lite, unnest(find_sql_flow_nodes_ids(value)) as v
   );
+  UPDATE app_script SET code = update_string(code) WHERE id IN (
+    SELECT v FROM app_version_lite, unnest(find_sql_flow_nodes_ids(value)) as v
+  );
   UPDATE script SET content = update_string(content) WHERE language IN ('bigquery', 'postgresql', 'duckdb', 'mssql', 'oracledb', 'snowflake', 'mysql');
 
 EXCEPTION WHEN OTHERS THEN
