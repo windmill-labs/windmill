@@ -151,3 +151,60 @@ export function buildNodeSpacingMap(
 
 	return spacingMap
 }
+
+/**
+ * Creates a stable hash of the noteTextHeights object for cache comparison
+ */
+export function hashNoteTextHeights(noteTextHeights: Record<string, number>): string {
+	const entries = Object.entries(noteTextHeights)
+		.sort(([a], [b]) => a.localeCompare(b)) // Sort for stable hash
+
+	return JSON.stringify(entries)
+}
+
+/**
+ * Extracts note state signature for layout cache comparison
+ */
+export function getNoteStateSignature(groupNotes: FlowNote[], noteTextHeights: Record<string, number>) {
+	return {
+		notesCount: groupNotes.length,
+		noteIds: groupNotes.map(n => n.id).sort(),
+		textHeightHash: hashNoteTextHeights(noteTextHeights)
+	}
+}
+
+/**
+ * Extracts layout-affecting signature for change detection
+ * Only includes properties that affect graph layout (structure, grouping)
+ */
+export function getLayoutSignature(notes: FlowNote[]) {
+	return {
+		notesCount: notes.length,
+		noteIds: notes.map(n => n.id).sort(),
+		// Group memberships affect layout spacing
+		groupMemberships: notes
+			.filter(note => note.type === 'group')
+			.map(note => ({
+				id: note.id,
+				containedIds: note.contained_node_ids?.slice().sort() || []
+			}))
+			.sort((a, b) => a.id.localeCompare(b.id))
+	}
+}
+
+/**
+ * Extracts property-only signature for change detection
+ * Only includes visual/content properties that don't affect layout
+ */
+export function getPropertySignature(notes: FlowNote[]) {
+	return notes
+		.map(note => ({
+			id: note.id,
+			text: note.text,
+			color: note.color,
+			locked: note.locked || false,
+			position: { ...note.position },
+			size: { ...note.size }
+		}))
+		.sort((a, b) => a.id.localeCompare(b.id))
+}

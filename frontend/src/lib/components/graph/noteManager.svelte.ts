@@ -1,6 +1,8 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import { calculateNodesBounds } from './util'
+import { getLayoutSignature, getPropertySignature } from './groupNoteUtils'
+import { deepEqual } from 'fast-equals'
 
 export type NodePosition = {
 	id: string
@@ -22,20 +24,12 @@ export class NoteManager {
 
 	// Track notes for layout change detection
 	#notes: () => FlowNote[]
-	#previousStructuralState: { count: number; groupMemberships: Record<string, string[]> } = $state({
-		count: 0,
-		groupMemberships: {}
+	#previousLayoutSignature: ReturnType<typeof getLayoutSignature> = $state({
+		notesCount: 0,
+		noteIds: [],
+		groupMemberships: []
 	})
-	#previousPropertyState: Record<
-		string,
-		{
-			text: string
-			locked: boolean
-			color: string
-			position: { x: number; y: number }
-			size: { width: number; height: number }
-		}
-	> = $state({})
+	#previousPropertySignature: ReturnType<typeof getPropertySignature> = $state([])
 
 	// Function to update nodes array with reactivity
 	#setNodes: (nodes: Node[]) => void
@@ -53,30 +47,27 @@ export class NoteManager {
 		this.#getNodes = getNodes
 		this.#editMode = editMode
 
-		// Effect to monitor both structural and property changes in notes
+		// Effect to monitor note changes with dual signature tracking
 		$effect(() => {
 			const currentNotes = this.#notes()
-			const currentStructuralState = this.#extractStructuralState(currentNotes)
-			const currentPropertyState = this.#extractPropertyState(currentNotes)
+			const currentLayoutSignature = getLayoutSignature(currentNotes)
+			const currentPropertySignature = getPropertySignature(currentNotes)
 
-			const hasStructuralChanges = this.#hasStructuralChanges(
-				currentStructuralState,
-				this.#previousStructuralState
-			)
-			const propertyChanges = this.#getPropertyChanges(
-				currentPropertyState,
-				this.#previousPropertyState
+			const hasLayoutChanges = !deepEqual(currentLayoutSignature, this.#previousLayoutSignature)
+			const hasPropertyChanges = !deepEqual(
+				currentPropertySignature,
+				this.#previousPropertySignature
 			)
 
-			if (hasStructuralChanges) {
+			if (hasLayoutChanges) {
 				// Structural changes require full re-render
-				this.#previousStructuralState = currentStructuralState
-				this.#previousPropertyState = currentPropertyState
+				this.#previousLayoutSignature = currentLayoutSignature
+				this.#previousPropertySignature = currentPropertySignature
 				this.render()
-			} else if (propertyChanges.length > 0) {
+			} else if (hasPropertyChanges) {
 				// Property changes can be handled with fast updates
-				this.#updateNodesProperties(propertyChanges)
-				this.#previousPropertyState = currentPropertyState
+				this.#updateNodesProperties(currentNotes)
+				this.#previousPropertySignature = currentPropertySignature
 			}
 		})
 	}
@@ -88,238 +79,40 @@ export class NoteManager {
 		this.renderCount++
 	}
 
-	/**
-	 * Extract structural state from notes for change detection
-	 */
-	#extractStructuralState(notes: FlowNote[]): {
-		count: number
-		groupMemberships: Record<string, string[]>
-	} {
-		const groupMemberships: Record<string, string[]> = {}
-
-		// Extract group memberships for group notes
-		notes
-			.filter((note) => note.type === 'group')
-			.forEach((note) => {
-				if (note.contained_node_ids) {
-					groupMemberships[note.id] = [...note.contained_node_ids].sort() // Sort for consistent comparison
-				}
-			})
-
-		return {
-			count: notes.length,
-			groupMemberships
-		}
-	}
-
-	/**
-	 * Check if there are structural changes that affect layout
-	 */
-	#hasStructuralChanges(
-		current: { count: number; groupMemberships: Record<string, string[]> },
-		previous: { count: number; groupMemberships: Record<string, string[]> }
-	): boolean {
-		// Check if note count changed
-		if (current.count !== previous.count) {
-			return true
-		}
-
-		// Check if group memberships changed
-		const currentGroups = Object.keys(current.groupMemberships)
-		const previousGroups = Object.keys(previous.groupMemberships)
-
-		// Different number of group notes
-		if (currentGroups.length !== previousGroups.length) {
-			return true
-		}
-
-		// Check each group's membership
-		for (const groupId of currentGroups) {
-			const currentMembers = current.groupMemberships[groupId]
-			const previousMembers = previous.groupMemberships[groupId]
-
-			// Group didn't exist before or membership changed
-			if (!previousMembers || !this.#arraysEqual(currentMembers, previousMembers)) {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	/**
-	 * Helper to compare two sorted arrays for equality
-	 */
-	#arraysEqual(a: string[], b: string[]): boolean {
-		if (a.length !== b.length) {
-			return false
-		}
-		return a.every((value, index) => value === b[index])
-	}
-
-	/**
-	 * Extract property state from notes for change detection
-	 */
-	#extractPropertyState(
-		notes: FlowNote[]
-	): Record<
-		string,
-		{
-			text: string
-			locked: boolean
-			color: string
-			position: { x: number; y: number }
-			size: { width: number; height: number }
-		}
-	> {
-		const propertyState: Record<
-			string,
-			{
-				text: string
-				locked: boolean
-				color: string
-				position: { x: number; y: number }
-				size: { width: number; height: number }
-			}
-		> = {}
-
-		for (const note of notes) {
-			propertyState[note.id] = {
-				text: note.text,
-				locked: note.locked || false,
-				color: note.color,
-				position: { ...note.position },
-				size: { ...note.size }
-			}
-		}
-
-		return propertyState
-	}
-
-	/**
-	 * Get property changes between current and previous state
-	 */
-	#getPropertyChanges(
-		current: Record<
-			string,
-			{
-				text: string
-				locked: boolean
-				color: string
-				position: { x: number; y: number }
-				size: { width: number; height: number }
-			}
-		>,
-		previous: Record<
-			string,
-			{
-				text: string
-				locked: boolean
-				color: string
-				position: { x: number; y: number }
-				size: { width: number; height: number }
-			}
-		>
-	): Array<{ noteId: string; property: string; oldValue: any; newValue: any }> {
-		const changes: Array<{ noteId: string; property: string; oldValue: any; newValue: any }> = []
-
-		for (const noteId of Object.keys(current)) {
-			const currentNote = current[noteId]
-			const previousNote = previous[noteId]
-
-			if (!previousNote) continue // New note, will be handled by structural changes
-
-			// Check each property for changes
-			if (currentNote.text !== previousNote.text) {
-				changes.push({
-					noteId,
-					property: 'text',
-					oldValue: previousNote.text,
-					newValue: currentNote.text
-				})
-			}
-			if (currentNote.locked !== previousNote.locked) {
-				changes.push({
-					noteId,
-					property: 'locked',
-					oldValue: previousNote.locked,
-					newValue: currentNote.locked
-				})
-			}
-			if (currentNote.color !== previousNote.color) {
-				changes.push({
-					noteId,
-					property: 'color',
-					oldValue: previousNote.color,
-					newValue: currentNote.color
-				})
-			}
-			if (
-				currentNote.position.x !== previousNote.position.x ||
-				currentNote.position.y !== previousNote.position.y
-			) {
-				changes.push({
-					noteId,
-					property: 'position',
-					oldValue: previousNote.position,
-					newValue: currentNote.position
-				})
-			}
-			if (
-				currentNote.size.width !== previousNote.size.width ||
-				currentNote.size.height !== previousNote.size.height
-			) {
-				changes.push({
-					noteId,
-					property: 'size',
-					oldValue: previousNote.size,
-					newValue: currentNote.size
-				})
-			}
-		}
-
-		return changes
+	getCache(): Record<string, TextHeightCacheEntry> {
+		return this.#cache
 	}
 
 	/**
 	 * Update node properties using setter function for proper reactivity
+	 * Only updates visual properties that don't affect layout
 	 */
-	#updateNodesProperties(
-		changes: Array<{ noteId: string; property: string; oldValue: any; newValue: any }>
-	): void {
+	#updateNodesProperties(currentNotes: FlowNote[]): void {
 		const currentNodes = this.#getNodes()
 		if (currentNodes.length === 0) return
 
 		// Create a new array with updated nodes to trigger reactivity
 		const updatedNodes = currentNodes.map((node) => {
-			const change = changes.find((c) => c.noteId === node.id)
-			if (!change) return node
+			const note = currentNotes.find((n) => n.id === node.id)
+			if (!note) return node
 
 			// Clone the node to avoid mutation
 			const updatedNode = { ...node, data: { ...node.data } }
 
-			switch (change.property) {
-				case 'text':
-					if (updatedNode.data) updatedNode.data.text = change.newValue
-					break
-				case 'locked':
-					if (updatedNode.data) updatedNode.data.locked = change.newValue
-					// Update draggable property based on lock state and edit mode
-					updatedNode.draggable = updatedNode.data.isGroupNote
-						? false
-						: this.#editMode && !change.newValue
-					break
-				case 'color':
-					if (updatedNode.data) updatedNode.data.color = change.newValue
-					break
-				case 'position':
-					updatedNode.position = { ...change.newValue }
-					break
-				case 'size':
-					updatedNode.width = change.newValue.width
-					updatedNode.height = change.newValue.height
-					updatedNode.style = `width: ${change.newValue.width}px; height: ${change.newValue.height}px;`
-					break
+			// Update properties that don't affect layout
+			if (updatedNode.data) {
+				updatedNode.data.text = note.text
+				updatedNode.data.color = note.color
+				updatedNode.data.locked = note.locked || false
+			}
+
+			// Update draggable property based on lock state and edit mode
+			const isGroupNote = note.type === 'group'
+			updatedNode.draggable = isGroupNote ? false : this.#editMode && !note.locked
+			if (!isGroupNote) {
+				updatedNode.width = note.size.width
+				updatedNode.height = note.size.height
+				updatedNode.position = note.position
 			}
 
 			return updatedNode
@@ -327,10 +120,6 @@ export class NoteManager {
 
 		// Use setter function to trigger reactivity
 		this.#setNodes(updatedNodes)
-	}
-
-	getCache(): Record<string, TextHeightCacheEntry> {
-		return this.#cache
 	}
 
 	/**

@@ -70,7 +70,7 @@
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
-	import { buildNodeSpacingMap } from './groupNoteUtils'
+	import { buildNodeSpacingMap, getNoteStateSignature } from './groupNoteUtils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -272,16 +272,28 @@
 
 	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	type LayoutCacheKey = {
+		nodes: NodeDep[]
+		noteSignature: ReturnType<typeof getNoteStateSignature>
+	}
+	let lastLayoutCache: { key: LayoutCacheKey; result: (NodeDep & NodePos)[] } | undefined =
+		undefined
+
 	function layoutNodes(
 		nodes: NodeDep[],
 		groupNotes: FlowNote[] = [],
 		noteTextHeights: Record<string, number> = {}
 	): (NodeDep & NodePos)[] {
-		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
-			console.debug('layoutNodes', 'same nodes')
-			return lastResult
+		// Create comprehensive cache key that includes all layout dependencies
+		const currentCacheKey: LayoutCacheKey = {
+			nodes,
+			noteSignature: getNoteStateSignature(groupNotes, noteTextHeights)
+		}
+
+		// Check if we can use cached result
+		if (lastLayoutCache && deepEqual(currentCacheKey, lastLayoutCache.key)) {
+			console.debug('layoutNodes', 'cache hit - same nodes and notes')
+			return lastLayoutCache.result
 		}
 		console.debug('layoutNodes', nodes.length)
 		let seenId: string[] = []
@@ -360,7 +372,11 @@
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
+		// Update cache with new results
+		lastLayoutCache = {
+			key: currentCacheKey,
+			result: newNodes
+		}
 		return newNodes
 	}
 
