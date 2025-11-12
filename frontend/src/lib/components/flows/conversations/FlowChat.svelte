@@ -11,7 +11,6 @@
 		deploymentInProgress?: boolean
 		path: string
 		hideSidebar?: boolean
-		showStreamingDisabledWarning?: boolean
 	}
 
 	let {
@@ -19,8 +18,7 @@
 		deploymentInProgress = false,
 		useStreaming = false,
 		path,
-		hideSidebar = false,
-		showStreamingDisabledWarning = false
+		hideSidebar = false
 	}: Props = $props()
 
 	const manager = createFlowChatManager()
@@ -50,5 +48,5 @@
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}
-	<FlowChatInterface {manager} {deploymentInProgress} {showStreamingDisabledWarning} />
+	<FlowChatInterface {manager} {deploymentInProgress} />
 </div>

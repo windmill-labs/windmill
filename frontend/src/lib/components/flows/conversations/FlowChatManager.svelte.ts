@@ -479,13 +479,11 @@ export class FlowChatManager {
 		let isCompleted = false
 
 		try {
-			const jobId = await JobService.runFlowByPath({
-				workspace: get(workspaceStore)!,
-				path: this.#path!,
-				requestBody: { user_message: messageContent },
-				memoryId: currentConversationId
-			})
-			// Encode the payload as base64
+			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+			if (!jobId) {
+				console.error('No jobId returned from onRunFlow')
+				return
+			}
 
 			// Build the EventSource URL
 			const streamUrl = `/api/w/${get(workspaceStore)}/jobs_u/getupdate_sse/${jobId}`

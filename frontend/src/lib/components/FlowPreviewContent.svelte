@@ -476,8 +476,8 @@
 				<div class="flex flex-row justify-center w-full">
 					<FlowChat
 						useStreaming={shouldUseStreaming}
-						onRunFlow={async (userMessage, _conversationId) => {
-							await runPreview({ user_message: userMessage }, undefined)
+						onRunFlow={async (userMessage, conversationId) => {
+							await runPreview({ user_message: userMessage }, undefined, conversationId)
 							return jobId ?? ''
 						}}
 						hideSidebar={true}

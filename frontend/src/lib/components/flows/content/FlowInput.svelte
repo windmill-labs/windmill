@@ -504,8 +504,7 @@
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
 						hideSidebar={true}
-						useStreaming={false}
-						showStreamingDisabledWarning={shouldUseStreaming}
+						useStreaming={shouldUseStreaming}
 					/>
 				</div>
 			{:else}
