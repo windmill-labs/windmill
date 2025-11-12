@@ -472,8 +472,8 @@
 		selectionManager.handleKeyDown(event, nodes)
 	}
 
-	function handleKeyUp(_event: KeyboardEvent) {
-		// Keep for potential future use
+	function handleKeyUp(event: KeyboardEvent) {
+		selectionManager.handleKeyUp(event)
 	}
 
 	async function updateStores() {

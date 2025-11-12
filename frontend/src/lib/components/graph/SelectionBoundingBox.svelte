@@ -59,7 +59,7 @@
 {#if bounds() && selectedNodes.length > 1}
 	{@const currentBounds = bounds()!}
 	<div
-		class="absolute border-2 border-dashed border-accent bg-accent/5 rounded cursor-pointer"
+		class={'absolute rounded cursor-pointer bg-surface-selected/30  border-2 border-dashed border-accent '}
 		style="
 			left: {currentBounds.x}px;
 			top: {currentBounds.y}px;
@@ -68,10 +68,5 @@
 			z-index: 10;
 		"
 	>
-		<div
-			class="absolute -top-6 left-0 text-xs text-accent font-medium bg-surface px-2 py-1 rounded shadow pointer-events-none"
-		>
-			{selectedNodes.length} nodes selected
-		</div>
 	</div>
 {/if}
