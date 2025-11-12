@@ -1143,6 +1143,7 @@ pub struct Ping {
     pub occupancy_rate_15s: Option<f32>,
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
+    pub enable_unshare_pid: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1190,6 +1191,7 @@ pub async fn update_ping_http(
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
+                insert_ping.enable_unshare_pid,
                 db,
             )
             .await?;
@@ -1318,10 +1320,11 @@ pub async fn insert_ping_query(
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
+    enable_unshare_pid: Option<bool>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, enable_unshare_pid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
         DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
@@ -1331,7 +1334,8 @@ pub async fn insert_ping_query(
         dw,
         version,
         vcpus,
-        memory
+        memory,
+        enable_unshare_pid
         )
         .execute(db)
         .await?;
