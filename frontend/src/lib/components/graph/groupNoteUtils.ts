@@ -2,6 +2,8 @@ import type { Node } from '@xyflow/svelte'
 import { NODE } from './util'
 import type { FlowNote } from '../../gen'
 import type { NoteManager } from './noteManager.svelte'
+import type { NoteEditorContext } from './noteEditor.svelte'
+import { StickyNote } from 'lucide-svelte'
 
 type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 
@@ -249,4 +251,21 @@ export function calculateAllNoteZIndexes(
 	}
 
 	return zIndexMap
+}
+
+export function addGroupNoteContextMenuItem(
+	nodeId: string,
+	noteEditorContext: NoteEditorContext | undefined
+) {
+	return {
+		id: 'add-group-note',
+		label: 'Add group note',
+		icon: StickyNote,
+		disabled: !noteEditorContext?.noteEditor,
+		onClick: () => {
+			if (noteEditorContext?.noteEditor) {
+				noteEditorContext.noteEditor.createGroupNote([nodeId], 'Group Note')
+			}
+		}
+	}
 }

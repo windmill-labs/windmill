@@ -98,7 +98,7 @@
 			selected={noteMode}
 		></Button>
 		{#snippet text()}
-			{noteMode ? 'Exit note mode' : 'Add notes'}
+			{noteMode ? 'Exit note mode' : 'Add sticky notes'}
 		{/snippet}
 	</Popover>
 </div>

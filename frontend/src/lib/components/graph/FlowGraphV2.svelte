@@ -36,10 +36,10 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand, MousePointer } from 'lucide-svelte'
+	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively } from '$lib/utils'
+	import { encodeState, readFieldsRecursively, getModifierKey } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -74,6 +74,7 @@
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
 	import { buildNodeSpacingMap, getNoteStateSignature } from './groupNoteUtils'
+	import { Tooltip } from '../meltComponents'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -481,6 +482,9 @@
 	function handleKeyDown(event: KeyboardEvent) {
 		selectionManager.handleKeyDown(event, nodes)
 		noteManager.handleKeyDown(event)
+		if (noteMode) {
+			exitNoteMode?.()
+		}
 	}
 
 	async function updateStores() {
@@ -821,18 +825,39 @@
 					<Controls position="top-right" orientation="horizontal" showLock={false}>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
-								<ControlButton
-									onclick={() => {
-										selectionManager.mode =
-											selectionManager.mode === 'normal' ? 'rect-select' : 'normal'
-									}}
-									title="Toggle rectangle selection"
-									class={selectionManager.mode === 'rect-select'
-										? 'text-accent !bg-surface-selected'
-										: ''}
-								>
-									<MousePointer size="14" />
-								</ControlButton>
+								<Tooltip>
+									<ControlButton
+										onclick={() => {
+											selectionManager.mode =
+												selectionManager.mode === 'normal' ? 'rect-select' : 'normal'
+										}}
+									>
+										{#if selectionManager.mode === 'rect-select'}
+											<MousePointer size="14" />
+										{:else}
+											<Hand size="14" />
+										{/if}
+									</ControlButton>
+									{#snippet text()}
+										<div class="flex flex-col gap-2">
+											<div class="flex items-center gap-2">
+												<Hand size="14" />
+												<span class="text-secondary"
+													><strong>Grab</strong>: Click and drag to pan. Hold
+													<kbd class="text-primary text-lg">{getModifierKey()}</kbd> to box select.</span
+												>
+											</div>
+											<div class="flex items-center gap-2">
+												<MousePointer size="14" />
+												<span class="text-secondary"
+													><strong class="text-primary">Select</strong> Click and drag to box
+													select. Hold
+													<kbd class="text-primary text-lg">{getModifierKey()}</kbd> to pan.</span
+												>
+											</div>
+										</div>
+									{/snippet}
+								</Tooltip>
 							</div>
 						{/if}
 						{#if download}

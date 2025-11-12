@@ -1,11 +1,12 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, StickyNote } from 'lucide-svelte'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { addGroupNoteContextMenuItem } from '../../groupNoteUtils'
 
 	interface Props {
 		data: ModuleN['data']
@@ -43,21 +44,7 @@
 
 	// Define context menu items
 	const contextMenuItems: ContextMenuItem[] = $derived(
-		data.editMode
-			? [
-					{
-						id: 'add-group-note',
-						label: 'Add group note',
-						icon: StickyNote,
-						disabled: !noteEditorContext?.noteEditor,
-						onClick: () => {
-							if (noteEditorContext?.noteEditor) {
-								noteEditorContext.noteEditor.createGroupNote([data.id], 'Group Note')
-							}
-						}
-					}
-				]
-			: []
+		data.editMode ? [addGroupNoteContextMenuItem(data.id, noteEditorContext)] : []
 	)
 </script>
 

@@ -102,6 +102,13 @@
 	let parentLoop = $derived(
 		flowStore?.val && mod ? checkIfParentLoop(flowStore.val, mod.id) : undefined
 	)
+
+	function handlePointerDown(e: CustomEvent<PointerEvent>) {
+		// Only handle left clicks (button 0)
+		if (e.detail.button === 0) {
+			onSelect(mod.id)
+		}
+	}
 </script>
 
 {#if mod}
@@ -164,7 +171,7 @@
 					on:changeId
 					on:move
 					on:delete
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					onUpdateMock={(mock) => {
 						mod.mock = mock
 						onUpdateMock?.({ id: mod.id, mock })
@@ -193,7 +200,7 @@
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -213,7 +220,7 @@
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -231,7 +238,7 @@
 					{moduleAction}
 					{onShowModuleDiff}
 					on:changeId
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					on:delete
 					on:move
 					onUpdateMock={(mock) => {
