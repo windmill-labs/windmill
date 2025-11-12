@@ -339,9 +339,9 @@ lazy_static::lazy_static! {
                         \n\
                         Solutions:\n\
                         • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
-                        • For Docker: May need --cap-add=SYS_ADMIN or --privileged for some isolation modes\n\
-                        • For Kubernetes: May need 'capabilities: add: [SYS_ADMIN]' in securityContext\n\
-                        • Try different flags via UNSHARE_ISOLATION_FLAGS env var\n\
+                        • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
+                        • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
+                        • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
                         • Alternative: Use NSJAIL instead\n\
                         • Disable: Set ENABLE_UNSHARE_PID=false",
                         stderr.trim(),
