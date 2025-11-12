@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT\n                        path,\n                        script_path,\n                        is_flow,\n                        route_path,\n                        enabled,\n                        authentication_resource_path,\n                        workspace_id,\n                        request_type AS \"request_type: _\",\n                        authentication_method  AS \"authentication_method: _\",\n                        edited_by,\n                        email,\n                        static_asset_config AS \"static_asset_config: _\",\n                        wrap_body,\n                        raw_string,\n                        workspaced_route,\n                        is_static_website,\n                        error_handler_path,\n                        error_handler_args as \"error_handler_args: _\",\n                        retry as \"retry: _\"\n                    FROM\n                        http_trigger\n                    WHERE\n                        http_method = $1 AND\n                        enabled is TRUE\n                    ",
+  "query": "\n                    SELECT\n                        path,\n                        script_path,\n                        is_flow,\n                        route_path,\n                        authentication_resource_path,\n                        workspace_id,\n                        request_type AS \"request_type: _\",\n                        authentication_method  AS \"authentication_method: _\",\n                        edited_by,\n                        email,\n                        static_asset_config AS \"static_asset_config: _\",\n                        wrap_body,\n                        raw_string,\n                        workspaced_route,\n                        is_static_website,\n                        error_handler_path,\n                        error_handler_args as \"error_handler_args: _\",\n                        retry as \"retry: _\"\n                    FROM\n                        http_trigger\n                    WHERE\n                        http_method = $1 AND\n                        enabled is TRUE\n                    ",
   "describe": {
     "columns": [
       {
@@ -25,21 +25,16 @@
       },
       {
         "ordinal": 4,
-        "name": "enabled",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 5,
         "name": "authentication_resource_path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "workspace_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "request_type: _",
         "type_info": {
           "Custom": {
@@ -55,7 +50,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "authentication_method: _",
         "type_info": {
           "Custom": {
@@ -74,52 +69,52 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "static_asset_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "wrap_body",
         "type_info": "Bool"
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "raw_string",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "workspaced_route",
         "type_info": "Bool"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "is_static_website",
         "type_info": "Bool"
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "error_handler_path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "error_handler_args: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "retry: _",
         "type_info": "Jsonb"
       }
@@ -147,7 +142,6 @@
       false,
       false,
       false,
-      false,
       true,
       false,
       false,
@@ -164,5 +158,5 @@
       true
     ]
   },
-  "hash": "794940e5842a49cdc662026aaab22cf68e4b989ee423696b759d859f7fa2e9df"
+  "hash": "bbc96ae911d4ca0330582340e65c10e008e507610f095ff3936865101c9ba346"
 }
