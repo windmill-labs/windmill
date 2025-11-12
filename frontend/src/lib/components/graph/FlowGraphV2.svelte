@@ -64,6 +64,7 @@
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import NodeContextMenu from './NodeContextMenu.svelte'
+	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
@@ -234,6 +235,9 @@
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
+
+	// Reference to pane context menu component
+	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
 	let selectionManager = selectionManagerProp || new SelectionManager()
@@ -753,6 +757,7 @@
 				/>
 			{/if}
 			<InitialViewportFitter {nodes} triggerCount={initialBuildTrigger} />
+			<PaneContextMenu {editMode} bind:this={paneContextMenu} />
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
@@ -760,6 +765,9 @@
 						selectionManager.clearSelection()
 					}
 					noteManager.clearNoteSelection()
+				}}
+				onpanecontextmenu={({ event }) => {
+					paneContextMenu?.onPaneContextMenu(event)
 				}}
 				onnodedragstop={(event) => {
 					const node = event.targetNode

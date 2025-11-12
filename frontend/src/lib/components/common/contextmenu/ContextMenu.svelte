@@ -3,6 +3,14 @@
 	import { fly } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
+	import {
+		getContextMenuContainerClass,
+		CONTEXT_MENU_ITEM_BASE_CLASS,
+		CONTEXT_MENU_ITEM_HOVER_MELT_CLASS,
+		CONTEXT_MENU_ITEM_DISABLED_CLASS,
+		CONTEXT_MENU_DIVIDER_CLASS,
+		CONTEXT_MENU_ANIMATION_CLASSES
+	} from './contextMenuStyles'
 
 	export interface ContextMenuItem {
 		id: string
@@ -61,20 +69,20 @@
 
 {#if $open}
 	<div
-		class="z-50 flex flex-col gap-1 min-w-[12rem] overflow-hidden rounded-md border bg-surface p-1 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+		class="{getContextMenuContainerClass()} {CONTEXT_MENU_ANIMATION_CLASSES}"
 		use:melt={$menuElement}
 		transition:fly={{ duration: 150, y: -10 }}
 	>
 		{#each items as menuItem (menuItem.id)}
 			{#if menuItem.divider}
-				<div class="my-1 h-px bg-border-light"></div>
+				<div class={CONTEXT_MENU_DIVIDER_CLASS}></div>
 			{:else}
 				<div
 					class={twMerge(
-						'relative flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-xs outline-none transition-colors',
+						CONTEXT_MENU_ITEM_BASE_CLASS,
 						menuItem.disabled
-							? 'pointer-events-none opacity-50'
-							: 'data-[highlighted]:bg-surface-hover'
+							? CONTEXT_MENU_ITEM_DISABLED_CLASS
+							: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS
 					)}
 					use:melt={$item}
 					onclick={() => handleItemClick(menuItem)}
