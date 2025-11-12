@@ -540,7 +540,8 @@ export function graphBuilder(
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
-				}
+				},
+				selectable: false
 			})
 		}
 
