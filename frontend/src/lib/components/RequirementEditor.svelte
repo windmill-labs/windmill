@@ -1,7 +1,6 @@
 <script lang="ts">
-	// TODO: Replace with actual API service when available
-	// import { RequirementService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
+	import { RawRequirementsService, WorkspaceService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -11,17 +10,57 @@
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
 	import Section from './Section.svelte'
-	import { Loader2, Save, Code2, FolderOpen } from 'lucide-svelte'
-	import autosize from '$lib/autosize'
-	import Select from './select/Select.svelte'
+	import { Loader2, Rocket, Code2, FolderOpen, AlertTriangle } from 'lucide-svelte'
+		import Select from './select/Select.svelte'
+	import RadioButton from './RadioButton.svelte'
 
 	const dispatch = createEventDispatcher()
 
-	let directoryPath: string = $state('')
+	// Helper function to get full filename
+	function getFullFilename(language: string, name: string | null): string | null {
+		const extension = getFileExtension(language)
+		if (extension == null) return null;
+		return name ? `${name}.${extension}` : extension
+	}
+
+	function getRequirementPath(name: string | null, language: string): string | null {
+		const extension = getFileExtension(language)
+		if (extension == null) return null;
+		return name ? `raw_requirements/${name}.${extension}` : `raw_requirements/${extension}`
+	}
+
+	function getFileExtension(language: string): string | null {
+		switch (language) {
+			case 'python3':
+				return 'requirements.in'
+			case 'typescript':
+				return 'package.json'
+			case 'go':
+				return 'go.mod'
+			case 'php':
+				return 'composer.json'
+			default:
+				return null
+		}
+	}
+
+	// Check if workspace default exists for a language
+	function hasWorkspaceDefault(language: string): boolean {
+		return existingWorkspaceDefaults[language] || false
+	}
+
+	function goToWorkspaceDefault(): void {
+		// TODO: Navigate to existing workspace default
+		console.log('Navigate to workspace default for', requirement.language)
+		drawer?.closeDrawer()
+	}
+
+	let requirementName: string = $state('')
+	let requirementType: 'workspace' | 'named' = $state('workspace')
 	
 	// Language options for requirements - only supported languages
 	const LANGUAGE_OPTIONS = [
-		{ value: 'python', label: 'Python' },
+		{ value: 'python3', label: 'Python' },
 		{ value: 'typescript', label: 'TypeScript' },
 		{ value: 'go', label: 'Go' },
 		{ value: 'php', label: 'PHP' }
@@ -29,9 +68,9 @@
 
 	// Default templates for each language
 	const LANGUAGE_TEMPLATES: Record<string, string> = {
-		python: `# Python Requirements (requirements.in format)
-# Use pip-tools for dependency management: pip-compile requirements.in
-
+		python3: `# Python Requirements (requirements.in format)
+## py: 3.11
+#^ Uncomment to pin to python version.
 # Core dependencies
 requests>=2.31.0
 pandas>=2.0.0
@@ -143,20 +182,23 @@ require (
 		content: string
 		language: string
 		description: string
-		documentation?: string
 	} = $state({
 		content: '',
 		language: 'python',
-		description: '',
-		documentation: ''
+		description: ''
 	})
 
 	let valid = $state(true)
 	let drawer: Drawer | undefined = $state()
 	let edit = $state(false)
-	let initialPath: string = $state('')
+	let initialId: number | undefined = $state(undefined)
+	let initialName: string | null = $state(null)
+	let initialLanguage: string = $state('python')
+	let existingWorkspaceDefaults: Record<string, boolean> = $state({})
 	let can_write = $state(true)
 	let editor: SimpleEditor | undefined = $state(undefined)
+	let dependents: any[] = $state([])
+	let showWarning = $state(false)
 
 	const MAX_REQUIREMENT_LENGTH = 50000
 
@@ -167,6 +209,9 @@ require (
 	// Track when editor is ready
 	let editorReady = $state(false)
 	
+	// Calculate when deploy button should be disabled
+	let isDisabled = $derived(!can_write || !valid || (requirementType === 'named' && requirementName.trim() === ''))
+	
 	$effect(() => {
 		if (editor && !editorReady) {
 			editor.setCode(requirement.content)
@@ -175,8 +220,9 @@ require (
 	})
 
 	// Handle editor content changes
-	function handleEditorChange(newCode: string) {
-		requirement.content = newCode
+	function handleEditorChange(event: { code: string }) {
+		// SimpleEditor dispatches change event with { code: string }
+		requirement.content = event.code
 	}
 
 	// Watch for language changes and update template
@@ -192,114 +238,125 @@ require (
 
 	export function initNew(): void {
 		requirement = {
-			content: LANGUAGE_TEMPLATES.python,
-			language: 'python',
-			description: '',
-			documentation: ''
+			content: LANGUAGE_TEMPLATES.python3,
+			language: 'python3',
+			description: "",
 		}
 		edit = false
-		initialPath = ''
-		directoryPath = ''
+		initialId = undefined
+		initialName = null
+		initialLanguage = 'python3'
+		requirementName = ''
+		requirementType = 'named' // Start with named by default
 		can_write = true
 		editorReady = false
+		// Check for existing workspace defaults
+		existingWorkspaceDefaults = {
+			python3: true, // Mock: workspace default exists for Python
+			typescript: false,
+			go: false,
+			php: false
+		}
 		drawer?.openDrawer()
 	}
 
-	export async function editRequirement(edit_path: string): Promise<void> {
+	export async function editRequirement(id: number, name: string | null, language: string): Promise<void> {
 		edit = true
-		// TODO: Replace with actual API call
-		// const getReq = await RequirementService.getRequirement({
-		//     workspace: $workspaceStore ?? '',
-		//     path: edit_path
-		// })
 		
-		// Mock data for now
-		const getReq = {
-			content: LANGUAGE_TEMPLATES.python,
-			language: 'python',
-			description: 'Mock requirement description',
-			documentation: 'Mock documentation',
-			workspace_id: $workspaceStore,
-			extra_perms: {}
-		}
+		try {
+			// TODO: Implement getRawRequirement endpoint and use actual API call
+			// For now, fall back to template content since we don't have a get endpoint
+			const mockContent = LANGUAGE_TEMPLATES[language] || LANGUAGE_TEMPLATES.python
+			
+			can_write = true // TODO: Implement proper permissions
 
-		can_write = getReq.workspace_id == $workspaceStore && canWrite(edit_path, getReq.extra_perms ?? {}, $userStore)
-
-		requirement = {
-			content: getReq.content ?? '',
-			language: getReq.language ?? 'python',
-			description: getReq.description ?? '',
-			documentation: getReq.documentation ?? ''
+			requirement = {
+				content: mockContent,
+				language: language,
+				description: `${name || 'Default'} requirements for ${language}`
+			}
+		} catch (error) {
+			console.error('Error loading requirement:', error)
+			// Fall back to template on error
+			requirement = {
+				content: LANGUAGE_TEMPLATES[language] || LANGUAGE_TEMPLATES.python3,
+				language: language,
+				description: `${name || 'Default'} requirements for ${language}`
+			}
+			sendUserToast('Could not load requirement content, using template', true)
 		}
-		initialPath = edit_path
-		directoryPath = edit_path
+		
+		initialId = id
+		initialName = name
+		initialLanguage = language
+		requirementName = name || ''
+		requirementType = name === null ? 'workspace' : 'named'
 		editorReady = false
 		drawer?.openDrawer()
-	}
-
-	async function createRequirement(): Promise<void> {
-		// TODO: Replace with actual API call
-		// await RequirementService.createRequirement({
-		//     workspace: $workspaceStore!,
-		//     requestBody: {
-		//         path: directoryPath,
-		//         content: requirement.content,
-		//         language: requirement.language,
-		//         description: requirement.description,
-		//         documentation: requirement.documentation
-		//     }
-		// })
-		
-		console.log('Creating requirement:', {
-			path: directoryPath,
-			content: requirement.content,
-			language: requirement.language,
-			description: requirement.description,
-			documentation: requirement.documentation
-		})
-
-		sendUserToast(`Created requirement for ${directoryPath}`)
-		dispatch('create')
-		drawer?.closeDrawer()
 	}
 
 	async function updateRequirement(): Promise<void> {
 		try {
-			// TODO: Replace with actual API call
-			// await RequirementService.updateRequirement({
-			//     workspace: $workspaceStore!,
-			//     path: initialPath,
-			//     requestBody: {
-			//         path: initialPath != directoryPath ? directoryPath : undefined,
-			//         content: requirement.content,
-			//         language: requirement.language,
-			//         description: requirement.description,
-			//         documentation: requirement.documentation
-			//     }
-			// })
-
-			console.log('Updating requirement:', {
-				initialPath,
-				newPath: directoryPath,
-				content: requirement.content,
-				language: requirement.language,
-				description: requirement.description,
-				documentation: requirement.documentation
+			await RawRequirementsService.createRawRequirements({
+				workspace: $workspaceStore!,
+				requestBody: {
+					name: requirementType === 'workspace' ? undefined : requirementName,
+					content: requirement.content,
+					language: requirement.language as any,
+					workspace_id: $workspaceStore!
+				}
 			})
 
-			sendUserToast(`Updated requirement ${initialPath}`)
+			const displayName = requirementType === 'workspace' ? `workspace default for ${requirement.language}` : requirementName
+			sendUserToast(`Deployed raw requirement: ${displayName}`)
 			dispatch('create')
 			drawer?.closeDrawer()
-		} catch (err) {
-			sendUserToast(`Could not update requirement: ${err.body}`, true)
+		} catch (error) {
+			console.error('Error updating requirement:', error)
+			sendUserToast(`Failed to update requirement: ${error.message}`, true)
+		} finally {
+			showWarning = false
 		}
+	}
+
+	async function handleDeployClick(): Promise<void> {
+		// For updates, check for dependents first
+		try {
+			const existingPath = getRequirementPath(initialName, initialLanguage)
+			console.log(existingPath);
+			// TODO(claude): handle existingPath null, it should toast that it is not expected.
+			dependents = await WorkspaceService.getDependents({
+				workspace: $workspaceStore!,
+				importedPath: existingPath
+			})
+
+			if (dependents.length > 0) {
+				showWarning = true
+			} else {
+				// No dependents, proceed directly
+				await updateRequirement()
+			}
+		} catch (error) {
+			console.error('Error fetching dependents:', error)
+			// On error, proceed without warning
+			await updateRequirement()
+		}
+	}
+
+	function confirmDeploy(): void {
+		showWarning = false
+		updateRequirement()
+	}
+
+	function cancelDeploy(): void {
+		showWarning = false
 	}
 
 </script>
 
 <Drawer bind:this={drawer} size="1200px">
 	<DrawerContent
-		title={edit ? `Update requirement at ${initialPath}` : 'Add a requirement'}
+		title={edit ? `Deploy ${getFullFilename(requirement.language, requirementType === 'workspace' ? null : requirementName)}` : 'Add a raw requirement'}
 		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
@@ -308,22 +365,82 @@ require (
 					You only have read access to this resource and cannot edit it
 				</Alert>
 			{/if}
+
+			{#if showWarning}
+				<Alert type="warning" title="Redeploy Warning" collapsible={true} isCollapsed={false}>
+					{#snippet children()}
+						<div class="space-y-3">
+							<p>This deployment will trigger redeployment of the following dependent scripts, flows, and apps:</p>
+							<div class="space-y-2 max-h-40 overflow-y-auto">
+								{#each dependents as dependent}
+									<div class="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border text-sm">
+										<AlertTriangle size={14} class="text-yellow-600 dark:text-yellow-400" />
+										<span class="font-medium">{dependent.importer_kind}:</span>
+										<span class="font-mono">{dependent.importer_path}</span>
+										{#if dependent.importer_node_ids && dependent.importer_node_ids.length > 0}
+											<span class="text-xs text-tertiary">
+												({dependent.importer_node_ids.length} node{dependent.importer_node_ids.length !== 1 ? 's' : ''})
+											</span>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<div class="flex gap-2 pt-2">
+								<Button size="sm" color="warning" on:click={confirmDeploy}>
+									Deploy Anyway
+								</Button>
+								<Button size="sm" variant="border" on:click={cancelDeploy}>
+									Cancel
+								</Button>
+							</div>
+						</div>
+					{/snippet}
+				</Alert>
+			{/if}
 			
-			<Section label="Directory Path">
+			<Section label="Requirement Type">
 				<div class="flex flex-col gap-4">
-					<input
-						type="text"
-						bind:value={directoryPath}
-						placeholder="Enter directory path (e.g., /u/admin/scripts, /my_project)"
-						disabled={!can_write}
-						class="input"
-					/>
+					{#if hasWorkspaceDefault(requirement.language) && !edit}
+						<RadioButton
+							bind:value={requirementType}
+							options={[
+								['Named Requirement', 'named']
+							]}
+							disabled={!can_write}
+						/>
+						<div class="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
+							<FolderOpen size={16} class="text-blue-600" />
+							<span class="text-sm text-blue-800 flex-1">
+								Workspace default already exists for {requirement.language}
+							</span>
+							<Button size="xs" color="blue" variant="border" on:click={goToWorkspaceDefault}>
+								Go to default
+							</Button>
+						</div>
+					{:else}
+						<RadioButton
+							bind:value={requirementType}
+							options={[
+								['Named Requirement', 'named'],
+								['Workspace Default', 'workspace']
+							]}
+							disabled={!can_write || edit}
+						/>
+					{/if}
+					{#if requirementType === 'named'}
+						<input
+							type="text"
+							bind:value={requirementName}
+							placeholder="Enter requirement name (e.g., 'data-science', 'web-api')"
+							disabled={!can_write}
+							class="input"
+						/>
+					{/if}
 					<div class="text-sm text-tertiary">
 						<FolderOpen size={16} class="inline mr-2" />
-						Requirements apply to all files in the specified directory recursively. Use paths like:
-						<code class="bg-surface-secondary px-1 rounded">/u/admin/scripts</code>,
-						<code class="bg-surface-secondary px-1 rounded">/my_project</code>, or
-						<code class="bg-surface-secondary px-1 rounded">/flows/data_processing</code>
+						Workspace default requirements are used when no specific requirement is specified in scripts.
+						Named requirements can be referenced by scripts using
+						<code class="bg-surface-secondary px-1 rounded">#raw_reqs requirement_name</code> annotations.
 					</div>
 				</div>
 			</Section>
@@ -333,11 +450,25 @@ require (
 					<Select
 						bind:value={requirement.language}
 						items={LANGUAGE_OPTIONS}
+						disabled={edit}
 					/>
 					<div class="text-sm text-tertiary">
 						<Code2 size={16} class="inline mr-2" />
-						Select the programming language this requirement is for. This will load a default template.
+						{edit ? 'Language cannot be changed after creation.' : 'Select the programming language this requirement is for. This will load a default template.'}
 					</div>
+				</div>
+			</Section>
+
+			<Section label="Description">
+				<input
+					type="text"
+					bind:value={requirement.description}
+					placeholder="Brief description of this requirement (optional)"
+					disabled={!can_write}
+					class="input"
+				/>
+				<div class="text-sm text-tertiary mt-2">
+					Provide a brief description to help others understand the purpose of this requirement.
 				</div>
 			</Section>
 
@@ -364,39 +495,17 @@ require (
 				</div>
 			</Section>
 
-			<Section label="Description">
-				<textarea 
-					rows="2" 
-					use:autosize 
-					bind:value={requirement.description} 
-					placeholder="Brief description of this requirement..."
-					disabled={!can_write}
-				></textarea>
-			</Section>
-
-			<Section label="Documentation (Optional)">
-				<textarea 
-					rows="4" 
-					use:autosize 
-					bind:value={requirement.documentation} 
-					placeholder="Additional usage information, examples, or implementation notes..."
-					disabled={!can_write}
-				></textarea>
-				<div class="text-sm text-tertiary mt-2">
-					Use this field to provide extra context, usage examples, or implementation details that help developers understand how to meet this requirement.
-				</div>
-			</Section>
 		</div>
 		
 		{#snippet actions()}
 			<Button
-				on:click={() => (edit ? updateRequirement() : createRequirement())}
-				disabled={!can_write || !valid || directoryPath.trim() === ''}
-				startIcon={{ icon: Save }}
+				on:click={handleDeployClick}
+				disabled={false}
+				startIcon={{ icon: Rocket }}
 				color="dark"
 				size="sm"
 			>
-				{edit ? 'Update' : 'Save'}
+				Deploy
 			</Button>
 		{/snippet}
 	</DrawerContent>

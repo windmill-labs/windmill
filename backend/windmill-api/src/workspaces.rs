@@ -51,7 +51,9 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
+use windmill_worker::scoped_dependency_map::{
+    DependencyDependent, DependencyMap, ScopedDependencyMap,
+};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -81,6 +83,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
+        .route("/get_dependents/*imported_path", get(get_dependents))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -705,7 +708,9 @@ async fn get_slack_oauth_config(
     .await?;
 
     // Mask the secret if it exists
-    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+    let masked_secret = settings
+        .slack_oauth_client_secret
+        .map(|_| "***".to_string());
 
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
@@ -3532,6 +3537,31 @@ async fn rebuild_dependency_map(
         return Err(Error::BadRequest("Disabled on Cloud".into()));
     }
     ScopedDependencyMap::rebuild_map(&w_id, &db).await
+}
+
+#[axum::debug_handler]
+async fn get_dependents(
+    Extension(db): Extension<DB>,
+    Path((w_id, imported_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<DependencyDependent>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        "API: Getting dependents for imported path"
+    );
+
+    let dependents = ScopedDependencyMap::get_dependents(&imported_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        dependents_count = dependents.len(),
+        "API: Found dependents: {:?}",
+        dependents
+    );
+
+    Ok(Json(dependents))
 }
 
 #[derive(Deserialize)]

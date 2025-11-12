@@ -1,4 +1,5 @@
 use serde::Serialize;
+use sqlx::PgExecutor;
 use tokio::sync::RwLock;
 use windmill_common::{
     apps::traverse_app_inline_scripts,
@@ -20,6 +21,7 @@ lazy_static::lazy_static! {
     pub static ref WMDEBUG_NO_DMAP_DISSOLVE: bool = std::env::var("WMDEBUG_NO_DMAP_DISSOLVE").is_ok();
 }
 
+// TODO: Rename to DependencyRelation
 #[derive(Serialize)]
 pub struct DependencyMap {
     pub workspace_id: Option<String>,
@@ -29,9 +31,16 @@ pub struct DependencyMap {
     pub importer_node_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DependencyDependent {
+    pub importer_path: String,
+    pub importer_kind: String,
+    pub importer_node_ids: Option<Vec<String>>,
+}
+
 #[derive(Debug)]
 pub struct ScopedDependencyMap {
-    dmap: HashSet<(String, String)>,
+    to_delete: HashSet<(String, String)>,
     w_id: String,
     importer_path: String,
     importer_kind: String,
@@ -75,7 +84,7 @@ RETURNING importer_node_id, imported_path
             .fetch_all(executor)
             .await?;
             Ok(Self {
-                dmap: HashSet::from_iter(dmap.into_iter()),
+                to_delete: HashSet::from_iter(dmap.into_iter()),
                 w_id: w_id.to_owned(),
                 importer_path: importer_path.to_owned(),
                 importer_kind: importer_kind.to_owned(),
@@ -107,7 +116,7 @@ SELECT importer_node_id, imported_path
         .await?;
 
         Ok(Self {
-            dmap: HashSet::from_iter(dmap.into_iter()),
+            to_delete: HashSet::from_iter(dmap.into_iter()),
             w_id: w_id.to_owned(),
             importer_path: importer_path.to_owned(),
             importer_kind: importer_kind.to_owned(),
@@ -118,22 +127,22 @@ SELECT importer_node_id, imported_path
     /// Remove matching entries
     pub(crate) async fn patch<'c>(
         &mut self,
-        relative_imports: Option<Vec<String>>,
+        referenced_paths: Option<Vec<String>>,
         node_id: String, // Flow Step/Node ID
         mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
-        self.patch_tx_ref(relative_imports, &node_id, &mut tx)
+        self.patch_tx_ref(referenced_paths, &node_id, &mut tx)
             .await?;
         Ok(tx)
     }
 
     pub(crate) async fn patch_tx_ref<'c>(
         &mut self,
-        relative_imports: Option<Vec<String>>,
+        referenced_paths: Option<Vec<String>>,
         node_id: &str, // Flow Step/Node ID
         tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     ) -> Result<()> {
-        let Some(mut relative_imports) = relative_imports else {
+        let Some(mut referenced_paths) = referenced_paths else {
             tracing::info!("relative imports are not found for: importer - {}, importer_node_id - {}, importer_kind - {}",
                 &self.importer_path,
                 &node_id,
@@ -152,9 +161,9 @@ SELECT importer_node_id, imported_path
         // After all `reduce`'s called ScopedDependencyMap has only extra/orphan imports
         // these are going to be clean up by calling [dissolve]
         // NOTE: `retain` iterates over vec and remove the ones whose closures returned false.
-        relative_imports.retain(|imported_path| {
+        referenced_paths.retain(|imported_path| {
             !self
-                .dmap
+                .to_delete
                 // As dmap is HashSet, removing is O(1) operation
                 // thus making entire process very efficient
                 // NOTE: `remove` returns true if item was removed and false if wasn't.
@@ -162,15 +171,15 @@ SELECT importer_node_id, imported_path
         });
 
         // As mentioned above, usually this will always be empty.
-        if !relative_imports.is_empty() {
+        if !referenced_paths.is_empty() {
             tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
                 &node_id,
                 &self.importer_kind,
-                &relative_imports,
+                &referenced_paths,
             );
         }
 
-        for import in relative_imports {
+        for import in referenced_paths {
             sqlx::query!(
                 "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
                      VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5) ON CONFLICT DO NOTHING",
@@ -203,7 +212,7 @@ SELECT importer_node_id, imported_path
         tracing::info!("dissolving dependency_map: {:?}", &self);
 
         // We _could_ shove it into single query, but this query is rarely called AND let's keep it simple for redability.
-        for (importer_node_id, imported_path) in self.dmap.into_iter() {
+        for (importer_node_id, imported_path) in self.to_delete.into_iter() {
             tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}",
                 &self.importer_kind,
                 &imported_path,
@@ -454,5 +463,30 @@ SELECT importer_node_id, imported_path
             *LOCKED.write().await = false;
             r
         }
+    }
+
+    /// Get dependents of any imported path - returns scripts/flows/apps that depend on it
+    pub async fn get_dependents<'c>(
+        imported_path: &str,
+        workspace_id: &str,
+        e: impl PgExecutor<'c>,
+    ) -> Result<Vec<DependencyDependent>> {
+        sqlx::query_as!(
+            DependencyDependent,
+            r#"
+            SELECT 
+                COALESCE(importer_kind::text, '') as "importer_kind!", -- sqlx thinks this is nullable somehow, so enfore with !
+                importer_path,
+                array_agg(importer_node_id) as importer_node_ids
+            FROM dependency_map 
+            WHERE workspace_id = $1 AND imported_path = $2
+            GROUP BY importer_path, importer_kind
+            "#,
+            workspace_id,
+            imported_path
+        )
+        .fetch_all(e)
+        .await
+        .map_err(Error::from)
     }
 }

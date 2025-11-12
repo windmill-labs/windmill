@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Ident, ItemStruct, Lit};
+use syn::{parse_macro_input, Ident, ItemStruct, Lit, TypePath};
 
 #[proc_macro_attribute]
 pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -9,8 +9,8 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fields = input
         .fields
         .iter()
-        .map(|f| f.ident.clone().unwrap())
-        .collect::<Vec<Ident>>();
+        .map(|f| (f.ident.clone().unwrap(), f.ty.clone()))
+        .collect::<Vec<(Ident, syn::Type)>>();
 
     // Match on the literal to extract the string value
     let comm_lit = match parse_macro_input!(attr as Lit) {
@@ -18,30 +18,43 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => panic!("Expected a string literal"),
     };
 
+    let (mut boolean_idents, mut serialized_idents) = (vec![], vec![]);
     // Generate regex
     let mut reg = format!("^{}|", &comm_lit);
     {
-        for field in fields.iter() {
-            reg.push_str(&(field.to_string()));
-            reg.push_str("\\b");
+        for (ident, ty) in fields.iter() {
+            let syn::Type::Path(TypePath { path, .. }) = ty else {
+                unreachable!()
+            };
+
+            if path.get_ident().map(Ident::to_string) == Some(String::from("bool")) {
+                boolean_idents.push(ident.clone());
+            } else {
+                serialized_idents.push(ident.clone());
+            }
+
+            reg.push_str(&(ident.to_string()));
+            reg.push_str(r"\b");
         }
 
         reg.push_str(r#"|\w+"#);
     }
+
     // Example of generated regex:
     // ^#
     // |ann1\b|ann2\b|ann3\b|ann4\b
     // |\w+
 
     TokenStream::from(quote! {
-        #[derive(Default, Debug)]
+        #[derive(Default, Debug, Clone)]
         #input
 
-        impl std::ops::BitOrAssign for #name{
+        impl std::ops::BitOrAssign for #name {
             fn bitor_assign(&mut self, rhs: Self) {
                 // Unfold fields
                 // Read more: https://docs.rs/quote/latest/quote/macro.quote.html#interpolation
-                #( self.#fields |= rhs.#fields; )*
+                #( self.#boolean_idents |= rhs.#boolean_idents; )*
+                #( self.#serialized_idents = rhs.#serialized_idents; )*
             }
         }
 
@@ -59,12 +72,12 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                     let mut comms = false;
                     // New instance
                     // We will apply it if in line only annotations
-                    let mut new = Self::default();
+                    let mut new = res.clone();
 
                     'inner: for (i, mat) in RE.find_iter(line).enumerate() {
 
-                        match mat.as_str(){
-                            #comm_lit if i == 0 => {
+                        match (i, mat.as_str()) {
+                            (0, #comm_lit) => {
                                 comms = true;
                                 continue 'inner;
                             },
@@ -73,8 +86,23 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                             //            "ann1"   => new.ann1    = true,
                             //            "ann2"   => new.ann2    = true,
                             //            "ann3"   => new.ann3    = true,
-                            #( stringify!(#fields) => new.#fields = true, )*
-                            // Non annotations
+                            #( (_, stringify!(#boolean_idents)) => new.#boolean_idents = true, )*
+
+                            // We will only parse it if it is the first in the line
+                            #( (1, stringify!(#serialized_idents)) => {
+                                // TODO: Make the split char configurable
+                                if let Some((_, ss)) = &line.split_once(':') {
+                                    // Modify res and not new, the only reason why we do it through `new` (for bools)
+                                    // is not to accept lines that are start correct but not fully consist out of annotations
+                                    // while when we have serialized fields, deserializer takes entire line and if fails just not applies it.
+                                    if let Ok(new_val) = serde_yml::from_str(ss) {
+                                        res.#serialized_idents = new_val;
+                                    }
+                                }
+
+                                continue 'outer;
+                            }, )*
+                            // Non annotation
                             _ => continue 'outer,
                         };
                     }

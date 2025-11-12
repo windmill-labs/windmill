@@ -5622,18 +5622,6 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
             //     .flatten()
             // {
             // }
-            tracing::debug!("going to sleep",);
-            tracing::debug!("going to sleep",);
-            tracing::debug!("going to sleep",);
-            sleep(std::time::Duration::from_secs(30 as u64)).await;
-            tracing::debug!("woken up",);
-
-            tracing::debug!("going to sleep",);
-            tracing::debug!("going to sleep",);
-            tracing::debug!("going to sleep",);
-            sleep(std::time::Duration::from_secs(10 as u64)).await;
-            tracing::debug!("woken up",);
-
             let Some(base_hash) = job.runnable_id else {
                 return Err(Error::InternalErr(
                     "Missing runnable_id for dependency job triggered by relative import"

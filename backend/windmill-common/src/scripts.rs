@@ -17,6 +17,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
+    worker::PythonAnnotations,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 
@@ -88,6 +89,33 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
+        }
+    }
+
+    pub fn as_requirements_filename(&self) -> Option<String> {
+        use ScriptLang::*;
+        Some(
+            match self {
+                // TODO: Doublecheck these
+                Bun | Bunnative | Deno => "package.json",
+                Python3 => "requirements.in",
+                Go => "go.mod",
+                Php => todo!(),
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    }
+
+    pub fn extract_raw_requirements_name(&self, code: &str) -> Option<String> {
+        use ScriptLang::*;
+        match self {
+            // TODO: Doublecheck these
+            Bun | Bunnative | Deno => todo!(),
+            Python3 => PythonAnnotations::parse(code).raw_reqs,
+            Go => todo!(),
+            Php => todo!(),
+            _ => return None,
         }
     }
 }
@@ -733,14 +761,12 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
-<<<<<<< Updated upstream
-=======
 pub struct ClonedScript {
     pub old_script: NewScript,
     pub new_hash: i64,
 }
+
 // TODO: What if dependency job fails, there is script with NULL in the lock
->>>>>>> Stashed changes
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
@@ -748,15 +774,17 @@ pub async fn clone_script<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<i64> {
     let s =
-        sqlx::query_as::<_, Script>("SELECT
-                workspace_id, hash, path, parent_hashes, summary, description, content, \
-                created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-                draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-                dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-                delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-                codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
+    // TODO: Maybe there is already function for this
+        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
+        // sqlx::query_as::<_, Script>("SELECT
+        //         workspace_id, hash, path, parent_hashes, summary, description, content, \
+        //         created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+        //         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+        //         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+        //         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+        //         codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, created_at
 
-             FROM script WHERE hash = $1 AND workspace_id = $2")
+        //      FROM script WHERE hash = $1 AND workspace_id = $2")
             .bind(base_hash.0)
             .bind(w_id)
             .fetch_one(&mut **tx)

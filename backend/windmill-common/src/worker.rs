@@ -6,7 +6,10 @@ use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
@@ -664,13 +667,13 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Deserialize)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
@@ -681,9 +684,22 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+
+    // Aliases
+    pub rr: Option<String>,
+    pub raw_reqs: Option<String>,
+    pub raw_requirements: Option<String>,
 }
 
-#[derive(Copy, Clone)]
+// #[derive(Clone, Default, Debug, Deserialize, Serialize)]
+// pub enum RawReqs {
+//     #[default]
+//     Default,
+//     None,
+//     Name(String),
+// }
+
+#[derive(Copy)]
 #[annotations("//")]
 pub struct GoAnnotations {
     pub go1_22_compat: bool,

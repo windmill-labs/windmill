@@ -449,6 +449,7 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/raw_requirements", raw_requirements::workspaced_service())
                         .nest(
                             "/flow_conversations",
                             flow_conversations::workspaced_service(),

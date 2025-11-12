@@ -13,19 +13,22 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Plus, FileText, Folder, Search, Code2, Edit, Eye } from 'lucide-svelte'
+	import { Plus, FileText, Search, Code2, Edit, Eye } from 'lucide-svelte'
+	import { RawRequirementsService, WorkspaceService } from '$lib/gen'
 	import { untrack } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 
-	// Mock data structure for requirements - replace with actual API calls later
+	// RFC #7105: Global raw requirements structure
 	interface Requirement {
-		path: string
+		id?: number
+		name: string | null // null means unnamed/workspace default
 		content?: string
-		description?: string
 		language?: string
-		documentation?: string
-		tags?: string[]
+		workspace_id?: string
 		created_at: string
+		archived?: boolean
+		description?: string // Added description field
 		canWrite: boolean
 		marked?: string
 	}
@@ -81,71 +84,78 @@
 		}
 	}
 
-	let owners = $derived(
+	let languages = $derived(
 		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			new Set(filteredItems?.map((x) => x.language || 'python3') ?? [])
 		).sort()
 	)
 
-	let ownerFilter: string | undefined = $state(undefined)
+	let languageFilter: string | undefined = $state(undefined)
 
 	$effect(() => {
 		if ($workspaceStore) {
-			ownerFilter = undefined
+			languageFilter = undefined
 		}
 	})
 
 	let preFilteredItems = $derived(
-		ownerFilter == undefined
+		languageFilter == undefined
 			? requirements
-			: requirements?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+			: requirements?.filter((x) => (x.language || 'python3') === languageFilter)
 	)
 
-	// Mock function to load requirements - replace with actual API call
+	// Load raw requirements using actual API
 	async function loadRequirements(): Promise<void> {
-		// Simulate API call with mock data showing requirements can exist anywhere
-		requirements = [
-			{
-				path: '/my_global_requirement',
-				content: 'requests>=2.31.0\npandas>=2.0.0\nnumpy>=1.24.0',
-				description: 'Global Python requirements for workspace-wide policies',
-				language: 'python',
-				documentation: 'This applies to all Python scripts in the workspace.',
-				tags: ['global', 'policy'],
-				created_at: new Date().toISOString(),
-				canWrite: true
-			},
-			{
-				path: '/u/req_for_all_users',
-				content: '{\n  "dependencies": {\n    "axios": "^1.6.0",\n    "lodash": "^4.17.21"\n  }\n}',
-				description: 'TypeScript requirements that apply to all users',
-				language: 'typescript',
-				documentation: 'User-specific TypeScript requirements and guidelines.',
-				tags: ['users', 'guidelines'],
-				created_at: new Date().toISOString(),
-				canWrite: true
-			},
-			{
-				path: '/u/admin/req_for_all_scripts_and_flows_for_admin',
-				content: 'module windmill-admin-script\n\ngo 1.21\n\nrequire (\n\tgithub.com/gorilla/mux v1.8.1\n)',
-				description: 'Go requirements for admin scripts and flows',
-				language: 'go',
-				documentation: 'Go-specific requirements for admin operations.',
-				tags: ['admin', 'scripts', 'flows'],
-				created_at: new Date().toISOString(),
-				canWrite: true
-			},
-			{
-				path: '/u/admin/my_script/req_for_my_script',
-				content: '{\n  "require": {\n    "guzzlehttp/guzzle": "^7.8",\n    "monolog/monolog": "^3.5"\n  }\n}',
-				description: 'Specific PHP requirements for my_script',
-				language: 'php',
-				documentation: 'PHP-specific error handling requirements.',
-				tags: ['script-specific', 'error-handling'],
-				created_at: new Date().toISOString(),
-				canWrite: true
-			}
-		]
+		try {
+			const apiRequirements = await RawRequirementsService.listRawRequirements({ 
+				workspace: $workspaceStore! 
+			})
+			
+			// Map API response to our interface and add canWrite property
+			requirements = apiRequirements.map((req: any) => ({
+				...req,
+				description: req.description || `${req.name || 'Default'} requirements for ${req.language}`,
+				canWrite: true // TODO: Implement proper permissions check
+			}))
+		} catch (error) {
+			console.error('Failed to load raw requirements:', error)
+			// Fallback to mock data on error
+			requirements = [
+				{
+					id: 2,
+					name: 'typescript-common',
+					content: '{\n  "dependencies": {\n    "axios": "^1.6.0",\n    "lodash": "^4.17.21"\n  }\n}',
+					language: 'typescript',
+					description: 'Common TypeScript dependencies for web APIs',
+					workspace_id: $workspaceStore,
+					created_at: new Date().toISOString(),
+					archived: false,
+					canWrite: true
+				},
+				{
+					id: 3,
+					name: 'go-admin',
+					content: 'module windmill-admin-script\n\ngo 1.21\n\nrequire (\n\tgithub.com/gorilla/mux v1.8.1\n)',
+					language: 'go',
+					description: 'Go dependencies for admin operations',
+					workspace_id: $workspaceStore,
+					created_at: new Date().toISOString(),
+					archived: false,
+					canWrite: true
+				},
+				{
+					id: 1,
+					name: null, // Workspace default
+					content: 'requests>=2.31.0\npandas>=2.0.0\nnumpy>=1.24.0',
+					language: 'python3',
+					description: 'Default Python requirements for all scripts',
+					workspace_id: $workspaceStore,
+					created_at: new Date().toISOString(),
+					archived: false,
+					canWrite: true
+				}
+			]
+		}
 	}
 
 	$effect(() => {
@@ -160,25 +170,104 @@
 		requirementEditor?.initNew()
 	}
 
-	function editRequirement(path: string) {
-		requirementEditor?.editRequirement(path)
+	function editRequirement(req: Requirement) {
+		requirementEditor?.editRequirement(req.id!, req.name, req.language!)
 	}
 
-	function viewRequirement(path: string, content: string, language: string) {
-		viewPath = path
-		viewContent = content || ''
-		viewLanguage = language || 'python'
+	function viewRequirement(req: Requirement) {
+		viewPath = req.name || `Workspace Default (${req.language})`
+		viewContent = req.content || ''
+		viewLanguage = req.language || 'python3'
 		viewDrawer?.openDrawer()
 	}
 
-	function getTagsFromPath(path: string): string[] {
-		const segments = path.split('/').filter(Boolean)
-		return segments.slice(0, -1) // All segments except the last one (filename)
+	function getDisplayName(req: Requirement): string {
+		return req.name || `Default (${req.language})`
 	}
 
-	function truncate(str: string, length: number): string {
-		return str.length > length ? str.substring(0, length) + '...' : str
+	function getFullFilename(req: Requirement): string {
+		const extension = getFileExtension(req.language || 'python3')
+		return req.name ? `${req.name}.${extension}` : extension
 	}
+
+	function getFileExtension(language: string): string {
+		switch (language) {
+			case 'python':
+			case 'python3':
+				return 'requirements.in'
+			case 'typescript':
+				return 'package.json'
+			case 'go':
+				return 'go.mod'
+			case 'php':
+				return 'composer.json'
+			default:
+				return 'requirements.txt'
+		}
+	}
+
+	// Placeholder functions for future implementation
+	async function archiveRequirement(req: Requirement): Promise<void> {
+		try {
+			await RawRequirementsService.archiveRawRequirements({
+				workspace: $workspaceStore!,
+				language: req.language as any,
+				name: req.name || ''
+			})
+			sendUserToast(`Archived requirement: ${getDisplayName(req)}`)
+			loadRequirements() // Reload the list
+		} catch (error) {
+			console.error('Error archiving requirement:', error)
+			sendUserToast(`Failed to archive requirement: ${error.message}`, true)
+		}
+	}
+
+	async function deleteRequirement(req: Requirement): Promise<void> {
+		try {
+			await RawRequirementsService.deleteRawRequirements({
+				workspace: $workspaceStore!,
+				language: req.language as any,
+				name: req.name || ''
+			})
+			sendUserToast(`Deleted requirement: ${getDisplayName(req)}`)
+			loadRequirements() // Reload the list
+		} catch (error) {
+			console.error('Error deleting requirement:', error)
+			sendUserToast(`Failed to delete requirement: ${error.message}`, true)
+		}
+	}
+
+	function viewHistory(req: Requirement): void {
+		// TODO: Implement view history functionality
+		console.log('View history:', req)
+	}
+
+	async function viewReferencedFrom(req: Requirement): Promise<void> {
+		try {
+			const path = getRequirementPath(req.name, req.language || 'python3')
+			const dependents = await WorkspaceService.getDependents({
+				workspace: $workspaceStore!,
+				importedPath: path
+			})
+			
+			if (dependents.length === 0) {
+				sendUserToast('No dependents found for this requirement')
+			} else {
+				// Show dependents in a modal or navigate to a detailed view
+				console.log('Dependents:', dependents)
+				sendUserToast(`Found ${dependents.length} dependent${dependents.length !== 1 ? 's' : ''}`)
+			}
+		} catch (error) {
+			console.error('Error fetching dependents:', error)
+			sendUserToast('Failed to fetch dependents', true)
+		}
+	}
+
+	function getRequirementPath(name: string | null, language: string): string {
+		const extension = getFileExtension(language)
+		return name ? `raw_requirements/${name}.${extension}` : `raw_requirements/${extension}`
+	}
+
 
 	function getLanguageForHighlighting(lang: string): 'python3' | 'nativets' | 'go' | 'php' | undefined {
 		// Map our requirement languages to syntax highlighting languages
@@ -203,14 +292,14 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => x.path + ' ' + (x.description || '') + ' ' + (x.content || '')}
+	f={(x) => (x.name || 'Default') + ' ' + (x.language || '') + ' ' + (x.content || '')}
 	{opts}
 />
 
 <CenteredPage>
 	<PageHeader
-		title="Requirements"
-		tooltip="Requirements can be stored anywhere in the workspace and define rules, policies, or specifications for scripts, flows, and other resources."
+		title="Raw Requirements"
+		tooltip="Global raw requirements define dependency specifications for scripts by language. Unnamed requirements serve as workspace defaults, while named requirements can be referenced by scripts using #raw_reqs annotations."
 		documentationLink="https://www.windmill.dev/docs/"
 	>
 		<div class="flex flex-row justify-end">
@@ -223,7 +312,7 @@
 	<div class="pt-2">
 		<div class="relative text-tertiary">
 			<input
-				placeholder="Search requirements by path, content, or tags..."
+				placeholder="Search raw requirements by name, language, or content..."
 				bind:value={filter}
 				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none w-full"
 			/>
@@ -234,7 +323,7 @@
 	</div>
 
 	<div class="min-h-[56px]">
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters bind:selectedFilter={languageFilter} filters={languages} />
 	</div>
 
 	<div class="relative overflow-x-auto pb-40 pr-4">
@@ -258,66 +347,87 @@
 			<DataTable size="xs">
 				<Head>
 					<tr>
-						<Cell head first>Path</Cell>
+						<Cell head first>Name</Cell>
 						<Cell head>Language</Cell>
 						<Cell head>Description</Cell>
-						<Cell head>Tags</Cell>
+						<Cell head>Type</Cell>
+						<Cell head>Created</Cell>
 						<Cell head last>Actions</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y">
-					{#each filteredItems as { path, description, content, language, canWrite, marked }}
-						{@const pathTags = getTagsFromPath(path)}
+					{#each filteredItems as req}
+						{@const displayName = getDisplayName(req)}
+						{@const fullFilename = getFullFilename(req)}
 						<Row>
 							<Cell first>
 								<div class="flex items-center gap-2">
 									<FileText size={16} class="text-secondary" />
-									<a
-										class="break-all hover:text-primary cursor-pointer"
-										onclick={() => editRequirement(path)}
-										title={path}
-									>
-										{#if marked}
-											{@html marked}
-										{:else}
-											{path}
-										{/if}
-									</a>
+									<div class="flex flex-col">
+										<a
+											class="break-all hover:text-primary cursor-pointer font-medium"
+											onclick={() => editRequirement(req)}
+											title={fullFilename}
+										>
+											{#if req.marked}
+												{@html req.marked}
+											{:else}
+												{displayName}
+											{/if}
+										</a>
+										<span class="text-xs text-tertiary font-mono">{fullFilename}</span>
+									</div>
 								</div>
 							</Cell>
 							<Cell>
 								<div class="flex items-center gap-1">
 									<Code2 size={14} class="text-secondary" />
 									<span class="text-xs font-mono text-secondary">
-										{language || 'python'}
+										{req.language || 'python3'}
 									</span>
 								</div>
 							</Cell>
 							<Cell>
-								<span class="text-xs text-tertiary">
-									{truncate(description ?? '', 60)}
+								<span class="text-xs text-tertiary" title={req.description}>
+									{req.description || '-'}
 								</span>
 							</Cell>
 							<Cell>
-								<div class="flex flex-wrap gap-1">
-									{#each pathTags as tag}
-										<span
-											class="inline-flex items-center gap-x-1 rounded-md bg-surface-secondary px-2 py-1 text-2xs font-medium text-secondary"
-										>
-											<Folder size={10} />
-											{tag}
-										</span>
-									{/each}
-								</div>
+								<span class="text-xs px-1.5 py-0.5 rounded bg-opacity-50 font-medium"
+									class:bg-blue-100="{req.name === null}"
+									class:text-blue-700="{req.name === null}"
+									class:bg-gray-100="{req.name !== null}"
+									class:text-gray-600="{req.name !== null}"
+								>
+									{req.name === null ? 'Default' : 'Named'}
+								</span>
+							</Cell>
+							<Cell>
+								<span class="text-xs text-tertiary">
+									{new Date(req.created_at).toLocaleDateString()}
+								</span>
 							</Cell>
 							<Cell last>
-								<div class="flex gap-2">
-									<Button size="xs" variant="border" color="light" startIcon={{ icon: Eye }} on:click={() => viewRequirement(path, content || '', language || 'python')}>
+								<div class="flex gap-1 flex-wrap">
+									<Button size="xs" variant="border" color="light" startIcon={{ icon: Eye }} on:click={() => viewRequirement(req)}>
 										View
 									</Button>
-									{#if canWrite}
-										<Button size="xs" variant="border" color="light" startIcon={{ icon: Edit }} on:click={() => editRequirement(path)}>
+									{#if req.canWrite}
+										<Button size="xs" variant="border" color="light" startIcon={{ icon: Edit }} on:click={() => editRequirement(req)}>
 											Edit
+										</Button>
+										<!-- Placeholder buttons -->
+										<Button size="xs" variant="ghost" color="gray" on:click={() => archiveRequirement(req)} title="Archive">
+											Archive
+										</Button>
+										<Button size="xs" variant="ghost" color="red" on:click={() => deleteRequirement(req)} title="Delete">
+											Delete
+										</Button>
+										<Button size="xs" variant="ghost" color="gray" on:click={() => viewHistory(req)} title="View History">
+											History
+										</Button>
+										<Button size="xs" variant="ghost" color="gray" on:click={() => viewReferencedFrom(req)} title="Referenced From">
+											Refs
 										</Button>
 									{/if}
 								</div>

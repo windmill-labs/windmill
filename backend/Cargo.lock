@@ -15168,6 +15168,7 @@ dependencies = [
  "reqwest 0.12.24",
  "rustls 0.23.29",
  "serde",
+ "serde_derive",
  "serde_json",
  "serde_yml",
  "sha1",
@@ -15419,6 +15420,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "serde_yml",
  "sha2 0.10.9",
  "size",
  "sqlx",
@@ -15493,9 +15495,13 @@ version = "1.572.2"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
+ "pep440_rs",
  "proc-macro2",
  "quote",
  "regex",
+ "serde",
+ "serde_derive",
+ "serde_yml",
  "syn 2.0.108",
 ]
 

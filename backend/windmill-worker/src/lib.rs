@@ -57,6 +57,7 @@ mod php_executor;
 mod python_executor;
 #[cfg(feature = "python")]
 mod python_versions;
+pub mod raw_requirements;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;

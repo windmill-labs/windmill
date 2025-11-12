@@ -2207,6 +2207,29 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/workspaces/get_dependents/{imported_path}:
+    get:
+      summary: get dependents of an imported path
+      operationId: getDependents
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: imported_path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The imported path to get dependents for
+      responses:
+        "200":
+          description: list of dependents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyDependent"
 
   /w/{workspace}/workspaces/get_dependency_map:
     get:
@@ -5328,6 +5351,100 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/raw_requirements/create:
+    post:
+      summary: create raw requirements
+      operationId: createRawRequirements
+      tags:
+        - raw_requirements
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New raw requirement
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewRawRequirements"
+
+      responses:
+        "201":
+          description: requirements created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/raw_requirements/archive/{language}/{name}:
+    post:
+      summary: archive raw requirements (require admin)
+      operationId: archiveRawRequirements
+      tags:
+        - raw_requirements
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/raw_requirements/delete/{language}/{name}:
+    post:
+      summary: delete raw requirements (require admin)
+      operationId: deleteRawRequirements
+      tags:
+        - raw_requirements
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/raw_requirements/list:
+    get:
+      summary: list all raw requirements
+      operationId: listRawRequirements
+      tags:
+        - raw_requirements
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: All requirements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RawRequirements"
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
@@ -15367,6 +15484,44 @@ components:
           items:
             $ref: "#/components/schemas/Alert"
 
+    RawRequirements:
+      type: object
+      properties:
+        id:
+          type: integer
+        archived:
+          type: boolean
+        name:
+          type: string
+        content:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        workspace_id:
+          type: string
+      required:
+        - workspace_id
+        - language
+        - content
+        - id
+        - archived
+
+    NewRawRequirements:
+      type: object
+      properties:
+        name:
+          type: string
+        content:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        workspace_id:
+          type: string
+      required:
+        - workspace_id
+        - language
+        - content
+
     Script:
       type: object
       properties:
@@ -18578,6 +18733,26 @@ components:
         importer_node_id:
           type: string
           nullable: true
+
+    DependencyDependent:
+      type: object
+      properties:
+        importer_path:
+          type: string
+        importer_kind:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        importer_node_ids:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - importer_path
+        - importer_kind
 
     WorkspaceInvite:
       type: object

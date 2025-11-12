@@ -70,7 +70,6 @@ pub mod oidc_oss;
 pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
-pub mod raw_requirements;
 pub mod result_stream;
 pub mod s3_helpers;
 pub mod schedule;
