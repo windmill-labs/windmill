@@ -590,41 +590,8 @@ impl TriggerCrud for HttpTrigger {
         Ok(())
     }
 
-    async fn set_enabled(
-        &self,
-        authed: &ApiAuthed,
-        tx: &mut PgConnection,
-        workspace_id: &str,
-        path: &str,
-        enabled: bool,
-    ) -> Result<bool> {
-        let updated = sqlx::query(&format!(
-            r#"
-                UPDATE 
-                    {} 
-                SET 
-                    enabled = $1,
-                    email = $2,
-                    edited_by = $3,
-                    edited_at = now()
-                WHERE 
-                    workspace_id = $4 AND 
-                    path = $5
-                "#,
-            Self::TABLE_NAME
-        ))
-        .bind(enabled)
-        .bind(&authed.email)
-        .bind(&authed.username)
-        .bind(workspace_id)
-        .bind(path)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-        increase_trigger_version(tx).await?;
-
-        Ok(updated > 0)
+    async fn set_enabled_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
+        increase_trigger_version(tx).await
     }
 
     async fn delete_by_path(

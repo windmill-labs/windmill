@@ -210,6 +210,10 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(deleted > 0)
     }
 
+    async fn set_enabled_extra_action(&self, _: &mut PgConnection) -> Result<()> {
+        Ok(())
+    }
+
     async fn set_enabled(
         &self,
         authed: &ApiAuthed,
@@ -269,6 +273,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .await?
             .rows_affected()
         };
+
+        self.set_enabled_extra_action(&mut *tx).await?;
 
         Ok(updated > 0)
     }
