@@ -155,7 +155,7 @@ export async function runFlowPreview(
 	flow: OpenFlow & { tag?: string },
 	path: string,
 	restartedFrom: RestartedFrom | undefined,
-	memoryId?: string | undefined
+	conversationId?: string | undefined
 ) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
@@ -167,7 +167,7 @@ export async function runFlowPreview(
 			tag: newFlow.tag,
 			restarted_from: restartedFrom
 		},
-		memoryId: memoryId
+		memoryId: conversationId
 	})
 }
 

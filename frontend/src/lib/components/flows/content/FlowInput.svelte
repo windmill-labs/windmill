@@ -53,7 +53,7 @@
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
-		onTestFlow?: () => Promise<string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
 	}
 
@@ -217,7 +217,7 @@
 	}
 
 	async function runPreview() {
-		await onTestFlow?.()
+		await onTestFlow?.(undefined)
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
@@ -375,7 +375,7 @@
 		conversationId: string
 	): Promise<string | undefined> {
 		previewArgs.val = { user_message: message }
-		const jobId = await onTestFlow?.()
+		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
 

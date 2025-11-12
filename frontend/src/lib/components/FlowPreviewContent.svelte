@@ -94,9 +94,9 @@
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
-	export async function test(): Promise<string | undefined> {
+	export async function test(conversationId?: string): Promise<string | undefined> {
 		renderCount++
-		return await runPreview(previewArgs.val, undefined)
+		return await runPreview(previewArgs.val, undefined, conversationId)
 	}
 
 	const {
@@ -149,7 +149,7 @@
 	export async function runPreview(
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined,
-		memoryId?: string | undefined
+		conversationId?: string | undefined
 	) {
 		let newJobId: string | undefined = undefined
 		if (stepHistoryLoader?.flowJobInitial !== false) {
@@ -159,7 +159,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, memoryId)
+			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
