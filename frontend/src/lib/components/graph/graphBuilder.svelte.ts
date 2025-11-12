@@ -596,7 +596,7 @@ export function graphBuilder(
 		}
 
 		const resultNode: NodeLayout = {
-			id: 'result',
+			id: 'Result',
 			data: {
 				eventHandlers: eventHandlers,
 				success: success,

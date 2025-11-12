@@ -395,11 +395,8 @@
 		insert: (detail) => {
 			onInsert?.(detail)
 		},
-		select: (mod: string | FlowModule) => {
+		select: (modId) => {
 			if (!notSelectable) {
-				// TODO: Handle Ctrl/Cmd and Shift modifiers when node-level click events are available
-				// For now, normal click behavior
-				const modId = typeof mod === 'string' ? mod : mod.id
 				selectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
@@ -478,10 +475,24 @@
 		return false
 	}
 
+	// Clear SvelteFlow's internal selection by creating new nodes array
+	function clearFlowSelection() {
+		nodes = nodes.map((node) => {
+			if (node.selected) {
+				return { ...node, selected: false }
+			}
+			return node
+		})
+	}
+
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
 		selectionManager.handleKeyDown(event, nodes)
 		noteManager.handleKeyDown(event)
+		if (event.key === 'Escape') {
+			// Clear SvelteFlow's internal selection state
+			clearFlowSelection()
+		}
 		if (noteMode) {
 			exitNoteMode?.()
 		}
@@ -786,12 +797,13 @@
 				selectionOnDrag={selectionManager.mode === 'rect-select'}
 				elementsSelectable={true}
 				selectionMode={SelectionMode.Partial}
-				selectionKey={selectionManager.mode === 'rect-select' ? null : 'Meta'}
+				selectionKey={selectionManager.mode === 'rect-select' || !editMode ? null : 'Meta'}
 				panActivationKey={selectionManager.mode === 'rect-select' ? 'Meta' : null}
 				panOnDrag={selectionManager.mode === 'rect-select' ? [1] : true}
 				zoomOnDoubleClick={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
+				multiSelectionKey={'Meta'}
 				nodesDraggable={false}
 				--background-color={false}
 			>
@@ -815,7 +827,7 @@
 				{/if}
 
 				<!-- SelectionTool for handling selection changes and filtering -->
-				<SelectionTool {nodes} {modules} {selectionManager} />
+				<SelectionTool {selectionManager} />
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">

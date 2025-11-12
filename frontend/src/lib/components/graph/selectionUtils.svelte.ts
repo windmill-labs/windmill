@@ -1,4 +1,3 @@
-import type { FlowModule } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 
 export interface SelectionState {
@@ -14,6 +13,9 @@ export class SelectionManager {
 	constructor() {}
 
 	selectId(id: string) {
+		if (this.selectedIds.length === 1 && this.selectedIds[0] === id) {
+			return
+		}
 		this.selectedIds = [id]
 	}
 
@@ -27,56 +29,10 @@ export class SelectionManager {
 
 	set mode(mode: 'normal' | 'rect-select') {
 		this.#selectionMode = mode
-		// Note: No automatic selection clearing when changing modes - preserve current selection
-	}
-
-	// Get hierarchical children of a node
-	getNodeChildrenIds(nodeId: string, modules: FlowModule[] | undefined, nodes: Node[]): string[] {
-		const module = modules?.find((m) => m.id === nodeId)
-		if (!module) return []
-
-		const childrenIds: string[] = []
-
-		// For hierarchical modules, find all children between start and end using proper graph traversal
-		if (
-			module.value.type === 'forloopflow' ||
-			module.value.type === 'whileloopflow' ||
-			module.value.type === 'branchall' ||
-			module.value.type === 'branchone'
-		) {
-			const endNodeId = `${nodeId}-end`
-			const endNode = nodes.find((n) => n.id === endNodeId)
-
-			if (endNode) {
-				// Traverse from end node back to start using parentIds
-				const visited = new Set<string>()
-				const toVisit = [endNodeId]
-
-				while (toVisit.length > 0) {
-					const currentId = toVisit.shift()!
-					if (visited.has(currentId) || currentId === nodeId) continue
-
-					visited.add(currentId)
-					const currentNode = nodes.find((n) => n.id === currentId)
-
-					if (currentNode && (currentNode as any).parentIds) {
-						const parentIds = (currentNode as any).parentIds as string[]
-						for (const parentId of parentIds) {
-							if (parentId !== nodeId && !visited.has(parentId)) {
-								childrenIds.push(parentId)
-								toVisit.push(parentId)
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return childrenIds
 	}
 
 	// Select nodes with optional hierarchical selection
-	selectNodes(nodeIds: string[], addToExisting = false, modules?: FlowModule[], nodes?: Node[]) {
+	selectNodes(nodeIds: string[], addToExisting = false) {
 		// Guard against empty nodeIds or uninitialized state
 		if (!nodeIds || nodeIds.length === 0) {
 			if (!addToExisting) {
@@ -85,59 +41,13 @@ export class SelectionManager {
 			return
 		}
 
-		const newSelection = addToExisting ? [...this.selectedIds] : []
+		const newSelection = addToExisting ? [...this.selectedIds, ...nodeIds] : nodeIds
 
-		nodeIds.forEach((nodeId) => {
-			// Only add valid node IDs that exist in the current nodes
-			if (!nodes || nodes.some((node) => node.id === nodeId)) {
-				if (!newSelection.includes(nodeId)) {
-					newSelection.push(nodeId)
-				}
-				// Auto-select children for hierarchical modules
-				if (modules && nodes) {
-					const children = this.getNodeChildrenIds(nodeId, modules, nodes)
-					children.forEach((childId) => {
-						if (nodes.some((node) => node.id === childId) && !newSelection.includes(childId)) {
-							newSelection.push(childId)
-						}
-					})
-				}
-			}
-		})
-
-		this.selectedIds = newSelection
-	}
-
-	// Toggle node selection
-	toggleNodeSelection(nodeId: string, modules?: FlowModule[], nodes?: Node[]) {
-		const newSelection = [...this.selectedIds]
-		if (newSelection.includes(nodeId)) {
-			// Remove node
-			const index = newSelection.indexOf(nodeId)
-			newSelection.splice(index, 1)
-			// Also remove children
-			if (modules && nodes) {
-				const children = this.getNodeChildrenIds(nodeId, modules, nodes)
-				children.forEach((childId) => {
-					const childIndex = newSelection.indexOf(childId)
-					if (childIndex > -1) {
-						newSelection.splice(childIndex, 1)
-					}
-				})
-			}
-		} else {
-			// Add node
-			newSelection.push(nodeId)
-			// Auto-select children for hierarchical modules
-			if (modules && nodes) {
-				const children = this.getNodeChildrenIds(nodeId, modules, nodes)
-				children.forEach((childId) => {
-					if (!newSelection.includes(childId)) {
-						newSelection.push(childId)
-					}
-				})
-			}
+		// If the new selection is the same as the current selection, do nothing
+		if (JSON.stringify(newSelection) === JSON.stringify($state.snapshot(this.selectedIds))) {
+			return
 		}
+
 		this.selectedIds = newSelection
 	}
 
