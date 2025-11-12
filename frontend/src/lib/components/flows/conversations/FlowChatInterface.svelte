@@ -49,9 +49,9 @@
 	</div>
 
 	<!-- Chat Input -->
-	<div class="p-2 bg-surface">
+	<div class="flex flex-row justify-center xl:max-w-7xl w-full mx-auto py-2">
 		<div
-			class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface"
+			class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface-input w-full"
 			class:opacity-50={deploymentInProgress}
 		>
 			<textarea
@@ -60,10 +60,10 @@
 				use:autosize
 				onkeydown={manager.handleKeyDown}
 				placeholder="Type your message here..."
-				class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 !bg-transparent text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
+				class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
 				rows={3}
 			></textarea>
-			<div class="flex-shrink-0 pr-2">
+			<div class="flex-shrink-0 pr-2 bg-surface-input">
 				{#if manager.isWaitingForResponse || manager.isLoading}
 					<Button
 						color="red"
