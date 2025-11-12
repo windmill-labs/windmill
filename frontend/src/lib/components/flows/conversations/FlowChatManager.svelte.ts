@@ -12,12 +12,6 @@ export interface ChatMessage extends FlowConversationMessage {
 	streaming?: boolean
 }
 
-export interface FlowChatManagerOptions {
-	onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
-	useStreaming?: boolean
-	path?: string
-}
-
 export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
 }
@@ -58,14 +52,18 @@ export class FlowChatManager {
 	#perPage = 50
 
 	// Options
-	#onRunFlow?: FlowChatManagerOptions['onRunFlow']
+	#onRunFlow?: (userMessage: string, conversationId: string) => Promise<string | undefined>
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
-	initialize(options: FlowChatManagerOptions) {
-		this.#onRunFlow = options.onRunFlow
-		this.#useStreaming = options.useStreaming ?? false
-		this.#path = options.path
+	initialize(
+		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>,
+		path: string,
+		useStreaming: boolean = false
+	) {
+		this.#onRunFlow = onRunFlow
+		this.#path = path
+		this.#useStreaming = useStreaming
 	}
 
 	updateConversationId(conversationId: string | undefined) {

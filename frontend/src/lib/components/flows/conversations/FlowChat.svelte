@@ -9,7 +9,7 @@
 		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
 		useStreaming?: boolean
 		deploymentInProgress?: boolean
-		path?: string
+		path: string
 		hideSidebar?: boolean
 		showStreamingDisabledWarning?: boolean
 	}
@@ -28,11 +28,7 @@
 	// Initialize manager when component mounts
 	$effect(() => {
 		if ($workspaceStore) {
-			manager.initialize({
-				onRunFlow,
-				useStreaming,
-				path
-			})
+			manager.initialize(onRunFlow, path, useStreaming)
 		}
 
 		return () => {
