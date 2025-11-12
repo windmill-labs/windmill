@@ -7,7 +7,7 @@ use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     cmp::Reverse,
@@ -498,7 +498,6 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
@@ -1700,6 +1699,13 @@ pub fn load_env_vars(
             )
         })
         .collect()
+}
+
+pub fn error_to_value(err: &error::Error) -> serde_json::Value {
+    match err {
+        error::Error::JsonErr(err) => err.clone(),
+        _ => json!({"message": err.to_string(), "name": err.name()}),
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
