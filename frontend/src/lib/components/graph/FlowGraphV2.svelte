@@ -755,7 +755,6 @@
 					if (selectionManager.mode === 'normal') {
 						selectionManager.clearSelection()
 					}
-					noteManager.clearNoteSelection()
 				}}
 				onpanecontextmenu={({ event }) => {
 					paneContextMenu?.onPaneContextMenu(event)

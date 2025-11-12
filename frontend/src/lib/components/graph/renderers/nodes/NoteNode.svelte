@@ -15,6 +15,7 @@
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { clickOutside } from '$lib/utils'
 
 	interface Props {
 		data: {
@@ -171,6 +172,11 @@
 	role="button"
 	tabindex={editMode ? -1 : 0}
 	ondblclick={handleDoubleClick}
+	use:clickOutside={{
+		onClickOutside: () => {
+			noteManager?.clearNoteSelection()
+		}
+	}}
 >
 	<!-- Action buttons - only show in edit mode -->
 	{#if isEditModeAvailable}
