@@ -5,7 +5,13 @@
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { fade } from 'svelte/transition'
 	import NoteColorPicker from '../../NoteColorPicker.svelte'
-	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
+	import {
+		NoteColor,
+		NOTE_COLORS,
+		DEFAULT_NOTE_COLOR,
+		MIN_NOTE_WIDTH,
+		MIN_NOTE_HEIGHT
+	} from '../../noteColors'
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { getGraphContext } from '../../graphContext'
@@ -164,6 +170,7 @@
 	onmouseleave={handleMouseLeave}
 	role="button"
 	tabindex={editMode ? -1 : 0}
+	ondblclick={handleDoubleClick}
 >
 	<!-- Action buttons - only show in edit mode -->
 	{#if isEditModeAvailable}
@@ -236,8 +243,8 @@
 	<!-- Note content -->
 	<div
 		class={twMerge(
-			'w-full min-h-[60px] max-h-[400px] rounded-md ',
-			data.isGroupNote ? '' : 'h-full'
+			'w-full rounded-md ',
+			data.isGroupNote ? 'min-h-[60px] max-h-[400px]' : 'h-full'
 		)}
 	>
 		{#if editMode}
@@ -256,12 +263,10 @@
 			></textarea>
 		{:else}
 			<!-- Render mode: show markdown or empty state -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={twMerge(
 					'w-full h-fit overflow-auto cursor-pointer flex items-start justify-start rounded-md p-4'
 				)}
-				ondblclick={handleDoubleClick}
 				bind:clientHeight={containerHeight}
 			>
 				{#if textForDisplay}
@@ -286,8 +291,8 @@
 	{#if !locked && isEditModeAvailable}
 		<NodeResizer
 			isVisible={selected && !dragging}
-			minWidth={200}
-			minHeight={60}
+			minWidth={MIN_NOTE_WIDTH}
+			minHeight={MIN_NOTE_HEIGHT}
 			lineClass="!border-4 !border-transparent !rounded-md"
 			handleClass="!bg-transparent !w-4 !h-4 !border-none !rounded-md"
 			onResizeEnd={(_, params) => {
@@ -296,6 +301,7 @@
 					const size = { width: params.width, height: params.height }
 					if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 						// Use NoteEditor context in edit mode
+						console.log('dbg updateSize', size)
 						noteEditorContext.noteEditor.updateSize(data.noteId, size)
 					}
 				}

@@ -110,3 +110,7 @@ export const NOTE_COLOR_SWATCHES: Record<NoteColor, string> = {
 
 // Default note color
 export const DEFAULT_NOTE_COLOR = NoteColor.YELLOW
+
+// Minimum note size constraints
+export const MIN_NOTE_WIDTH = 275
+export const MIN_NOTE_HEIGHT = 60

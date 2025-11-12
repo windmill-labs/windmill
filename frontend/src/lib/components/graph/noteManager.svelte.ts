@@ -213,7 +213,6 @@ export class NoteManager {
 			type: 'note',
 			position,
 			data: this.createNoteData(note, onTextHeightChange, isGroupNote, editMode),
-			style: `width: ${size.width}px; height: ${size.height}px;`,
 			width: size.width,
 			height: size.height,
 			zIndex: zIndex ?? -2000, // Use provided zIndex or fallback

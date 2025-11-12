@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { useSvelteFlow, type XYPosition } from '@xyflow/svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
-	import { DEFAULT_NOTE_COLOR } from './noteColors'
+	import { DEFAULT_NOTE_COLOR, MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
 
 	interface Props {
 		exitNoteMode?: () => void
@@ -65,8 +65,14 @@
 
 		const zoom = getViewport().zoom
 		const size = {
-			width: Math.abs(absoluteEndPosition.x - absoluteStartPosition.x) / zoom,
-			height: Math.abs(absoluteEndPosition.y - absoluteStartPosition.y) / zoom
+			width: Math.max(
+				MIN_NOTE_WIDTH,
+				Math.abs(absoluteEndPosition.x - absoluteStartPosition.x) / zoom
+			),
+			height: Math.max(
+				MIN_NOTE_HEIGHT,
+				Math.abs(absoluteEndPosition.y - absoluteStartPosition.y) / zoom
+			)
 		}
 
 		// Create the actual note using NoteEditor context
