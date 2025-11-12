@@ -428,6 +428,7 @@ impl Listener for WebsocketTrigger {
                 error_handler_args,
                 format!("websocket_trigger/{}", listening_trigger.path),
                 None,
+                Some(windmill_common::jobs::JobTriggerKind::Websocket),
             )
             .await?;
         }
