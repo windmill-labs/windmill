@@ -59,7 +59,7 @@
 {#if bounds() && selectedNodes.length > 1}
 	{@const currentBounds = bounds()!}
 	<div
-		class={'absolute rounded cursor-pointer bg-surface-selected/30  border-2 border-dashed border-accent '}
+		class={'absolute rounded cursor-pointer bg-surface-selected/30  border border-accent '}
 		style="
 			left: {currentBounds.x}px;
 			top: {currentBounds.y}px;

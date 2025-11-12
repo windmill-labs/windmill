@@ -182,7 +182,7 @@
 		<!-- Preview selection rectangle while drawing -->
 		{#if previewNote && isDrawing}
 			<div
-				class="absolute border-2 border-dashed border-accent bg-accent/10 rounded pointer-events-none"
+				class="absolute border border-accent pointer-events-none bg-surface-selected/30"
 				style="
 					width: {previewNote.size.width}px;
 					height: {previewNote.size.height}px;
