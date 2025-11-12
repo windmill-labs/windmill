@@ -774,8 +774,9 @@
 				selectionOnDrag={selectionManager.mode === 'rect-select'}
 				elementsSelectable={true}
 				selectionMode={SelectionMode.Partial}
-				selectionKey={selectionManager.mode === 'rect-select' ? null : 'Shift'}
-				panActivationKey={selectionManager.mode === 'rect-select' ? 'Shift' : null}
+				selectionKey={selectionManager.mode === 'rect-select' ? null : 'Meta'}
+				panActivationKey={selectionManager.mode === 'rect-select' ? 'Meta' : null}
+				panOnDrag={selectionManager.mode === 'rect-select' ? [1] : true}
 				zoomOnDoubleClick={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
