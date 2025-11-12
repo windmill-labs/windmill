@@ -1059,10 +1059,12 @@ pub async fn run_worker(
         );
     }
 
-    // Log PID namespace isolation status
-    // Note: If ENABLE_UNSHARE_PID is true, we've already verified unshare is available
-    // at startup (in UNSHARE_PATH initialization), otherwise the process would have panicked.
+    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
+    // This ensures we panic at startup rather than lazily when first accessed during job execution
     if *ENABLE_UNSHARE_PID {
+        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+        let _ = &*UNSHARE_PATH;
+
         tracing::info!(
             worker = %worker_name, hostname = %hostname,
             "PID namespace isolation enabled via unshare with flags: {}",
