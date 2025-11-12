@@ -49,6 +49,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
+	import type { JobTriggerType } from '$lib/components/triggers/utils'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -107,6 +108,9 @@
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 	)
+	let jobTriggerKind: JobTriggerType | undefined = $state(
+		(page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
+	)
 
 	// Handled on the main page
 	let minTs = $state(page.url.searchParams.get('min_ts') ?? undefined)
@@ -155,6 +159,7 @@
 		resultFilter = page.url.searchParams.get('result')
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
+		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
 
 		// Handled on the main page
 		minTs = page.url.searchParams.get('min_ts') ?? undefined
@@ -278,6 +283,13 @@
 		} else {
 			searchParams.delete('result')
 		}
+
+		if (jobTriggerKind) {
+			searchParams.set('job_trigger_kind', jobTriggerKind)
+		} else {
+			searchParams.delete('job_trigger_kind')
+		}
+
 		if (schedulePath) {
 			searchParams.set('schedule_path', schedulePath)
 		} else {
@@ -542,6 +554,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
+			jobTriggerKind,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			allowWildcards: allowWildcards ? true : undefined
 		}
@@ -740,6 +753,7 @@
 			showFutureJobs,
 			argFilter,
 			resultFilter,
+			jobTriggerKind,
 			schedulePath,
 			jobKindsCat,
 			concurrencyKey,
@@ -821,6 +835,7 @@
 	{showSkipped}
 	{argFilter}
 	{resultFilter}
+	{jobTriggerKind}
 	{showSchedules}
 	{showFutureJobs}
 	{schedulePath}
@@ -1036,6 +1051,7 @@
 						bind:success
 						bind:argFilter
 						bind:resultFilter
+						bind:jobTriggerKind
 						bind:argError
 						bind:resultError
 						bind:jobKindsCat
