@@ -502,7 +502,7 @@ return schema
 		},
 		argName: 'database'
 	},
-	ms_sql_server: {
+	mssql: {
 		argName: 'database',
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
 		lang: 'mssql',
@@ -548,6 +548,8 @@ export async function getDbSchemas(
 	dbSchemas: DBSchemas,
 	errorCallback: (message: string) => void
 ): Promise<void> {
+	if (!scripts[resourceType]) return
+
 	return new Promise(async (resolve, reject) => {
 		if (!resourceType || !resourcePath || !workspace) {
 			resolve()
