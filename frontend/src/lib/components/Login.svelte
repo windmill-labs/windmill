@@ -16,7 +16,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
 
@@ -27,6 +27,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		onLoginSuccess?: () => void
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		password = $bindable(undefined),
 		error = undefined,
 		popup = false,
-		firstTime = false
+		firstTime = false,
+		onLoginSuccess = undefined
 	}: Props = $props()
 
 	const providers = [
@@ -106,6 +108,7 @@
 		}
 
 		if (firstTime) {
+			goto('/user/first-time')
 			return
 		}
 
@@ -199,8 +202,6 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
 	onMount(() => {
 		try {
 			localStorage.removeItem('closeUponLogin')
@@ -211,19 +212,23 @@
 
 	function popupListener(event) {
 		let data = event.data
+		console.log('popupListener', data, event.origin, window.location.origin)
 		if (event.origin !== window.location.origin) {
 			return
 		}
 
 		processPopupData(data)
-		window.removeEventListener('message', popupListener)
+		if (data.type === 'success' || data.type === 'error') {
+			console.log('Removing popup listener')
+			window.removeEventListener('message', popupListener)
+		}
 	}
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			dispatch('login')
+			onLoginSuccess?.()
 		}
 	}
 

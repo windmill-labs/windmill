@@ -34,7 +34,7 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
-use windmill_queue::MiniPulledJob;
+use windmill_queue::{MiniCompletedJob, MiniPulledJob};
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -539,13 +539,6 @@ pub async fn update_worker_ping_for_failed_init_script(
     }
 }
 
-pub fn error_to_value(err: &Error) -> serde_json::Value {
-    match err {
-        Error::JsonErr(err) => err.clone(),
-        _ => json!({"message": err.to_string(), "name": err.name()}),
-    }
-}
-
 #[derive(Clone)]
 pub struct OccupancyMetrics {
     pub running_job_started_at: Option<Instant>,
@@ -973,7 +966,7 @@ pub async fn get_cached_resource_value_if_valid(
 pub async fn save_in_cache(
     db: &Pool<Postgres>,
     _client: &AuthedClient,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     cached_path: String,
     r: Arc<Box<RawValue>>,
 ) {
@@ -1068,7 +1061,6 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
-    // fallback to flow_innermost_root_job and parent_job as root_job is not set if equal to innermost root job or parent job
     job.root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job)

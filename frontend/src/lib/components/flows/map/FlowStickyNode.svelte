@@ -71,7 +71,7 @@
 				onClick={() => selectionManager.selectId('constants')}
 			/>
 			{#snippet text()}
-				Static inputs
+				Environment Variables
 			{/snippet}
 		</Popover>
 	{/if}

@@ -36,6 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
     Iterator as FlowIterator, JobResult,
@@ -64,7 +65,7 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
-    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
@@ -244,6 +245,7 @@ async fn evaluate_stop_after_all_iters_if(
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
         Marc::new(args),
+        None,
         iters_result.clone(),
         None,
         None,
@@ -287,6 +289,11 @@ pub async fn update_flow_status_after_job_completion_internal(
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     let mut has_triggered_error_handler = has_triggered_error_handler;
     add_time!(bench, "update flow status internal START");
+    struct ChatAiInfo {
+        chat_input_enabled: bool,
+        conversation_id: Option<Uuid>,
+        is_ai_agent_step: bool,
+    }
     let (
         should_continue_flow,
         flow_job,
@@ -296,6 +303,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         nresult,
         is_failure_step,
         _cleanup_module,
+        chat_ai_info,
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -420,17 +428,20 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
             .fetch_one(db)
             .await;
+            let args =
+                args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default());
+
             args
         }));
 
-        let from_result_to_args =
-            |args: &Result<Option<Json<HashMap<String, Box<RawValue>>>>, sqlx::Error>| {
-                let args = args.as_ref().map_err(|e| {
-                    Error::internal_err(format!("retrieval of args from state: {e:#}"))
-                })?;
 
-                Ok::<_, Error>(args.clone().unwrap_or_default().0)
-            };
+        let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
+            let args = args
+                .as_ref()
+                .map_err(|e| Error::internal_err(format!("retrieval of args from state: {e:#}")))?;
+
+            Ok::<_, Error>(args.clone())
+        };
 
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some()
@@ -462,9 +473,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 _ => None,
                             };
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                       
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
+                            None,
                             result.clone(),
                             all_iters,
                             None,
@@ -729,6 +742,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+
                         )
                         .await?;
                     }
@@ -917,6 +931,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
+
                         evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
@@ -1009,6 +1024,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &old_status.retry,
                             result.clone(),
                             Marc::new(args),
+                            None,
                             Some(client),
                         )
                         .await?
@@ -1327,6 +1343,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 &old_status.retry,
                 result.clone(),
                 Marc::new(args),
+                None,
                 Some(client),
             )
             .await?
@@ -1359,6 +1376,11 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let chat_ai_info = ChatAiInfo {
+            chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
+            conversation_id: old_status.memory_id,
+            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+        };
         (
             should_continue_flow,
             flow_job,
@@ -1368,6 +1390,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult,
             is_failure_step,
             old_status.cleanup_module,
+            chat_ai_info,
         )
     };
 
@@ -1437,37 +1460,61 @@ pub async fn update_flow_status_after_job_completion_internal(
         }
 
         if flow_job.is_canceled() {
+            let canceled_by = CanceledBy {
+                username: flow_job.canceled_by.clone(),
+                reason: flow_job.canceled_reason.clone(),
+            };
+            let error = canceled_job_to_result(&flow_job);
             add_completed_job_error(
                 db,
-                &flow_job,
+                &MiniCompletedJob::from(flow_job.clone()),
                 0,
-                Some(CanceledBy {
-                    username: flow_job.canceled_by.clone(),
-                    reason: flow_job.canceled_reason.clone(),
-                }),
-                canceled_job_to_result(&flow_job),
+                Some(canceled_by),
+                error,
                 worker_name,
                 true,
                 None,
             )
             .await?;
         } else {
+            let cflow_job: MiniCompletedJob = MiniCompletedJob::from(flow_job.clone());
+
             if flow_job.cache_ttl.is_some() && success {
                 let flow = RawData::Flow(flow_data.clone());
                 let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
 
-                save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
+                save_in_cache(
+                    db,
+                    client,
+                    &MiniCompletedJob::from(cflow_job.clone()),
+                    cached_res_path,
+                    nresult.clone(),
+                )
+                .await;
             }
 
             let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
 
             add_time!(bench, "flow status update 1");
+
+            let skipped = stop_early && skip_if_stop_early;
+            add_tool_message_to_conversation(
+                db,
+                &job_id_for_status,
+                success,
+                skipped,
+                chat_ai_info.is_ai_agent_step,
+                &nresult,
+                chat_ai_info.chat_input_enabled,
+                chat_ai_info.conversation_id,
+            )
+            .await?;
             let duration = if success {
                 let (_, duration) = add_completed_job(
                     db,
-                    &flow_job,
+                    &cflow_job,
                     true,
-                    stop_early && skip_if_stop_early,
+                    skipped,
                     Json(&nresult),
                     None,
                     0,
@@ -1482,9 +1529,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else {
                 let (_, duration) = add_completed_job(
                     db,
-                    &flow_job,
+                    &cflow_job,
                     false,
-                    stop_early && skip_if_stop_early,
+                    skipped,
                     Json(
                         &serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
                             |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
@@ -1531,8 +1578,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                     &db.into(),
                 )
                 .await;
-                let _ = add_completed_job_error(db, &flow_job, 0, None, e, worker_name, true, None)
-                    .await;
+                let _ = add_completed_job_error(
+                    db,
+                    &MiniCompletedJob::from(flow_job.clone()),
+                    0,
+                    None,
+                    e,
+                    worker_name,
+                    true,
+                    None,
+                )
+                .await;
                 true
             }
             Ok(_) => false,
@@ -1573,6 +1629,67 @@ pub async fn update_flow_status_after_job_completion_internal(
 
 fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Option<usize> {
     flow_jobs.iter().position(|x| x == job_id_for_status)
+}
+
+async fn add_tool_message_to_conversation(
+    db: &DB,
+    job_id: &Uuid,
+    success: bool,
+    skipped: bool,
+    is_ai_agent_step: bool,
+    result: &Box<RawValue>,
+    chat_input_enabled: bool,
+    conversation_id: Option<Uuid>,
+) -> error::Result<()> {
+    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
+    if !skipped && chat_input_enabled {
+        // Get conversation_id from flow_status.memory_id
+
+        if let Some(conversation_id) = conversation_id {
+            // Only create assistant message if last module is NOT an AI agent, or there was an error
+            if !is_ai_agent_step || success == false {
+                let value = serde_json::to_value(result.get())
+                    .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
+
+                let content = match value {
+                    // If it's an Object with "output" key AND the output is a String, return it
+                    serde_json::Value::Object(mut map)
+                        if map.contains_key("output")
+                            && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
+                    {
+                        if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                            s
+                        } else {
+                            // prettify the whole result
+                            serde_json::to_string_pretty(&map)
+                                .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                        }
+                    }
+                    // Otherwise, if the whole value is a String, return it
+                    serde_json::Value::String(s) => s,
+                    // Otherwise, prettify the whole result
+                    v => serde_json::to_string_pretty(&v)
+                        .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                };
+
+                // Insert new assistant message
+                let mut tx = db.begin().await?;
+                add_message_to_conversation_tx(
+                    &mut tx,
+                    conversation_id,
+                    Some(job_id.clone()),
+                    &content,
+                    MessageType::Assistant,
+                    None,
+                    success,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn set_success_and_duration_in_flow_job_success<'c>(
@@ -1717,6 +1834,7 @@ async fn evaluate_retry(
     status: &RetryStatus,
     result: Arc<Box<RawValue>>,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: Option<&AuthedClient>,
 ) -> anyhow::Result<Option<(u32, Duration)>> {
     if status.fail_count > MAX_RETRY_ATTEMPTS {
@@ -1727,6 +1845,7 @@ async fn evaluate_retry(
         let should_retry = compute_bool_from_expr(
             &retry_if.expr,
             flow_args,
+            flow_env,
             result,
             None,
             None,
@@ -1750,6 +1869,7 @@ async fn evaluate_retry(
 async fn compute_bool_from_expr(
     expr: &str,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     result: Arc<Box<RawValue>>,
     all_iters: Option<Arc<Box<RawValue>>>,
     by_id: Option<&IdContext>,
@@ -1774,6 +1894,7 @@ async fn compute_bool_from_expr(
         format!("Boolean({expr})"),
         context,
         Some(flow_args),
+        flow_env,
         client,
         by_id,
         ctx,
@@ -1799,15 +1920,13 @@ pub async fn evaluate_input_transform<T>(
     transform: &InputTransform,
     last_result: Arc<Box<RawValue>>,
     flow_args: Option<Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
 ) -> error::Result<T>
 where
-    T: for<'de> serde::Deserialize<'de> + Send,
+    T: for<'de> serde::Deserialize<'de> + Send + Default,
 {
-    let mut context = HashMap::with_capacity(2);
-    context.insert("result".to_string(), last_result.clone());
-    context.insert("previous_result".to_string(), last_result.clone());
     match transform {
         InputTransform::Static { value } => serde_json::from_str(value.get()).map_err(|e| {
             Error::ExecutionErr(format!(
@@ -1816,10 +1935,14 @@ where
             ))
         }),
         InputTransform::Javascript { expr } => {
+            let mut context = HashMap::with_capacity(2);
+            context.insert("result".to_string(), last_result.clone());
+            context.insert("previous_result".to_string(), last_result.clone());
             let result = eval_timeout(
                 expr.to_string(),
                 context,
                 flow_args,
+                flow_env,
                 authed_client,
                 by_id,
                 None,
@@ -1840,6 +1963,7 @@ where
                 ))
             })
         }
+        InputTransform::Ai => Ok(T::default()),
     }
 }
 
@@ -1847,6 +1971,7 @@ where
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -1888,6 +2013,7 @@ async fn transform_input(
                     expr.to_string(),
                     env.clone(),
                     Some(flow_args.clone()),
+                    flow_env,
                     Some(client),
                     Some(by_id),
                     None,
@@ -1900,6 +2026,7 @@ async fn transform_input(
                 })?;
                 mapped.insert(key.to_string(), v);
             }
+            InputTransform::Ai => (),
         }
     }
 
@@ -1939,7 +2066,7 @@ pub async fn handle_flow(
         if let Some(schedule) = schedule {
             if let Err(err) = handle_maybe_scheduled_job(
                 db,
-                &flow_job,
+                &MiniCompletedJob::from(flow_job.clone()),
                 &schedule,
                 flow_job.runnable_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
@@ -1960,6 +2087,7 @@ pub async fn handle_flow(
             );
         }
     }
+
     let mut rec = PushNextFlowJobRec { flow_job: flow_job, status: status };
     loop {
         let PushNextFlowJobRec { flow_job, status } = rec;
@@ -2095,15 +2223,16 @@ async fn push_next_flow_job(
     // tracing::error!("status_module: {status_module:#?}");
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
-    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
-        if let Some(args) = &x.args {
-            &args.0
-        } else {
-            &EHM
-        }
-    });
+    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
+        Marc::map(fj, |x: &MiniPulledJob| {
+            if let Some(args) = &x.args {
+                &args.0
+            } else {
+                &EHM
+            }
+        });
 
-    // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
+    // if this is an empty module without preprocessor or if the module has already been completed, successfully, update the parent flow
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
         || matches!(status_module, FlowStatusModule::Success { .. })
     {
@@ -2191,6 +2320,7 @@ async fn push_next_flow_job(
             let skip = compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
+                flow.flow_env.as_ref(),
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
                 None,
@@ -2312,6 +2442,7 @@ async fn push_next_flow_job(
                                      expr.to_string(),
                                      context,
                                      Some(arc_flow_job_args.clone()),
+                                     flow.flow_env.as_ref(),
                                      None,
                                      None,
                                      None
@@ -2333,6 +2464,9 @@ async fn push_next_flow_job(
                                     "Result returned by input transform invalid `{e:#}`"
                                 )));
                             }
+                        }
+                        InputTransform::Ai => {
+                            user_groups_required = Vec::new();
                         }
                     }
                 } else {
@@ -2569,6 +2703,7 @@ async fn push_next_flow_job(
                     &input_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
+                    flow.flow_env.as_ref(),
                     Some(client),
                     None,
                 )
@@ -2606,6 +2741,7 @@ async fn push_next_flow_job(
             &status.retry,
             arc_last_job_result.clone(),
             arc_flow_job_args.clone(),
+            flow.flow_env.as_ref(),
             Some(client),
         )
         .await?
@@ -2695,6 +2831,7 @@ async fn push_next_flow_job(
         compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
+            flow.flow_env.as_ref(),
             arc_last_job_result.clone(),
             None,
             Some(&idcontext),
@@ -2786,6 +2923,7 @@ async fn push_next_flow_job(
                 };
                 transform_input(
                     arc_flow_job_args.clone(),
+                    flow.flow_env.as_ref(),
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -2812,6 +2950,7 @@ async fn push_next_flow_job(
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
+        flow.flow_env.as_ref(),
         &flow_job,
         &flow,
         transform_context,
@@ -2960,6 +3099,7 @@ async fn push_next_flow_job(
                         .await?;
                     let ti = transform_input(
                         Marc::new(args),
+                        flow.flow_env.as_ref(),
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -3010,6 +3150,7 @@ async fn push_next_flow_job(
                             .await?;
                         let ti = transform_input(
                             Marc::new(hm),
+                            flow.flow_env.as_ref(),
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -3113,6 +3254,7 @@ async fn push_next_flow_job(
                 timeout_transform,
                 arc_last_job_result.clone(),
                 Some(arc_flow_job_args.clone()),
+                flow.flow_env.as_ref(),
                 Some(client),
                 Some(&ctx),
             )
@@ -3192,6 +3334,7 @@ async fn push_next_flow_job(
                     parallelism_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
+                    flow.flow_env.as_ref(),
                     Some(client),
                     Some(&ctx),
                 )
@@ -3574,11 +3717,13 @@ pub struct JobPayloadWithTag {
     pub timeout: Option<i32>,
     pub on_behalf_of: Option<OnBehalfOf>,
 }
+#[derive(Debug)]
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
     ParallelJobs(Vec<JobPayloadWithTag>),
 }
 
+#[derive(Debug)]
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
@@ -3649,6 +3794,7 @@ pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModu
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     flow_job: &MiniPulledJob,
     flow: &FlowValue,
     by_id: Option<IdContext>,
@@ -3867,6 +4013,7 @@ async fn compute_next_flow_transform(
                 resume,
                 approvers,
                 arc_flow_job_args,
+                flow_env,
                 client,
                 &parallel,
             )
@@ -3962,6 +4109,7 @@ async fn compute_next_flow_transform(
                         let pred = compute_bool_from_expr(
                             &b.expr,
                             arc_flow_job_args.clone(),
+                            flow.flow_env.as_ref(),
                             arc_last_job_result.clone(),
                             None,
                             Some(&idcontext),
@@ -4226,6 +4374,7 @@ async fn next_forloop_status(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: &AuthedClient,
     parallel: &bool,
 ) -> Result<ForLoopStatus, Error> {
@@ -4241,6 +4390,11 @@ async fn next_forloop_status(
             /* Iterator is an InputTransform, evaluate it into an array. */
             let itered_raw = match iterator {
                 InputTransform::Static { value } => to_raw_value(value),
+                InputTransform::Ai => {
+                    return Err(Error::ExecutionErr(format!(
+                        "AI input transform not supported for iterator"
+                    )))?
+                }
                 InputTransform::Javascript { expr } => {
                     let mut context = HashMap::with_capacity(5);
                     context.insert("result".to_string(), arc_last_job_result.clone());
@@ -4253,6 +4407,7 @@ async fn next_forloop_status(
                         expr.to_string(),
                         context,
                         Some(arc_flow_job_args),
+                        flow_env,
                         Some(client),
                         Some(&by_id),
                         None,
@@ -4316,11 +4471,17 @@ async fn next_forloop_status(
                             expr.to_string(),
                             context,
                             Some(arc_flow_job_args),
+                            flow_env,
                             Some(client),
                             Some(&by_id),
                             None,
                         )
                         .await?
+                    }
+                    InputTransform::Ai => {
+                        return Err(Error::ExecutionErr(format!(
+                            "AI input transform not supported for iterator"
+                        )))?
                     }
                 };
                 serde_json::from_str::<Vec<Box<RawValue>>>(itered_raw.get()).map_err(

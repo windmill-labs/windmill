@@ -19,7 +19,10 @@
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: placement }} contentClasses="p-4">
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: placement }}
+	contentClasses="p-4 max-h-[80vh] overflow-y-auto"
+>
 	{#snippet trigger()}
 		<Button variant="default" unifiedSize="md" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"

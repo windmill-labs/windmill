@@ -22,7 +22,7 @@ use windmill_common::{
     flow_status::FlowJobDuration,
     jobs::JobKind,
     utils::WarnAfterExt,
-    worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
     KillpillSender, DB,
 };
@@ -31,8 +31,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
-    WrappedError, INIT_SCRIPT_TAG,
+    append_logs, get_mini_completed_job, CanceledBy, JobCompleted, MiniCompletedJob, MiniPulledJob,
+    ValidableJson, WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -43,7 +43,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
-    common::{error_to_value, read_result, save_in_cache},
+    common::{read_result, save_in_cache},
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
@@ -400,7 +400,7 @@ async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobComplet
 }
 
 pub async fn process_result(
-    job: Arc<MiniPulledJob>,
+    job: MiniCompletedJob,
     result: error::Result<Arc<Box<RawValue>>>,
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
@@ -539,7 +539,7 @@ pub async fn handle_receive_completed_job(
             handle_job_error(
                 db,
                 &client,
-                job.as_ref(),
+                &job,
                 mem_peak,
                 canceled_by,
                 err,
@@ -721,7 +721,7 @@ pub async fn process_completed_job(
 
 pub async fn handle_non_flow_job_error(
     db: &DB,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err_string: String,
@@ -752,7 +752,7 @@ pub async fn handle_non_flow_job_error(
 pub async fn handle_job_error(
     db: &DB,
     client: &AuthedClient,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
@@ -817,7 +817,7 @@ pub async fn handle_job_error(
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(Some(parent_job)) =
-                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
+                    get_mini_completed_job(&parent_job_id, &job.workspace_id, db).await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     append_logs(
@@ -829,7 +829,7 @@ pub async fn handle_job_error(
                     .await;
                     let _ = add_completed_job_error(
                         db,
-                        &MiniPulledJob::from(&parent_job),
+                        &parent_job,
                         mem_peak,
                         canceled_by.clone(),
                         e,

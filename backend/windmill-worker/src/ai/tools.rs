@@ -6,7 +6,7 @@ use crate::ai::utils::{
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
     FlowContext,
 };
-use crate::common::{error_to_value, OccupancyMetrics};
+use crate::common::OccupancyMetrics;
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
@@ -33,7 +33,8 @@ use windmill_common::{
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    get_mini_pulled_job, push, JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
+    get_mini_pulled_job, push, JobCompleted, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel,
 };
 
 /// Context for tool execution containing all required references and state
@@ -321,16 +322,23 @@ async fn execute_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if let InputTransform::Static { value } = transform {
-            let val = value.get().trim();
-            if val.is_empty() || val == "null" {
+        match transform {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                if val.is_empty() || val == "null" {
+                    continue;
+                }
+            }
+            InputTransform::Ai => {
                 continue;
             }
+            _ => (),
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
             transform,
             last_result.clone(),
             flow_inputs.clone(),
+            None,
             Some(ctx.client),
             ctx.id_context.as_ref(),
         )
@@ -545,7 +553,7 @@ async fn execute_windmill_tool(
                 ctx,
                 tool_call,
                 tool_module,
-                &tool_job,
+                &MiniCompletedJob::from(tool_job),
                 job_id,
                 err,
                 messages,
@@ -576,14 +584,14 @@ async fn handle_tool_execution_error(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
     tool_module: &windmill_common::flows::FlowModule,
-    tool_job: &MiniPulledJob,
+    tool_job: &MiniCompletedJob,
     job_id: Uuid,
     err: Error,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let err_string = format!("{}: {}", err.name(), err.to_string());
-    let err_json = error_to_value(&err);
+    let err_json = windmill_common::worker::error_to_value(&err);
     let _ = handle_non_flow_job_error(
         ctx.db,
         tool_job,

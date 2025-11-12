@@ -496,19 +496,16 @@
 					minWidth="200px"
 					placeholder="Search Teams channels"
 					teamId={teams_team_id}
-					bind:selectedChannel={
-						() =>
-							handlerExtraArgs['channel']
-								? {
-										channel_id: handlerExtraArgs['channel'],
-										channel_name: handlerExtraArgs['channel_name']
-									}
-								: undefined,
-						(channel) => {
-							handlerExtraArgs['channel'] = channel?.channel_id
-							handlerExtraArgs['channel_name'] = channel?.channel_name
-						}
-					}
+					selectedChannel={handlerExtraArgs['channel']
+						? {
+								channel_id: handlerExtraArgs['channel'],
+								channel_name: handlerExtraArgs['channel_name']
+							}
+						: undefined}
+					onSelectedChannelChange={(channel) => {
+						handlerExtraArgs['channel'] = channel?.channel_id
+						handlerExtraArgs['channel_name'] = channel?.channel_name
+					}}
 					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 				/>
 			</div>

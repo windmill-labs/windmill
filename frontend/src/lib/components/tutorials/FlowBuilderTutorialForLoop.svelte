@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { emptyFlowModuleState } from '../flows/utils'
+	import { emptyFlowModuleState } from '../flows/utils.svelte'
 	import { clickButtonBySelector, updateFlowModuleById, triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'

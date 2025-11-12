@@ -11,7 +11,7 @@
 		isTriggerStep,
 		type onSelectedIteration
 	} from '$lib/components/graph/graphBuilder.svelte'
-	import { checkIfParentLoop } from '$lib/components/flows/utils'
+	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'

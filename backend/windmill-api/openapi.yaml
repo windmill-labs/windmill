@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.571.0
+  version: 1.575.0
   title: Windmill API
 
   contact:
@@ -629,12 +629,13 @@ paths:
       tags:
         - Git Sync
       parameters:
-        - name: search
+        - name: page
           in: query
-          description: Search repositories by name
+          description: Page number for pagination (default 1)
           required: false
           schema:
-            type: string
+            type: integer
+            default: 1
       responses:
         "200":
           description: connected repositories
@@ -726,6 +727,32 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/create_workspace_fork_branch:
+    post:
+      summary: create forked workspace branch with git sync
+      operationId: createWorkspaceForkGitBranch
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace branch created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
 
   /w/{workspace}/workspaces/create_fork:
     post:
@@ -4871,6 +4898,27 @@ paths:
                   - content
                   - language
 
+  /scripts/hub/pick/{path}:
+    get:
+      summary: record hub script pick
+      operationId: pickHubScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script pick recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+
   /scripts/hub/top:
     get:
       summary: get top hub scripts
@@ -7946,6 +7994,12 @@ paths:
           schema:
             type: boolean
         - $ref: "#/components/parameters/NewJobId"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: preview
@@ -7972,6 +8026,12 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: preview

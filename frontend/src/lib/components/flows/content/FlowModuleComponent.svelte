@@ -49,7 +49,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { checkIfParentLoop } from '../utils'
+	import { checkIfParentLoop } from '../utils.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'

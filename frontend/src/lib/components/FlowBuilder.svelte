@@ -46,7 +46,7 @@
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
-	import { cleanInputs } from './flows/utils'
+	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
 		Pen,
@@ -270,7 +270,7 @@
 		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 			try {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -431,7 +431,7 @@
 
 		loadingSave = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 
 			if (flow.value?.modules) {
 				const validationErrors: string[] = []

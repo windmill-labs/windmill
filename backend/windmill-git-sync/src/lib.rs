@@ -12,7 +12,7 @@ use windmill_common::{scripts::ScriptHash, DB};
 pub mod git_sync_ee;
 pub mod git_sync_oss;
 
-pub use git_sync_oss::handle_deployment_metadata;
+pub use git_sync_oss::{handle_deployment_metadata, handle_fork_branch_creation};
 
 #[derive(Clone, Debug)]
 pub enum DeployedObject {
