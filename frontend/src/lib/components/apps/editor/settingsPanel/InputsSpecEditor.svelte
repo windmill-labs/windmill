@@ -197,7 +197,6 @@
 						id="schema-plug-{key}"
 					/>
 					<ToggleButtonGroup
-						class="h-6"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (

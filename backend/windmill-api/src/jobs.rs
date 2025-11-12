@@ -305,6 +305,10 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/:job_id/:node_id",
             get(get_result_by_id).layer(cors.clone()),
         )
+        .route(
+            "/flow_env_by_flow_job_id/:flow_job_id/:var_name",
+            get(get_flow_env_by_flow_job_id).layer(cors.clone()),
+        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
         .route(
@@ -398,6 +402,59 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
+}
+
+async fn get_flow_env_by_flow_job_id(
+    authed: ApiAuthed,
+    tokened: Tokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
+    Query(JsonPath { json_path, .. }): Query<JsonPath>,
+) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
+    let flow_env = sqlx::query_scalar!(
+        r#"
+            SELECT 
+                CASE 
+                    WHEN flow_version.id IS NOT NULL THEN
+                        (flow_version.value -> 'flow_env' -> $3) #> $4
+                    ELSE
+                        (root_job.raw_flow -> 'flow_env' -> $3) #> $4
+                END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
+            FROM 
+                v2_job current_job
+            JOIN 
+                v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)
+                AND root_job.workspace_id = current_job.workspace_id
+            LEFT JOIN
+                flow_version ON flow_version.id = root_job.runnable_id
+                AND flow_version.path = root_job.runnable_path
+                AND flow_version.workspace_id = root_job.workspace_id
+           WHERE 
+                current_job.id = $1 AND 
+                current_job.workspace_id = $2"#,
+        flow_job_id,
+        w_id,
+        var_name,
+        json_path
+            .as_ref()
+            .map(|x| x.split(".").collect::<Vec<_>>())
+            .unwrap_or_default() as Vec<&str>,
+    )
+    .fetch_optional(&db)
+    .await?
+    .map(|r| r.map(|x| x.0))
+    .flatten()
+    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+
+    log_job_view(
+        &db,
+        Some(&authed),
+        Some(&tokened.token),
+        &w_id,
+        &flow_job_id,
+    )
+    .await?;
+    Ok(Json(flow_env))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
@@ -1435,7 +1492,7 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        "SELECT j.created_by AS \"created_by\", coalesce(job_logs.logs, '') as logs, COALESCE(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
         FROM v2_job j
         LEFT JOIN job_logs ON job_logs.job_id = j.id
         WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
@@ -1464,11 +1521,21 @@ async fn get_job_logs(
         .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
+        if let Some(r) = get_logs_from_store(
+            record.log_offset.unwrap_or(0),
+            &logs,
+            &record.log_file_index,
+        )
+        .await
         {
             return r.map(content_plain);
         }
-        if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
+        if let Some(r) = get_logs_from_disk(
+            record.log_offset.unwrap_or(0),
+            &logs,
+            &record.log_file_index,
+        )
+        .await
         {
             return r.map(content_plain);
         }
@@ -3809,6 +3876,7 @@ async fn batch_rerun_handle_job(
                     batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
                 );
             }
+            InputTransform::Ai => {}
         }
     }
 
@@ -4388,7 +4456,12 @@ pub async fn run_script_by_path_inner(
         tag,
         timeout,
         None,
-        None,
+        // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
+        if run_query.parent_job.is_some() || run_query.root_job.is_some() {
+            Some(2)
+        } else {
+            None
+        },
         push_authed.as_ref(),
         false,
         None,
@@ -7227,6 +7300,11 @@ pub fn start_job_update_sse_stream(
                         // Update log offset if available
                         if let Some(new_offset) = update.log_offset {
                             if new_offset != log_offset.unwrap_or(0) {
+                                // let logs = update.new_logs.clone().unwrap_or_default();
+                                // tracing::error!(
+                                //     "new_offset: {new_offset}; log_offset: {log_offset:?}; {} {logs}",
+                                //     logs.len()
+                                // );
                                 log_offset = Some(new_offset);
                             } else {
                                 update.log_offset = None;
@@ -7568,7 +7646,10 @@ async fn get_job_update_data(
         }
 
         let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
-            let get = GetQuery::new().with_auth(&opt_authed).without_logs();
+            let get = GetQuery::new()
+                .with_auth(&opt_authed)
+                .without_logs()
+                .without_code();
             Some(get.fetch(&db, job_id, &w_id).await?)
         } else {
             None

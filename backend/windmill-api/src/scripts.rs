@@ -607,8 +607,10 @@ async fn create_script_internal<'c>(
             Ok(None)
         }
         (Some(p_hash), o) => {
+            // Lock the parent row to prevent concurrent updates with the same parent_hash
+            // This ensures linear lineage - only one script can have a given parent at a time
             if sqlx::query_scalar!(
-                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2 FOR UPDATE",
                 p_hash.0,
                 &w_id
             )

@@ -4,12 +4,14 @@
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import {
+		JobService,
 		ResourceService,
 		SettingService,
 		UserService,
 		VariableService,
 		WorkspaceService,
-		type AIProvider
+		type AIProvider,
+		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -27,9 +29,11 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
-	import { GitFork } from 'lucide-svelte'
+	import { GitFork, LoaderCircle } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { jobManager } from '$lib/services/JobManager'
+	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -76,19 +80,113 @@
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
+	let forkCreationLoading = $state(false)
+	let forkCreationError = $state('')
+	let errorMsgs: string[] = $state([])
+	let failedSyncJobs: string[] = $state([])
+
+	async function fetchFailedSyncJobs(jobs: string[]): Promise<CompletedJob[]> {
+		let ret: CompletedJob[] = []
+		for (const job of jobs) {
+			let j = await JobService.getCompletedJob({
+				id: job,
+				workspace: $workspaceStore!
+			})
+			ret.push(j)
+		}
+		return ret
+	}
+
+	function isPathVersionLessThan(path: string | undefined, version: number): boolean {
+		if (!path || !path.startsWith('hub/')) {
+			return false
+		}
+
+		const parts = path.split('/')
+
+		if (parts.length < 2) {
+			return false
+		}
+
+		const embeddedVersion = parseInt(parts[1], 10)
+
+		if (isNaN(embeddedVersion)) {
+			return false
+		}
+
+		return embeddedVersion < version
+	}
+
 	async function createOrForkWorkspace() {
 		const prefixed_id = `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
 			if ($workspaceStore) {
-				await WorkspaceService.createWorkspaceFork({
+				forkCreationLoading = true
+				errorMsgs = []
+				failedSyncJobs = []
+				forkCreationError = ''
+
+				let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
 					workspace: $workspaceStore!,
 					requestBody: {
 						id: prefixed_id,
 						name,
-						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+						color: colorEnabled && workspaceColor ? workspaceColor : undefined
 					}
 				})
 
+				try {
+					await Promise.all(
+						gitSyncJobIds.map((jobId) =>
+							jobManager.runWithProgress(() => Promise.resolve(jobId), {
+								workspace: $workspaceStore,
+								timeout: 60000,
+								timeoutMessage: `Deploy fork job timed out after 60s`,
+								onProgress: (status) => {
+									if (status.status === 'failure') {
+										errorMsgs.push(status.error ?? 'Deploy fork job failed')
+										failedSyncJobs.push(jobId)
+									}
+								}
+							})
+						)
+					)
+				} catch (error) {
+					forkCreationLoading = false
+					sendUserToast(
+						`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs} - ${error}`,
+						true
+					)
+					return
+				}
+				if (errorMsgs.length != 0) {
+					forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
+					forkCreationLoading = false
+					sendUserToast(
+						`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
+						true
+					)
+					return
+				}
+
+				try {
+					await WorkspaceService.createWorkspaceFork({
+						workspace: $workspaceStore!,
+						requestBody: {
+							id: prefixed_id,
+							name,
+							color: colorEnabled && workspaceColor ? workspaceColor : undefined
+						}
+					})
+				} catch (e) {
+					forkCreationError = `Failed to create fork '${prefixed_id}'`
+					errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+					forkCreationLoading = false
+					sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+					return
+				}
+
+				forkCreationLoading = false
 				sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 			} else {
 				sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
@@ -255,6 +353,61 @@
 					{$workspaceStore}
 				</span>
 			</div>
+		{/if}
+		{#if errorMsgs.length != 0}
+			<Alert class="p-2" title={forkCreationError} type="error">
+				<ul class="pl-2 pr-4 break-words pb-5">
+					{#each errorMsgs as errorMsg}
+						<li><pre class="whitespace-pre-wrap">- {errorMsg}</pre></li>
+					{/each}
+				</ul>
+				{#if failedSyncJobs.length != 0}
+					More details on the jobs that failed:
+					{#await fetchFailedSyncJobs(failedSyncJobs)}
+						<LoaderCircle class="animate-spin" />
+					{:then failedJobs}
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedJobs as job}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${job.id}?workspace=${$workspaceStore}`}
+									>
+										{job.id}
+									</a>
+								</li>
+								<!-- This 28073 is the version where git sync on fork was introduced -->
+								{#if isPathVersionLessThan(job.script_path, 28073)}
+									<div class="font-bold">
+										This job was not running the latest version of the git sync script available on
+										the hub. You might be able to solve this issue by going to `Workspace Settings`
+										-> `Git Sync` and updating the script.
+									</div>
+								{/if}
+							{/each}
+						</ul>
+					{:catch error}
+						Tried to fetch jobs to get more information, but failed: {error}. Here are the failed
+						job ids:
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedSyncJobs as jobId}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${jobId}?workspace=${$workspaceStore}`}
+									>
+										{jobId}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					{/await}
+				{/if}
+			</Alert>
 		{/if}
 		<label class="flex flex-col gap-1">
 			{#if isFork}
@@ -429,24 +582,33 @@
 			</div>
 		{/if}
 		<div class="flex flex-wrap flex-row justify-between pt-12 gap-4">
-			<Button variant="default" size="sm" href="{base}/user/workspaces"
-				>&leftarrow; Back to workspaces</Button
-			>
 			<Button
-				variant="accent"
-				disabled={checking ||
-					errorId != '' ||
-					!name ||
-					(!automateUsernameCreation && (errorUser != '' || !username)) ||
-					!id}
-				on:click={createOrForkWorkspace}
+				disabled={forkCreationLoading}
+				variant="default"
+				size="sm"
+				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
-				{#if isFork}
-					Fork workspace
-				{:else}
-					Create workspace
-				{/if}
-			</Button>
+			{#if !forkCreationLoading}
+				<Button
+					variant="accent"
+					disabled={checking ||
+						errorId != '' ||
+						!name ||
+						(!automateUsernameCreation && (errorUser != '' || !username)) ||
+						!id}
+					on:click={createOrForkWorkspace}
+				>
+					{#if isFork}
+						Fork workspace
+					{:else}
+						Create workspace
+					{/if}
+				</Button>
+			{:else}
+				<Button variant="accent" disabled={true}>
+					<LoaderCircle class="animate-spin" /> Creating branch
+				</Button>
+			{/if}
 		</div>
 	</div>
 </CenteredModal>

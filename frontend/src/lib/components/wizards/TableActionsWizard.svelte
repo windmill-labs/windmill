@@ -10,13 +10,15 @@
 	import type {
 		ButtonComponent,
 		CheckboxComponent,
+		ModalComponent,
 		SelectComponent
 	} from '../apps/editor/component'
 	interface Props {
 		actionsOrder?: RichConfiguration | undefined
 		selectedId?: string | undefined
 		components:
-			| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+			| (BaseAppComponent &
+					(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
 			| undefined
 		trigger?: import('svelte').Snippet
 	}
