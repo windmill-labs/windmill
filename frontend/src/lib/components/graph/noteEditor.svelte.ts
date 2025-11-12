@@ -2,7 +2,6 @@ import type { FlowNote } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 import type { NoteColor } from './noteColors'
-import { MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
 
@@ -104,15 +103,11 @@ export class NoteEditor {
 	 * Create a group note containing the specified node IDs
 	 */
 	createGroupNote(nodeIds: string[], text: string = 'Group'): string {
-		// Calculate rough position based on contained nodes (can be refined by layout)
-		const defaultPosition = { x: 0, y: 0 }
-		const defaultSize = { width: MIN_NOTE_WIDTH, height: Math.max(MIN_NOTE_HEIGHT, 100) }
+		// Position and size will be calculated dynamically by layout
 
 		const groupNote: Omit<FlowNote, 'id'> = {
 			text,
 			color: 'blue', // Default color, can be made configurable
-			position: defaultPosition,
-			size: defaultSize,
 			type: 'group',
 			contained_node_ids: nodeIds,
 			locked: false

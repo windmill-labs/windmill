@@ -159,8 +159,6 @@ components:
       required:
         - id
         - text
-        - position
-        - size
         - color
         - type
 

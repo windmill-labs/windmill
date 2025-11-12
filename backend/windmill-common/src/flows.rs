@@ -207,8 +207,10 @@ pub enum FlowNoteType {
 pub struct FlowNote {
     pub id: String,
     pub text: String,
-    pub position: FlowNotePosition,
-    pub size: FlowNoteSize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<FlowNotePosition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<FlowNoteSize>,
     pub color: String,
     #[serde(rename = "type")]
     pub note_type: FlowNoteType,

@@ -7,11 +7,7 @@ import {
 	calculateAllNoteZIndexes
 } from './groupNoteUtils'
 import { deepEqual } from 'fast-equals'
-
-export type NodePosition = {
-	id: string
-	position: { x: number; y: number }
-}
+import { MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
 
 export type TextHeightCacheEntry = {
 	content: string
@@ -116,7 +112,7 @@ export class NoteManager {
 			// Update draggable property based on lock state and edit mode
 			const isGroupNote = note.type === 'group'
 			updatedNode.draggable = isGroupNote ? false : this.#editMode && !note.locked
-			if (!isGroupNote) {
+			if (!isGroupNote && note.size && note.position) {
 				updatedNode.width = note.size.width
 				updatedNode.height = note.size.height
 				updatedNode.position = note.position
@@ -138,13 +134,19 @@ export class NoteManager {
 		textHeight: number = 60
 	): { position: { x: number; y: number }; size: { width: number; height: number } } {
 		if (note.type !== 'group' || !note.contained_node_ids?.length) {
-			return { position: note.position, size: note.size }
+			return {
+				position: note.position ?? { x: 0, y: 0 },
+				size: note.size ?? { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+			}
 		}
 
 		const containedNodes = nodes.filter((node) => note.contained_node_ids?.includes(node.id))
 
 		if (containedNodes.length === 0) {
-			return { position: note.position, size: note.size }
+			return {
+				position: note.position ?? { x: 0, y: 0 },
+				size: note.size ?? { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+			}
 		}
 
 		// Find bounds of all contained nodes
@@ -206,7 +208,10 @@ export class NoteManager {
 		// Calculate position and size based on note type
 		const { position, size } = isGroupNote
 			? this.calculateGroupNoteLayout(note, currentNodes, textHeights[note.id] || 60)
-			: { position: note.position, size: note.size }
+			: {
+					position: note.position ?? { x: 0, y: 0 },
+					size: note.size ?? { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+				}
 
 		return {
 			id: note.id,
