@@ -480,10 +480,7 @@
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
 		selectionManager.handleKeyDown(event, nodes)
-	}
-
-	function handleKeyUp(_event: KeyboardEvent) {
-		// Keep for potential future use
+		noteManager.handleKeyDown(event)
 	}
 
 	async function updateStores() {
@@ -666,16 +663,10 @@
 			}
 		}
 
-		function globalKeyUpHandler(event: KeyboardEvent) {
-			handleKeyUp(event)
-		}
-
 		document.addEventListener('keydown', globalKeyDownHandler)
-		document.addEventListener('keyup', globalKeyUpHandler)
 
 		return () => {
 			document.removeEventListener('keydown', globalKeyDownHandler)
-			document.removeEventListener('keyup', globalKeyUpHandler)
 		}
 	})
 

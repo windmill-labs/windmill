@@ -334,4 +334,12 @@ export class NoteManager {
 	isNoteSelected(noteId: string): boolean {
 		return this.selectedNoteId === noteId
 	}
+
+	// Handle keyboard shortcuts
+	handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			// Escape key clears selection regardless of mode
+			this.clearNoteSelection()
+		}
+	}
 }
