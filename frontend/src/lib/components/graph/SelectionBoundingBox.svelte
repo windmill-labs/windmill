@@ -20,11 +20,13 @@
 		const { minX, minY, maxX, maxY } = calculateNodesBounds(selectedNodes)
 
 		// Add padding in flow coordinates
+
+		const padding = 4
 		const flowBounds = {
-			x: minX - 10,
-			y: minY - 10,
-			width: maxX - minX + 20,
-			height: maxY - minY + 20
+			x: minX - padding,
+			y: minY - padding,
+			width: maxX - minX + 2 * padding,
+			height: maxY - minY + 2 * padding
 		}
 
 		// Convert to screen coordinates relative to the SvelteFlow container
@@ -59,7 +61,7 @@
 {#if bounds() && selectedNodes.length > 1}
 	{@const currentBounds = bounds()!}
 	<div
-		class={'absolute rounded cursor-pointer bg-surface-selected/30  border border-accent/30 '}
+		class={'absolute cursor-pointer bg-surface-selected/30  border border-accent/30 rounded-md'}
 		style="
 			left: {currentBounds.x}px;
 			top: {currentBounds.y}px;

@@ -14,7 +14,6 @@
 
 	// Handle selection changes from SvelteFlow
 	useOnSelectionChange(({ nodes: selectedNodes, edges: _selectedEdges }) => {
-		console.log('dbg useOnSelectionChange', selectedNodes, _selectedEdges)
 		// Notes are already non-selectable, so no filtering needed
 		const selectedNodeIds = selectedNodes.map((node: Node) => node.id)
 
