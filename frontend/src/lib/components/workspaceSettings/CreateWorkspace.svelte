@@ -382,14 +382,15 @@
 								{#if isPathVersionLessThan(job.script_path, 28073)}
 									<div class="font-bold">
 										This job was not running the latest version of the git sync script available on
-										the hub. You might be able to solve this issue by going to `Workspace Settings` ->
-										`Git Sync` and updating the script.
+										the hub. You might be able to solve this issue by going to `Workspace Settings`
+										-> `Git Sync` and updating the script.
 									</div>
 								{/if}
 							{/each}
 						</ul>
 					{:catch error}
-						Tried to fetch jobs to get more information, but failed: {error}. Here are the failed job ids:
+						Tried to fetch jobs to get more information, but failed: {error}. Here are the failed
+						job ids:
 						<ul class="pl-2 pr-4 break-words">
 							{#each failedSyncJobs as jobId}
 								<li>
