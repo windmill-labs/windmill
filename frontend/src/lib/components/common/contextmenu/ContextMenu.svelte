@@ -3,6 +3,7 @@
 	import { fly } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
+	import { pointerDownOutside } from '$lib/utils'
 	import {
 		getContextMenuContainerClass,
 		CONTEXT_MENU_ITEM_BASE_CLASS,
@@ -27,9 +28,17 @@
 		menu?: Snippet<[{ item: ContextMenuItem }]>
 		class?: string
 		onItemClick?: (item: ContextMenuItem) => void
+		closeOnOutsideClick?: boolean
 	}
 
-	let { items = [], children, menu, class: className = '', onItemClick }: Props = $props()
+	let {
+		items = [],
+		children,
+		menu,
+		class: className = '',
+		onItemClick,
+		closeOnOutsideClick = true
+	}: Props = $props()
 
 	const {
 		elements: { menu: menuElement, item, trigger },
@@ -39,7 +48,7 @@
 			placement: 'right-start'
 		},
 		preventScroll: true,
-		closeOnOutsideClick: true
+		closeOnOutsideClick: false
 	})
 
 	function handleItemClick(menuItem: ContextMenuItem) {
@@ -53,6 +62,20 @@
 		console.log('Context menu event detected:', event)
 		// Let Melt UI handle this
 	}
+
+	function close() {
+		open.set(false)
+	}
+
+	async function getMenuElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-context-menu]')) as HTMLElement[]
+	}
+
+	function handlePointerDownOutside() {
+		if (closeOnOutsideClick && open.get()) {
+			close()
+		}
+	}
 </script>
 
 <div
@@ -62,6 +85,12 @@
 	tabindex="0"
 	aria-label="Right click for context menu"
 	oncontextmenu={handleContextMenu}
+	use:pointerDownOutside={{
+		capture: true,
+		stopPropagation: false,
+		exclude: getMenuElements,
+		onClickOutside: handlePointerDownOutside
+	}}
 	data-context-menu-trigger
 >
 	{@render children?.()}
@@ -72,6 +101,7 @@
 		class="{getContextMenuContainerClass()} {CONTEXT_MENU_ANIMATION_CLASSES}"
 		use:melt={$menuElement}
 		transition:fly={{ duration: 150, y: -10 }}
+		data-context-menu
 	>
 		{#each items as menuItem (menuItem.id)}
 			{#if menuItem.divider}
