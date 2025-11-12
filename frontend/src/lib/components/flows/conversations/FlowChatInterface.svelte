@@ -18,7 +18,7 @@
 	}: Props = $props()
 </script>
 
-<div class="flex flex-col h-full flex-1 min-w-0 xl:max-w-7xl mx-auto">
+<div class="flex flex-col h-full flex-1 min-w-0">
 	<!-- Messages Container -->
 	<div
 		bind:this={manager.messagesContainer}
@@ -47,7 +47,7 @@
 				<p class="text-sm">Send a message to run the flow and see the results</p>
 			</div>
 		{:else}
-			<div class="w-full space-y-4">
+			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
 				{#each manager.messages as message (message.id)}
 					<FlowChatMessage {message} />
 				{/each}
@@ -62,7 +62,7 @@
 	</div>
 
 	<!-- Chat Input -->
-	<div class="flex flex-row justify-center py-2">
+	<div class="flex flex-row justify-center py-2 xl:max-w-7xl mx-auto w-full">
 		<div
 			class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface-input w-full"
 			class:opacity-50={deploymentInProgress}
