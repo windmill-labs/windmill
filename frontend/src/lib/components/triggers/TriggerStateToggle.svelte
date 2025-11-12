@@ -7,23 +7,23 @@
 	import { workspaceStore } from '$lib/stores'
 	import RunRow from '../runs/RunRow.svelte'
 	import '../runs/runs-grid.css'
+	import { sendUserToast } from '$lib/toast'
 	type Props = {
 		active_mode: boolean
 		suspendNumber?: number
 		triggerPath?: string
-		onRunSuspendedJobs?: (data: { suspendNumber: number; jobIds: string[] }) => void
 	}
 
-	let { active_mode = $bindable(), suspendNumber, onRunSuspendedJobs }: Props = $props()
+	let { active_mode = $bindable(), suspendNumber }: Props = $props()
 
-	let wasInUnactiveMode = $state(!active_mode)
+	let wasInInactiveMode = $state(!active_mode)
 	let shouldShowModal = $state(false)
 
 	$effect(() => {
-		if (active_mode && wasInUnactiveMode && suspendNumber !== undefined) {
+		if (active_mode && wasInInactiveMode && suspendNumber !== undefined) {
 			shouldShowModal = true
 		} else if (!active_mode) {
-			wasInUnactiveMode = true
+			wasInInactiveMode = true
 			shouldShowModal = false
 		}
 	})
@@ -32,7 +32,6 @@
 	let error = $state<string | null>(null)
 	let processingAction = $state(false)
 	let workspace = $workspaceStore!
-	let selectedJobIds = $state<string[]>([])
 	let containerWidth = $state(1000)
 	$effect(() => {
 		if (shouldShowModal && suspendNumber !== undefined) {
@@ -63,59 +62,60 @@
 	}
 
 	async function runAllJobs() {
-		if (queuedJobs.length === 0) return
+		if (queuedJobs.length === 0 || !suspendNumber) return
 
 		processingAction = true
 		error = null
 
 		try {
-			if (onRunSuspendedJobs && suspendNumber !== undefined) {
-				onRunSuspendedJobs({ suspendNumber, jobIds: queuedJobs.map((j) => j.id) })
-			}
-
-			closeModal()
+			const resumedJobs = await JobService.resumeSuspendedJobs({
+				workspace,
+				requestBody: {
+					suspend_number: suspendNumber
+				}
+			})
+			sendUserToast(resumedJobs)
 		} catch (e) {
 			error = `Failed to run jobs: ${e}`
 			console.error('Failed to run jobs:', e)
 		} finally {
 			processingAction = false
+
+			closeModal()
 		}
 	}
 
 	async function discardAllJobs() {
-		if (queuedJobs.length === 0) return
+		if (queuedJobs.length === 0 || !suspendNumber) return
 
 		processingAction = true
 		error = null
 
 		try {
-			const jobIds = queuedJobs.map((job) => job.id)
-			await JobService.cancelSelection({
+			await JobService.cancelSuspendedJobs({
 				workspace,
-				requestBody: jobIds
+				requestBody: {
+					suspend_number: suspendNumber
+				}
 			})
 
-			closeModal()
+			sendUserToast(`Successfully canceled all jobs with suspend number: ${suspendNumber}`)
 		} catch (e) {
 			error = `Failed to discard jobs: ${e}`
 			console.error('Failed to discard jobs:', e)
 		} finally {
 			processingAction = false
+			closeModal()
 		}
 	}
 
 	function closeModal() {
-		wasInUnactiveMode = false
+		wasInInactiveMode = false
 		shouldShowModal = false
-	}
-
-	function cancelToggle() {
-		active_mode = false
-		closeModal()
 	}
 </script>
 
-<Toggle bind:checked={active_mode} options={{ right: 'Active', left: 'Unactive' }} />
+<Toggle bind:checked={active_mode} options={{ right: 'Active', left: 'Inactive' }} />
 
 {#if shouldShowModal}
 	<Modal2
@@ -124,7 +124,7 @@
 		target="#content"
 		fixedSize="lg"
 	>
-		<div class="flex flex-col gap-4 h-full">
+		<div class="flex w-full flex-col gap-4 h-full">
 			{#if loading}
 				<div class="flex items-center justify-center py-8">
 					<div
@@ -137,17 +137,22 @@
 					{error}
 				</div>
 			{:else if queuedJobs.length === 0}
-				<div class="text-center py-8 text-gray-500"> No queued jobs found for this trigger. </div>
+				<div class="flex flex-col items-center w-full py-12 px-4">
+					<div class="text-center">
+						<div class="text-base font-medium text-secondary mb-2">No queued jobs found</div>
+						<div class="text-sm text-tertiary"
+							>This trigger has no jobs waiting to be processed.</div
+						>
+					</div>
+				</div>
 			{:else}
 				<div class="flex-1 overflow-auto">
 					<div class="mb-3">
-						<h3 class="text-sm font-medium text-gray-900">Queued Jobs ({queuedJobs.length})</h3>
+						<h3 class="text-sm font-medium">Queued Jobs ({queuedJobs.length})</h3>
 						<p class="text-xs text-gray-500 mt-1">Click on any job to view details</p>
 					</div>
 
-					<!-- Job table container - matching runs page styling -->
 					<div class="divide-y h-full border min-w-[650px]" bind:clientWidth={containerWidth}>
-						<!-- Table header - using same bg-surface-secondary as runs page -->
 						<div
 							class="bg-surface-secondary sticky top-0 w-full py-2 pr-4 grid grid-runs-table-no-tag"
 						>
@@ -159,7 +164,6 @@
 							<div class=""></div>
 						</div>
 
-						<!-- Job rows - no background, let RunRow handle its own styling -->
 						<div class="h-full">
 							{#each queuedJobs as job}
 								<div class="flex flex-row items-center h-[42px] w-full">
@@ -169,7 +173,6 @@
 										showTag={false}
 										activeLabel={null}
 										on:select={() => {
-											// Handle job selection - navigate to job details or show modal
 											window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')
 										}}
 									/>
@@ -188,10 +191,6 @@
 			{/if}
 
 			<div class="flex gap-2 pt-4 border-t">
-				<Button variant="border" size="sm" on:click={cancelToggle} disabled={processingAction}>
-					Cancel
-				</Button>
-
 				{#if !loading && !error && queuedJobs.length > 0}
 					<Button
 						variant="border"

@@ -62,7 +62,7 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let active_mode = $state(true)
-	let suspend_number: number | undefined
+	let suspend_number: number | undefined = $state(undefined)
 	let {
 		useDrawer = true,
 		description = undefined,

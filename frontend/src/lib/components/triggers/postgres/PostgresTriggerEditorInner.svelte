@@ -35,6 +35,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerStateToggle from '../TriggerStateToggle.svelte'
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -116,6 +117,8 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let active_mode = $state(true)
+	let suspend_number: number | undefined = $state(undefined)
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -299,7 +302,8 @@
 					: undefined,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			active_mode
 		}
 		return cfg
 	}
@@ -320,6 +324,8 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		active_mode = cfg?.suspend_number ? false : true
+		suspend_number = cfg?.suspend_number
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -575,6 +581,8 @@
 					</div>
 				</Section>
 			{/if}
+
+			<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
 			<Section label="Database">
 				{#snippet badge()}
 					{#if isEditor}

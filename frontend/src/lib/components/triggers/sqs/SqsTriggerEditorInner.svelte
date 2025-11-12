@@ -24,6 +24,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerStateToggle from '../TriggerStateToggle.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -88,6 +89,8 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let active_mode = $state(true)
+	let suspend_number: number | undefined = $state(undefined)
 
 	const sqsConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(getCaptureConfig)
@@ -176,6 +179,8 @@
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			active_mode = cfg?.suspend_number ? false : true
+			suspend_number = cfg?.suspend_number
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
@@ -210,7 +215,8 @@
 			enabled,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			active_mode
 		}
 	}
 
@@ -383,6 +389,8 @@
 						{/if}
 					</div>
 				</Section>
+
+				<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
 			{/if}
 
 			<SqsTriggerEditorConfigSection

@@ -903,18 +903,6 @@ async fn trigger_script_with_retry_and_error_handler(
     Ok((uuid, delete_after_use))
 }
 
-pub fn generate_trigger_suspend_number() -> i32 {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    rng.random_range(101..i32::MAX)
-}
-
-pub fn get_suspend_number_for_unactive_mode(active_mode: Option<bool>) -> Option<i32> {
-    if let Some(false) = active_mode {
-        return Some(generate_trigger_suspend_number());
-    }
-    None
-}
 
 async fn trigger_runnable_with_suspend(
     db: &DB,

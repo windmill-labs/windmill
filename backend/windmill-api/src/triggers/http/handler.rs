@@ -8,13 +8,14 @@ use crate::{
     jobs::start_job_update_sse_stream,
     resources::try_get_resource_from_db_as,
     triggers::{
+        handler::get_suspend_number_for_inactive_mode,
         http::{
             refresh_routers, validate_authentication_method, HttpConfig, HttpConfigRequest,
             RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
         },
         trigger_helpers::{
-            get_runnable_format, get_suspend_number_for_unactive_mode, trigger_runnable,
-            trigger_runnable_and_wait_for_result, trigger_runnable_inner, RunnableId,
+            get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
+            trigger_runnable_inner, RunnableId,
         },
         Trigger, TriggerCrud, TriggerData,
     },
@@ -283,7 +284,8 @@ pub async fn create_many_http_triggers(
 
     for (new_http_trigger, route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter()) {
         let suspend_number =
-            get_suspend_number_for_unactive_mode(new_http_trigger.base.active_mode);
+            get_suspend_number_for_inactive_mode(&db, &w_id, new_http_trigger.base.active_mode)
+                .await?;
         insert_new_trigger_into_db(
             &authed,
             &mut tx,
@@ -1051,6 +1053,35 @@ async fn route_job(
             trigger.wrap_body,
         )
         .map_err(|e| e.into_response())?;
+
+    if let Some(suspend_number) = trigger.suspend_number {
+        let _ = trigger_runnable(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            None,
+            Some(suspend_number),
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        return Ok((
+            StatusCode::OK,
+            format!(
+                "Trigger: {} in inactive mode, incoming request has been queued",
+                &trigger.path
+            ),
+        )
+            .into_response());
+    }
 
     // Handle execution based on the execution mode
     match trigger.request_type {

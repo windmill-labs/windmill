@@ -46,6 +46,7 @@ impl TriggerCrud for EmailTrigger {
         _authed: &ApiAuthed,
         _w_id: &str,
         _trigger: TriggerData<Self::TriggerConfigRequest>,
+        _suspend_number: Option<i32>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "Email triggers are not available in open source version".to_string(),
@@ -60,6 +61,7 @@ impl TriggerCrud for EmailTrigger {
         _workspace_id: &str,
         _path: &str,
         _trigger: TriggerData<Self::TriggerConfigRequest>,
+        _suspend_number: Option<i32>,
     ) -> Result<()> {
         Err(Error::BadRequest(
             "Email triggers are not available in open source version".to_string(),

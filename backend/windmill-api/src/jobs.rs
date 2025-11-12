@@ -15,6 +15,7 @@ use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
+use rand::SeedableRng;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::Pool;
@@ -105,6 +106,56 @@ use windmill_queue::{
 
 use crate::flow_conversations;
 use windmill_common::flow_conversations::MessageType;
+
+pub async fn generate_unique_suspend_number(
+    db: &Pool<sqlx::Postgres>,
+    workspace_id: &str,
+) -> error::Result<i32> {
+    use rand::Rng;
+
+    let mut rng = rand::rngs::StdRng::from_os_rng();
+    let mut attempts = 0;
+    let max_attempts = 10;
+
+    loop {
+        attempts += 1;
+        if attempts > max_attempts {
+            return Err(error::Error::InternalErr(format!(
+                "Failed to generate unique suspend number after {} attempts",
+                max_attempts
+            )));
+        }
+
+        let suspend_number = rng.random_range(101..i32::MAX);
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job_queue WHERE workspace_id = $1 AND suspend = $2)",
+            workspace_id,
+            suspend_number
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false);
+
+        if !exists {
+            return Ok(suspend_number);
+        }
+    }
+}
+
+pub async fn get_suspend_number_for_unactive_mode(
+    db: &Pool<sqlx::Postgres>,
+    workspace_id: &str,
+    active_mode: Option<bool>,
+) -> error::Result<Option<i32>> {
+    if let Some(false) = active_mode {
+        Ok(Some(
+            generate_unique_suspend_number(db, workspace_id).await?,
+        ))
+    } else {
+        Ok(None)
+    }
+}
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -237,6 +288,8 @@ pub fn workspaced_service() -> Router {
         .route("/queue/position/:timestamp", get(get_queue_position))
         .route("/queue/scheduled_for/:id", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
+        .route("/queue/resume_suspended", post(resume_suspended_jobs))
+        .route("/queue/cancel_suspended", post(cancel_suspended_jobs))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
         .route(
@@ -2174,6 +2227,129 @@ async fn cancel_selection(
         query.force_cancel.unwrap_or(false),
     )
     .await
+}
+
+#[derive(Deserialize)]
+pub struct ResumeSuspendedJobsRequest {
+    suspend_number: i32,
+}
+
+async fn resume_suspended_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<ResumeSuspendedJobsRequest>,
+) -> error::JsonResult<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        r#"
+        WITH jobs_to_resume AS (
+            SELECT 
+                jq.id
+            FROM 
+                v2_job_queue jq 
+            INNER JOIN v2_job j ON j.id = jq.id 
+            WHERE 
+                j.workspace_id = $1 AND 
+                jq.suspend = $2 AND 
+                jq.canceled_by IS NULL
+        )
+        UPDATE 
+            v2_job_queue 
+        SET 
+            suspend = 0, 
+            scheduled_for = NOW()
+        WHERE 
+            id IN (SELECT id FROM jobs_to_resume)
+        "#,
+        w_id,
+        request.suspend_number
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.resume_suspended",
+        ActionKind::Update,
+        &w_id,
+        Some(&format!("suspend_number:{}", request.suspend_number)),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(format!(
+        "Resumed all suspended workspace jobs for suspend number: {}",
+        request.suspend_number
+    )))
+}
+
+#[derive(Deserialize)]
+pub struct CancelSuspendedJobsRequest {
+    suspend_number: i32,
+}
+
+async fn cancel_suspended_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<CancelSuspendedJobsRequest>,
+) -> error::JsonResult<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        r#"
+        WITH jobs_to_cancel AS (
+            SELECT 
+                jq.id
+            FROM 
+                v2_job_queue jq 
+            INNER JOIN v2_job j ON j.id = jq.id 
+            WHERE 
+                j.workspace_id = $1 AND 
+                jq.suspend = $2 AND 
+                jq.canceled_by IS NULL
+        )
+        UPDATE 
+            v2_job_queue 
+        SET 
+            canceled_by = $3,
+            canceled_reason = 'Canceled all suspended jobs with suspend number'
+        WHERE 
+            id IN (SELECT id FROM jobs_to_cancel)
+        "#,
+        w_id,
+        request.suspend_number,
+        authed.username
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.cancel_suspended",
+        ActionKind::Delete,
+        &w_id,
+        Some(&format!("suspend_number:{}", request.suspend_number)),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(format!(
+        "Canceled all suspended workspace jobs for suspend number: {}",
+        request.suspend_number
+    )))
 }
 
 async fn list_filtered_job_uuids(

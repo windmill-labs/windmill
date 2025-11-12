@@ -8348,6 +8348,63 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/jobs/queue/resume_suspended:
+    post:
+      summary: resume all suspended jobs with the given suspend number
+      operationId: resumeSuspendedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: suspend number of the jobs to resume
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suspend_number:
+                  type: integer
+                  description: the suspend number of jobs to resume
+              required:
+                - suspend_number
+      responses:
+        "200":
+          content:
+              application/json:
+                schema:
+                  type: string
+
+  /w/{workspace}/jobs/queue/cancel_suspended:
+    post:
+      summary: cancel all suspended jobs with the given suspend number
+      operationId: cancelSuspendedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: suspend number of the jobs to cancel
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suspend_number:
+                  type: integer
+                  description: the suspend number of jobs to cancel
+              required:
+                - suspend_number
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/jobs/completed/list:
     get:
       summary: list all completed jobs

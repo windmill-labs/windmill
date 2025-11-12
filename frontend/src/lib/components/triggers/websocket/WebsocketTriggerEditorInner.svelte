@@ -34,6 +34,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerStateToggle from '../TriggerStateToggle.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -105,6 +106,8 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let active_mode = $state(true)
+	let suspend_number: number | undefined = $state(undefined)
 
 	const websocketCfg = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -219,6 +222,8 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		active_mode = cfg?.suspend_number ? false : true
+		suspend_number = cfg?.suspend_number
 	}
 
 	function getSaveCfg() {
@@ -236,7 +241,8 @@
 			enabled,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			active_mode
 		}
 	}
 
@@ -489,6 +495,8 @@
 					textClass="font-semibold"
 				/>
 			</Section>
+
+			<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
 
 			<WebsocketEditorConfigSection
 				bind:url

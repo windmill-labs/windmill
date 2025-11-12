@@ -365,7 +365,25 @@ impl Listener for WebsocketTrigger {
             ),
             None => (None, None, None),
         };
-        if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
+
+        if suspend_number.is_some() || extra.is_none() {
+            trigger_runnable(
+                db,
+                None,
+                authed,
+                &workspace_id,
+                &script_path,
+                *is_flow,
+                args,
+                retry,
+                error_handler_path,
+                error_handler_args,
+                format!("websocket_trigger/{}", listening_trigger.path),
+                None,
+                *suspend_number,
+            )
+            .await?;
+        } else if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
             let db_ = db.clone();
             let url = url.to_owned();
             let script_path = script_path.to_owned();
@@ -415,23 +433,6 @@ impl Listener for WebsocketTrigger {
             };
 
             tokio::spawn(handle_response_f);
-        } else {
-            trigger_runnable(
-                db,
-                None,
-                authed,
-                &workspace_id,
-                &script_path,
-                *is_flow,
-                args,
-                retry,
-                error_handler_path,
-                error_handler_args,
-                format!("websocket_trigger/{}", listening_trigger.path),
-                None,
-                *suspend_number
-            )
-            .await?;
         }
 
         Ok(())

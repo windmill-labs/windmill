@@ -52,7 +52,7 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    pub suspend_number: Option<i32>
+    pub suspend_number: Option<i32>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -117,6 +117,7 @@ pub struct BaseTriggerData {
     pub is_flow: bool,
     pub enabled: Option<bool>,
     pub active_mode: Option<bool>,
+    pub process_queued_jobs: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
