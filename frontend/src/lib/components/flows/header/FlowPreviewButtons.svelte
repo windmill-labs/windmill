@@ -50,14 +50,14 @@
 		flowPreviewContent?.test()
 	}
 
-	export async function runPreview(): Promise<string | undefined> {
+	export async function runPreview(conversationId?: string): Promise<string | undefined> {
 		if (!previewOpen) {
 			deferContent = true
 			await tick()
 		}
 		previewMode = 'whole'
 		flowPreviewContent?.refresh()
-		return await flowPreviewContent?.test()
+		return await flowPreviewContent?.test(conversationId)
 	}
 
 	export function cancelTest() {

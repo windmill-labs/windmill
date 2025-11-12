@@ -6329,7 +6329,15 @@ async fn run_preview_flow_job(
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
-    let (uuid, tx) = push(
+    let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
+    let flow_path = raw_flow.path.clone().unwrap_or_default();
+    let user_message = raw_flow
+        .args
+        .as_ref()
+        .and_then(|args| args.get("user_message"))
+        .cloned();
+
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -6363,6 +6371,25 @@ async fn run_preview_flow_job(
         None,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path,
+            &run_query,
+            user_message.as_ref(),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
