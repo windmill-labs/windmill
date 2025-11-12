@@ -1,11 +1,12 @@
 use anyhow::Context;
 use axum::response::IntoResponse;
+use chrono::{TimeZone, Utc};
 use http::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use std::collections::HashMap;
 use std::future::Future;
+use std::{collections::HashMap, i32};
 use uuid::Uuid;
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
@@ -554,22 +555,46 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
+    suspend_number: Option<i32>,
 ) -> Result<axum::response::Response> {
-    let (uuid, _, _) = trigger_runnable_inner(
-        db,
-        user_db,
-        authed,
-        workspace_id,
-        runnable_path,
-        is_flow,
-        args,
-        retry,
-        error_handler_path,
-        error_handler_args,
-        trigger_path,
-        job_id,
-    )
-    .await?;
+    let uuid = match suspend_number {
+        Some(suspend_number) => {
+            trigger_runnable_with_suspend(
+                db,
+                user_db,
+                authed,
+                workspace_id,
+                runnable_path,
+                is_flow,
+                args,
+                retry,
+                error_handler_path,
+                error_handler_args,
+                trigger_path,
+                job_id,
+                suspend_number,
+            )
+            .await?
+        }
+        _ => {
+            trigger_runnable_inner(
+                db,
+                user_db,
+                authed,
+                workspace_id,
+                runnable_path,
+                is_flow,
+                args,
+                retry,
+                error_handler_path,
+                error_handler_args,
+                trigger_path,
+                job_id,
+            )
+            .await?
+            .0
+        }
+    };
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
@@ -870,6 +895,7 @@ async fn trigger_script_with_retry_and_error_handler(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -877,210 +903,19 @@ async fn trigger_script_with_retry_and_error_handler(
     Ok((uuid, delete_after_use))
 }
 
-// Queue mode and suspend number utilities
-
-/// Generates a random suspend number for queue mode (always > 100)
 pub fn generate_trigger_suspend_number() -> i32 {
     use rand::Rng;
     let mut rng = rand::rng();
-    // Generate number between 101 and 999999 to stay well above the reserved range
-    rng.random_range(101..1000000)
+    rng.random_range(101..i32::MAX)
 }
 
-/// Generates suspend number based on queue_mode setting
-/// Returns Some(suspend_number) if queue_mode is true, None otherwise
-pub fn get_suspend_number_for_queue_mode(queue_mode: Option<bool>) -> Option<i32> {
-    if queue_mode.unwrap_or(false) {
-        Some(generate_trigger_suspend_number())
-    } else {
-        None
+pub fn get_suspend_number_for_unactive_mode(active_mode: Option<bool>) -> Option<i32> {
+    if let Some(false) = active_mode {
+        return Some(generate_trigger_suspend_number());
     }
+    None
 }
 
-/// Updates the suspend number for a trigger in the database
-pub async fn update_trigger_suspend_number(
-    db: &DB,
-    workspace_id: &str,
-    trigger_path: &str,
-    trigger_type: &str,
-    suspend_number: i32,
-) -> Result<()> {
-    match trigger_type {
-        "postgres" => {
-            sqlx::query(
-                "UPDATE postgres_trigger SET suspend_number = $1 WHERE workspace_id = $2 AND path = $3"
-            )
-            .bind(suspend_number)
-            .bind(workspace_id)
-            .bind(trigger_path)
-            .execute(db)
-            .await?;
-        }
-        "websocket" => {
-            sqlx::query(
-                "UPDATE websocket_trigger SET suspend_number = $1 WHERE workspace_id = $2 AND path = $3"
-            )
-            .bind(suspend_number)
-            .bind(workspace_id)
-            .bind(trigger_path)
-            .execute(db)
-            .await?;
-        }
-        "http" => {
-            sqlx::query(
-                "UPDATE http_trigger SET suspend_number = $1 WHERE workspace_id = $2 AND path = $3"
-            )
-            .bind(suspend_number)
-            .bind(workspace_id)
-            .bind(trigger_path)
-            .execute(db)
-            .await?;
-        }
-        "mqtt" => {
-            sqlx::query(
-                "UPDATE mqtt_trigger SET suspend_number = $1 WHERE workspace_id = $2 AND path = $3"
-            )
-            .bind(suspend_number)
-            .bind(workspace_id)
-            .bind(trigger_path)
-            .execute(db)
-            .await?;
-        }
-        _ => {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Unsupported trigger type for queue mode: {}",
-                trigger_type
-            )));
-        }
-    }
-    
-    Ok(())
-}
-
-/// Gets all suspended jobs for a specific suspend number
-pub async fn get_jobs_by_suspend_number(
-    db: &DB,
-    workspace_id: &str,
-    suspend_number: i32,
-) -> Result<Vec<uuid::Uuid>> {
-    let job_ids = sqlx::query_scalar!(
-        "SELECT id FROM v2_job_queue WHERE workspace_id = $1 AND suspend = $2 ORDER BY created_at ASC",
-        workspace_id,
-        suspend_number
-    )
-    .fetch_all(db)
-    .await?;
-
-    Ok(job_ids)
-}
-
-/// Resumes all jobs with a specific suspend number
-pub async fn resume_suspended_jobs(
-    db: &DB,
-    workspace_id: &str,
-    suspend_number: i32,
-) -> Result<i64> {
-    let result = sqlx::query!(
-        "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE workspace_id = $1 AND suspend = $2",
-        workspace_id,
-        suspend_number
-    )
-    .execute(db)
-    .await?;
-
-    Ok(result.rows_affected() as i64)
-}
-
-/// Cancels all jobs with a specific suspend number
-pub async fn cancel_suspended_jobs(
-    db: &DB,
-    workspace_id: &str,
-    suspend_number: i32,
-    canceled_by: &str,
-    cancel_reason: &str,
-) -> Result<i64> {
-    let result = sqlx::query!(
-        r#"
-        UPDATE v2_job_queue 
-        SET canceled_by = $3, canceled_reason = $4, running = false
-        WHERE workspace_id = $1 AND suspend = $2
-        "#,
-        workspace_id,
-        suspend_number,
-        canceled_by,
-        cancel_reason
-    )
-    .execute(db)
-    .await?;
-
-    Ok(result.rows_affected() as i64)
-}
-
-/// Wrapper function that handles queue mode logic for trigger execution
-pub async fn trigger_runnable_with_queue_mode(
-    db: &DB,
-    user_db: Option<UserDB>,
-    authed: ApiAuthed,
-    workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
-    args: PushArgsOwned,
-    retry: Option<&sqlx::types::Json<Retry>>,
-    error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
-    trigger_path: String,
-    queue_mode: bool,
-    suspend_number: Option<i32>,
-    trigger_type: &str,
-    job_id: Option<Uuid>,
-) -> Result<Uuid> {
-    if queue_mode {
-        // Generate suspend number if not provided
-        let suspend_num = suspend_number.unwrap_or_else(|| generate_trigger_suspend_number());
-        
-        // Update trigger with the suspend number if needed
-        update_trigger_suspend_number(db, workspace_id, &trigger_path, trigger_type, suspend_num).await?;
-        
-        // Execute the runnable with suspend mode
-        let uuid = trigger_runnable_with_suspend(
-            db,
-            user_db,
-            authed,
-            workspace_id,
-            runnable_path,
-            is_flow,
-            args,
-            retry,
-            error_handler_path,
-            error_handler_args,
-            trigger_path,
-            suspend_num,
-            job_id,
-        ).await?;
-        
-        Ok(uuid)
-    } else {
-        // Execute normally without suspend
-        let (uuid, _, _) = trigger_runnable_inner(
-            db,
-            user_db,
-            authed,
-            workspace_id,
-            runnable_path,
-            is_flow,
-            args,
-            retry,
-            error_handler_path,
-            error_handler_args,
-            trigger_path,
-            job_id,
-        ).await?;
-        
-        Ok(uuid)
-    }
-}
-
-/// Executes a runnable with suspend functionality for queue mode
 async fn trigger_runnable_with_suspend(
     db: &DB,
     user_db: Option<UserDB>,
@@ -1093,40 +928,39 @@ async fn trigger_runnable_with_suspend(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    suspend_number: i32,
     job_id: Option<Uuid>,
+    suspend_number: i32,
 ) -> Result<Uuid> {
+    let far_future_utc = Utc.with_ymd_and_hms(9999, 12, 31, 23, 59, 59).unwrap();
     if is_flow {
-        // For flows, use direct queue push with suspend number
-        use windmill_queue::{push, PushIsolationLevel};
-        use windmill_common::users::username_to_permissioned_as;
-        use windmill_common::db::UserDbWithAuthed;
-        use windmill_common::get_latest_flow_version_info_for_path;
-        
         let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
         let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-        
-        // Get flow information
-        let FlowVersionInfo { version, .. } = 
-            get_latest_flow_version_info_for_path(Some(db_authed), &db, workspace_id, runnable_path, false).await?;
-        
+
+        let FlowVersionInfo { version, .. } = get_latest_flow_version_info_for_path(
+            Some(db_authed),
+            &db,
+            workspace_id,
+            runnable_path,
+            false,
+        )
+        .await?;
+
         let (email, permissioned_as, push_authed, tx) = (
             authed.email.as_str(),
             username_to_permissioned_as(&authed.username),
             Some(authed.clone().into()),
             PushIsolationLevel::Isolated(user_db, authed.clone().into()),
         );
-        
+
         let push_args = windmill_queue::PushArgs { args: &args.args, extra: args.extra };
-        
-        // Create flow job payload with suspend number
+
         let flow_payload = windmill_common::jobs::JobPayload::Flow {
             path: runnable_path.to_string(),
             version: version,
             dedicated_worker: None,
             apply_preprocessor: false,
         };
-        
+
         let (uuid, tx) = push(
             db,
             tx,
@@ -1137,7 +971,7 @@ async fn trigger_runnable_with_suspend(
             email,
             permissioned_as,
             authed.token_prefix.as_deref(),
-            None,
+            Some(far_future_utc),
             None,
             None,
             None,
@@ -1150,37 +984,44 @@ async fn trigger_runnable_with_suspend(
             None,
             None,
             None,
-            Some(suspend_number as i16), // Set the suspend number (convert to i16)
+            None,
             push_authed.as_ref(),
             false,
             None,
             None,
-        ).await?;
-        
+            Some(suspend_number),
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(uuid)
     } else {
-        // For scripts, create suspended job manually using queue push
-        use windmill_queue::{push, PushIsolationLevel};
-        use windmill_common::users::username_to_permissioned_as;
-        use windmill_common::jobs::script_path_to_payload;
         use crate::jobs::check_tag_available_for_workspace;
         use windmill_common::db::UserDbWithAuthed;
-        
+        use windmill_common::jobs::script_path_to_payload;
+        use windmill_common::users::username_to_permissioned_as;
+        use windmill_queue::{push, PushIsolationLevel};
+
         let error_handler_args = error_handler_args.map(|args| {
             args.0
                 .iter()
                 .map(|(key, value)| (key.to_owned(), to_raw_value(&value)))
                 .collect::<HashMap<String, Box<RawValue>>>()
         });
-        
+
         let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
         let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-        let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = 
-            script_path_to_payload(runnable_path, Some(db_authed), db.clone(), workspace_id, Some(false)).await?;
-        
+        let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
+            runnable_path,
+            Some(db_authed),
+            db.clone(),
+            workspace_id,
+            Some(false),
+        )
+        .await?;
+
         check_tag_available_for_workspace(db, workspace_id, &tag, &authed).await?;
-        
+
         let (email, permissioned_as, push_authed, tx) =
             if let Some(on_behalf_of) = on_behalf_of.as_ref() {
                 (
@@ -1197,10 +1038,9 @@ async fn trigger_runnable_with_suspend(
                     PushIsolationLevel::Isolated(user_db, authed.clone().into()),
                 )
             };
-        
+
         let push_args = windmill_queue::PushArgs { args: &args.args, extra: args.extra };
-        
-        // Create job payload for script execution with retry and error handling
+
         let retryable_job_payload = match job_payload {
             windmill_common::jobs::JobPayload::ScriptHash {
                 hash,
@@ -1240,7 +1080,7 @@ async fn trigger_runnable_with_suspend(
                 )))
             }
         };
-        
+
         let (uuid, tx) = push(
             db,
             tx,
@@ -1251,7 +1091,7 @@ async fn trigger_runnable_with_suspend(
             email,
             permissioned_as,
             authed.token_prefix.as_deref(),
-            None,
+            Some(far_future_utc),
             None,
             None,
             None,
@@ -1264,103 +1104,16 @@ async fn trigger_runnable_with_suspend(
             tag,
             timeout,
             None,
-            Some(suspend_number as i16), // Set the suspend number (convert to i16)
+            None,
             push_authed.as_ref(),
             false,
             None,
             None,
-        ).await?;
-        
+            Some(suspend_number),
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(uuid)
     }
-}
-
-// API endpoint structures for queue management
-#[derive(Debug, Deserialize, Serialize)]
-pub struct QueuedJobsResponse {
-    pub job_ids: Vec<uuid::Uuid>,
-    pub count: usize,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResumeJobsRequest {
-    pub suspend_number: i32,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CancelJobsRequest {
-    pub suspend_number: i32,
-    pub cancel_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct JobsOperationResponse {
-    pub affected_jobs: i64,
-    pub message: String,
-}
-
-// API endpoint handlers for queue management  
-use axum::{
-    extract::{Path, Query},
-    routing::{get, post},
-    Extension, Router,
-};
-
-/// API endpoint to list all queued jobs for a specific suspend number
-pub async fn list_queued_jobs(
-    _authed: crate::db::ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(workspace_id): Path<String>,
-    Query(query): Query<ResumeJobsRequest>,
-) -> windmill_common::error::JsonResult<QueuedJobsResponse> {
-    let job_ids = get_jobs_by_suspend_number(&db, &workspace_id, query.suspend_number).await?;
-    let count = job_ids.len();
-    
-    Ok(axum::Json(QueuedJobsResponse { job_ids, count }))
-}
-
-/// API endpoint to resume all jobs with a specific suspend number
-pub async fn resume_queued_jobs(
-    _authed: crate::db::ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(workspace_id): Path<String>,
-    axum::Json(request): axum::Json<ResumeJobsRequest>,
-) -> windmill_common::error::JsonResult<JobsOperationResponse> {
-    let affected_jobs = resume_suspended_jobs(&db, &workspace_id, request.suspend_number).await?;
-    
-    Ok(axum::Json(JobsOperationResponse {
-        affected_jobs,
-        message: format!("Resumed {} queued jobs with suspend number {}", affected_jobs, request.suspend_number),
-    }))
-}
-
-/// API endpoint to cancel all jobs with a specific suspend number  
-pub async fn cancel_queued_jobs(
-    authed: crate::db::ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(workspace_id): Path<String>,
-    axum::Json(request): axum::Json<CancelJobsRequest>,
-) -> windmill_common::error::JsonResult<JobsOperationResponse> {
-    let cancel_reason = request.cancel_reason.unwrap_or_else(|| "Canceled by user".to_string());
-    let affected_jobs = cancel_suspended_jobs(
-        &db, 
-        &workspace_id, 
-        request.suspend_number,
-        &authed.username,
-        &cancel_reason
-    ).await?;
-    
-    Ok(axum::Json(JobsOperationResponse {
-        affected_jobs,
-        message: format!("Canceled {} queued jobs with suspend number {}", affected_jobs, request.suspend_number),
-    }))
-}
-
-/// Creates the queue management service router
-pub fn queue_management_service() -> Router {
-    Router::new()
-        .route("/list/:workspace_id", get(list_queued_jobs))
-        .route("/resume/:workspace_id", post(resume_queued_jobs))
-        .route("/cancel/:workspace_id", post(cancel_queued_jobs))
 }

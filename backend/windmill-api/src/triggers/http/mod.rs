@@ -48,6 +48,7 @@ pub struct TriggerRoute {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     retry: Option<sqlx::types::Json<Retry>>,
+    suspend_number: Option<i32>,
 }
 
 pub struct RoutersCache {
@@ -257,7 +258,8 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         is_static_website,
                         error_handler_path,
                         error_handler_args as "error_handler_args: _",
-                        retry as "retry: _"
+                        retry as "retry: _",
+                        suspend_number
                     FROM
                         http_trigger
                     WHERE

@@ -470,6 +470,7 @@ pub async fn push_init_job<'c>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -526,6 +527,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
     )
@@ -1373,6 +1375,7 @@ async fn restart_job_if_perpetual_inner(
             false,
             None,
             None,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1921,6 +1924,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
         None,
         None,
     )
@@ -3604,6 +3608,7 @@ pub async fn push<'c, 'd>(
     // If we know there is already a debounce job, we can use this for debouncing.
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
+    suspend_number: Option<i32>, // If provided, job will be created as suspended with this number
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -3784,7 +3789,7 @@ pub async fn push<'c, 'd>(
             }
         }
     }
-
+    println!("Suspend number: {:#?}", suspend_number.as_ref());
     let mut preprocessed = None;
     #[allow(unused)] 
     let (
@@ -5035,8 +5040,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, suspend)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42)",
         job_id,
         workspace_id,
         raw_code,
@@ -5082,6 +5087,7 @@ pub async fn push<'c, 'd>(
         trigger_kind as Option<JobTriggerKind>,
         running,
         end_user_email,
+        suspend_number.unwrap_or(0),
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

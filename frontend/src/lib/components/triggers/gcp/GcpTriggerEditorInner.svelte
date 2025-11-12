@@ -29,6 +29,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TriggerStateToggle from '../TriggerStateToggle.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -60,6 +61,8 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let active_mode = $state(true)
+	let suspend_number: number | undefined
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -188,6 +191,8 @@
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
+		active_mode = cfg?.suspend_number ? false : true
+		suspend_number = cfg?.suspend_number
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
@@ -216,6 +221,7 @@
 
 	function getGcpConfig() {
 		return {
+			active_mode,
 			gcp_resource_path,
 			subscription_mode,
 			subscription_id,
@@ -391,6 +397,8 @@
 						{/if}
 					</div>
 				</Section>
+
+				<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
 			{/if}
 
 			<GcpTriggerEditorConfigSection

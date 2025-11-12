@@ -332,6 +332,7 @@ impl Listener for WebsocketTrigger {
             trigger_config,
             script_path,
             error_handling,
+            suspend_number,
             ..
         } = listening_trigger;
 
@@ -428,6 +429,7 @@ impl Listener for WebsocketTrigger {
                 error_handler_args,
                 format!("websocket_trigger/{}", listening_trigger.path),
                 None,
+                *suspend_number
             )
             .await?;
         }

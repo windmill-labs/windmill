@@ -52,8 +52,7 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suspend_number: Option<i32>,
+    pub suspend_number: Option<i32>
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -117,7 +116,7 @@ pub struct BaseTriggerData {
     pub script_path: String,
     pub is_flow: bool,
     pub enabled: Option<bool>,
-    pub queue_mode: Option<bool>,
+    pub active_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

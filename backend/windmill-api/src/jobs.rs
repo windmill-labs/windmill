@@ -291,6 +291,22 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
+        .route(
+            "/resume_suspended/:job_id/:resume_id",
+            post(resume_suspended_job_auth),
+        )
+        .route(
+            "/cancel_suspended/:job_id/:resume_id",
+            post(cancel_suspended_job_auth),
+        )
+        .route(
+            "/resume_suspended_batch/:suspend_number",
+            post(resume_suspended_batch_auth),
+        )
+        .route(
+            "/cancel_suspended_batch/:suspend_number",
+            post(cancel_suspended_batch_auth),
+        )
 }
 
 pub fn workspace_unauthed_service() -> Router {
@@ -4078,6 +4094,7 @@ pub async fn run_flow_by_path_inner(
         false,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -4195,6 +4212,7 @@ pub async fn restart_flow(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4302,6 +4320,7 @@ pub async fn run_script_by_path_inner(
         },
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -4459,6 +4478,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -5005,6 +5025,7 @@ pub async fn run_wait_result_job_by_path_get(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5159,6 +5180,7 @@ pub async fn run_wait_result_script_by_path_internal(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5279,6 +5301,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -5594,6 +5617,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         false,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -5686,6 +5710,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
     )
@@ -5806,6 +5831,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
                 None,
                 None,
             )
@@ -5947,6 +5973,7 @@ async fn run_dependencies_job(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6014,6 +6041,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
     )
@@ -6361,6 +6389,7 @@ async fn run_preview_flow_job(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6538,6 +6567,7 @@ async fn run_dynamic_select(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6669,6 +6699,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -8111,4 +8142,187 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+pub async fn resume_suspended_job_auth(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, suspend_number)): Path<(String, Uuid, i32)>,
+) -> error::Result<StatusCode> {
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    let rows_affected = sqlx::query!(
+        "UPDATE v2_job_queue SET suspend = NULL WHERE id = $1 AND workspace_id = $2 AND suspend = $3",
+        job_id,
+        w_id,
+        suspend_number
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(
+            anyhow::anyhow!("No suspended job found with this job_id and suspend_number").into(),
+        );
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.suspend_resume",
+        ActionKind::Update,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "approved": true,
+                "job_id": job_id,
+                "suspend_number": suspend_number,
+                "details": format!("Resumed by {}", &authed.username)
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn cancel_suspended_job_auth(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, suspend_number)): Path<(String, Uuid, i32)>,
+) -> error::Result<StatusCode> {
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.suspend_cancel",
+        ActionKind::Delete,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "job_id": job_id,
+                "suspend_number": suspend_number,
+                "details": format!("Cancelled and deleted by {}", &authed.username)
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::OK)
+}
+pub async fn resume_suspended_batch_auth(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, suspend_number)): Path<(String, i32)>,
+) -> error::Result<StatusCode> {
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    let rows_affected = sqlx::query!(
+        "UPDATE v2_job_queue SET suspend = NULL WHERE workspace_id = $1 AND suspend = $2",
+        w_id,
+        suspend_number
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(anyhow::anyhow!("No suspended jobs found with this suspend number").into());
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.suspend_resume_batch",
+        ActionKind::Update,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "approved": true,
+                "suspend_number": suspend_number,
+                "job_count": rows_affected,
+                "details": format!("Batch resumed {} jobs by {}", rows_affected, &authed.username)
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn cancel_suspended_batch_auth(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, suspend_number)): Path<(String, i32)>,
+) -> error::Result<StatusCode> {
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    let suspended_jobs = sqlx::query!(
+        "SELECT id FROM v2_job_queue WHERE workspace_id = $1 AND suspend = $2",
+        w_id,
+        suspend_number
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if suspended_jobs.is_empty() {
+        return Err(anyhow::anyhow!("No suspended jobs found with this suspend number").into());
+    }
+
+    let job_count = suspended_jobs.len();
+
+    sqlx::query!(
+        "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND suspend = $2",
+        w_id,
+        suspend_number
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    for job in suspended_jobs.iter() {
+        sqlx::query!(
+            "DELETE FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job.id,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete related job_perms if exists
+        sqlx::query!(
+            "DELETE FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+            job.id,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "jobs.suspend_cancel_batch",
+        ActionKind::Delete,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "suspend_number": suspend_number,
+                "job_count": job_count,
+                "details": format!("Batch cancelled and deleted {} jobs by {}", job_count, &authed.username)
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::OK)
 }

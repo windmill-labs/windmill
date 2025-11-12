@@ -13,8 +13,8 @@ use crate::{
             RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
         },
         trigger_helpers::{
-            get_runnable_format, get_suspend_number_for_queue_mode, trigger_runnable, trigger_runnable_and_wait_for_result,
-            trigger_runnable_inner, RunnableId,
+            get_runnable_format, get_suspend_number_for_unactive_mode, trigger_runnable,
+            trigger_runnable_and_wait_for_result, trigger_runnable_inner, RunnableId,
         },
         Trigger, TriggerCrud, TriggerData,
     },
@@ -282,10 +282,18 @@ pub async fn create_many_http_triggers(
     let mut tx = user_db.begin(&authed).await?;
 
     for (new_http_trigger, route_path_key) in new_http_triggers.iter().zip(route_path_keys.iter()) {
-        let suspend_number = get_suspend_number_for_queue_mode(new_http_trigger.base.queue_mode);
-        insert_new_trigger_into_db(&authed, &mut tx, &w_id, new_http_trigger, route_path_key, suspend_number)
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        let suspend_number =
+            get_suspend_number_for_unactive_mode(new_http_trigger.base.active_mode);
+        insert_new_trigger_into_db(
+            &authed,
+            &mut tx,
+            &w_id,
+            new_http_trigger,
+            route_path_key,
+            suspend_number,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
         audit_log(
             &mut *tx,
@@ -442,7 +450,8 @@ impl TriggerCrud for HttpTrigger {
     ) -> Result<()> {
         let route_path_key = check_if_route_exist(db, &trigger.config, &w_id, None).await?;
 
-        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key, suspend_number).await?;
+        insert_new_trigger_into_db(authed, tx, w_id, &trigger, &route_path_key, suspend_number)
+            .await?;
 
         increase_trigger_version(tx).await?;
 
@@ -1117,6 +1126,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
+            None,
             None,
         )
         .await
