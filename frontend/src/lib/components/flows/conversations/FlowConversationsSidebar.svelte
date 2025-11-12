@@ -39,7 +39,7 @@
 				startIcon={{ icon: manager.isSidebarExpanded ? PanelLeftClose : PanelLeftOpen }}
 				onclick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
 				iconOnly={!manager.isSidebarExpanded}
-				btnClasses="!justify-start"
+				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
 				label="Conversations"
 			>
 				Conversations
@@ -51,7 +51,7 @@
 				onclick={() => manager.createConversation({ clearMessages: true })}
 				title="Start new conversation"
 				iconOnly={!manager.isSidebarExpanded}
-				btnClasses="!justify-start"
+				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
 				label="New chat"
 			>
 				New chat
