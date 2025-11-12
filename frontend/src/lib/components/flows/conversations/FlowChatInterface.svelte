@@ -8,9 +8,14 @@
 	interface Props {
 		manager: FlowChatManager
 		deploymentInProgress?: boolean
+		showStreamingDisabledWarning?: boolean
 	}
 
-	let { manager, deploymentInProgress = false }: Props = $props()
+	let {
+		manager,
+		deploymentInProgress = false,
+		showStreamingDisabledWarning = false
+	}: Props = $props()
 </script>
 
 <div class="flex flex-col h-full flex-1 min-w-0">
@@ -22,6 +27,13 @@
 	>
 		{#if deploymentInProgress}
 			<Alert type="warning" title="Deployment in progress" size="xs" />
+		{/if}
+		{#if showStreamingDisabledWarning}
+			<Alert
+				type="info"
+				title="Streaming is disabled in preview mode, deploy the flow to enable streaming"
+				size="xs"
+			/>
 		{/if}
 		{#if manager.isLoadingMessages}
 			<div class="flex items-center justify-center h-full">

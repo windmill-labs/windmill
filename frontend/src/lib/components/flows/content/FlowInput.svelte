@@ -69,6 +69,15 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 	let showChatModeWarning = $state(false)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
@@ -496,6 +505,7 @@
 						path={$pathStore}
 						hideSidebar={true}
 						useStreaming={false}
+						showStreamingDisabledWarning={shouldUseStreaming}
 					/>
 				</div>
 			{:else}
