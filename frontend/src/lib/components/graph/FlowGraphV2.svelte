@@ -53,6 +53,7 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
+	import InitialViewportFitter from './InitialViewportFitter.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
@@ -356,7 +357,6 @@
 			boxSize = layout(dag as any)
 		}
 
-		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			id: des.data.id,
 			position: {
@@ -370,7 +370,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: (des.y || 0) + yOffset + (nodeSpacingMap[des.data.id] ?? 0) / 2
+				y: (des.y || 0) + (nodeSpacingMap[des.data.id] ?? 0) / 2
 			}
 		}))
 
@@ -455,6 +455,9 @@
 	let edges = $state.raw<Edge[]>([])
 
 	let height = $state(0)
+
+	// Counter to trigger initial viewport fit after first flow build
+	let initialBuildTrigger = $state(0)
 
 	// Note feature state
 
@@ -634,7 +637,13 @@
 
 	$effect(() => {
 		;[graph, allowSimplifiedPoll, $showAssets, noteManager.renderCount]
-		untrack(() => updateStores())
+		untrack(async () => {
+			await updateStores()
+			// Trigger initial viewport fit after first build
+			if (initialBuildTrigger === 0 && nodes.length > 0) {
+				initialBuildTrigger = 1
+			}
+		})
 	})
 
 	// Add global keyboard event listener for selection controls
@@ -743,6 +752,7 @@
 					bind:this={viewportSynchronizer}
 				/>
 			{/if}
+			<InitialViewportFitter {nodes} triggerCount={initialBuildTrigger} />
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
