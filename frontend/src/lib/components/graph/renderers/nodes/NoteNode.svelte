@@ -221,7 +221,7 @@
 				bind:this={textareaElement}
 				bind:value={textContent}
 				class={twMerge(
-					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
+					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4 nodrag',
 					colorConfig.text
 				)}
 				placeholder="Add your note here... (Markdown supported)"
