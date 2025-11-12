@@ -43,6 +43,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+
+	loadGlobalUser()
 </script>
 
 <div
