@@ -241,7 +241,8 @@
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
-		showAssets
+		showAssets,
+		noteManager
 	})
 
 	if (triggerContext && allowSimplifiedPoll) {
@@ -748,6 +749,7 @@
 					if (selectionManager.mode === 'normal') {
 						selectionManager.clearSelection()
 					}
+					noteManager.clearNoteSelection()
 				}}
 				onnodedragstop={(event) => {
 					const node = event.targetNode

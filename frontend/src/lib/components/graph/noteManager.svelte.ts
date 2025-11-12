@@ -40,6 +40,9 @@ export class NoteManager {
 	#getNodes: () => Node[]
 	#editMode: boolean = false
 
+	// Selection state
+	selectedNoteId = $state<string | undefined>(undefined)
+
 	constructor(
 		notes: () => FlowNote[],
 		setNodes: (nodes: Node[]) => void,
@@ -305,5 +308,26 @@ export class NoteManager {
 	removeTextHeight(noteId: string): void {
 		delete this.#cache[noteId]
 		this.render()
+	}
+
+	/**
+	 * Select a note by ID (single selection only)
+	 */
+	selectNote(noteId: string): void {
+		this.selectedNoteId = noteId
+	}
+
+	/**
+	 * Clear note selection
+	 */
+	clearNoteSelection(): void {
+		this.selectedNoteId = undefined
+	}
+
+	/**
+	 * Check if a note is currently selected
+	 */
+	isNoteSelected(noteId: string): boolean {
+		return this.selectedNoteId === noteId
 	}
 }

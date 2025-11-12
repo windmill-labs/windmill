@@ -8,6 +8,7 @@
 	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: {
@@ -24,11 +25,15 @@
 	}
 
 	let { data, dragging = false }: Props = $props()
-	let selected = $state(false)
 
 	// Get NoteEditor context for edit mode
 	const noteEditorContext = getNoteEditorContext()
 	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor && data.editMode)
+
+	// Get graph context for note selection
+	const graphContext = getGraphContext()
+	const noteManager = graphContext?.noteManager
+	const selected = $derived(noteManager?.isNoteSelected(data.noteId) ?? false)
 
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
@@ -115,6 +120,23 @@
 	})
 
 	let colorPickerIsOpen = $state(false)
+
+	function handleNoteClick(event: MouseEvent) {
+		// Only handle selection if not in edit mode and not dragging
+		if (!editMode && !dragging && noteManager) {
+			event.stopPropagation()
+			noteManager.selectNote(data.noteId)
+		}
+	}
+
+	function handleNoteKeydown(event: KeyboardEvent) {
+		// Handle Enter or Space key for selection (accessibility)
+		if ((event.key === 'Enter' || event.key === ' ') && !editMode && !dragging && noteManager) {
+			event.preventDefault()
+			event.stopPropagation()
+			noteManager.selectNote(data.noteId)
+		}
+	}
 </script>
 
 <div
@@ -127,6 +149,8 @@
 		selected ? colorConfig.outline : '',
 		editMode ? 'outline-0' : ''
 	)}
+	onclick={handleNoteClick}
+	onkeydown={handleNoteKeydown}
 	onpointerup={() => {
 		dragging = false
 	}}
@@ -138,7 +162,8 @@
 	}}
 	onmouseenter={handleMouseEnter}
 	onmouseleave={handleMouseLeave}
-	role="note"
+	role="button"
+	tabindex={editMode ? -1 : 0}
 >
 	<!-- Action buttons - only show in edit mode -->
 	{#if isEditModeAvailable}
