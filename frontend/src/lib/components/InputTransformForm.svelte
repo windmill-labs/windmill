@@ -3,7 +3,8 @@
 		'flow_input',
 		'results',
 		'resource',
-		'variable'
+		'variable',
+		'flow_env'
 	])
 </script>
 
@@ -67,6 +68,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		s3StorageConfigured?: boolean
 	}
 
 	let {
@@ -91,7 +93,8 @@
 		editor = $bindable(undefined),
 		otherArgs = {},
 		helperScript = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		s3StorageConfigured = true
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -525,7 +528,7 @@
 							{pickableProperties}
 							{argName}
 							btnClass={twMerge(
-								'h-6 min-w-8 px-2',
+								'h-7 min-w-8 px-2',
 								'group-hover:opacity-100 transition-opacity',
 								!connecting ? 'opacity-0' : ''
 							)}
@@ -535,7 +538,7 @@
 					{#if propPickerWrapperContext}
 						<FlowPlugConnect
 							wrapperClasses={twMerge(
-								connecting ? 'h-5 w-7' : 'h-6 w-8',
+								connecting ? 'h-6 w-7' : 'h-7 w-8',
 								'group-hover:opacity-100 transition-opacity p-0',
 								!connecting ? 'opacity-0' : ''
 							)}
@@ -798,6 +801,7 @@
 								bind:title={schema.properties[argName].title}
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
+								{s3StorageConfigured}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,

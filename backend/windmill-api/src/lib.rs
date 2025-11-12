@@ -62,7 +62,10 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
+use windmill_common::{
+    utils::{configure_client, GIT_VERSION},
+    BASE_URL, INSTANCE_NAME,
+};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -180,6 +183,7 @@ pub mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
 mod workspaces_oss;
+mod public_app_layer;
 
 #[cfg(feature = "mcp")]
 mod mcp;
@@ -697,6 +701,15 @@ pub async fn run_server(
                 .on_request(())
                 .on_failure(MyOnFailure {}),
         )
+    };
+
+    let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
+        tracing::info!("Public app domain filter enabled for domain: {}", domain);
+        app.layer(axum::middleware::from_fn(
+            public_app_layer::public_app_domain_filter,
+        ))
+    } else {
+        app
     };
 
     let app = app.layer(CatchPanicLayer::custom(|err| {

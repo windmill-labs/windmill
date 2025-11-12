@@ -14,7 +14,7 @@
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Button, SecondsInput } from './common'
+	import { Alert, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -126,6 +126,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
+		s3StorageConfigured?: boolean
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -185,6 +186,7 @@
 		appPath = undefined,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
+		s3StorageConfigured = true,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -398,12 +400,25 @@
 	const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 	const IPV6_PATTERN =
 		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
+
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
+			valid && (valid = false)
+		} else if (
+			required &&
+			inputCat == 'list' &&
+			extra?.['nonEmpty'] == true &&
+			Array.isArray(v) &&
+			v.length === 0
+		) {
+			error = 'Required'
+			valid && (valid = false)
+		} else if (inputCat == 'list' && !Array.isArray(v)) {
+			error = 'Expected an array, got ' + typeof v + ' instead'
 			valid && (valid = false)
 		} else {
 			if (inputCat == 'number' && typeof v === 'number') {
@@ -521,6 +536,7 @@
 	})
 
 	$effect(() => {
+		extra?.['nonEmpty']
 		let args = [pattern, value, required] as const
 		untrack(() => validateInput(...args))
 	})
@@ -1454,6 +1470,15 @@
 		</div>
 	{:else if !noMargin}
 		<div class="mb-2"></div>
+	{/if}
+
+	{#if !s3StorageConfigured && extra['x-no-s3-storage-workspace-warning']}
+		<Alert
+			type="warning"
+			title={extra['x-no-s3-storage-workspace-warning']}
+			size="xs"
+			titleClass="text-2xs"
+		/>
 	{/if}
 </div>
 
