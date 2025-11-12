@@ -186,6 +186,45 @@ const config = {
 				900: `rgb(${primitives['purple-900']})`,
 				950: `rgb(${primitives['purple-950']})`
 			},
+			pink: {
+				50: `rgb(${primitives['pink-50']})`,
+				100: `rgb(${primitives['pink-100']})`,
+				200: `rgb(${primitives['pink-200']})`,
+				300: `rgb(${primitives['pink-300']})`,
+				400: `rgb(${primitives['pink-400']})`,
+				500: `rgb(${primitives['pink-500']})`,
+				600: `rgb(${primitives['pink-600']})`,
+				700: `rgb(${primitives['pink-700']})`,
+				800: `rgb(${primitives['pink-800']})`,
+				900: `rgb(${primitives['pink-900']})`,
+				950: `rgb(${primitives['pink-950']})`
+			},
+			lime: {
+				50: `rgb(${primitives['lime-50']})`,
+				100: `rgb(${primitives['lime-100']})`,
+				200: `rgb(${primitives['lime-200']})`,
+				300: `rgb(${primitives['lime-300']})`,
+				400: `rgb(${primitives['lime-400']})`,
+				500: `rgb(${primitives['lime-500']})`,
+				600: `rgb(${primitives['lime-600']})`,
+				700: `rgb(${primitives['lime-700']})`,
+				800: `rgb(${primitives['lime-800']})`,
+				900: `rgb(${primitives['lime-900']})`,
+				950: `rgb(${primitives['lime-950']})`
+			},
+			yellow: {
+				50: `rgb(${primitives['yellow-50']})`,
+				100: `rgb(${primitives['yellow-100']})`,
+				200: `rgb(${primitives['yellow-200']})`,
+				300: `rgb(${primitives['yellow-300']})`,
+				400: `rgb(${primitives['yellow-400']})`,
+				500: `rgb(${primitives['yellow-500']})`,
+				600: `rgb(${primitives['yellow-600']})`,
+				700: `rgb(${primitives['yellow-700']})`,
+				800: `rgb(${primitives['yellow-800']})`,
+				900: `rgb(${primitives['yellow-900']})`,
+				950: `rgb(${primitives['yellow-950']})`
+			},
 			slate: {
 				50: '#f8fafc',
 				100: '#f1f5f9',
@@ -245,18 +284,6 @@ const config = {
 				700: '#b45309',
 				800: '#92400e',
 				900: '#78350f'
-			},
-			lime: {
-				50: '#f7fee7',
-				100: '#ecfccb',
-				200: '#d9f99d',
-				300: '#bef264',
-				400: '#a3e635',
-				500: '#84cc16',
-				600: '#65a30d',
-				700: '#4d7c0f',
-				800: '#3f6212',
-				900: '#365314'
 			},
 			emerald: {
 				50: '#ecfdf5',
@@ -330,18 +357,6 @@ const config = {
 				800: '#86198f',
 				900: '#701a75'
 			},
-			pink: {
-				50: '#fdf2f8',
-				100: '#fce7f3',
-				200: '#fbcfe8',
-				300: '#f9a8d4',
-				400: '#f472b6',
-				500: '#ec4899',
-				600: '#db2777',
-				700: '#be185d',
-				800: '#9d174d',
-				900: '#831843'
-			},
 			rose: {
 				50: '#fff1f2',
 				100: '#ffe4e6',
@@ -365,18 +380,6 @@ const config = {
 				700: '#374151',
 				800: '#1f2937',
 				900: '#111827'
-			},
-			yellow: {
-				50: '#fefce8',
-				100: '#fef9c3',
-				200: '#fef08a',
-				300: '#fde047',
-				400: '#facc15',
-				500: '#eab308',
-				600: '#ca8a04',
-				700: '#a16207',
-				800: '#854d0e',
-				900: '#713f12'
 			},
 			indigo: {
 				50: '#eef2ff',

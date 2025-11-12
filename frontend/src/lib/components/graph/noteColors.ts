@@ -23,70 +23,70 @@ export interface NoteColorConfig {
 // Color configurations for each note color with dark mode support
 export const NOTE_COLORS: Record<NoteColor, NoteColorConfig> = {
 	[NoteColor.YELLOW]: {
-		background: 'bg-yellow-100 dark:bg-yellow-900',
+		background: 'bg-yellow-200 dark:bg-yellow-900',
 		outline: 'outline-yellow-300 dark:outline-yellow-600',
 		outlineHover: 'outline-yellow-300/60 dark:outline-yellow-600/60',
 		text: 'text-yellow-900 dark:text-yellow-100',
 		hover: 'hover:bg-yellow-200 dark:hover:bg-yellow-800'
 	},
 	[NoteColor.BLUE]: {
-		background: 'bg-blue-100 dark:bg-blue-900',
+		background: 'bg-blue-100 dark:bg-blue-950',
 		outline: 'outline-blue-300 dark:outline-blue-600',
 		outlineHover: 'outline-blue-300/60 dark:outline-blue-600/60',
 		text: 'text-blue-900 dark:text-blue-100',
 		hover: 'hover:bg-blue-200 dark:hover:bg-blue-800'
 	},
 	[NoteColor.GREEN]: {
-		background: 'bg-green-100 dark:bg-green-900',
+		background: 'bg-green-200 dark:bg-green-900',
 		outline: 'outline-green-300 dark:outline-green-600',
 		outlineHover: 'outline-green-300/60 dark:outline-green-600/60',
 		text: 'text-green-900 dark:text-green-100',
 		hover: 'hover:bg-green-200 dark:hover:bg-green-800'
 	},
 	[NoteColor.PURPLE]: {
-		background: 'bg-purple-100 dark:bg-purple-900/30',
+		background: 'bg-purple-200 dark:bg-purple-900',
 		outline: 'outline-purple-300 dark:outline-purple-600',
 		outlineHover: 'outline-purple-300/60 dark:outline-purple-600/60',
 		text: 'text-purple-900 dark:text-purple-100',
 		hover: 'hover:bg-purple-200 dark:hover:bg-purple-800'
 	},
 	[NoteColor.PINK]: {
-		background: 'bg-pink-100 dark:bg-pink-900',
+		background: 'bg-pink-200 dark:bg-pink-900',
 		outline: 'outline-pink-300 dark:outline-pink-600',
 		outlineHover: 'outline-pink-300/60 dark:outline-pink-600/60',
 		text: 'text-pink-900 dark:text-pink-100',
 		hover: 'hover:bg-pink-200 dark:hover:bg-pink-800'
 	},
 	[NoteColor.ORANGE]: {
-		background: 'bg-orange-100 dark:bg-orange-900',
+		background: 'bg-orange-200 dark:bg-orange-900',
 		outline: 'outline-orange-300 dark:outline-orange-600',
 		outlineHover: 'outline-orange-300/60 dark:outline-orange-600/60',
 		text: 'text-orange-900 dark:text-orange-100',
 		hover: 'hover:bg-orange-200 dark:hover:bg-orange-800'
 	},
 	[NoteColor.RED]: {
-		background: 'bg-red-100 dark:bg-red-900',
+		background: 'bg-red-200 dark:bg-red-900',
 		outline: 'outline-red-300 dark:outline-red-600',
 		outlineHover: 'outline-red-300/60 dark:outline-red-600/60',
 		text: 'text-red-900 dark:text-red-100',
 		hover: 'hover:bg-red-200 dark:hover:bg-red-800'
 	},
 	[NoteColor.CYAN]: {
-		background: 'bg-cyan-100 dark:bg-cyan-900',
+		background: 'bg-cyan-200 dark:bg-cyan-900',
 		outline: 'outline-cyan-300 dark:outline-cyan-600',
 		outlineHover: 'outline-cyan-300/60 dark:outline-cyan-600/60',
 		text: 'text-cyan-900 dark:text-cyan-100',
 		hover: 'hover:bg-cyan-200 dark:hover:bg-cyan-800'
 	},
 	[NoteColor.LIME]: {
-		background: 'bg-lime-100 dark:bg-lime-900',
+		background: 'bg-lime-200 dark:bg-lime-900',
 		outline: 'outline-lime-300 dark:outline-lime-600',
 		outlineHover: 'outline-lime-300/60 dark:outline-lime-600/60',
 		text: 'text-lime-900 dark:text-lime-100',
 		hover: 'hover:bg-lime-200 dark:hover:bg-lime-800'
 	},
 	[NoteColor.GRAY]: {
-		background: 'bg-gray-100 dark:bg-gray-800',
+		background: 'bg-gray-200 dark:bg-gray-800',
 		outline: 'outline-gray-300 dark:outline-gray-600',
 		outlineHover: 'outline-gray-300/60 dark:outline-gray-600/60',
 		text: 'text-gray-900 dark:text-gray-100',
