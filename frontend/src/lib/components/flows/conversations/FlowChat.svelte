@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createFlowChatManager } from './NewFlowChatManager.svelte'
-	import NewFlowConversationsSidebar from './NewFlowConversationsSidebar.svelte'
-	import NewFlowChatInterface from './NewFlowChatInterface.svelte'
+	import { createFlowChatManager } from './FlowChatManager.svelte'
+	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
+	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { untrack } from 'svelte'
 
 	interface Props {
@@ -50,7 +50,7 @@
 
 <div class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1">
 	{#if !hideSidebar}
-		<NewFlowConversationsSidebar {manager} />
+		<FlowConversationsSidebar {manager} />
 	{/if}
-	<NewFlowChatInterface {manager} {deploymentInProgress} />
+	<FlowChatInterface {manager} {deploymentInProgress} />
 </div>
