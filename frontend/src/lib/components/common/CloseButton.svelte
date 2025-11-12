@@ -24,8 +24,9 @@
 	iconOnly
 	unifiedSize="sm"
 	color="light"
+	wrapperClasses="shrink-0"
 	btnClasses={twMerge(
-		'hover:bg-surface-hover rounded-full p-0',
+		'hover:bg-surface-hover rounded-full p-0 !min-h-0',
 		noBg ? '' : 'bg-surface-secondary',
 		small ? 'w-6 h-6' : 'w-8 h-8',
 		className ?? ''
