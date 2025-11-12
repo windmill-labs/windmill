@@ -29,7 +29,7 @@
 	])
 </script>
 
-{#if noteEditorContext?.noteEditor}
+{#if noteEditorContext?.noteEditor && selectedNodeIds.length > 1}
 	<ContextMenu items={menuItems}>
 		{@render children()}
 	</ContextMenu>

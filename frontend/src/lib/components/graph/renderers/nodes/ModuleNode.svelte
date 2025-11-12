@@ -1,15 +1,20 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus } from 'lucide-svelte'
+	import { GitBranchPlus, StickyNote } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
+	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
 
 	interface Props {
 		data: ModuleN['data']
 	}
 
 	let { data }: Props = $props()
+
+	// Get NoteEditor context for group note creation
+	const noteEditorContext = getNoteEditorContext()
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -35,9 +40,28 @@
 		}
 		return typ
 	})
+
+	// Define context menu items
+	const contextMenuItems: ContextMenuItem[] = $derived(
+		data.editMode
+			? [
+					{
+						id: 'add-group-note',
+						label: 'Add group note',
+						icon: StickyNote,
+						disabled: !noteEditorContext?.noteEditor,
+						onClick: () => {
+							if (noteEditorContext?.noteEditor) {
+								noteEditorContext.noteEditor.createGroupNote([data.id], 'Group Note')
+							}
+						}
+					}
+				]
+			: []
+	)
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} {contextMenuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}
