@@ -13,7 +13,8 @@
 		Controls,
 		ControlButton,
 		SvelteFlowProvider,
-		type Viewport
+		type Viewport,
+		SelectionMode
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
@@ -388,10 +389,11 @@
 		insert: (detail) => {
 			onInsert?.(detail)
 		},
-		select: (modId) => {
+		select: (mod: string | FlowModule) => {
 			if (!notSelectable) {
 				// TODO: Handle Ctrl/Cmd and Shift modifiers when node-level click events are available
 				// For now, normal click behavior
+				const modId = typeof mod === 'string' ? mod : mod.id
 				selectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
@@ -423,7 +425,7 @@
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
 		},
-		updateMock: (detail) => {
+		updateMock: (detail: any) => {
 			onUpdateMock?.(detail)
 		},
 		testUpTo: (id: string) => {
@@ -472,8 +474,8 @@
 		selectionManager.handleKeyDown(event, nodes)
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
-		selectionManager.handleKeyUp(event)
+	function handleKeyUp(_event: KeyboardEvent) {
+		// Keep for potential future use
 	}
 
 	async function updateStores() {
@@ -767,8 +769,12 @@
 				connectionLineType={ConnectionLineType.SmoothStep}
 				defaultEdgeOptions={{ type: 'smoothstep' }}
 				preventScrolling={scroll}
+				selectionOnDrag={selectionManager.mode === 'rect-select'}
+				elementsSelectable={true}
+				selectionMode={SelectionMode.Partial}
+				selectionKey={selectionManager.mode === 'rect-select' ? null : 'Shift'}
+				panActivationKey={selectionManager.mode === 'rect-select' ? 'Shift' : null}
 				zoomOnDoubleClick={false}
-				elementsSelectable={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
 				nodesDraggable={false}
@@ -791,14 +797,10 @@
 							selectedNodes={nodes.filter((node) => selectionManager.selectedIds.includes(node.id))}
 						/>
 					</NodeContextMenu>
-
-					<SelectionTool
-						selectionMode={selectionManager.mode}
-						onNodesSelected={(nodeIds, addToExisting) =>
-							selectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
-						{nodes}
-					/>
 				{/if}
+
+				<!-- SelectionTool for handling selection changes and filtering -->
+				<SelectionTool {nodes} {modules} {selectionManager} />
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
@@ -881,5 +883,9 @@
 
 	:global(.svelte-flow__edgelabel-renderer) {
 		@apply z-50;
+	}
+
+	:global(.svelte-flow__selection) {
+		display: none;
 	}
 </style>

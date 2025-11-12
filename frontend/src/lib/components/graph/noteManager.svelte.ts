@@ -215,7 +215,7 @@ export class NoteManager {
 			height: size.height,
 			zIndex: zIndex ?? -2000, // Use provided zIndex or fallback
 			draggable: isGroupNote ? false : editMode && !note.locked,
-			selectable: true
+			selectable: false
 		}
 	}
 

@@ -20,11 +20,11 @@
 			// Callback for layout calculations (needed in both edit and view modes)
 			onTextHeightChange?: (height: number) => void
 		}
-		selected?: boolean
 		dragging?: boolean
 	}
 
-	let { data, selected = false, dragging = false }: Props = $props()
+	let { data, dragging = false }: Props = $props()
+	let selected = $state(false)
 
 	// Get NoteEditor context for edit mode
 	const noteEditorContext = getNoteEditorContext()

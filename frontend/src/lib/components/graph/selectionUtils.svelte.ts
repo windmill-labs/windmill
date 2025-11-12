@@ -10,9 +10,6 @@ export interface SelectionState {
 export class SelectionManager {
 	public selectedIds = $state<string[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
-	#modeSource = $state<'button' | 'keyboard' | 'temporary'>('button')
-	#previousMode = $state<'normal' | 'rect-select'>('normal')
-	#cmdKeyPressed = $state<boolean>(false)
 
 	constructor() {}
 
@@ -29,37 +26,8 @@ export class SelectionManager {
 	}
 
 	set mode(mode: 'normal' | 'rect-select') {
-		this.#previousMode = this.#selectionMode
 		this.#selectionMode = mode
-		// Default to button source when mode is set directly (for backward compatibility)
-		if (this.#modeSource !== 'temporary') {
-			this.#modeSource = 'button'
-		}
 		// Note: No automatic selection clearing when changing modes - preserve current selection
-	}
-
-	// Toggle mode temporarily (for cmd key hold behavior)
-	toggleModeTemporary() {
-		this.#previousMode = this.#selectionMode
-		this.#modeSource = 'temporary'
-		this.#selectionMode = this.#selectionMode === 'normal' ? 'rect-select' : 'normal'
-	}
-
-	// Toggle mode persistently (for cmd key tap behavior)
-	toggleModePersistent() {
-		this.#previousMode = this.#selectionMode
-		this.#modeSource = 'keyboard'
-		this.#selectionMode = this.#selectionMode === 'normal' ? 'rect-select' : 'normal'
-		// Note: Preserve current selection when toggling modes
-	}
-
-	// Revert temporary mode change
-	revertTemporaryMode() {
-		if (this.#modeSource === 'temporary') {
-			this.#selectionMode = this.#previousMode
-			this.#modeSource = 'button' // Reset to default button source
-			// Note: Preserve current selection when reverting temporary mode changes
-		}
 	}
 
 	// Get hierarchical children of a node
@@ -203,13 +171,6 @@ export class SelectionManager {
 		if (event.key === 'Escape') {
 			// Escape key clears selection regardless of mode
 			this.clearSelection()
-		} else if (event.key === 'Meta' || event.key === 'Cmd') {
-			// Cmd/Meta key pressed - temporarily toggle mode
-			if (!this.#cmdKeyPressed) {
-				this.#cmdKeyPressed = true
-				event.preventDefault()
-				this.toggleModeTemporary()
-			}
 		} else if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
 			event.preventDefault()
 			// Select all visible nodes (exclude note nodes)
@@ -217,15 +178,6 @@ export class SelectionManager {
 				const allNodeIds = nodes.filter((node) => node.type !== 'note').map((node) => node.id)
 				this.selectNodes(allNodeIds)
 			}
-		}
-	}
-
-	// Handle keyboard releases
-	handleKeyUp(event: KeyboardEvent) {
-		if (event.key === 'Meta' || event.key === 'Cmd') {
-			// Cmd/Meta key released - revert temporary mode change
-			this.#cmdKeyPressed = false
-			this.revertTemporaryMode()
 		}
 	}
 }
