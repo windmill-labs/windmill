@@ -824,11 +824,6 @@
 								>
 									<MousePointer size="14" />
 								</ControlButton>
-								{#if selectionManager.selectedIds.length > 0}
-									<span class="text-xs text-secondary"
-										>{selectionManager.selectedIds.length} selected</span
-									>
-								{/if}
 							</div>
 						{/if}
 						{#if download}
