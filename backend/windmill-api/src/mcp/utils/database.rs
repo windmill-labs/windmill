@@ -18,11 +18,7 @@ use crate::HTTP_CLIENT;
 pub fn check_scopes(authed: &ApiAuthed) -> Result<(), ErrorData> {
     let scopes = authed.scopes.as_ref();
     if scopes.is_none()
-        || scopes.unwrap().iter().all(|scope| {
-            !scope.starts_with("mcp:all")
-                && !scope.starts_with("mcp:favorites")
-                && !scope.starts_with("mcp:hub:")
-        })
+        || scopes.unwrap().iter().all(|scope| !scope.starts_with("mcp:"))
     {
         tracing::error!("Unauthorized: missing mcp scope");
         return Err(ErrorData::internal_error(
