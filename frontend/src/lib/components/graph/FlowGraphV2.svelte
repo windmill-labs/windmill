@@ -78,6 +78,7 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
+	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
@@ -510,8 +511,8 @@
 				parentIds: n.parentIds,
 				offset: n.data.offset ?? 0
 			})),
-			notes?.filter((note) => note.type === 'group') ?? [],
-			noteTextHeights
+			showNotes ? (notes?.filter((note) => note.type === 'group') ?? []) : [],
+			showNotes ? noteTextHeights : {}
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
@@ -539,7 +540,7 @@
 
 		nodes = [
 			...finalNodes,
-			...noteManager.convertToNodes(
+			...(showNotes ? noteManager.convertToNodes(
 				notes ?? [],
 				finalNodes,
 				noteTextHeights,
@@ -552,7 +553,7 @@
 					parentIds: n.parentIds,
 					offset: n.data.offset ?? 0
 				}))
-			)
+			) : [])
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -653,9 +654,12 @@
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
+	let hideNotesToggle = $derived(
+		!notes || notes.length === 0
+	)
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, noteManager.renderCount]
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
 		untrack(async () => {
 			await updateStores()
 			// Trigger initial viewport fit after first build
@@ -906,6 +910,9 @@
 					>
 						{#if !hideAssetsToggle}
 							<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
+						{/if}
+						{#if !hideNotesToggle}
+							<Toggle bind:checked={showNotes} size="xs" options={{ right: 'Notes' }} />
 						{/if}
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
