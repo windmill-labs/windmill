@@ -380,9 +380,15 @@ impl AIRequestConfig {
                         let content = msg["content"].as_str().unwrap_or("");
 
                         // Try to parse content as JSON
+                        // Bedrock requires json field to be an object, not a primitive or array
                         let tool_result_content =
                             if let Ok(json_content) = serde_json::from_str::<Value>(content) {
-                                vec![serde_json::json!({"json": json_content})]
+                                if json_content.is_object() {
+                                    vec![serde_json::json!({"json": json_content})]
+                                } else {
+                                    // Wrap primitives and arrays in an object
+                                    vec![serde_json::json!({"json": {"result": json_content}})]
+                                }
                             } else {
                                 vec![serde_json::json!({"text": content})]
                             };
