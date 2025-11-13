@@ -8383,6 +8383,7 @@ paths:
                 - suspend_number
       responses:
         "200":
+          description: confirmation message
           content:
               application/json:
                 schema:
