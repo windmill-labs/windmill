@@ -198,12 +198,12 @@ impl AIRequestConfig {
             let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
             println!("AWS: Built Bedrock URL: {}", bedrock_url);
             (bedrock_url, transformed_body)
-        } else if is_bedrock && path == "foundation-models" {
-            // AWS Bedrock foundation-models endpoint uses different base URL (without -runtime)
-            let foundation_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
-            let foundation_url = format!("{}/{}", foundation_base_url, path);
-            println!("AWS: Using foundation models endpoint: {}", foundation_url);
-            (foundation_url, body)
+        } else if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
+            // AWS Bedrock foundation-models and inference-profiles endpoints use different base URL (without -runtime)
+            let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
+            let bedrock_url = format!("{}/{}", bedrock_base_url, path);
+            println!("AWS: Using Bedrock metadata endpoint: {}", bedrock_url);
+            (bedrock_url, body)
         } else if is_azure && method != Method::GET {
             let model = AIProvider::extract_model_from_body(&body)?;
             let azure_url = AIProvider::build_azure_openai_url(base_url, &model, path);
