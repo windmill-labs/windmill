@@ -77,6 +77,7 @@
 
 <PublicApp
 	{app}
+	workspace={page.params.workspace}
 	{notExists}
 	{noPermission}
 	{jwtError}

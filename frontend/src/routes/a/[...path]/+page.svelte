@@ -44,6 +44,7 @@
 		}
 	}
 
+	let workspace: string | undefined = $state(undefined)
 	async function loadApp() {
 		const parsedCustomPath = parseCustomPath(page.params.path ?? '')
 
@@ -57,6 +58,7 @@
 			app = await AppService.getPublicAppByCustomPath({
 				customPath: parsedCustomPath.path
 			})
+			workspace = app.workspace_id
 			workspaceStore.set(app.workspace_id)
 			noPermission = false
 			notExists = false
@@ -86,6 +88,7 @@
 </script>
 
 <PublicApp
+	{workspace}
 	{notExists}
 	{noPermission}
 	{jwtError}

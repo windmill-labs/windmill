@@ -7,9 +7,9 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '../types'
-	import type { AppWithLastVersion } from '$lib/gen'
+	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import AppPreview from './AppPreview.svelte'
@@ -21,13 +21,15 @@
 		noPermission,
 		jwtError,
 		onLoginSuccess,
-		app
+		app,
+		workspace
 	}: {
 		notExists: boolean
 		noPermission: boolean
 		jwtError: boolean
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any }) | undefined
+		workspace: string | undefined
 	} = $props()
 
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
@@ -44,7 +46,23 @@
 		document.documentElement.classList.remove('dark')
 	}
 
-	loadGlobalUser()
+	let globalUser = $state<GlobalWhoamiResponse | undefined>(undefined)
+	async function loadGlobalUser() {
+		try {
+			globalUser = await UserService.globalWhoami()
+		} catch (error) {
+			console.error(error)
+		}
+		// const user = await fetch('/api/global/user')
+		// console.log(user)
+	}
+
+	onMount(() => {
+		setTimeout(() => {
+			if ($userStore) return
+			loadGlobalUser()
+		}, 2000)
+	})
 </script>
 
 <div
@@ -57,9 +75,15 @@
 	>
 </div>
 
+{#snippet userInfo(child)}
+	<div class="flex gap-1 items-center"><User size={14} />{child}</div>
+{/snippet}
+
 <div class="z-50 text-2xs text-primary absolute top-3 left-2"
 	>{#if $userStore}
-		<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
+		{@render userInfo($userStore.username)}
+	{:else if globalUser}
+		{@render userInfo(globalUser.email)}
 	{:else}<UserRoundX size={14} />{/if}
 </div>
 
@@ -70,9 +94,13 @@
 		</Alert></div
 	>
 {:else if noPermission}
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl"
-		>{#if $userStore}You are logged in but have no read access to this app{:else}You must be logged
-			in and have read access to this app{/if}</div
+	<div class="px-4 mt-20 w-full text-center font-bold text-xl"> This app require read access </div>
+	<div class="text-center mt-8 text-sm text-primary">
+		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && workspace}
+			You are logged in but are not member of the workspace <span class="text-xl font-bold"
+				>{workspace}</span
+			> this app is part of
+		{:else}You must be logged in and have read access to this app{/if}</div
 	>
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
@@ -99,7 +127,7 @@
 					query: urlParamsToObject(page.url.searchParams),
 					hash: page.url.hash.substring(1)
 				}}
-				workspace={page.params.workspace}
+				{workspace}
 				summary={app.summary}
 				app={app.value}
 				appPath={app.path}
