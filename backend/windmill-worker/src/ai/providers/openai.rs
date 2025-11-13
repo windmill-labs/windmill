@@ -4,7 +4,7 @@ use serde_json;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
-    image_handler::download_and_encode_s3_image,
+    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
@@ -114,62 +114,6 @@ impl OpenAIQueryBuilder {
         Self { provider_kind }
     }
 
-    pub async fn prepare_messages_for_api(
-        &self,
-        messages: &[OpenAIMessage],
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<Vec<OpenAIMessage>, Error> {
-        let mut prepared_messages = Vec::new();
-
-        for message in messages {
-            let mut prepared_message = message.clone();
-
-            if let Some(content) = &message.content {
-                match content {
-                    OpenAIContent::Text(text) => {
-                        prepared_message.content = Some(OpenAIContent::Text(text.clone()));
-                    }
-                    OpenAIContent::Parts(parts) => {
-                        let mut prepared_content = Vec::new();
-
-                        for part in parts {
-                            match part {
-                                ContentPart::S3Object { s3_object } => {
-                                    // Convert S3Object to base64 image URL
-                                    let (mime_type, image_bytes) = download_and_encode_s3_image(
-                                        s3_object,
-                                        client,
-                                        workspace_id,
-                                    )
-                                    .await?;
-                                    prepared_content.push(ContentPart::ImageUrl {
-                                        image_url: ImageUrlData {
-                                            url: format!(
-                                                "data:{};base64,{}",
-                                                mime_type, image_bytes
-                                            ),
-                                        },
-                                    });
-                                }
-                                other => {
-                                    // Keep Text and ImageUrl as-is
-                                    prepared_content.push(other.clone());
-                                }
-                            }
-                        }
-
-                        prepared_message.content = Some(OpenAIContent::Parts(prepared_content));
-                    }
-                }
-            }
-
-            prepared_messages.push(prepared_message);
-        }
-
-        Ok(prepared_messages)
-    }
-
     async fn build_text_request(
         &self,
         args: &BuildRequestArgs<'_>,
@@ -177,9 +121,8 @@ impl OpenAIQueryBuilder {
         workspace_id: &str,
         stream: bool,
     ) -> Result<String, Error> {
-        let prepared_messages = self
-            .prepare_messages_for_api(args.messages, client, workspace_id)
-            .await?;
+        let prepared_messages =
+            prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
         // Check if we need to add response_format for structured output
         let has_output_properties = args
