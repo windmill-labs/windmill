@@ -2,9 +2,9 @@ use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
-    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_claude_model, load_mcp_tools,
-    parse_raw_script_schema, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
+    parse_raw_script_schema, should_use_structured_output_tool,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -498,14 +498,15 @@ pub async fn run_agent(
         .map(|props| !props.is_empty())
         .unwrap_or(false);
 
-    let is_claude_model = is_claude_model(&args.provider.model);
+    let should_use_structured_output_tool =
+        should_use_structured_output_tool(&args.provider.kind, &args.provider.model);
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
 
     // For text output with schema, handle structured output
     if has_output_properties && output_type == &OutputType::Text {
         let schema = args.output_schema.as_ref().unwrap();
-        if is_claude_model {
+        if should_use_structured_output_tool {
             // Anthropic uses a tool for structured output
             let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
             structured_output_tool_name = Some(unique_tool_name.clone());

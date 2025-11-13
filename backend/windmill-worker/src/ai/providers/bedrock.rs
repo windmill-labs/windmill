@@ -33,8 +33,13 @@ struct BedrockMessage {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum BedrockContent {
-    Text { text: String },
-    ToolUse { #[serde(rename = "toolUse")] tool_use: ToolUse },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        #[serde(rename = "toolUse")]
+        tool_use: ToolUse,
+    },
 }
 
 #[derive(Deserialize)]
@@ -112,8 +117,7 @@ impl BedrockQueryBuilder {
                                             if url.starts_with("data:") {
                                                 // Parse data:image/png;base64,<data>
                                                 if let Some(base64_start) = url.find("base64,") {
-                                                    let base64_data =
-                                                        &url[base64_start + 7..];
+                                                    let base64_data = &url[base64_start + 7..];
                                                     let mime_type = url
                                                         .split(';')
                                                         .next()
@@ -171,11 +175,7 @@ impl BedrockQueryBuilder {
                 }
                 "tool" => {
                     // Transform tool response to Bedrock format
-                    let tool_call_id = msg
-                        .tool_call_id
-                        .as_ref()
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
+                    let tool_call_id = msg.tool_call_id.as_ref().map(|s| s.as_str()).unwrap_or("");
                     let content_text = match &msg.content {
                         Some(OpenAIContent::Text(t)) => t.clone(),
                         Some(OpenAIContent::Parts(parts)) => parts
@@ -191,18 +191,17 @@ impl BedrockQueryBuilder {
 
                     // Parse content as JSON if possible, otherwise use as text
                     // Bedrock requires json field to be an object, not a primitive or array
-                    let tool_result_content = if let Ok(parsed) =
-                        serde_json::from_str::<Value>(&content_text)
-                    {
-                        if parsed.is_object() {
-                            parsed
+                    let tool_result_content =
+                        if let Ok(parsed) = serde_json::from_str::<Value>(&content_text) {
+                            if parsed.is_object() {
+                                parsed
+                            } else {
+                                // Wrap primitives and arrays in an object
+                                serde_json::json!({"result": parsed})
+                            }
                         } else {
-                            // Wrap primitives and arrays in an object
-                            serde_json::json!({"result": parsed})
-                        }
-                    } else {
-                        serde_json::json!({"result": content_text})
-                    };
+                            serde_json::json!({"result": content_text})
+                        };
 
                     // Bedrock requires toolResult to be in a user message
                     conversation_messages.push(serde_json::json!({
@@ -241,15 +240,12 @@ impl BedrockQueryBuilder {
                 }
                 BedrockContent::ToolUse { tool_use } => {
                     // Convert Bedrock toolUse to OpenAI tool_call
-                    let arguments = serde_json::to_string(&tool_use.input)
-                        .unwrap_or_else(|_| "{}".to_string());
+                    let arguments =
+                        serde_json::to_string(&tool_use.input).unwrap_or_else(|_| "{}".to_string());
 
                     tool_calls.push(OpenAIToolCall {
                         id: tool_use.tool_use_id,
-                        function: OpenAIFunction {
-                            name: tool_use.name,
-                            arguments,
-                        },
+                        function: OpenAIFunction { name: tool_use.name, arguments },
                         r#type: "function".to_string(),
                     });
                 }
@@ -343,8 +339,22 @@ impl QueryBuilder for BedrockQueryBuilder {
                 .collect();
 
             bedrock_req["toolConfig"] = serde_json::json!({
-                "tools": bedrock_tools
+                "tools": bedrock_tools,
             });
+
+            // Handle structured output schema
+            let has_output_properties = args
+                .output_schema
+                .as_ref()
+                .and_then(|schema| schema.properties.as_ref())
+                .map(|props| !props.is_empty())
+                .unwrap_or(false);
+
+            if has_output_properties {
+                bedrock_req["toolConfig"]["toolChoice"] = serde_json::json!({
+                    "any": {}
+                });
+            }
         }
 
         serde_json::to_string(&bedrock_req)
@@ -357,14 +367,13 @@ impl QueryBuilder for BedrockQueryBuilder {
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
 
-        let bedrock_response: BedrockResponse = serde_json::from_str(&response_text).map_err(
-            |e| {
+        let bedrock_response: BedrockResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
                 Error::internal_err(format!(
                     "Failed to parse Bedrock response: {}. Raw response: {}",
                     e, response_text
                 ))
-            },
-        )?;
+            })?;
 
         Self::transform_bedrock_response_to_openai(bedrock_response)
     }
@@ -382,26 +391,23 @@ impl QueryBuilder for BedrockQueryBuilder {
         let mut events_str = String::new();
 
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|e| Error::internal_err(format!("Stream error: {}", e)))?;
+            let chunk = chunk.map_err(|e| Error::internal_err(format!("Stream error: {}", e)))?;
             buffer.extend_from_slice(&chunk);
 
             // Parse AWS event stream binary format
             while buffer.len() >= 12 {
                 // Need at least prelude + CRC
                 // Read prelude
-                let total_length = u32::from_be_bytes([
-                    buffer[0], buffer[1], buffer[2], buffer[3],
-                ]) as usize;
+                let total_length =
+                    u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
 
                 // Check if we have the complete message
                 if buffer.len() < total_length {
                     break;
                 }
 
-                let headers_length = u32::from_be_bytes([
-                    buffer[4], buffer[5], buffer[6], buffer[7],
-                ]) as usize;
+                let headers_length =
+                    u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
 
                 let headers_start = 12; // After prelude (8 bytes) + prelude CRC (4 bytes)
                 let payload_start = headers_start + headers_length;
@@ -420,8 +426,7 @@ impl QueryBuilder for BedrockQueryBuilder {
                     if pos + name_len > buffer.len() {
                         break;
                     }
-                    let name =
-                        String::from_utf8_lossy(&buffer[pos..pos + name_len]).to_string();
+                    let name = String::from_utf8_lossy(&buffer[pos..pos + name_len]).to_string();
                     pos += name_len;
 
                     if pos + 3 > buffer.len() {
@@ -429,8 +434,7 @@ impl QueryBuilder for BedrockQueryBuilder {
                     }
                     let value_type = buffer[pos];
                     pos += 1;
-                    let value_len =
-                        u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
+                    let value_len = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
                     pos += 2;
 
                     if pos + value_len > buffer.len() {
@@ -454,12 +458,17 @@ impl QueryBuilder for BedrockQueryBuilder {
                         match event_type.as_deref() {
                             Some("contentBlockStart") => {
                                 // Tool use started
-                                if let Some(tool_use) = event_data
-                                    .get("start")
-                                    .and_then(|s| s.get("toolUse"))
+                                if let Some(tool_use) =
+                                    event_data.get("start").and_then(|s| s.get("toolUse"))
                                 {
-                                    if let Some(tool_use_id) = tool_use.get("toolUseId").and_then(|id| id.as_str()) {
-                                        let name = tool_use.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                                    if let Some(tool_use_id) =
+                                        tool_use.get("toolUseId").and_then(|id| id.as_str())
+                                    {
+                                        let name = tool_use
+                                            .get("name")
+                                            .and_then(|n| n.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
 
                                         accumulated_tool_calls.insert(
                                             tool_use_id.to_string(),
@@ -489,10 +498,17 @@ impl QueryBuilder for BedrockQueryBuilder {
 
                                     // Tool use delta (input accumulation)
                                     if let Some(tool_use) = delta.get("toolUse") {
-                                        if let Some(input_str) = tool_use.get("input").and_then(|i| i.as_str()) {
+                                        if let Some(input_str) =
+                                            tool_use.get("input").and_then(|i| i.as_str())
+                                        {
                                             // Find the tool call being updated (last one added)
-                                            if let Some(last_tool_call) = accumulated_tool_calls.values_mut().last() {
-                                                last_tool_call.function.arguments.push_str(input_str);
+                                            if let Some(last_tool_call) =
+                                                accumulated_tool_calls.values_mut().last()
+                                            {
+                                                last_tool_call
+                                                    .function
+                                                    .arguments
+                                                    .push_str(input_str);
                                             }
                                         }
                                     }
@@ -555,7 +571,11 @@ impl QueryBuilder for BedrockQueryBuilder {
         }
 
         // Use -stream suffix for streaming requests
-        let endpoint = if stream { "converse-stream" } else { "converse" };
+        let endpoint = if stream {
+            "converse-stream"
+        } else {
+            "converse"
+        };
         format!("{}/model/{}/{}", base_url, model, endpoint)
     }
 
