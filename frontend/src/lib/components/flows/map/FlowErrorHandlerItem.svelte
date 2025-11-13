@@ -29,7 +29,7 @@
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 	}>()
 
-	const { selectedId, flowStateStore, flowStore } =
+	const { selectionManager, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertFailureModule(
@@ -50,7 +50,7 @@
 			})
 		}
 
-		$selectedId = 'failure'
+		selectionManager.selectId('failure')
 		refreshStateStore(flowStore)
 	}
 
@@ -70,10 +70,10 @@
 			aiModuleActionToTextColor(action)
 		)}
 		id="flow-editor-error-handler"
-		selected={$selectedId?.includes('failure')}
+		selected={selectionManager.getSelectedId()?.includes('failure')}
 		onClick={() => {
 			if (flowStore.val?.value?.failure_module) {
-				$selectedId = 'failure'
+				selectionManager.selectId('failure')
 			}
 		}}
 	>
@@ -95,7 +95,7 @@
 				class="ml-1"
 				onclick={() => {
 					flowStore.val.value.failure_module = undefined
-					$selectedId = 'settings-metadata'
+					selectionManager.selectId('settings-metadata')
 				}}
 			>
 				<X size={12} />

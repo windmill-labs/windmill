@@ -5,7 +5,6 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import type { BranchAllStartN } from '../../graphBuilder.svelte'
-
 	interface Props {
 		data: BranchAllStartN['data']
 	}

@@ -100,7 +100,7 @@
 	}
 
 	const {
-		selectedId,
+		selectionManager,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -136,7 +136,7 @@
 		} else {
 			const flow = previewFlow ?? stateSnapshot(flowStore).val
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
-			let upToIndex = idOrders.indexOf(upToId ?? $selectedId)
+			let upToIndex = idOrders.indexOf(upToId ?? selectionManager.getSelectedId() ?? '')
 
 			if (upToIndex != -1) {
 				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)
@@ -441,7 +441,7 @@
 							{#if previewMode == 'upTo'}
 								Test up to
 								<Badge baseClass="ml-1" color="indigo">
-									{$selectedId}
+									{selectionManager.getSelectedId()}
 								</Badge>
 							{:else}
 								Test flow

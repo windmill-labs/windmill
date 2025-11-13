@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { InputN } from '../../graphBuilder.svelte'
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
+
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { schemaToObject } from '$lib/schema'
@@ -11,6 +11,7 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: InputN['data']
@@ -18,9 +19,7 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 
 	const { previewArgs, flowStore } =
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
@@ -82,7 +81,7 @@
 			hideId={true}
 			label={inputLabel}
 			selectable
-			selected={$selectedId === 'Input'}
+			selected={selectionManager?.isNodeSelected('Input')}
 			on:insert={(e) => {
 				setTimeout(() => data?.eventHandlers?.insert(e.detail))
 			}}

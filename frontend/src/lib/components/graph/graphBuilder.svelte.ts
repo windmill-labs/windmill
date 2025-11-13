@@ -540,7 +540,8 @@ export function graphBuilder(
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
-				}
+				},
+				selectable: false
 			})
 		}
 
@@ -596,7 +597,7 @@ export function graphBuilder(
 		}
 
 		const resultNode: NodeLayout = {
-			id: 'result',
+			id: 'Result',
 			data: {
 				eventHandlers: eventHandlers,
 				success: success,

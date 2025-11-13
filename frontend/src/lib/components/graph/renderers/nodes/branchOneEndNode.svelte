@@ -2,7 +2,6 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { BranchOneEndN } from '../../graphBuilder.svelte'
-
 	interface Props {
 		data: BranchOneEndN['data']
 	}

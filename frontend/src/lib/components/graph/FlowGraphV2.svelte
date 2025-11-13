@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { FlowService, type FlowModule, type Job } from '../../gen'
+	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
+	import { getContext, onDestroy, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -13,7 +13,8 @@
 		Controls,
 		ControlButton,
 		SvelteFlowProvider,
-		type Viewport
+		type Viewport,
+		SelectionMode
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
@@ -35,10 +36,10 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand } from 'lucide-svelte'
+	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively } from '$lib/utils'
+	import { encodeState, readFieldsRecursively, getModifierKey } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -52,19 +53,32 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
+	import InitialViewportFitter from './InitialViewportFitter.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import NoteTool from './NoteTool.svelte'
+	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
+	import SelectionTool from './SelectionTool.svelte'
+	import NodeContextMenu from './NodeContextMenu.svelte'
+	import PaneContextMenu from './PaneContextMenu.svelte'
+	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import { NoteManager } from './noteManager.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
+	import { setGraphContext } from './graphContext'
+	import { buildNodeSpacingMap, getNoteStateSignature } from './groupNoteUtils'
+	import { Tooltip } from '../meltComponents'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
+	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
@@ -85,7 +99,7 @@
 		testModuleStates?: ModulesTestStates
 		moduleActions?: Record<string, AIModuleAction>
 		inputSchemaModified?: boolean
-		selectedId?: Writable<string | undefined>
+		selectionManager?: SelectionManager
 		path?: string | undefined
 		newFlow?: boolean
 		insertable?: boolean
@@ -108,7 +122,10 @@
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
+		noteMode?: boolean
+		notes?: FlowNote[]
 		chatInputEnabled?: boolean
+		multiSelectEnabled?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -138,6 +155,8 @@
 		onHideJobStatus?: () => void
 		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
+		exitNoteMode?: () => void
+		onNotePositionUpdate?: (noteId: string, position: { x: number; y: number }) => void
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
@@ -152,7 +171,6 @@
 		onNewBranch = undefined,
 		onSelect = undefined,
 		onChangeId = undefined,
-
 		onUpdateMock = undefined,
 		onSelectedIteration = undefined,
 		success = undefined,
@@ -166,7 +184,7 @@
 		testModuleStates = undefined,
 		moduleActions = undefined,
 		inputSchemaModified = undefined,
-		selectedId = writable<string | undefined>(undefined),
+		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
 		newFlow = false,
 		insertable = false,
@@ -196,17 +214,43 @@
 		showJobStatus = false,
 		suspendStatus = {},
 		flowHasChanged = false,
+		noteMode = false,
+		notes = undefined,
+		exitNoteMode = undefined,
+		onNotePositionUpdate = undefined,
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
-		leftHeader = undefined
+		leftHeader = undefined,
+		multiSelectEnabled = false
 	}: Props = $props()
 
-	setContext<{
-		selectedId: Writable<string | undefined>
-		useDataflow: Writable<boolean | undefined>
-		showAssets: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
+	// Initialize note manager with notes function and nodes setter/getter
+	const noteManager = new NoteManager(
+		() => notes ?? [],
+		(newNodes) => {
+			nodes = newNodes
+		},
+		() => nodes,
+		editMode
+	)
+
+	// Runtime text height tracking for notes (not stored in FlowNote)
+	let noteTextHeights = $state<Record<string, number>>({})
+
+	// Reference to pane context menu component
+	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
+
+	// Selection manager - create one if not provided
+	let selectionManager = selectionManagerProp || new SelectionManager()
+	const selectedId = $derived(selectionManager.getSelectedId())
+
+	setGraphContext({
+		selectionManager: selectionManager,
+		useDataflow,
+		showAssets,
+		noteManager
+	})
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -237,12 +281,28 @@
 
 	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
-	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
-		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
-			console.debug('layoutNodes', 'same nodes')
-			return lastResult
+	type LayoutCacheKey = {
+		nodes: NodeDep[]
+		noteSignature: ReturnType<typeof getNoteStateSignature>
+	}
+	let lastLayoutCache: { key: LayoutCacheKey; result: (NodeDep & NodePos)[] } | undefined =
+		undefined
+
+	function layoutNodes(
+		nodes: NodeDep[],
+		groupNotes: FlowNote[] = [],
+		noteTextHeights: Record<string, number> = {}
+	): (NodeDep & NodePos)[] {
+		// Create comprehensive cache key that includes all layout dependencies
+		const currentCacheKey: LayoutCacheKey = {
+			nodes,
+			noteSignature: getNoteStateSignature(groupNotes, noteTextHeights)
+		}
+
+		// Check if we can use cached result
+		if (lastLayoutCache && deepEqual(currentCacheKey, lastLayoutCache.key)) {
+			console.debug('layoutNodes', 'cache hit - same nodes and notes')
+			return lastLayoutCache.result
 		}
 		console.debug('layoutNodes', nodes.length)
 		let seenId: string[] = []
@@ -257,6 +317,9 @@
 		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
+
+		// Build spacing map for group notes - this integrates with D3's layout algorithm
+		const nodeSpacingMap = buildNodeSpacingMap(nodes, groupNotes, noteTextHeights, noteManager)
 		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
@@ -278,9 +341,12 @@
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
 				.nodeSize((d) => {
+					const nodeId = d?.data?.['id'] ?? ''
+					const baseHeight = NODE.height + NODE.gap.vertical
+					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
 					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
+						(nodeWidths[nodeId] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						baseHeight + extraSpacing
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -288,11 +354,15 @@
 			const layout = sugiyama()
 				.decross(decrossTwoLayer())
 				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+				.nodeSize((d) => {
+					const nodeId = d?.data?.['id'] ?? ''
+					const baseHeight = NODE.height + NODE.gap.vertical
+					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
+					return [NODE.width + NODE.gap.horizontal, baseHeight + extraSpacing]
+				})
 			boxSize = layout(dag as any)
 		}
 
-		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			id: des.data.id,
 			position: {
@@ -306,17 +376,21 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: (des.y || 0) + yOffset
+				y: (des.y || 0) + (nodeSpacingMap[des.data.id] ?? 0) / 2
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
+		// Update cache with new results
+		lastLayoutCache = {
+			key: currentCacheKey,
+			result: newNodes
+		}
 		return newNodes
 	}
 
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
-			$selectedId = label
+			selectionManager.selectId(label)
 			onDeleteBranch?.(detail)
 		},
 		insert: (detail) => {
@@ -324,9 +398,7 @@
 		},
 		select: (modId) => {
 			if (!notSelectable) {
-				if ($selectedId != modId) {
-					$selectedId = modId
-				}
+				selectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
 		},
@@ -357,7 +429,7 @@
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
 		},
-		updateMock: (detail) => {
+		updateMock: (detail: any) => {
 			onUpdateMock?.(detail)
 		},
 		testUpTo: (id: string) => {
@@ -387,6 +459,11 @@
 
 	let height = $state(0)
 
+	// Counter to trigger initial viewport fit after first flow build
+	let initialBuildTrigger = $state(0)
+
+	// Note feature state
+
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -397,6 +474,29 @@
 		}
 
 		return false
+	}
+
+	// Clear SvelteFlow's internal selection by creating new nodes array
+	function clearFlowSelection() {
+		nodes = nodes.map((node) => {
+			if (node.selected) {
+				return { ...node, selected: false }
+			}
+			return node
+		})
+	}
+
+	// Keyboard event handling
+	function handleKeyDown(event: KeyboardEvent) {
+		selectionManager.handleKeyDown(event, nodes)
+		noteManager.handleKeyDown(event)
+		if (event.key === 'Escape') {
+			// Clear SvelteFlow's internal selection state
+			clearFlowSelection()
+		}
+		if (noteMode) {
+			exitNoteMode?.()
+		}
 	}
 
 	async function updateStores() {
@@ -410,7 +510,9 @@
 				id: n.id,
 				parentIds: n.parentIds,
 				offset: n.data.offset ?? 0
-			}))
+			})),
+			showNotes ? (notes?.filter((note) => note.type === 'group') ?? []) : [],
+			showNotes ? noteTextHeights : {}
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
@@ -430,10 +532,28 @@
 			}))
 		}
 		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		nodes = [
+		const finalNodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
 			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes
+		]
+
+		nodes = [
+			...finalNodes,
+			...(showNotes ? noteManager.convertToNodes(
+				notes ?? [],
+				finalNodes,
+				noteTextHeights,
+				(noteId: string, height: number) => {
+					noteTextHeights[noteId] = height
+				},
+				editMode,
+				Object.values(graph.nodes).map((n) => ({
+					id: n.id,
+					parentIds: n.parentIds,
+					offset: n.data.offset ?? 0
+				}))
+			) : [])
 		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -463,7 +583,8 @@
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
-		newAiTool: NewAiToolNode
+		newAiTool: NewAiToolNode,
+		note: NoteNode
 	} as any
 
 	const edgeTypes = {
@@ -501,7 +622,7 @@
 				testModuleStates: untrack(() => testModuleStates),
 				moduleActions: untrack(() => moduleActions),
 				inputSchemaModified: untrack(() => inputSchemaModified),
-				selectedId: untrack(() => $selectedId),
+				selectedId: untrack(() => selectedId),
 				path,
 				newFlow,
 				cache,
@@ -523,7 +644,7 @@
 			eventHandler,
 			success,
 			$useDataflow,
-			untrack(() => $selectedId),
+			untrack(() => selectedId),
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
@@ -533,20 +654,53 @@
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
+	let hideNotesToggle = $derived(
+		!notes || notes.length === 0
+	)
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets]
-		untrack(() => updateStores())
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
+		untrack(async () => {
+			await updateStores()
+			// Trigger initial viewport fit after first build
+			if (initialBuildTrigger === 0 && nodes.length > 0) {
+				initialBuildTrigger = 1
+			}
+		})
+	})
+
+	// Add global keyboard event listener for selection controls
+	$effect(() => {
+		function globalKeyDownHandler(event: KeyboardEvent) {
+			// Only handle if the graph container has focus or no input is focused
+			const activeElement = document.activeElement
+			const isInputFocused =
+				activeElement &&
+				(activeElement.tagName === 'INPUT' ||
+					activeElement.tagName === 'TEXTAREA' ||
+					(activeElement as HTMLElement).contentEditable === 'true')
+
+			if (!isInputFocused) {
+				handleKeyDown(event)
+			}
+		}
+
+		document.addEventListener('keydown', globalKeyDownHandler)
+
+		return () => {
+			document.removeEventListener('keydown', globalKeyDownHandler)
+		}
 	})
 
 	let showDataflow = $derived(
-		$selectedId != undefined &&
-			!$selectedId.startsWith('constants') &&
-			!$selectedId.startsWith('settings') &&
-			$selectedId !== 'failure' &&
-			$selectedId !== 'preprocessor' &&
-			$selectedId !== 'Result' &&
-			$selectedId !== 'triggers'
+		selectedId !== undefined &&
+			selectedId !== null &&
+			!selectedId?.startsWith('constants') &&
+			!selectedId?.startsWith('settings') &&
+			selectedId !== 'failure' &&
+			selectedId !== 'preprocessor' &&
+			selectedId !== 'Result' &&
+			selectedId !== 'Trigger'
 	)
 	let debouncedWidth: number | undefined = $state(undefined)
 	let timeout: number | undefined = $state(undefined)
@@ -589,7 +743,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip"
+	class="overflow-clip relative"
 	bind:clientWidth={debouncedWidth}
 >
 	{#if graph?.error}
@@ -615,9 +769,23 @@
 					bind:this={viewportSynchronizer}
 				/>
 			{/if}
+			<InitialViewportFitter {nodes} triggerCount={initialBuildTrigger} />
+			<PaneContextMenu {editMode} bind:this={paneContextMenu} />
 			<SvelteFlow
-				onpaneclick={(e) => {
+				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
+					if (selectionManager.mode === 'normal') {
+						selectionManager.clearSelection()
+					}
+				}}
+				onpanecontextmenu={({ event }) => {
+					paneContextMenu?.onPaneContextMenu(event)
+				}}
+				onnodedragstop={(event) => {
+					const node = event.targetNode
+					if (node && node.type === 'note') {
+						onNotePositionUpdate?.(node.id, node.position)
+					}
 				}}
 				onmove={(event, viewport) => {
 					viewportSynchronizer?.handleLocalViewportChange(event, viewport)
@@ -633,19 +801,84 @@
 				connectionLineType={ConnectionLineType.SmoothStep}
 				defaultEdgeOptions={{ type: 'smoothstep' }}
 				preventScrolling={scroll}
+				selectionOnDrag={selectionManager.mode === 'rect-select'}
+				elementsSelectable={true}
+				selectionMode={SelectionMode.Partial}
+				selectionKey={selectionManager.mode === 'rect-select' || !editMode ? null : 'Meta'}
+				panActivationKey={selectionManager.mode === 'rect-select' ? 'Meta' : null}
+				panOnDrag={selectionManager.mode === 'rect-select' ? [1] : true}
 				zoomOnDoubleClick={false}
-				elementsSelectable={false}
+				elevateNodesOnSelect={false}
 				{proOptions}
+				multiSelectionKey={'Meta'}
 				nodesDraggable={false}
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
+
+				{#if noteMode}
+					<NoteTool {exitNoteMode} />
+				{/if}
+
+				{#if multiSelectEnabled}
+					<NodeContextMenu
+						selectedNodeIds={selectionManager.selectedIds.filter(
+							(id) =>
+								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
+						)}
+					>
+						<SelectionBoundingBox
+							selectedNodes={nodes.filter((node) => selectionManager.selectedIds.includes(node.id))}
+						/>
+					</NodeContextMenu>
+				{/if}
+
+				<!-- SelectionTool for handling selection changes and filtering -->
+				<SelectionTool {selectionManager} />
+
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
 						{@render leftHeader()}
 					</div>
 				{:else}
 					<Controls position="top-right" orientation="horizontal" showLock={false}>
+						{#if multiSelectEnabled}
+							<div class="flex items-center gap-2">
+								<Tooltip>
+									<ControlButton
+										onclick={() => {
+											selectionManager.mode =
+												selectionManager.mode === 'normal' ? 'rect-select' : 'normal'
+										}}
+									>
+										{#if selectionManager.mode === 'rect-select'}
+											<MousePointer size="14" />
+										{:else}
+											<Hand size="14" />
+										{/if}
+									</ControlButton>
+									{#snippet text()}
+										<div class="flex flex-col gap-2">
+											<div class="flex items-center gap-2">
+												<Hand size="14" />
+												<span class="text-secondary"
+													><strong>Grab</strong>: Click and drag to pan. Hold
+													<kbd class="text-primary text-lg">{getModifierKey()}</kbd> to box select.</span
+												>
+											</div>
+											<div class="flex items-center gap-2">
+												<MousePointer size="14" />
+												<span class="text-secondary"
+													><strong class="text-primary">Select</strong> Click and drag to box
+													select. Hold
+													<kbd class="text-primary text-lg">{getModifierKey()}</kbd> to pan.</span
+												>
+											</div>
+										</div>
+									{/snippet}
+								</Tooltip>
+							</div>
+						{/if}
 						{#if download}
 							<ControlButton
 								onclick={() => {
@@ -678,6 +911,9 @@
 						{#if !hideAssetsToggle}
 							<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
 						{/if}
+						{#if !hideNotesToggle}
+							<Toggle bind:checked={showNotes} size="xs" options={{ right: 'Notes' }} />
+						{/if}
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 						{/if}
@@ -702,5 +938,9 @@
 
 	:global(.svelte-flow__edgelabel-renderer) {
 		@apply z-50;
+	}
+
+	:global(.svelte-flow__selection) {
+		display: none;
 	}
 </style>

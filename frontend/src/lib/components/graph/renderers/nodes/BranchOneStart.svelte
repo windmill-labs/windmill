@@ -5,7 +5,6 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import type { BranchOneStartN } from '../../graphBuilder.svelte'
-
 	interface Props {
 		data: BranchOneStartN['data']
 	}
@@ -19,7 +18,7 @@
 			label={data.label}
 			preLabel={data.preLabel}
 			selectable
-			selected={data.selected}
+			selected={false}
 			on:select={() => {
 				setTimeout(() => data?.eventHandlers?.select(data.id))
 			}}

@@ -1,9 +1,8 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { Writable } from 'svelte/store'
-	import { getContext } from 'svelte'
 	import type { ResultN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: ResultN['data']
@@ -11,9 +10,7 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper enableSourceHandle={false}>
@@ -22,7 +19,7 @@
 			id={'Result'}
 			label={'Result'}
 			selectable={true}
-			selected={$selectedId === 'Result'}
+			selected={selectionManager?.getSelectedId() === 'Result'}
 			hideId={true}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))

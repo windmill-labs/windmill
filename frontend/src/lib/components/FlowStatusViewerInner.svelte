@@ -39,7 +39,6 @@
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
 	import JobLoader from './JobLoader.svelte'
-	import { writable } from 'svelte/store'
 	import {
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
@@ -48,6 +47,7 @@
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import { SelectionManager } from './graph/selectionUtils.svelte'
 
 	let {
 		flowState: flowStateStore,
@@ -232,7 +232,7 @@
 
 	let expandedSubflows: Record<string, FlowModule[]> = $state({})
 
-	let selectedId = writable<string | undefined>(selectedNode)
+	let selectionManager = new SelectionManager()
 
 	function onFlowModuleId() {
 		let modId = flowJobIds?.moduleId
@@ -1730,7 +1730,7 @@
 							{/each}
 						</div>
 						<FlowGraphV2
-							{selectedId}
+							{selectionManager}
 							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
@@ -1773,6 +1773,7 @@
 							earlyStop={job.raw_flow?.skip_expr !== undefined}
 							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}
+							notes={job.raw_flow?.notes ?? []}
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}
 							allowSimplifiedPoll={false}

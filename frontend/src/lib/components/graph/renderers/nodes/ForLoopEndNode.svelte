@@ -2,7 +2,6 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ForLoopEndN } from '../../graphBuilder.svelte'
-
 	interface Props {
 		data: ForLoopEndN['data']
 	}
