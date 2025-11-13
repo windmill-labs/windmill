@@ -313,7 +313,7 @@ impl AIRequestConfig {
                     }
                     "user" | "assistant" => {
                         // Normalize content to array format
-                        let content = if let Some(text) = msg["content"].as_str() {
+                        let mut content = if let Some(text) = msg["content"].as_str() {
                             // Simple string → array of content blocks
                             vec![serde_json::json!({"text": text})]
                         } else if let Some(content_array) = msg["content"].as_array() {
@@ -338,10 +338,37 @@ impl AIRequestConfig {
                             vec![]
                         };
 
-                        conversation_messages.push(serde_json::json!({
-                            "role": role,
-                            "content": content
-                        }));
+                        // Handle tool_calls for assistant messages (OpenAI → Bedrock toolUse)
+                        if role == "assistant" {
+                            if let Some(tool_calls) = msg["tool_calls"].as_array() {
+                                for tool_call in tool_calls {
+                                    if tool_call["type"].as_str() == Some("function") {
+                                        let tool_use_id = tool_call["id"].as_str().unwrap_or("");
+                                        let function_name = tool_call["function"]["name"].as_str().unwrap_or("");
+                                        let arguments_str = tool_call["function"]["arguments"].as_str().unwrap_or("{}");
+
+                                        // Parse arguments JSON string to object
+                                        let input = serde_json::from_str::<Value>(arguments_str).unwrap_or(serde_json::json!({}));
+
+                                        content.push(serde_json::json!({
+                                            "toolUse": {
+                                                "toolUseId": tool_use_id,
+                                                "name": function_name,
+                                                "input": input
+                                            }
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Only add message if it has content
+                        if !content.is_empty() {
+                            conversation_messages.push(serde_json::json!({
+                                "role": role,
+                                "content": content
+                            }));
+                        }
                     }
                     "tool" => {
                         // Transform tool response to Bedrock format
