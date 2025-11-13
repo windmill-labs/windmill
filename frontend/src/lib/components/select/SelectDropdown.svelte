@@ -195,11 +195,12 @@
 											: item.value === value
 												? 'bg-surface-hover/60'
 												: 'hover:bg-surface-hover',
-										itemButtonWrapperClasses
+										itemButtonWrapperClasses,
+										item.disabled ? 'cursor-not-allowed text-disabled' : ''
 									)}
 									onclick={(e) => {
 										e.stopImmediatePropagation()
-										onSelectValue(item)
+										if (!item.disabled) onSelectValue(item)
 									}}
 								>
 									{@render startSnippet?.({ item, close: () => (open = false) })}

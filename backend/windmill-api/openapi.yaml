@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.574.1
+  version: 1.575.0
   title: Windmill API
 
   contact:
@@ -7994,6 +7994,12 @@ paths:
           schema:
             type: boolean
         - $ref: "#/components/parameters/NewJobId"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: preview
@@ -8020,6 +8026,12 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: preview

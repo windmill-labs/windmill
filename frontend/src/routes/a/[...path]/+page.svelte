@@ -139,7 +139,8 @@
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
 			<Login
-				on:login={() => {
+				onLoginSuccess={() => {
+					
 					// window.location.reload()
 					loadApp()
 					app = app
