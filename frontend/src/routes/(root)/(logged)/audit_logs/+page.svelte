@@ -23,7 +23,7 @@
 	let hasMore: boolean = $state(false)
 	let loading: boolean = $state(false)
 	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
-	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 1000)
+	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
 	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
 	let resource: string | undefined = $state(page.url.searchParams.get('resource') ?? undefined)
 	let scope: undefined | 'all_workspaces' | 'instance' = $state(

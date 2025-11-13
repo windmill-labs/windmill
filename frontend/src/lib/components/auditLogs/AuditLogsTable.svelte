@@ -26,7 +26,7 @@
 	let {
 		logs = [],
 		pageIndex = $bindable(1),
-		perPage = $bindable(1000),
+		perPage = $bindable(100),
 		hasMore = $bindable(true),
 		actionKind = $bindable(),
 		operation = $bindable(),
