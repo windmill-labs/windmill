@@ -1,6 +1,8 @@
 use crate::db::{ApiAuthed, DB};
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use bytes;
+use futures;
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -12,6 +14,7 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
+use uuid;
 
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
@@ -180,15 +183,25 @@ impl AIRequestConfig {
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
+        let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
 
-        let url = if is_azure && method != Method::GET {
+        // Handle AWS Bedrock transformation
+        let (url, body) = if is_bedrock && method != Method::GET {
+            let (model, transformed_body, is_streaming) = Self::transform_openai_to_bedrock(&body)?;
+            let endpoint = if is_streaming { "converse-stream" } else { "converse" };
+            let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
+            (bedrock_url, transformed_body)
+        } else if is_azure && method != Method::GET {
             let model = AIProvider::extract_model_from_body(&body)?;
-            AIProvider::build_azure_openai_url(base_url, &model, path)
+            let azure_url = AIProvider::build_azure_openai_url(base_url, &model, path);
+            (azure_url, body)
         } else if is_anthropic_sdk {
             let truncated_base_url = base_url.trim_end_matches("/v1");
-            format!("{}/{}", truncated_base_url, path)
+            let anthropic_url = format!("{}/{}", truncated_base_url, path);
+            (anthropic_url, body)
         } else {
-            format!("{}/{}", base_url, path)
+            let default_url = format!("{}/{}", base_url, path);
+            (default_url, body)
         };
 
         tracing::debug!("AI request URL: {}", url);
@@ -252,6 +265,496 @@ impl AIRequestConfig {
         Ok(serde_json::to_vec(&json_body)
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
+    }
+
+    /// Transform OpenAI format request to AWS Bedrock Converse format
+    /// Returns: (model_id, transformed_body, is_streaming)
+    fn transform_openai_to_bedrock(body: &[u8]) -> Result<(String, Bytes, bool)> {
+        use serde_json::Value;
+
+        // Parse the OpenAI request
+        let mut openai_req: Value = serde_json::from_slice(body)
+            .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
+
+        // Extract model and streaming flag
+        let model = openai_req["model"]
+            .as_str()
+            .ok_or_else(|| Error::BadRequest("Missing 'model' field in request".to_string()))?
+            .to_string();
+
+        let is_streaming = openai_req["stream"].as_bool().unwrap_or(false);
+
+        // Build Bedrock request
+        let mut bedrock_req = serde_json::json!({});
+
+        // Transform messages
+        if let Some(messages) = openai_req["messages"].as_array() {
+            let mut system_messages = Vec::new();
+            let mut conversation_messages = Vec::new();
+
+            for msg in messages {
+                let role = msg["role"].as_str().unwrap_or("");
+
+                match role {
+                    "system" => {
+                        // Extract system messages to separate array
+                        if let Some(content) = msg["content"].as_str() {
+                            system_messages.push(serde_json::json!({"text": content}));
+                        }
+                    }
+                    "user" | "assistant" => {
+                        // Normalize content to array format
+                        let content = if let Some(text) = msg["content"].as_str() {
+                            // Simple string → array of content blocks
+                            vec![serde_json::json!({"text": text})]
+                        } else if let Some(content_array) = msg["content"].as_array() {
+                            // Already an array - transform each item
+                            content_array.iter().filter_map(|item| {
+                                if let Some(text) = item["text"].as_str() {
+                                    Some(serde_json::json!({"text": text}))
+                                } else if item["type"].as_str() == Some("text") {
+                                    Some(serde_json::json!({"text": item["text"]}))
+                                } else if item["type"].as_str() == Some("image_url") {
+                                    // Transform image_url format if needed
+                                    // For now, pass through - may need more sophisticated handling
+                                    Some(item.clone())
+                                } else {
+                                    None
+                                }
+                            }).collect()
+                        } else {
+                            vec![]
+                        };
+
+                        conversation_messages.push(serde_json::json!({
+                            "role": role,
+                            "content": content
+                        }));
+                    }
+                    "tool" => {
+                        // Transform tool response to Bedrock format
+                        let tool_call_id = msg["tool_call_id"].as_str().unwrap_or("");
+                        let content = msg["content"].as_str().unwrap_or("");
+
+                        // Try to parse content as JSON
+                        let tool_result_content = if let Ok(json_content) = serde_json::from_str::<Value>(content) {
+                            vec![serde_json::json!({"json": json_content})]
+                        } else {
+                            vec![serde_json::json!({"text": content})]
+                        };
+
+                        conversation_messages.push(serde_json::json!({
+                            "role": "user",
+                            "content": [{
+                                "toolResult": {
+                                    "toolUseId": tool_call_id,
+                                    "content": tool_result_content
+                                }
+                            }]
+                        }));
+                    }
+                    _ => {}
+                }
+            }
+
+            if !system_messages.is_empty() {
+                bedrock_req["system"] = Value::Array(system_messages);
+            }
+            bedrock_req["messages"] = Value::Array(conversation_messages);
+        }
+
+        // Transform inference parameters
+        let mut inference_config = serde_json::json!({});
+        if let Some(max_tokens) = openai_req["max_tokens"].as_i64() {
+            inference_config["maxTokens"] = Value::Number(max_tokens.into());
+        }
+        if let Some(temperature) = openai_req["temperature"].as_f64() {
+            inference_config["temperature"] = serde_json::json!(temperature);
+        }
+        if let Some(top_p) = openai_req["top_p"].as_f64() {
+            inference_config["topP"] = serde_json::json!(top_p);
+        }
+        if let Some(stop) = openai_req["stop"].as_array() {
+            let stop_sequences: Vec<String> = stop
+                .iter()
+                .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                .collect();
+            if !stop_sequences.is_empty() {
+                inference_config["stopSequences"] = Value::Array(
+                    stop_sequences.into_iter().map(Value::String).collect()
+                );
+            }
+        }
+        if !inference_config.as_object().unwrap().is_empty() {
+            bedrock_req["inferenceConfig"] = inference_config;
+        }
+
+        // Transform tools if present
+        if let Some(tools) = openai_req["tools"].as_array() {
+            let mut bedrock_tools = Vec::new();
+
+            for tool in tools {
+                if tool["type"].as_str() == Some("function") {
+                    if let Some(function) = tool["function"].as_object() {
+                        bedrock_tools.push(serde_json::json!({
+                            "toolSpec": {
+                                "name": function.get("name"),
+                                "description": function.get("description"),
+                                "inputSchema": {
+                                    "json": function.get("parameters")
+                                }
+                            }
+                        }));
+                    }
+                }
+            }
+
+            if !bedrock_tools.is_empty() {
+                let mut tool_config = serde_json::json!({
+                    "tools": bedrock_tools
+                });
+
+                // Transform tool_choice
+                if let Some(tool_choice) = openai_req.get("tool_choice") {
+                    if tool_choice == "auto" {
+                        tool_config["toolChoice"] = serde_json::json!({"auto": {}});
+                    } else if tool_choice == "required" {
+                        tool_config["toolChoice"] = serde_json::json!({"any": {}});
+                    } else if let Some(obj) = tool_choice.as_object() {
+                        if obj.get("type").and_then(|v| v.as_str()) == Some("function") {
+                            if let Some(function) = obj.get("function").and_then(|v| v.as_object()) {
+                                if let Some(name) = function.get("name").and_then(|v| v.as_str()) {
+                                    tool_config["toolChoice"] = serde_json::json!({
+                                        "tool": {"name": name}
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                bedrock_req["toolConfig"] = tool_config;
+            }
+        }
+
+        let transformed_body = serde_json::to_vec(&bedrock_req)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize Bedrock request: {}", e)))?
+            .into();
+
+        Ok((model, transformed_body, is_streaming))
+    }
+
+    /// Transform AWS Bedrock Converse response to OpenAI format
+    async fn transform_bedrock_to_openai(
+        response: reqwest::Response,
+        model: String,
+    ) -> Result<Bytes> {
+        use serde_json::Value;
+
+        let bedrock_resp: Value = response
+            .json()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to parse Bedrock response: {}", e)))?;
+
+        // Generate unique ID and timestamp
+        let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
+        let created = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Extract stop reason and map to finish_reason
+        let stop_reason = bedrock_resp["stopReason"].as_str().unwrap_or("end_turn");
+        let finish_reason = match stop_reason {
+            "end_turn" => "stop",
+            "max_tokens" => "length",
+            "tool_use" => "tool_calls",
+            "stop_sequence" => "stop",
+            "guardrail_intervened" | "content_filtered" => "content_filter",
+            _ => "stop",
+        };
+
+        // Extract message content
+        let message_content = &bedrock_resp["output"]["message"]["content"];
+        let mut text_content = String::new();
+        let mut tool_calls = Vec::new();
+
+        if let Some(content_array) = message_content.as_array() {
+            for (_index, block) in content_array.iter().enumerate() {
+                if let Some(text) = block["text"].as_str() {
+                    text_content.push_str(text);
+                } else if let Some(tool_use) = block.get("toolUse") {
+                    // Transform tool use to OpenAI tool_calls format
+                    let tool_call_id = tool_use["toolUseId"].as_str().unwrap_or("");
+                    let name = tool_use["name"].as_str().unwrap_or("");
+                    let input = &tool_use["input"];
+
+                    tool_calls.push(serde_json::json!({
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": serde_json::to_string(input).unwrap_or_default()
+                        }
+                    }));
+                }
+            }
+        }
+
+        // Build the message
+        let message = if !tool_calls.is_empty() {
+            serde_json::json!({
+                "role": "assistant",
+                "content": if text_content.is_empty() { Value::Null } else { Value::String(text_content) },
+                "tool_calls": tool_calls
+            })
+        } else {
+            serde_json::json!({
+                "role": "assistant",
+                "content": text_content
+            })
+        };
+
+        // Extract usage information
+        let usage = if let Some(usage_data) = bedrock_resp.get("usage") {
+            serde_json::json!({
+                "prompt_tokens": usage_data["inputTokens"].as_i64().unwrap_or(0),
+                "completion_tokens": usage_data["outputTokens"].as_i64().unwrap_or(0),
+                "total_tokens": usage_data["totalTokens"].as_i64().unwrap_or(0)
+            })
+        } else {
+            serde_json::json!({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            })
+        };
+
+        // Build OpenAI-format response
+        let openai_resp = serde_json::json!({
+            "id": id,
+            "object": "chat.completion",
+            "created": created,
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": message,
+                "finish_reason": finish_reason
+            }],
+            "usage": usage
+        });
+
+        let response_body = serde_json::to_vec(&openai_resp)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize OpenAI response: {}", e)))?
+            .into();
+
+        Ok(response_body)
+    }
+
+    /// Transform AWS Bedrock streaming response to OpenAI SSE format
+    fn transform_bedrock_stream_to_openai(
+        stream: impl futures::Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
+        model: String,
+    ) -> impl futures::Stream<Item = std::result::Result<bytes::Bytes, std::io::Error>> + Send {
+        use futures::stream::StreamExt;
+        use serde_json::Value;
+        use std::collections::HashMap;
+
+        let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
+        let created = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // State to track partial tool calls
+        struct StreamState {
+            id: String,
+            model: String,
+            created: u64,
+            tool_calls: HashMap<usize, (String, String, String)>, // index -> (id, name, args)
+            buffer: String,
+        }
+
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(StreamState {
+            id: id.clone(),
+            model: model.clone(),
+            created,
+            tool_calls: HashMap::new(),
+            buffer: String::new(),
+        }));
+
+        stream
+            .then(move |chunk_result| {
+                let state = state.clone();
+                async move {
+                    match chunk_result {
+                        Ok(chunk) => {
+                            let mut state = state.lock().await;
+                            state.buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                            let mut events = Vec::new();
+
+                            // Parse SSE events from buffer
+                            while let Some(event_end) = state.buffer.find("\n\n") {
+                                let event_str = state.buffer[..event_end].to_string();
+                                state.buffer = state.buffer[event_end + 2..].to_string();
+
+                                // Parse event type and data
+                                let mut event_type = None;
+                                let mut event_data = None;
+
+                                for line in event_str.lines() {
+                                    if line.starts_with(":event-type:") {
+                                        event_type = Some(line[":event-type:".len()..].trim().to_string());
+                                    } else if !line.starts_with(':') && !line.is_empty() {
+                                        // This is the JSON payload
+                                        event_data = Some(line.to_string());
+                                    }
+                                }
+
+                                if let (Some(evt_type), Some(data)) = (event_type, event_data) {
+                                    if let Ok(parsed_data) = serde_json::from_str::<Value>(&data) {
+                                        // Transform based on event type
+                                        match evt_type.as_str() {
+                                            "messageStart" => {
+                                                // No output for messageStart
+                                            }
+                                            "contentBlockStart" => {
+                                                let index = parsed_data["contentBlockIndex"].as_u64().unwrap_or(0) as usize;
+
+                                                if let Some(tool_use) = parsed_data["start"].get("toolUse") {
+                                                    let tool_id = tool_use["toolUseId"].as_str().unwrap_or("").to_string();
+                                                    let name = tool_use["name"].as_str().unwrap_or("").to_string();
+
+                                                    state.tool_calls.insert(index, (tool_id.clone(), name.clone(), String::new()));
+
+                                                    // Send initial tool call chunk
+                                                    let chunk = serde_json::json!({
+                                                        "id": state.id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": state.created,
+                                                        "model": state.model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {
+                                                                "tool_calls": [{
+                                                                    "index": index,
+                                                                    "id": tool_id,
+                                                                    "type": "function",
+                                                                    "function": {
+                                                                        "name": name,
+                                                                        "arguments": ""
+                                                                    }
+                                                                }]
+                                                            },
+                                                            "finish_reason": Value::Null
+                                                        }]
+                                                    });
+
+                                                    events.push(Ok(bytes::Bytes::from(format!("data: {}\n\n", chunk))));
+                                                }
+                                            }
+                                            "contentBlockDelta" => {
+                                                let index = parsed_data["contentBlockIndex"].as_u64().unwrap_or(0) as usize;
+
+                                                if let Some(text) = parsed_data["delta"]["text"].as_str() {
+                                                    // Text content delta
+                                                    let chunk = serde_json::json!({
+                                                        "id": state.id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": state.created,
+                                                        "model": state.model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {
+                                                                "content": text
+                                                            },
+                                                            "finish_reason": Value::Null
+                                                        }]
+                                                    });
+
+                                                    events.push(Ok(bytes::Bytes::from(format!("data: {}\n\n", chunk))));
+                                                } else if let Some(tool_use_input) = parsed_data["delta"]["toolUse"]["input"].as_str() {
+                                                    // Tool use arguments delta
+                                                    if let Some((_tool_id, _name, ref mut args)) = state.tool_calls.get_mut(&index) {
+                                                        args.push_str(tool_use_input);
+
+                                                        let chunk = serde_json::json!({
+                                                            "id": state.id,
+                                                            "object": "chat.completion.chunk",
+                                                            "created": state.created,
+                                                            "model": state.model,
+                                                            "choices": [{
+                                                                "index": 0,
+                                                                "delta": {
+                                                                    "tool_calls": [{
+                                                                        "index": index,
+                                                                        "function": {
+                                                                            "arguments": tool_use_input
+                                                                        }
+                                                                    }]
+                                                                },
+                                                                "finish_reason": Value::Null
+                                                            }]
+                                                        });
+
+                                                        events.push(Ok(bytes::Bytes::from(format!("data: {}\n\n", chunk))));
+                                                    }
+                                                }
+                                            }
+                                            "contentBlockStop" => {
+                                                // No output needed
+                                            }
+                                            "messageStop" => {
+                                                let stop_reason = parsed_data["stopReason"].as_str().unwrap_or("end_turn");
+                                                let finish_reason = match stop_reason {
+                                                    "end_turn" => "stop",
+                                                    "max_tokens" => "length",
+                                                    "tool_use" => "tool_calls",
+                                                    "stop_sequence" => "stop",
+                                                    "guardrail_intervened" | "content_filtered" => "content_filter",
+                                                    _ => "stop",
+                                                };
+
+                                                let chunk = serde_json::json!({
+                                                    "id": state.id,
+                                                    "object": "chat.completion.chunk",
+                                                    "created": state.created,
+                                                    "model": state.model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {},
+                                                        "finish_reason": finish_reason
+                                                    }]
+                                                });
+
+                                                events.push(Ok(bytes::Bytes::from(format!("data: {}\n\n", chunk))));
+                                            }
+                                            "metadata" => {
+                                                // Could include usage info here if needed
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            events
+                        }
+                        Err(e) => {
+                            vec![Err(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string(),
+                            ))]
+                        }
+                    }
+                }
+            })
+            .flat_map(|events| futures::stream::iter(events))
+            .chain(futures::stream::iter(vec![
+                // Send [DONE] at the end
+                Ok(bytes::Bytes::from("data: [DONE]\n\n"))
+            ]))
     }
 }
 
@@ -446,6 +949,17 @@ async fn proxy(
         }
     };
 
+    // Extract model and streaming flag for Bedrock transformation
+    let (model_for_transform, is_streaming) = if matches!(provider, AIProvider::AWSBedrock) {
+        let parsed: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+        let model = parsed["model"].as_str().unwrap_or("").to_string();
+        let is_streaming = parsed["stream"].as_bool().unwrap_or(false);
+        (Some(model), is_streaming)
+    } else {
+        (None, false)
+    };
+
     let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
     let response = request.send().await.map_err(to_anyhow)?;
@@ -469,8 +983,37 @@ async fn proxy(
         return Err(Error::AIError(err_msg));
     }
 
-    let status_code = response.status();
-    let headers = response.headers().clone();
-    let stream = response.bytes_stream();
-    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    // Transform Bedrock responses back to OpenAI format
+    if matches!(provider, AIProvider::AWSBedrock) && model_for_transform.is_some() {
+        let model = model_for_transform.unwrap();
+
+        if is_streaming {
+            // Transform streaming response
+            use http::StatusCode;
+
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert("content-type", "text/event-stream".parse().unwrap());
+            response_headers.insert("cache-control", "no-cache".parse().unwrap());
+            response_headers.insert("connection", "keep-alive".parse().unwrap());
+
+            let stream = response.bytes_stream();
+            let transformed_stream = AIRequestConfig::transform_bedrock_stream_to_openai(stream, model);
+
+            Ok((StatusCode::OK, response_headers, axum::body::Body::from_stream(transformed_stream)))
+        } else {
+            // Transform non-streaming response
+            let transformed_body = AIRequestConfig::transform_bedrock_to_openai(response, model).await?;
+
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert("content-type", "application/json".parse().unwrap());
+
+            Ok((http::StatusCode::OK, response_headers, axum::body::Body::from(transformed_body)))
+        }
+    } else {
+        // Pass through for other providers
+        let status_code = response.status();
+        let headers = response.headers().clone();
+        let stream = response.bytes_stream();
+        Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    }
 }
