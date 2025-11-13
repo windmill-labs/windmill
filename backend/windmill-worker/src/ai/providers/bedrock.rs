@@ -5,6 +5,7 @@ use serde_json::Value;
 use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
+    image_handler::prepare_messages_for_api,
     providers::openai::{OpenAIFunction, OpenAIToolCall},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
@@ -272,8 +273,8 @@ impl QueryBuilder for BedrockQueryBuilder {
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
-        _client: &AuthedClient,
-        _workspace_id: &str,
+        client: &AuthedClient,
+        workspace_id: &str,
         _stream: bool,
     ) -> Result<String, Error> {
         // Only support text output for now
@@ -283,9 +284,12 @@ impl QueryBuilder for BedrockQueryBuilder {
             ));
         }
 
+        // Prepare messages first (converts S3Objects to ImageUrls)
+        let prepared_messages = prepare_messages_for_api(args.messages, client, workspace_id).await?;
+
         // Transform messages
         let (system_messages, conversation_messages) =
-            Self::transform_messages_to_bedrock(args.messages)?;
+            Self::transform_messages_to_bedrock(&prepared_messages)?;
 
         // Build Bedrock request
         let mut bedrock_req = serde_json::json!({
