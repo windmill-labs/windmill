@@ -58,6 +58,13 @@
 	let includedRunnables = $state<string[]>([])
 	let selectedFolder = $state<string>('')
 
+	// Granular scope selection
+	let selectedScripts = $state<string[]>([])
+	let selectedFlows = $state<string[]>([])
+	let selectedEndpoints = $state<string[]>([])
+	let allScripts = $state<string[]>([])
+	let allFlows = $state<string[]>([])
+
 	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
@@ -86,7 +93,19 @@
 
 			let tokenScopes = scopes
 			if (mcpMode) {
-				if (newMcpScope === 'folder') {
+				if (newMcpScope === 'custom') {
+					// Granular scope format
+					tokenScopes = []
+					if (selectedScripts.length > 0) {
+						tokenScopes.push(`mcp:scripts:${selectedScripts.join(',')}`)
+					}
+					if (selectedFlows.length > 0) {
+						tokenScopes.push(`mcp:flows:${selectedFlows.join(',')}`)
+					}
+					if (selectedEndpoints.length > 0) {
+						tokenScopes.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
+					}
+				} else if (newMcpScope === 'folder') {
 					const folderPath = `f/${selectedFolder}/*`
 					tokenScopes = [`mcp:all:${folderPath}`]
 				} else {
@@ -247,6 +266,59 @@
 			selectedFolder = ''
 		}
 	})
+
+	$effect(() => {
+		if (mcpCreationMode && newMcpScope === 'custom') {
+			const workspace = newTokenWorkspace || $workspaceStore
+			if (workspace) {
+				loadAllScriptsAndFlows(workspace)
+			}
+		}
+	})
+
+	async function loadAllScriptsAndFlows(workspace: string) {
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([
+				getScripts(false, workspace, undefined),
+				getFlows(false, workspace, undefined)
+			])
+			allScripts = scripts
+			allFlows = flows
+			// Initialize selections to all if empty
+			if (selectedScripts.length === 0 && selectedFlows.length === 0) {
+				selectedScripts = [...scripts]
+				selectedFlows = [...flows]
+				selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+			}
+		} finally {
+			loadingRunnables = false
+		}
+	}
+
+	function toggleScript(path: string) {
+		if (selectedScripts.includes(path)) {
+			selectedScripts = selectedScripts.filter((p) => p !== path)
+		} else {
+			selectedScripts = [...selectedScripts, path]
+		}
+	}
+
+	function toggleFlow(path: string) {
+		if (selectedFlows.includes(path)) {
+			selectedFlows = selectedFlows.filter((p) => p !== path)
+		} else {
+			selectedFlows = [...selectedFlows, path]
+		}
+	}
+
+	function toggleEndpoint(name: string) {
+		if (selectedEndpoints.includes(name)) {
+			selectedEndpoints = selectedEndpoints.filter((n) => n !== name)
+		} else {
+			selectedEndpoints = [...selectedEndpoints, name]
+		}
+	}
 </script>
 
 <div>
@@ -317,7 +389,7 @@
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
-				<div>
+				<div class="col-span-2">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
@@ -338,6 +410,12 @@
 								value="folder"
 								label="Folder"
 								tooltip="Make all scripts and flows in the selected folder available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="custom"
+								label="Custom"
+								tooltip="Select exactly which scripts, flows, and endpoints to expose"
 							/>
 						{/snippet}
 					</ToggleButtonGroup>
@@ -404,7 +482,98 @@
 					/>
 				</div>
 			{/if}
-			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
+			{#if mcpCreationMode && newMcpScope === 'custom'}
+				{#if loadingRunnables}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<span class="block text-xs text-primary">Loading scripts and flows...</span>
+						<div class="flex flex-wrap gap-1">
+							<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
+						</div>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<span class="block text-xs font-semibold">Scripts (click to toggle)</span>
+						<div class="flex flex-wrap gap-1">
+							{#if allScripts.length > 0}
+								{#each allScripts as script}
+									<button
+										type="button"
+										onclick={() => toggleScript(script)}
+										class="transition-all"
+									>
+										<Badge
+											rounded
+											small
+											color={selectedScripts.includes(script) ? 'blue' : 'gray'}
+											class={selectedScripts.includes(script) ? '' : 'opacity-50'}
+										>
+											{script}
+										</Badge>
+									</button>
+								{/each}
+							{:else}
+								<p class="text-xs text-primary">No scripts available</p>
+							{/if}
+						</div>
+
+						<span class="block text-xs font-semibold mt-2">Flows (click to toggle)</span>
+						<div class="flex flex-wrap gap-1">
+							{#if allFlows.length > 0}
+								{#each allFlows as flow}
+									<button type="button" onclick={() => toggleFlow(flow)} class="transition-all">
+										<Badge
+											rounded
+											small
+											color={selectedFlows.includes(flow) ? 'blue' : 'gray'}
+											class={selectedFlows.includes(flow) ? '' : 'opacity-50'}
+										>
+											{flow}
+										</Badge>
+									</button>
+								{/each}
+							{:else}
+								<p class="text-xs text-primary">No flows available</p>
+							{/if}
+						</div>
+
+						<span class="block text-xs font-semibold mt-2">API Endpoints (click to toggle)</span>
+						<div class="flex flex-wrap gap-1">
+							{#each mcpEndpointTools as endpoint}
+								<button
+									type="button"
+									onclick={() => toggleEndpoint(endpoint.name)}
+									class="transition-all"
+								>
+									<Popover notClickable>
+										{#snippet text()}
+											<div class="flex flex-col gap-1">
+												<div class="text-xs">{endpoint.description}</div>
+												<div class="text-xs">
+													{endpoint.method}
+													{endpoint.path}
+												</div>
+											</div>
+										{/snippet}
+										<Badge
+											rounded
+											small
+											color={selectedEndpoints.includes(endpoint.name) ? 'green' : 'gray'}
+											class={selectedEndpoints.includes(endpoint.name) ? '' : 'opacity-50'}
+										>
+											{endpoint.name}
+										</Badge>
+									</Popover>
+								</button>
+							{/each}
+						</div>
+
+						<div class="text-xs text-primary mt-2">
+							Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
+							endpoints
+						</div>
+					</div>
+				{/if}
+			{:else if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
 				{#if loadingRunnables}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
 						<span class="block text-xs text-primary"
@@ -476,7 +645,12 @@
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
-					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+					(newTokenWorkspace == undefined ||
+						(newMcpScope === 'folder' && !selectedFolder) ||
+						(newMcpScope === 'custom' &&
+							selectedScripts.length === 0 &&
+							selectedFlows.length === 0 &&
+							selectedEndpoints.length === 0))}
 				variant="accent"
 			>
 				New token
