@@ -8,13 +8,13 @@ use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::variables::get_variable_or_self;
 use std::collections::HashMap;
+use uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
-use uuid;
+use windmill_common::variables::get_variable_or_self;
 
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
@@ -188,7 +188,11 @@ impl AIRequestConfig {
         // Handle AWS Bedrock transformation
         let (url, body) = if is_bedrock && method != Method::GET {
             let (model, transformed_body, is_streaming) = Self::transform_openai_to_bedrock(&body)?;
-            let endpoint = if is_streaming { "converse-stream" } else { "converse" };
+            let endpoint = if is_streaming {
+                "converse-stream"
+            } else {
+                "converse"
+            };
             let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
             (bedrock_url, transformed_body)
         } else if is_azure && method != Method::GET {
@@ -309,19 +313,22 @@ impl AIRequestConfig {
                             vec![serde_json::json!({"text": text})]
                         } else if let Some(content_array) = msg["content"].as_array() {
                             // Already an array - transform each item
-                            content_array.iter().filter_map(|item| {
-                                if let Some(text) = item["text"].as_str() {
-                                    Some(serde_json::json!({"text": text}))
-                                } else if item["type"].as_str() == Some("text") {
-                                    Some(serde_json::json!({"text": item["text"]}))
-                                } else if item["type"].as_str() == Some("image_url") {
-                                    // Transform image_url format if needed
-                                    // For now, pass through - may need more sophisticated handling
-                                    Some(item.clone())
-                                } else {
-                                    None
-                                }
-                            }).collect()
+                            content_array
+                                .iter()
+                                .filter_map(|item| {
+                                    if let Some(text) = item["text"].as_str() {
+                                        Some(serde_json::json!({"text": text}))
+                                    } else if item["type"].as_str() == Some("text") {
+                                        Some(serde_json::json!({"text": item["text"]}))
+                                    } else if item["type"].as_str() == Some("image_url") {
+                                        // Transform image_url format if needed
+                                        // For now, pass through - may need more sophisticated handling
+                                        Some(item.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
                         } else {
                             vec![]
                         };
@@ -337,11 +344,12 @@ impl AIRequestConfig {
                         let content = msg["content"].as_str().unwrap_or("");
 
                         // Try to parse content as JSON
-                        let tool_result_content = if let Ok(json_content) = serde_json::from_str::<Value>(content) {
-                            vec![serde_json::json!({"json": json_content})]
-                        } else {
-                            vec![serde_json::json!({"text": content})]
-                        };
+                        let tool_result_content =
+                            if let Ok(json_content) = serde_json::from_str::<Value>(content) {
+                                vec![serde_json::json!({"json": json_content})]
+                            } else {
+                                vec![serde_json::json!({"text": content})]
+                            };
 
                         conversation_messages.push(serde_json::json!({
                             "role": "user",
@@ -380,9 +388,8 @@ impl AIRequestConfig {
                 .filter_map(|s| s.as_str().map(|s| s.to_string()))
                 .collect();
             if !stop_sequences.is_empty() {
-                inference_config["stopSequences"] = Value::Array(
-                    stop_sequences.into_iter().map(Value::String).collect()
-                );
+                inference_config["stopSequences"] =
+                    Value::Array(stop_sequences.into_iter().map(Value::String).collect());
             }
         }
         if !inference_config.as_object().unwrap().is_empty() {
@@ -422,7 +429,8 @@ impl AIRequestConfig {
                         tool_config["toolChoice"] = serde_json::json!({"any": {}});
                     } else if let Some(obj) = tool_choice.as_object() {
                         if obj.get("type").and_then(|v| v.as_str()) == Some("function") {
-                            if let Some(function) = obj.get("function").and_then(|v| v.as_object()) {
+                            if let Some(function) = obj.get("function").and_then(|v| v.as_object())
+                            {
                                 if let Some(name) = function.get("name").and_then(|v| v.as_str()) {
                                     tool_config["toolChoice"] = serde_json::json!({
                                         "tool": {"name": name}
@@ -438,7 +446,9 @@ impl AIRequestConfig {
         }
 
         let transformed_body = serde_json::to_vec(&bedrock_req)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize Bedrock request: {}", e)))?
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to serialize Bedrock request: {}", e))
+            })?
             .into();
 
         Ok((model, transformed_body, is_streaming))
@@ -545,7 +555,9 @@ impl AIRequestConfig {
         });
 
         let response_body = serde_json::to_vec(&openai_resp)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize OpenAI response: {}", e)))?
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to serialize OpenAI response: {}", e))
+            })?
             .into();
 
         Ok(response_body)
@@ -553,7 +565,9 @@ impl AIRequestConfig {
 
     /// Transform AWS Bedrock streaming response to OpenAI SSE format
     fn transform_bedrock_stream_to_openai(
-        stream: impl futures::Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
+        stream: impl futures::Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>>
+            + Send
+            + 'static,
         model: String,
     ) -> impl futures::Stream<Item = std::result::Result<bytes::Bytes, std::io::Error>> + Send {
         use futures::stream::StreamExt;
@@ -997,17 +1011,27 @@ async fn proxy(
             response_headers.insert("connection", "keep-alive".parse().unwrap());
 
             let stream = response.bytes_stream();
-            let transformed_stream = AIRequestConfig::transform_bedrock_stream_to_openai(stream, model);
+            let transformed_stream =
+                AIRequestConfig::transform_bedrock_stream_to_openai(stream, model);
 
-            Ok((StatusCode::OK, response_headers, axum::body::Body::from_stream(transformed_stream)))
+            Ok((
+                StatusCode::OK,
+                response_headers,
+                axum::body::Body::from_stream(transformed_stream),
+            ))
         } else {
             // Transform non-streaming response
-            let transformed_body = AIRequestConfig::transform_bedrock_to_openai(response, model).await?;
+            let transformed_body =
+                AIRequestConfig::transform_bedrock_to_openai(response, model).await?;
 
             let mut response_headers = HeaderMap::new();
             response_headers.insert("content-type", "application/json".parse().unwrap());
 
-            Ok((http::StatusCode::OK, response_headers, axum::body::Body::from(transformed_body)))
+            Ok((
+                http::StatusCode::OK,
+                response_headers,
+                axum::body::Body::from(transformed_body),
+            ))
         }
     } else {
         // Pass through for other providers
