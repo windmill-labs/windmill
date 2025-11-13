@@ -6,7 +6,7 @@ use crate::{
     triggers::{
         handler::TriggerCrud,
         trigger_helpers::{trigger_runnable, TriggerJobArgs},
-        Trigger, TriggerErrorHandling,
+        Trigger, TriggerErrorHandling, BASE_TRIGGER_FIELDS,
     },
     users::fetch_api_authed,
 };
@@ -27,18 +27,6 @@ use windmill_common::{
     DB, INSTANCE_NAME,
 };
 
-const BASE_TRIGGER_FIELDS: [&'static str; 9] = [
-    "workspace_id",
-    "path",
-    "script_path",
-    "is_flow",
-    "edited_by",
-    "email",
-    "edited_at",
-    "extra_perms",
-    "suspend_number",
-];
-
 #[allow(unused)]
 #[async_trait]
 pub trait Listener: TriggerCrud + TriggerJobArgs {
@@ -46,8 +34,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     type Extra: Send + Sync;
     type ExtraState: Send + Sync;
 
-    //to use in next PR to add job trigger kind to eow
-    #[allow(unused)]
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];

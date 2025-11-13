@@ -1,7 +1,7 @@
 use crate::{
     db::ApiAuthed,
     jobs::generate_unique_suspend_number,
-    triggers::{StandardTriggerQuery, TriggerData},
+    triggers::{StandardTriggerQuery, TriggerData, BASE_TRIGGER_FIELDS},
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -138,17 +138,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<Self::Trigger> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-            "suspend_number",
-        ];
+        let mut fields = Vec::from(BASE_TRIGGER_FIELDS);
 
         if Self::SUPPORTS_SERVER_STATE {
             fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);

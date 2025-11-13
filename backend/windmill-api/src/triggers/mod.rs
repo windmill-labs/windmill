@@ -149,3 +149,15 @@ impl Default for StandardTriggerQuery {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
 }
+
+pub const BASE_TRIGGER_FIELDS: [&'static str; 9] = [
+    "workspace_id",
+    "path",
+    "script_path",
+    "is_flow",
+    "edited_by",
+    "email",
+    "edited_at",
+    "extra_perms",
+    "suspend_number",
+];
