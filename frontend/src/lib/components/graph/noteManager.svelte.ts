@@ -37,7 +37,7 @@ export class NoteManager {
 	#editMode: boolean = false
 
 	// Selection state
-	selectedNoteId = $state<string | undefined>(undefined)
+	#selectedNoteId = $state<string | undefined>(undefined)
 
 	constructor(
 		notes: () => FlowNote[],
@@ -318,21 +318,33 @@ export class NoteManager {
 	 * Select a note by ID (single selection only)
 	 */
 	selectNote(noteId: string): void {
-		this.selectedNoteId = noteId
+		if (this.#selectedNoteId === noteId) {
+			return
+		}
+		this.#selectedNoteId = noteId
 	}
 
 	/**
 	 * Clear note selection
 	 */
 	clearNoteSelection(): void {
-		this.selectedNoteId = undefined
+		this.#selectedNoteId = undefined
+	}
+
+	/**
+	 * Deselect a note by ID (single selection only)
+	 */
+	deselectNote(noteId?: string): void {
+		if (this.#selectedNoteId === noteId) {
+			this.#selectedNoteId = undefined
+		}
 	}
 
 	/**
 	 * Check if a note is currently selected
 	 */
 	isNoteSelected(noteId: string): boolean {
-		return this.selectedNoteId === noteId
+		return this.#selectedNoteId === noteId
 	}
 
 	// Handle keyboard shortcuts

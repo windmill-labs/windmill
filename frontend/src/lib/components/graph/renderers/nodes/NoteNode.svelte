@@ -174,7 +174,7 @@
 	ondblclick={handleDoubleClick}
 	use:clickOutside={{
 		onClickOutside: () => {
-			noteManager?.clearNoteSelection()
+			noteManager?.deselectNote(data.noteId)
 		}
 	}}
 >
