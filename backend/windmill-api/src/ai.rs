@@ -198,6 +198,12 @@ impl AIRequestConfig {
             let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
             println!("AWS: Built Bedrock URL: {}", bedrock_url);
             (bedrock_url, transformed_body)
+        } else if is_bedrock && path == "foundation-models" {
+            // AWS Bedrock foundation-models endpoint uses different base URL (without -runtime)
+            let foundation_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
+            let foundation_url = format!("{}/{}", foundation_base_url, path);
+            println!("AWS: Using foundation models endpoint: {}", foundation_url);
+            (foundation_url, body)
         } else if is_azure && method != Method::GET {
             let model = AIProvider::extract_model_from_body(&body)?;
             let azure_url = AIProvider::build_azure_openai_url(base_url, &model, path);
@@ -1063,8 +1069,8 @@ async fn proxy(
         }
     };
 
-    // Extract model and streaming flag for Bedrock transformation
-    let (model_for_transform, is_streaming) = if matches!(provider, AIProvider::AWSBedrock) {
+    // Extract model and streaming flag for Bedrock transformation (only for POST requests)
+    let (model_for_transform, is_streaming) = if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
         let parsed: serde_json::Value = serde_json::from_slice(&body)
             .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
         let model = parsed["model"].as_str().unwrap_or("").to_string();
