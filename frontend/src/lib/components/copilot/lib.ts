@@ -76,6 +76,10 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'Together AI',
 		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
 	},
+	aws_bedrock: {
+		label: 'AWS Bedrock',
+		defaultModels: ['amazon.titan-embed-image-v1:0']
+	},
 	customai: {
 		label: 'Custom AI',
 		defaultModels: []
