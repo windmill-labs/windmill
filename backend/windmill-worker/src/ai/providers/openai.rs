@@ -8,7 +8,7 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
-    utils::is_claude_model,
+    utils::should_use_structured_output_tool,
 };
 
 // OpenAI-specific types
@@ -203,9 +203,10 @@ impl OpenAIQueryBuilder {
             None
         };
 
-        let is_claude_model = is_claude_model(&args.model);
+        let should_use_structured_output_tool =
+            should_use_structured_output_tool(&self.provider_kind, args.model);
         // Force usage of structured output tool for Claude models when structured output provided
-        let tool_choice = if is_claude_model && response_format.is_some() {
+        let tool_choice = if should_use_structured_output_tool && response_format.is_some() {
             Some(ToolChoice::Required)
         } else {
             None
