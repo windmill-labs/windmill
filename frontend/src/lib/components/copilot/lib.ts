@@ -104,7 +104,10 @@ export async function fetchAvailableModels(
 	provider: AIProvider,
 	signal?: AbortSignal
 ): Promise<string[]> {
-	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+	// AWS Bedrock uses a different endpoint
+	const endpoint = provider === 'aws_bedrock' ? 'foundation-models' : 'models'
+
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/${endpoint}`, {
 		signal,
 		headers: {
 			'X-Resource-Path': resourcePath,
@@ -116,6 +119,35 @@ export async function fetchAvailableModels(
 		console.error('Failed to fetch models for provider', provider, models)
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
+
+	// Handle AWS Bedrock response format
+	if (provider === 'aws_bedrock') {
+		const data = (await models.json()) as { modelSummaries: Array<{
+			modelId: string
+			inputModalities: string[]
+			outputModalities: string[]
+		}> }
+
+		if (data.modelSummaries && data.modelSummaries.length > 0) {
+			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+			return data.modelSummaries
+				.filter(
+					(m) =>
+						m.inputModalities?.includes('TEXT') &&
+						m.outputModalities?.includes('TEXT')
+				)
+				.map((m) => m.modelId)
+				.sort((a, b) => {
+					const aInDefault = defaultModels.includes(a)
+					const bInDefault = defaultModels.includes(b)
+					if (aInDefault && !bInDefault) return -1
+					if (!aInDefault && bInDefault) return 1
+					return 0
+				})
+		}
+		return []
+	}
+
 	const data = (await models.json()) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
