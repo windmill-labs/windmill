@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH jobs_to_resume AS (\n            SELECT \n                jq.id\n            FROM \n                v2_job_queue jq \n            INNER JOIN v2_job j ON j.id = jq.id \n            WHERE \n                j.workspace_id = $1 AND \n                jq.suspend = $2 AND \n                jq.canceled_by IS NULL\n        )\n        UPDATE \n            v2_job_queue \n        SET \n            suspend = 0, \n            scheduled_for = NOW()\n        WHERE \n            id IN (SELECT id FROM jobs_to_resume)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab2826ee002b12f7c342331d2effeaee284ab959022c1d7347daca009574d88b"
+}

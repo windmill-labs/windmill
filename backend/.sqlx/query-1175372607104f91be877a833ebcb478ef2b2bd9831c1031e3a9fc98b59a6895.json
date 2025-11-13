@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT\n                        path,\n                        script_path,\n                        is_flow,\n                        route_path,\n                        authentication_resource_path,\n                        workspace_id,\n                        request_type AS \"request_type: _\",\n                        authentication_method  AS \"authentication_method: _\",\n                        edited_by,\n                        email,\n                        static_asset_config AS \"static_asset_config: _\",\n                        wrap_body,\n                        raw_string,\n                        workspaced_route,\n                        is_static_website,\n                        error_handler_path,\n                        error_handler_args as \"error_handler_args: _\",\n                        retry as \"retry: _\"\n                    FROM\n                        http_trigger\n                    WHERE\n                        http_method = $1\n                    ",
+  "query": "\n                    SELECT\n                        path,\n                        script_path,\n                        is_flow,\n                        route_path,\n                        authentication_resource_path,\n                        workspace_id,\n                        request_type AS \"request_type: _\",\n                        authentication_method  AS \"authentication_method: _\",\n                        edited_by,\n                        email,\n                        static_asset_config AS \"static_asset_config: _\",\n                        wrap_body,\n                        raw_string,\n                        workspaced_route,\n                        is_static_website,\n                        error_handler_path,\n                        error_handler_args as \"error_handler_args: _\",\n                        retry as \"retry: _\",\n                        suspend_number\n                    FROM\n                        http_trigger\n                    WHERE\n                        http_method = $1\n                    ",
   "describe": {
     "columns": [
       {
@@ -117,6 +117,11 @@
         "ordinal": 17,
         "name": "retry: _",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "suspend_number",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -155,8 +160,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "1301f873a829db137573b8b39449f6160f2adf44f864f26a99b8eab5818fbd50"
+  "hash": "1175372607104f91be877a833ebcb478ef2b2bd9831c1031e3a9fc98b59a6895"
 }

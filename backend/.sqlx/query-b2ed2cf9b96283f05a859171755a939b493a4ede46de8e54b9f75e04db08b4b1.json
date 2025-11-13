@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET suspend = NULL WHERE workspace_id = $1 AND suspend = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2ed2cf9b96283f05a859171755a939b493a4ede46de8e54b9f75e04db08b4b1"
+}
