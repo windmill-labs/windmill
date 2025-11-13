@@ -1023,6 +1023,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))
