@@ -405,7 +405,13 @@ impl QueryBuilder for OpenAIQueryBuilder {
         })
     }
 
-    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        model: &str,
+        output_type: &OutputType,
+        _stream: bool,
+    ) -> String {
         let path = match output_type {
             OutputType::Text => "chat/completions",
             OutputType::Image => "responses",

@@ -569,8 +569,12 @@ pub async fn run_agent(
             .build_request(&build_args, client, &job.workspace_id, should_stream)
             .await?;
 
-        let endpoint =
-            query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
+        let endpoint = query_builder.get_endpoint(
+            &base_url,
+            args.provider.get_model(),
+            output_type,
+            should_stream,
+        );
         let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
         let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)

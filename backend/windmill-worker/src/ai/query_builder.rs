@@ -7,7 +7,7 @@ use windmill_queue::MiniPulledJob;
 use crate::{
     ai::{
         providers::{
-            google_ai::GoogleAIQueryBuilder,
+            bedrock::BedrockQueryBuilder, google_ai::GoogleAIQueryBuilder,
             openai::{OpenAIQueryBuilder, OpenAIToolCall},
             openrouter::OpenRouterQueryBuilder,
         },
@@ -69,7 +69,13 @@ pub trait QueryBuilder: Send + Sync {
     }
 
     /// Get the API endpoint for this provider
-    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        model: &str,
+        output_type: &OutputType,
+        stream: bool,
+    ) -> String;
 
     /// Get the authentication headers for this provider
     fn get_auth_headers(
@@ -87,6 +93,7 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     match provider.kind {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
+        AIProvider::AWSBedrock => Box::new(BedrockQueryBuilder::new()),
         _ => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())), // Pass provider kind for Azure handling
     }
 }
