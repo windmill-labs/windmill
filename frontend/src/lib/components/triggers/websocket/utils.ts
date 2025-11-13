@@ -29,6 +29,7 @@ export async function saveWebsocketTriggerFromCfg(
 		url_runnable_args: triggerCfg.url_runnable_args,
 		can_return_message: triggerCfg.can_return_message,
 		can_return_error_result: triggerCfg.can_return_error_result,
+		active_mode: triggerCfg.active_mode,
 		...errorHandlerAndRetries
 	}
 	try {

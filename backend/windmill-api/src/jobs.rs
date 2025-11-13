@@ -2309,20 +2309,22 @@ async fn cancel_suspended_jobs(
         r#"
         WITH jobs_to_cancel AS (
             SELECT 
-                jq.id
+                v2_job_queue.id
             FROM 
-                v2_job_queue jq 
-            INNER JOIN v2_job j ON j.id = jq.id 
+                v2_job_queue 
+            INNER JOIN v2_job ON v2_job.id = v2_job_queue.id 
             WHERE 
-                j.workspace_id = $1 AND 
-                jq.suspend = $2 AND 
-                jq.canceled_by IS NULL
+                v2_job.workspace_id = $1 AND 
+                v2_job_queue.suspend = $2 AND 
+                v2_job_queue.canceled_by IS NULL
         )
         UPDATE 
             v2_job_queue 
         SET 
             canceled_by = $3,
-            canceled_reason = 'Canceled all suspended jobs with suspend number'
+            canceled_reason = 'Canceled all suspended jobs with suspend number',
+            suspend = 0,
+            scheduled_for = now()
         WHERE 
             id IN (SELECT id FROM jobs_to_cancel)
         "#,

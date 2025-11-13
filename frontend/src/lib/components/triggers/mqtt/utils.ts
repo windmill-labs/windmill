@@ -27,6 +27,7 @@ export async function saveMqttTriggerFromCfg(
 		script_path: cfg.script_path,
 		enabled: cfg.enabled,
 		is_flow: cfg.is_flow,
+		active_mode: cfg.active_mode,
 		...errorHandlerAndRetries
 	}
 	try {

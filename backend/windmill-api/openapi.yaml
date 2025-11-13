@@ -17534,6 +17534,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
@@ -17717,6 +17721,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18005,6 +18013,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - queue_url
         - aws_resource_path
@@ -18183,6 +18195,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18286,6 +18302,10 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -18405,7 +18425,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
+        active_mode:
+          type: boolean
+          default: true
+          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18452,10 +18475,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
-          type: boolean
-          default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
