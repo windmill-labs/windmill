@@ -327,7 +327,7 @@ impl QueryBuilder for BedrockQueryBuilder {
                     serde_json::json!({
                         "toolSpec": {
                             "name": tool.function.name,
-                            "description": tool.function.description.as_ref().unwrap_or(&String::new()),
+                            "description": tool.function.description.as_ref().map(|s| s.as_str()).unwrap_or("Tool function"),
                             "inputSchema": {
                                 "json": params
                             }
