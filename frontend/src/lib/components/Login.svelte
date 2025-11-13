@@ -261,7 +261,10 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		let url = base + '/api/oauth/login/' + provider + '?workspace=' + $workspaceStore
+		let url =
+			base + '/api/oauth/login/' + provider + popup
+				? '?workspace=' + $workspaceStore + '&close=true'
+				: ''
 		if (popup) {
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
