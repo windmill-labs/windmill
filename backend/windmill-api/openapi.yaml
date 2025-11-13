@@ -14883,7 +14883,6 @@ components:
           - mqtt
           - sqs
           - gcp
-          - email
           - poll
           - cli
     OrderDesc:
