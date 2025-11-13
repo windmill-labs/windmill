@@ -471,6 +471,7 @@ async fn execute_windmill_tool(
         true,
         None,
         None,
+        None,
     )
     .await?;
 

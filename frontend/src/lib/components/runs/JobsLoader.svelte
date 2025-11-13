@@ -16,6 +16,7 @@
 
 	import { tweened, type Tweened } from 'svelte/motion'
 	import { subtractDaysFromDateString } from '$lib/utils'
+	import type { JobTriggerType } from '../triggers/utils'
 	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 
 	interface Props {
@@ -30,6 +31,7 @@
 		showFutureJobs?: boolean
 		argFilter: string | undefined
 		resultFilter?: string | undefined
+		jobTriggerKind?: JobTriggerType | undefined
 		schedulePath?: string | undefined
 		jobKindsCat?: string | undefined
 		minTs?: string | undefined
@@ -69,6 +71,7 @@
 		showFutureJobs = true,
 		argFilter,
 		resultFilter = undefined,
+		jobTriggerKind = undefined,
 		schedulePath = undefined,
 		jobKindsCat = undefined,
 		minTs = $bindable(undefined),
@@ -231,6 +234,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
+			triggerKind: jobTriggerKind,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards: allowWildcards ? true : undefined
@@ -281,6 +285,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
+			triggerKind: jobTriggerKind,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards
@@ -577,6 +582,7 @@
 			allWorkspaces,
 			argFilter,
 			resultFilter,
+			jobTriggerKind,
 			perPage
 		]
 		let p = untrack(() => onParamChanges())

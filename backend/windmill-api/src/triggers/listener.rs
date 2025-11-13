@@ -515,6 +515,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
+            Some(Self::JOB_TRIGGER_KIND),
         )
         .await?;
 
