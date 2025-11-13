@@ -187,22 +187,18 @@ impl AIRequestConfig {
 
         // Handle AWS Bedrock transformation
         let (url, body) = if is_bedrock && method != Method::GET {
-            println!("AWS: Detected Bedrock provider, transforming request");
             let (model, transformed_body, is_streaming) = Self::transform_openai_to_bedrock(&body)?;
-            println!("AWS: Transformed request - model: {}, streaming: {}, body size: {}", model, is_streaming, transformed_body.len());
             let endpoint = if is_streaming {
                 "converse-stream"
             } else {
                 "converse"
             };
             let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
-            println!("AWS: Built Bedrock URL: {}", bedrock_url);
             (bedrock_url, transformed_body)
         } else if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
             // AWS Bedrock foundation-models and inference-profiles endpoints use different base URL (without -runtime)
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
-            println!("AWS: Using Bedrock metadata endpoint: {}", bedrock_url);
             (bedrock_url, body)
         } else if is_azure && method != Method::GET {
             let model = AIProvider::extract_model_from_body(&body)?;
@@ -285,8 +281,6 @@ impl AIRequestConfig {
     fn transform_openai_to_bedrock(body: &[u8]) -> Result<(String, Bytes, bool)> {
         use serde_json::Value;
 
-        println!("AWS: Starting OpenAI → Bedrock transformation");
-
         // Parse the OpenAI request
         let openai_req: Value = serde_json::from_slice(body)
             .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
@@ -350,11 +344,15 @@ impl AIRequestConfig {
                                 for tool_call in tool_calls {
                                     if tool_call["type"].as_str() == Some("function") {
                                         let tool_use_id = tool_call["id"].as_str().unwrap_or("");
-                                        let function_name = tool_call["function"]["name"].as_str().unwrap_or("");
-                                        let arguments_str = tool_call["function"]["arguments"].as_str().unwrap_or("{}");
+                                        let function_name =
+                                            tool_call["function"]["name"].as_str().unwrap_or("");
+                                        let arguments_str = tool_call["function"]["arguments"]
+                                            .as_str()
+                                            .unwrap_or("{}");
 
                                         // Parse arguments JSON string to object
-                                        let input = serde_json::from_str::<Value>(arguments_str).unwrap_or(serde_json::json!({}));
+                                        let input = serde_json::from_str::<Value>(arguments_str)
+                                            .unwrap_or(serde_json::json!({}));
 
                                         content.push(serde_json::json!({
                                             "toolUse": {
@@ -489,8 +487,6 @@ impl AIRequestConfig {
             })?
             .into();
 
-        println!("AWS: Transformation complete - Bedrock request: {}", serde_json::to_string_pretty(&bedrock_req).unwrap_or_default());
-
         Ok((model, transformed_body, is_streaming))
     }
 
@@ -501,14 +497,10 @@ impl AIRequestConfig {
     ) -> Result<Bytes> {
         use serde_json::Value;
 
-        println!("AWS: Transforming non-streaming Bedrock response to OpenAI format");
-
         let bedrock_resp: Value = response
             .json()
             .await
             .map_err(|e| Error::internal_err(format!("Failed to parse Bedrock response: {}", e)))?;
-
-        println!("AWS: Received Bedrock response: {}", serde_json::to_string_pretty(&bedrock_resp).unwrap_or_default());
 
         // Generate unique ID and timestamp
         let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
@@ -604,8 +596,6 @@ impl AIRequestConfig {
             })?
             .into();
 
-        println!("AWS: Successfully transformed to OpenAI response: {}", serde_json::to_string_pretty(&openai_resp).unwrap_or_default());
-
         Ok(response_body)
     }
 
@@ -620,8 +610,6 @@ impl AIRequestConfig {
         use futures::stream::StreamExt;
         use serde_json::Value;
         use std::collections::HashMap;
-
-        println!("AWS: Starting streaming response transformation (AWS event stream format)");
 
         let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
         let created = std::time::SystemTime::now()
@@ -1070,21 +1058,20 @@ async fn proxy(
     };
 
     // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-    let (model_for_transform, is_streaming) = if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-        let parsed: serde_json::Value = serde_json::from_slice(&body)
-            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-        let model = parsed["model"].as_str().unwrap_or("").to_string();
-        let is_streaming = parsed["stream"].as_bool().unwrap_or(false);
-        (Some(model), is_streaming)
-    } else {
-        (None, false)
-    };
+    let (model_for_transform, is_streaming) =
+        if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
+            let parsed: serde_json::Value = serde_json::from_slice(&body)
+                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+            let model = parsed["model"].as_str().unwrap_or("").to_string();
+            let is_streaming = parsed["stream"].as_bool().unwrap_or(false);
+            (Some(model), is_streaming)
+        } else {
+            (None, false)
+        };
 
     let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
     let response = request.send().await.map_err(to_anyhow)?;
-
-    println!("AWS: Received response from Bedrock, status: {}", response.status());
 
     let mut tx = db.begin().await?;
 
@@ -1102,18 +1089,15 @@ async fn proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
-        println!("AWS: Error response from Bedrock: {}", err_msg);
         return Err(Error::AIError(err_msg));
     }
 
     // Transform Bedrock responses back to OpenAI format
     if matches!(provider, AIProvider::AWSBedrock) && model_for_transform.is_some() {
-        println!("AWS: Starting response transformation back to OpenAI format");
         let model = model_for_transform.unwrap();
 
         if is_streaming {
             // Transform streaming response
-            println!("AWS: Transforming streaming response");
             use http::StatusCode;
 
             let mut response_headers = HeaderMap::new();
@@ -1125,7 +1109,6 @@ async fn proxy(
             let transformed_stream =
                 AIRequestConfig::transform_bedrock_stream_to_openai(stream, model);
 
-            println!("AWS: Returning streaming response");
             Ok((
                 StatusCode::OK,
                 response_headers,
@@ -1133,11 +1116,8 @@ async fn proxy(
             ))
         } else {
             // Transform non-streaming response
-            println!("AWS: Transforming non-streaming response");
             let transformed_body =
                 AIRequestConfig::transform_bedrock_to_openai(response, model).await?;
-
-            println!("AWS: Returning non-streaming response");
 
             let mut response_headers = HeaderMap::new();
             response_headers.insert("content-type", "application/json".parse().unwrap());

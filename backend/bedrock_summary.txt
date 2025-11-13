@@ -1,0 +1,159 @@
+AWS Bedrock Integration Summary
+Overview
+We implemented full AWS Bedrock support in Windmill, including:
+✅ Frontend AI Copilot (via API proxy)
+✅ AI Agent flow steps (via worker query builder)
+✅ Streaming and non-streaming responses
+✅ Tool/function calling support
+✅ Inference profile handling for newer models
+1. Backend API Proxy Implementation
+File: backend/windmill-api/src/ai.rs
+Key Components:
+a) Provider Enum (backend/windmill-common/src/ai_providers.rs)
+#[serde(rename = "aws_bedrock")]
+AWSBedrock,
+b) Request Transformation (lines 285-495)
+Function: transform_openai_to_bedrock(body: &[u8]) Specific transformations:
+System messages: Extracted to separate system array (Bedrock doesn't support system role in messages)
+Message content: Normalized to content block array format
+Tool calls: OpenAI tool_calls → Bedrock toolUse blocks
+OpenAI: {"tool_calls": [{"id": "...", "function": {...}}]}
+Bedrock: {"content": [{"toolUse": {"toolUseId": "...", "name": "...", "input": {...}}}]}
+Tool results: OpenAI "tool" role → Bedrock toolResult in user message
+Inference config: max_tokens → maxTokens, etc.
+Tools definition: OpenAI function schema → Bedrock toolSpec with inputSchema
+c) Response Transformation (lines 498-610)
+Function: transform_bedrock_to_openai(response_body: &[u8]) Specific transformations:
+Content blocks → text string
+toolUse → OpenAI tool_calls format
+Usage stats mapping
+d) Critical: AWS Event Stream Binary Format Parser (lines 614-878)
+Function: transform_bedrock_stream_to_openai(response: Response<Body>) This was the hardest part - Bedrock doesn't use SSE text format, it uses AWS event stream binary protocol: Binary message structure:
+[Prelude: 8 bytes]
+  - total_length: u32 (4 bytes)
+  - headers_length: u32 (4 bytes)
+[Prelude CRC: 4 bytes]
+[Headers: variable length]
+  - Each header: name_len (1) + name (n) + type (1) + value_len (2) + value (n)
+[Payload: JSON data]
+[Message CRC: 4 bytes]
+Key challenges solved:
+Parse binary message framing (not text lines)
+Extract :event-type header from binary format (value_type == 7 for string)
+Handle multiple event types: contentBlockStart, contentBlockDelta, contentBlockStop, messageStop
+Buffer incomplete messages across chunks
+Convert to OpenAI-compatible SSE format
+e) URL Construction (lines 189-206)
+Specific Bedrock requirements:
+Runtime API (POST /converse): bedrock-runtime.{region}.amazonaws.com
+Metadata APIs (GET /foundation-models, /inference-profiles): bedrock.{region}.amazonaws.com (no -runtime)
+Model-specific URLs: /model/{model}/converse or /model/{model}/converse-stream
+f) Authentication (lines 232-241)
+Simple Bearer token (not AWS SigV4):
+vec![("Authorization", format!("Bearer {}", api_key))]
+2. Frontend Changes
+File: frontend/src/lib/components/copilot/lib.ts
+Model Listing - Dual Endpoint Fetch
+Specific Bedrock requirement: Newer models (Claude Haiku 4.5, Nova, etc.) require inference profiles. Implementation:
+Fetch both /foundation-models AND /inference-profiles
+Check inferenceTypesSupported field:
+["ON_DEMAND"] → Use modelId directly
+["INFERENCE_PROFILE"] → Find matching inference profile, use inferenceProfileId
+Match by comparing modelArn between foundation model and inference profile models
+Filter by TEXT input/output modalities
+Graceful fallback if inference profiles unavailable
+Example:
+Foundation: anthropic.claude-haiku-4-5-20251001-v1:0 (inferenceTypesSupported: ["INFERENCE_PROFILE"])
+↓ Match by ARN
+Inference Profile: us.anthropic.claude-haiku-20240307-v1:0
+↓ Return
+Final model ID: us.anthropic.claude-haiku-20240307-v1:0 ✅ (invocable)
+3. Worker AI Agent Implementation
+Files:
+backend/windmill-worker/src/ai/providers/bedrock.rs (new, ~560 lines)
+backend/windmill-worker/src/ai/query_builder.rs
+Architecture Decision: Standalone Query Builder (No Code Sharing)
+Why not share transformation code with API proxy?
+Different contexts: HTTP streaming vs job execution
+Different dependencies: axum vs worker context
+Pattern precedent: OpenAI, GoogleAI already duplicate logic
+Simpler maintenance: Independent evolution
+BedrockQueryBuilder Implementation
+Implements QueryBuilder trait:
+build_request(): Transform OpenAI → Bedrock (same logic as API, adapted for worker context)
+parse_response(): Transform Bedrock → OpenAI (non-streaming)
+parse_streaming_response(): Parse AWS event stream binary format (adapted for worker streaming)
+get_endpoint(): Build URL with streaming support (/converse vs /converse-stream)
+get_auth_headers(): Bearer token authentication
+Key adaptation: Added stream: bool parameter to get_endpoint() trait method:
+fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType, stream: bool) -> String
+Why needed: Bedrock uses different endpoints for streaming vs non-streaming (unlike OpenAI which uses same endpoint with stream: true).
+4. Specific Challenges & Solutions
+Challenge 1: AWS Event Stream Binary Format
+Problem: Bedrock streams use binary protocol, not SSE text. Solution:
+Implemented binary message parser with proper framing
+Extract event type from binary headers
+Handle incomplete messages in buffer across chunks
+Parse JSON payload from binary data
+Challenge 2: Empty Assistant Messages
+Problem: OpenAI separates content and tool_calls, leading to empty content arrays. Error: "The content field in the Message object at messages.1 is empty" Solution: Only add messages with non-empty content arrays. Convert tool_calls to toolUse blocks in content.
+Challenge 3: Foundation Models vs Inference Profiles
+Problem: Some models can't be invoked directly (403 error). Solution:
+Fetch both endpoints
+Check inferenceTypesSupported field
+Use inference profile ID when required
+Challenge 4: Different Base URLs
+Problem: Runtime API uses bedrock-runtime.{region}.amazonaws.com, metadata APIs use bedrock.{region}.amazonaws.com. Solution: Dynamic base URL replacement based on endpoint:
+if path == "foundation-models" || path == "inference-profiles" {
+    base_url.replace("bedrock-runtime.", "bedrock.")
+}
+Challenge 5: GET Request Body Parsing
+Problem: Backend tried to parse body for all Bedrock requests, but GET requests have empty bodies. Solution: Added method check:
+if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
+    // Parse body
+}
+Challenge 6: Streaming Endpoint URLs
+Problem: Bedrock needs different URLs for streaming (/converse-stream) vs non-streaming (/converse). Solution: Updated QueryBuilder trait to include stream parameter, implemented in get_endpoint().
+5. Key Differences from Other Providers
+Aspect	OpenAI/Anthropic	AWS Bedrock
+Streaming format	SSE text (lines starting with data:)	AWS event stream binary protocol
+System messages	Part of messages array with role "system"	Separate system array
+Tool calls	Separate tool_calls field	toolUse blocks in content array
+Tool results	Separate "tool" role message	toolResult in user message content
+Model access	Direct model ID always works	May require inference profile ID
+Base URLs	Single base URL for all endpoints	Different subdomains: bedrock-runtime vs bedrock
+Streaming endpoints	Same URL with stream: true	Different path: /converse vs /converse-stream
+Authentication	API key or Bearer token	Bearer token (simplified from SigV4)
+6. Files Modified/Created
+Created:
+backend/windmill-worker/src/ai/providers/bedrock.rs (~560 lines)
+Modified:
+backend/windmill-common/src/ai_providers.rs (added AWSBedrock enum)
+backend/windmill-api/src/ai.rs (added transformation functions, ~600 lines)
+backend/windmill-worker/src/ai/query_builder.rs (added stream param, factory)
+backend/windmill-worker/src/ai/providers/mod.rs (registered bedrock module)
+backend/windmill-worker/src/ai/providers/openai.rs (updated get_endpoint signature)
+backend/windmill-worker/src/ai/providers/google_ai.rs (updated get_endpoint signature)
+backend/windmill-worker/src/ai/providers/openrouter.rs (updated get_endpoint signature)
+backend/windmill-worker/src/ai_executor.rs (pass stream param to get_endpoint)
+frontend/src/lib/components/copilot/lib.ts (dual fetch for models, ~90 lines)
+7. What's Supported
+✅ Text completions (non-streaming)
+✅ Streaming text completions with AWS event stream binary parsing
+✅ Tool/function calling (non-streaming)
+✅ Tool/function calling (streaming)
+✅ Multi-turn conversations
+✅ System prompts
+✅ Temperature and max_tokens configuration
+✅ Images (base64 data URLs)
+✅ Inference profile models (Claude Haiku 4.5, Nova, etc.)
+✅ Frontend AI Copilot
+✅ AI Agent flow steps in workers
+8. Testing Checklist
+ Frontend copilot with Bedrock (text, streaming)
+ AI agent flow step with Bedrock (text, streaming, tools)
+ Inference profile models (Claude Haiku 4.5)
+ On-demand models (older models)
+ Tool calling in conversations
+ Multi-turn conversations
+ Different regions
