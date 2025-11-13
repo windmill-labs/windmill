@@ -204,7 +204,13 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             .await
     }
 
-    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        _model: &str,
+        _output_type: &OutputType,
+        _stream: bool,
+    ) -> String {
         // OpenRouter uses the same endpoint for both text and image generation
         format!("{}/chat/completions", base_url)
     }
