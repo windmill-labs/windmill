@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.575.3](https://github.com/windmill-labs/windmill/compare/v1.575.2...v1.575.3) (2025-11-13)
+
+
+### Bug Fixes
+
+* fix cancel job selection ([fbab86c](https://github.com/windmill-labs/windmill/commit/fbab86cc43dae17727a3aa99abc43a57c6b59b57))
+
 ## [1.575.2](https://github.com/windmill-labs/windmill/compare/v1.575.1...v1.575.2) (2025-11-13)
 
 
