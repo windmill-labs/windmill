@@ -190,10 +190,16 @@ impl BedrockQueryBuilder {
                     };
 
                     // Parse content as JSON if possible, otherwise use as text
+                    // Bedrock requires json field to be an object, not a primitive or array
                     let tool_result_content = if let Ok(parsed) =
                         serde_json::from_str::<Value>(&content_text)
                     {
-                        parsed
+                        if parsed.is_object() {
+                            parsed
+                        } else {
+                            // Wrap primitives and arrays in an object
+                            serde_json::json!({"result": parsed})
+                        }
                     } else {
                         serde_json::json!({"result": content_text})
                     };
