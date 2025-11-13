@@ -380,12 +380,12 @@ impl ServerHandler for Runner {
 
         // Determine query parameters based on scope configuration
         let (scope_type, scope_path) = if scope_config.all {
-            ("all", None)
+            ("all", None::<&str>)
         } else if scope_config.favorites {
-            ("favorites", None)
+            ("favorites", None::<&str>)
         } else {
             // For granular scopes, fetch all and filter after
-            ("all", None)
+            ("all", None::<&str>)
         };
 
         let scripts_fn = get_items::<ScriptInfo>(
