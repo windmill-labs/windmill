@@ -172,6 +172,7 @@ const START_BRACKET_PATTERN: &'static str = "[\"";
 const END_BRACKET_PATTERN: &'static str = "\"]";
 
 /// Determines if we should prepend "return" to the expression
+#[cfg(feature = "deno_core")]
 fn should_add_return(expr: &str) -> bool {
     // Trim whitespace
     let trimmed = expr.trim();
@@ -211,6 +212,7 @@ fn should_add_return(expr: &str) -> bool {
 }
 
 /// Checks if the expression contains a semicolon outside of strings
+#[cfg(feature = "deno_core")]
 fn contains_semicolon_outside_strings(expr: &str) -> bool {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
