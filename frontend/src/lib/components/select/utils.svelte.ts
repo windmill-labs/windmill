@@ -44,6 +44,7 @@ export type ProcessedItem<T> = {
 	label: string
 	value: T
 	subtitle?: string
+	disabled?: boolean
 }
 
 export function getLabel<T>(item: { label?: string; value: T } | undefined): string | undefined {
@@ -51,7 +52,7 @@ export function getLabel<T>(item: { label?: string; value: T } | undefined): str
 	if (item.label) return item.label
 	if (typeof item.value === 'string') return item.value
 	if (typeof item.value == 'number' || typeof item.value == 'boolean') return item.value.toString()
-	if (item.value == null) { return undefined }
+	if (item.value == null) return undefined
 	return JSON.stringify(item.value)
 }
 
