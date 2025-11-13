@@ -1050,6 +1050,7 @@ async fn route_job(
                 trigger.error_handler_args.as_ref(),
                 format!("http_trigger/{}", trigger.path),
                 None,
+                Some(windmill_common::jobs::JobTriggerKind::Http),
             )
             .await
             .map_err(|e| e.into_response())?;
@@ -1108,6 +1109,7 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
+            Some(windmill_common::jobs::JobTriggerKind::Http),
         )
         .await
         .map_err(|e| e.into_response()),
@@ -1123,6 +1125,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
+            Some(windmill_common::jobs::JobTriggerKind::Http),
         )
         .await
         .map_err(|e| e.into_response()),

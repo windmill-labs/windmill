@@ -550,7 +550,7 @@
 	)
 </script>
 
-<div class="p-4 bg-surface mb-4 h-full">
+<div class="p-4 bg-surface mb-4 h-full text-xs">
 	{#if logs.length === 0}
 		<div class="text-center py-8 text-secondary"> No audit logs to display </div>
 	{:else if !groupedData || groupedData.status === 'loading'}

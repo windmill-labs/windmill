@@ -44,17 +44,16 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { randomUUID } from '../conversations/FlowChatManager.svelte'
+	import FlowChat from '../conversations/FlowChat.svelte'
 
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
-		onTestFlow?: () => Promise<string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
 	}
 
@@ -70,6 +69,15 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 	let showChatModeWarning = $state(false)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
@@ -218,7 +226,7 @@
 	}
 
 	async function runPreview() {
-		await onTestFlow?.()
+		await onTestFlow?.(undefined)
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
@@ -371,9 +379,12 @@
 		firstStepInputs?.resetSelected(true)
 	}
 
-	async function runFlowWithMessage(message: string): Promise<string | undefined> {
+	async function runFlowWithMessage(
+		message: string,
+		conversationId: string
+	): Promise<string | undefined> {
 		previewArgs.val = { user_message: message }
-		const jobId = await onTestFlow?.()
+		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
 
@@ -488,13 +499,12 @@
 	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
-				<div class="flex-1 min-h-0">
-					<FlowChatInterface
+				<div class="flex flex-col h-full">
+					<FlowChat
 						onRunFlow={runFlowWithMessage}
-						createConversation={async () => {
-							const newConversationId = randomUUID()
-							return newConversationId
-						}}
+						path={$pathStore}
+						hideSidebar={true}
+						useStreaming={shouldUseStreaming}
 					/>
 				</div>
 			{:else}

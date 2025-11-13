@@ -268,6 +268,7 @@
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
 								btnClasses={twMerge(
+									'hover:bg-surface',
 									'font-mono h-4 py-1 text-2xs',
 									'font-thin px-1 rounded-[0.275rem]',
 									metaData ? 'rounded-r-none border-r-0.5' : ''
