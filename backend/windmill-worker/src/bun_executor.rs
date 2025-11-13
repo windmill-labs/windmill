@@ -1593,6 +1593,7 @@ pub async fn start_worker(
     job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
@@ -1744,6 +1745,12 @@ BigInt.prototype.toJSON = function () {{
 
 console.log('start');
 
+function getArgs(line) {{
+    let {{ {spread} }} = JSON.parse(line)
+    {dates}
+    return [ {spread} ];
+}}
+
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
@@ -1751,9 +1758,8 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         process.exit(0);
     }}
     try {{
-        let {{ {spread} }} = JSON.parse(line)
-        {dates}
-        let res = await Main.main(...[ {spread} ]);
+        const args = getArgs(line);
+        const res = await Main.main(...args);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
         console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
@@ -1819,6 +1825,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             db,
             &script_path,
             "nodejs",
+            client,
         )
         .await
     } else {
@@ -1845,6 +1852,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             db,
             script_path,
             "bun",
+            client,
         )
         .await
     }

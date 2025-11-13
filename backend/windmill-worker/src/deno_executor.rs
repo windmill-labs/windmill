@@ -533,6 +533,7 @@ pub async fn start_worker(
     jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: windmill_common::client::AuthedClient,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -653,6 +654,7 @@ for await (const chunk of Deno.stdin.readable) {{
         db,
         script_path,
         "deno",
+        client,
     )
     .await
 }

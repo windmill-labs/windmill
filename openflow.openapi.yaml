@@ -383,6 +383,8 @@ components:
           type: boolean
         parallelism:
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - iterator
@@ -406,6 +408,8 @@ components:
           type: boolean
         parallelism:
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - skip_failures

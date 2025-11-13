@@ -187,20 +187,24 @@
 						/>
 					</div>
 					<div class="flex-shrink-0">
-						<div class="mb-2 text-sm font-bold">Optimized</div>
+						<div class="mb-2 text-sm font-bold"
+							>Squash
+							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+								Squashing a for loop runs all steps on the same worker using common runners (no cold
+								start between iterations) for supported languages (TypeScript and Python).
+							</Tooltip></div
+						>
 						<Toggle
-							bind:checked={mod.value.optimized}
+							bind:checked={mod.value.squash}
 							on:change={({ detail }) => {
-								;(mod.value as ForloopFlow).optimized = detail
+								;(mod.value as ForloopFlow).squash = detail
 							}}
 							options={{
-								right: 'Optimized execution'
+								right: 'Squash'
 							}}
 							class="whitespace-nowrap"
+							disabled={mod.value.parallel}
 						/>
-						<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-							Optimized execution will start the runners for the first iteration only.
-						</Tooltip>
 					</div>
 					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold">Run in parallel</div>
@@ -215,6 +219,7 @@
 								right: 'All iterations run in parallel'
 							}}
 							class="whitespace-nowrap"
+							disabled={mod.value.squash}
 						/>
 					</div>
 					<div class="flex-shrink-0">

@@ -83,6 +83,7 @@ pub async fn handle_dedicated_process(
     db: &DB,
     script_path: &str,
     mode: &str,
+    client: windmill_common::client::AuthedClient,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
 
@@ -156,6 +157,8 @@ pub async fn handle_dedicated_process(
     let init_log = format!("dedicated worker {mode}: {worker_name}\n\n");
     let mut logs = init_log.clone();
     loop {
+        use crate::common::transform_json;
+
         tokio::select! {
             biased;
             _ = killpill_rx.recv(), if alive => {
@@ -230,7 +233,15 @@ pub async fn handle_dedicated_process(
                 // i += 1;
                 if let Some(DedicatedWorkerJob { job, flow_runners, done_tx }) = dedicated_job {
                     let id = job.id;
-                    let args = serde_json::to_string(&job.args).expect("serialize");
+                    let args = if let Some(args) = job.args.as_ref() {
+                        if let Some(x) = transform_json(&client, &job.workspace_id, &args.0, &job, &db.into()).await? {
+                            serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string())
+                        } else {
+                            serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string())
+                        }
+                    } else {
+                        "{}".to_string()
+                    };
                     jobs.push_back((MiniCompletedJob::from(job), flow_runners, done_tx));
                     tracing::info!("received job and adding to queue on dedicated worker for {script_path}: {} (queue_size: {})", id, jobs.len());
 
@@ -268,7 +279,7 @@ async fn spawn_dedicated_workers_for_flow(
     modules_node: Option<FlowNodeId>,
     w_id: &str,
     path: &str,
-    killpill_tx: KillpillSender,
+    killpill_tx: Option<KillpillSender>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -277,7 +288,7 @@ async fn spawn_dedicated_workers_for_flow(
     job_completed_tx: &JobCompletedSender,
     flow_job_id: Option<&str>,
     parent_module_id: Option<String>,
-) -> Vec<DedicatedWorker> {
+) -> error::Result<Vec<DedicatedWorker>> {
     use crate::worker_flow::is_simple_modules;
 
     let mut workers = vec![];
@@ -286,8 +297,7 @@ async fn spawn_dedicated_workers_for_flow(
     if let Some(modules_node) = modules_node {
         modules = cache::flow::fetch_flow(db, modules_node)
             .await
-            .map(|data| data.value().modules.clone())
-            .unwrap();
+            .map(|data| data.value().modules.clone())?
     }
 
     let simple_parent_module_id =
@@ -329,7 +339,7 @@ async fn spawn_dedicated_workers_for_flow(
                             ),
                             flow_job_id,
                         )
-                        .await
+                        .await?
                         {
                             script_path_to_worker.insert(key, dedi_w.1.clone());
                             workers.push(dedi_w);
@@ -353,7 +363,7 @@ async fn spawn_dedicated_workers_for_flow(
                         flow_job_id,
                         Some(module.id.clone()),
                     )
-                    .await;
+                    .await?;
                     workers.extend(w);
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
@@ -373,7 +383,7 @@ async fn spawn_dedicated_workers_for_flow(
                         flow_job_id,
                         Some(module.id.clone()),
                     )
-                    .await;
+                    .await?;
                     workers.extend(w);
                 }
                 FlowModuleValue::BranchOne { branches, default, default_node, .. } => {
@@ -398,7 +408,7 @@ async fn spawn_dedicated_workers_for_flow(
                             flow_job_id,
                             None,
                         )
-                        .await;
+                        .await?;
                         workers.extend(w);
                     }
                 }
@@ -420,7 +430,7 @@ async fn spawn_dedicated_workers_for_flow(
                             flow_job_id,
                             None,
                         )
-                        .await;
+                        .await?;
                         workers.extend(w);
                     }
                 }
@@ -447,7 +457,7 @@ async fn spawn_dedicated_workers_for_flow(
                         ),
                         flow_job_id,
                     )
-                    .await
+                    .await?
                     {
                         workers.push(dedi_w);
                     }
@@ -484,7 +494,7 @@ async fn spawn_dedicated_workers_for_flow(
                                 ),
                                 flow_job_id,
                             )
-                            .await
+                            .await?
                             {
                                 workers.push(dedi_w);
                             }
@@ -504,31 +514,30 @@ async fn spawn_dedicated_workers_for_flow(
             tracing::error!("failed to get value for module: {:?}", module);
         }
     }
-    workers
+    Ok(workers)
 }
 
 pub async fn spawn_flow_module_runners(
     job: &MiniPulledJob,
     module: &FlowModule,
     failure_module: Option<&Box<FlowModule>>,
-    killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
-) -> (
+) -> error::Result<(
     HashMap<String, Sender<DedicatedWorkerJob>>,
     Vec<JoinHandle<()>>,
-) {
+)> {
     let workers = spawn_dedicated_workers_for_flow(
         vec![module.clone()],
         failure_module,
         None,
         &job.workspace_id,
         job.runnable_path(),
-        killpill_tx.clone(),
+        None,
         &killpill_rx,
         db,
         &worker_dir,
@@ -538,7 +547,7 @@ pub async fn spawn_flow_module_runners(
         Some(job.id.to_string().as_str()),
         None,
     )
-    .await;
+    .await?;
 
     tracing::info!("spawned dedicated workers for flow: {:?}", workers);
 
@@ -551,7 +560,7 @@ pub async fn spawn_flow_module_runners(
         }
         hm.insert(path, sender);
     });
-    (hm, dedicated_handles)
+    Ok((hm, dedicated_handles))
 }
 
 pub async fn create_dedicated_worker_map(
@@ -592,13 +601,13 @@ pub async fn create_dedicated_worker_map(
                         ))
                     });
                     if let Ok(flow) = value {
-                        let workers = spawn_dedicated_workers_for_flow(
+                        match spawn_dedicated_workers_for_flow(
                             flow.modules,
                             flow.failure_module.as_ref(),
                             None,
                             &_wp.workspace_id,
                             &_wp.path,
-                            killpill_tx.clone(),
+                            Some(killpill_tx.clone()),
                             &killpill_rx,
                             db,
                             &worker_dir,
@@ -608,14 +617,26 @@ pub async fn create_dedicated_worker_map(
                             None,
                             None,
                         )
-                        .await;
-                        workers.into_iter().for_each(|(path, sender, handle)| {
-                            tracing::info!("spawned dedicated worker for flow: {}", path.as_str());
-                            if let Some(h) = handle {
-                                dedicated_handles.push(h);
+                        .await
+                        {
+                            Ok(workers) => {
+                                workers.into_iter().for_each(|(path, sender, handle)| {
+                                    tracing::info!(
+                                        "spawned dedicated worker for flow: {}",
+                                        path.as_str()
+                                    );
+                                    if let Some(h) = handle {
+                                        dedicated_handles.push(h);
+                                    }
+                                    hm.insert(path, sender);
+                                });
                             }
-                            hm.insert(path, sender);
-                        });
+                            Err(e) => tracing::error!(
+                                "failed to spawn dedicated workers for flow {}: {}",
+                                flow_path,
+                                e
+                            ),
+                        };
                     }
                 } else {
                     tracing::error!(
@@ -628,10 +649,10 @@ pub async fn create_dedicated_worker_map(
             }
         } else {
             is_flow_worker = false;
-            if let Some((path, sender, handle)) = spawn_dedicated_worker(
+            match spawn_dedicated_worker(
                 SpawnWorker::Script { path: _wp.path.clone(), hash: None },
                 &_wp.workspace_id,
-                killpill_tx.clone(),
+                Some(killpill_tx.clone()),
                 &killpill_rx,
                 db,
                 &worker_dir,
@@ -643,15 +664,23 @@ pub async fn create_dedicated_worker_map(
             )
             .await
             {
-                if let Some(h) = handle {
-                    dedicated_handles.push(h);
+                Ok(Some((path, sender, handle))) => {
+                    if let Some(h) = handle {
+                        dedicated_handles.push(h);
+                    }
+                    hm.insert(path, sender);
                 }
-                hm.insert(path, sender);
-            } else {
-                tracing::error!(
-                    "failed to spawn dedicated worker for {}, script not found",
-                    _wp.path
-                );
+                Ok(None) => {
+                    tracing::error!(
+                        "Language of script {} not supported for dedicated worker",
+                        _wp.path
+                    );
+                    killpill_tx.send();
+                }
+                Err(e) => {
+                    tracing::error!("failed to spawn dedicated worker for {}: {}", _wp.path, e);
+                    killpill_tx.send();
+                }
             }
         }
         (hm, is_flow_worker, dedicated_handles)
@@ -673,7 +702,7 @@ pub enum SpawnWorker {
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
-    killpill_tx: KillpillSender,
+    killpill_tx: Option<KillpillSender>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -682,7 +711,7 @@ async fn spawn_dedicated_worker(
     job_completed_tx: &JobCompletedSender,
     node_id: Option<String>,
     flow_job_id: Option<&str>,
-) -> Option<DedicatedWorker> {
+) -> error::Result<Option<DedicatedWorker>> {
     use windmill_common::{
         error::Error,
         scripts::{ScriptHash, ScriptLang},
@@ -691,56 +720,47 @@ async fn spawn_dedicated_worker(
 
     use crate::{build_envs, get_script_content_by_hash, ContentReqLangEnvs};
 
-    #[cfg(not(feature = "enterprise"))]
-    {
-        tracing::error!("Dedicated worker is an enterprise feature");
-        killpill_tx.send(()).expect("send");
-        return None;
-    }
+    let (dedicated_worker_tx, dedicated_worker_rx) =
+        tokio::sync::mpsc::channel::<DedicatedWorkerJob>(MAX_BUFFERED_DEDICATED_JOBS);
+    let killpill_rx = killpill_rx.resubscribe();
+    let db2 = db.clone();
+    let base_internal_url = base_internal_url.to_string();
+    let worker_name = worker_name.to_string();
+    let job_completed_tx = job_completed_tx.clone();
+    let job_dir = format!(
+        "{}/dedicated{}{}",
+        worker_dir,
+        flow_job_id
+            .as_ref()
+            .map(|x| format!("-{x}"))
+            .unwrap_or_else(|| "".to_string()),
+        node_id
+            .as_ref()
+            .map(|x| format!("-{x}"))
+            .unwrap_or_else(|| "".to_string())
+    );
+    tokio::fs::create_dir_all(&job_dir)
+        .await
+        .expect("create dir");
 
-    #[cfg(feature = "enterprise")]
-    {
-        let (dedicated_worker_tx, dedicated_worker_rx) =
-            tokio::sync::mpsc::channel::<DedicatedWorkerJob>(MAX_BUFFERED_DEDICATED_JOBS);
-        let killpill_rx = killpill_rx.resubscribe();
-        let db2 = db.clone();
-        let base_internal_url = base_internal_url.to_string();
-        let worker_name = worker_name.to_string();
-        let job_completed_tx = job_completed_tx.clone();
-        let job_dir = format!(
-            "{}/dedicated{}{}",
-            worker_dir,
-            flow_job_id
-                .as_ref()
-                .map(|x| format!("-{x}"))
-                .unwrap_or_else(|| "".to_string()),
-            node_id
-                .as_ref()
-                .map(|x| format!("-{x}"))
-                .unwrap_or_else(|| "".to_string())
-        );
-        tokio::fs::create_dir_all(&job_dir)
-            .await
-            .expect("create dir");
+    let path = match &sw {
+        SpawnWorker::RawScript { path, .. } => path.to_string(),
+        SpawnWorker::Script { path, .. } => path.to_string(),
+    };
 
-        let path = match &sw {
-            SpawnWorker::RawScript { path, .. } => path.to_string(),
-            SpawnWorker::Script { path, .. } => path.to_string(),
-        };
+    let path2 = path.clone();
+    let w_id = w_id.to_string();
 
-        let path2 = path.clone();
-        let w_id = w_id.to_string();
-
-        let (content, lock, language, envs, codebase) = match sw.clone() {
-            SpawnWorker::Script { path, hash } => {
-                let q = if let Some(hash) = hash {
-                    get_script_content_by_hash(&hash, &w_id, &db2.into())
-                        .await
-                        .map(|r: ContentReqLangEnvs| {
-                            Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
-                        })
-                } else {
-                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
+    let (content, lock, language, envs, codebase) = match sw.clone() {
+        SpawnWorker::Script { path, hash } => {
+            let q = if let Some(hash) = hash {
+                get_script_content_by_hash(&hash, &w_id, &db2.into())
+                    .await
+                    .map(|r: ContentReqLangEnvs| {
+                        Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
+                    })
+            } else {
+                sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
                         "SELECT content, lock, language, envs, codebase IS NOT NULL, hash FROM script WHERE path = $1 AND workspace_id = $2 AND
                             archived = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
                     )
@@ -750,128 +770,154 @@ async fn spawn_dedicated_worker(
                     .await
                     .map_err(|e| Error::internal_err(format!("expected content and lock: {e:#}")))
                     .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None })))
-                };
-                if let Ok(q) = q {
-                    if let Some(wp) = q {
-                        wp
-                    } else {
-                        tracing::error!(
-                            "Failed to fetch script `{}` in workspace {} for dedicated worker.",
-                            path,
-                            w_id
-                        );
-                        return None;
-                    }
+            };
+            if let Ok(q) = q {
+                if let Some(wp) = q {
+                    wp
                 } else {
-                    tracing::error!("Failed to fetch script for dedicated worker");
-                    killpill_tx.send();
-                    return None;
+                    return Err(Error::internal_err(format!(
+                        "Failed to fetch script `{}` in workspace {} for dedicated worker.",
+                        path, w_id
+                    )));
                 }
+            } else {
+                return Err(Error::internal_err(format!(
+                    "Failed to fetch script for dedicated worker"
+                )));
             }
-            SpawnWorker::RawScript { content, lock, lang, .. } => {
-                (content, lock, Some(lang), None, None)
+        }
+        SpawnWorker::RawScript { content, lock, lang, .. } => {
+            (content, lock, Some(lang), None, None)
+        }
+    };
+
+    match language {
+        Some(ScriptLang::Python3) | Some(ScriptLang::Bun) | Some(ScriptLang::Deno) => {}
+        _ => return Ok(None),
+    }
+
+    let db = db.clone();
+    let handle = tokio::spawn(async move {
+        let token = {
+            let token = rd_string(32);
+            if let Err(e) = sqlx::query_scalar!(
+                "INSERT INTO token
+                    (token, label, super_admin, email)
+                    VALUES ($1, $2, $3, $4)",
+                token,
+                "dedicated_worker",
+                true,
+                "dedicated_worker@windmill.dev"
+            )
+            .execute(&db)
+            .await
+            {
+                tracing::error!("failed to create token for dedicated worker: {:?}", e);
+                if let Some(killpill_tx) = killpill_tx.as_ref() {
+                    killpill_tx.send();
+                }
+                return;
+            };
+            token
+        };
+
+        let worker_envs = match build_envs(envs.as_ref()) {
+            Ok(envs) => envs,
+            Err(e) => {
+                tracing::error!("failed to build envs for dedicated worker: {:?}", e);
+                if let Some(killpill_tx) = killpill_tx {
+                    killpill_tx.send();
+                }
+                return;
             }
         };
 
-        match language {
-            Some(ScriptLang::Python3) | Some(ScriptLang::Bun) | Some(ScriptLang::Deno) => {}
-            _ => return None,
-        }
+        let client = windmill_common::client::AuthedClient {
+            base_internal_url: base_internal_url.to_string(),
+            workspace: w_id.to_string(),
+            token: token.to_string(),
+            force_client: None,
+        };
 
-        let db = db.clone();
-        let handle = tokio::spawn(async move {
-            let token = {
-                let token = rd_string(32);
-                if let Err(e) = sqlx::query_scalar!(
-                    "INSERT INTO token
-                    (token, label, super_admin, email)
-                    VALUES ($1, $2, $3, $4)",
-                    token,
-                    "dedicated_worker",
-                    true,
-                    "dedicated_worker@windmill.dev"
-                )
-                .execute(&db)
-                .await
+        if let Err(e) = match language {
+            Some(ScriptLang::Python3) => {
+                #[cfg(not(feature = "python"))]
                 {
-                    tracing::error!("failed to create token for dedicated worker: {:?}", e);
-                    killpill_tx.clone().send();
-                };
-                token
-            };
-
-            let worker_envs = build_envs(envs.as_ref()).expect("failed to build envs");
-
-            if let Err(e) = match language {
-                Some(ScriptLang::Python3) => {
-                    #[cfg(not(feature = "python"))]
-                    {
-                        tracing::error!("Python requires the python feature to be enabled");
+                    tracing::error!("Python requires the python feature to be enabled");
+                    if let Some(killpill_tx) = killpill_tx {
                         killpill_tx.send();
-                        return;
                     }
+                    return;
+                }
 
-                    #[cfg(feature = "python")]
-                    crate::python_executor::start_worker(
-                        lock.as_ref(),
-                        &db,
-                        &content,
-                        &base_internal_url,
-                        &job_dir,
-                        &worker_name,
-                        worker_envs,
-                        &w_id,
-                        &path,
-                        &token,
-                        job_completed_tx,
-                        dedicated_worker_rx,
-                        killpill_rx,
-                    )
-                    .await
-                }
-                Some(ScriptLang::Bun) => {
-                    crate::bun_executor::start_worker(
-                        lock,
-                        codebase,
-                        &db,
-                        &content,
-                        &base_internal_url,
-                        &job_dir,
-                        &worker_name,
-                        worker_envs,
-                        &w_id,
-                        &path,
-                        &token,
-                        job_completed_tx,
-                        dedicated_worker_rx,
-                        killpill_rx,
-                    )
-                    .await
-                }
-                Some(ScriptLang::Deno) => {
-                    crate::deno_executor::start_worker(
-                        &content,
-                        &base_internal_url,
-                        &job_dir,
-                        &worker_name,
-                        worker_envs,
-                        &w_id,
-                        &path,
-                        &token,
-                        job_completed_tx,
-                        dedicated_worker_rx,
-                        killpill_rx,
-                        &db,
-                    )
-                    .await
-                }
-                _ => unreachable!("Non supported language for dedicated worker"),
-            } {
-                tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
-            };
+                #[cfg(feature = "python")]
+                crate::python_executor::start_worker(
+                    lock.as_ref(),
+                    &db,
+                    &content,
+                    &base_internal_url,
+                    &job_dir,
+                    &worker_name,
+                    worker_envs,
+                    &w_id,
+                    &path,
+                    &token,
+                    job_completed_tx,
+                    dedicated_worker_rx,
+                    killpill_rx,
+                    client,
+                )
+                .await
+            }
+            Some(ScriptLang::Bun) => {
+                crate::bun_executor::start_worker(
+                    lock,
+                    codebase,
+                    &db,
+                    &content,
+                    &base_internal_url,
+                    &job_dir,
+                    &worker_name,
+                    worker_envs,
+                    &w_id,
+                    &path,
+                    &token,
+                    job_completed_tx,
+                    dedicated_worker_rx,
+                    killpill_rx,
+                    client,
+                )
+                .await
+            }
+            Some(ScriptLang::Deno) => {
+                crate::deno_executor::start_worker(
+                    &content,
+                    &base_internal_url,
+                    &job_dir,
+                    &worker_name,
+                    worker_envs,
+                    &w_id,
+                    &path,
+                    &token,
+                    job_completed_tx,
+                    dedicated_worker_rx,
+                    killpill_rx,
+                    &db,
+                    client,
+                )
+                .await
+            }
+            _ => unreachable!("Non supported language for dedicated worker"),
+        } {
+            tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
+        };
+        if let Some(killpill_tx) = killpill_tx {
             killpill_tx.clone().send();
-        });
-        return Some((node_id.unwrap_or(path2), dedicated_worker_tx, Some(handle)));
-        // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))
-    }
+        }
+    });
+    return Ok(Some((
+        node_id.unwrap_or(path2),
+        dedicated_worker_tx,
+        Some(handle),
+    )));
 }

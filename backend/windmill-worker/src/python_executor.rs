@@ -2153,6 +2153,7 @@ pub async fn start_worker(
     job_completed_tx: JobCompletedSender,
     jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> error::Result<()> {
     use crate::{PyV, PyVAlias};
 
@@ -2345,6 +2346,7 @@ for line in sys.stdin:
         db,
         script_path,
         "python",
+        client,
     )
     .await
 }

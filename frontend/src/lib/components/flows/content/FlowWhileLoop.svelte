@@ -14,7 +14,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
@@ -86,7 +86,7 @@
 
 			{#if mod.value.type === 'whileloopflow'}
 				<div class="flex flex-row gap-8 mt-2 mb-6">
-					<div>
+					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold"
 							>Skip failures <Tooltip
 								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
@@ -100,6 +100,25 @@
 							options={{
 								right: 'Skip failures'
 							}}
+						/>
+					</div>
+					<div class="flex-shrink-0">
+						<div class="mb-2 text-sm font-bold"
+							>Squash
+							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+								Squashing a while loop runs all steps on the same worker using common runners (no
+								cold start between iterations) for supported languages (TypeScript and Python).
+							</Tooltip></div
+						>
+						<Toggle
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as WhileloopFlow).squash = detail
+							}}
+							options={{
+								right: 'Squash'
+							}}
+							class="whitespace-nowrap"
 						/>
 					</div>
 				</div>

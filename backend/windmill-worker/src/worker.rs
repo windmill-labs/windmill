@@ -762,6 +762,7 @@ pub async fn handle_all_job_kind_error(
     worker_dir: &str,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     match conn {
@@ -778,6 +779,7 @@ pub async fn handle_all_job_kind_error(
                 &worker_dir,
                 &worker_name,
                 job_completed_tx.clone(),
+                &killpill_rx,
                 #[cfg(feature = "benchmark")]
                 bench,
             )
@@ -1791,15 +1793,43 @@ pub async fn run_worker(
                                 let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
                                 let flow_runners = flow_runners.clone();
 
+                                let job = job.job();
+
                                 let dedicated_job = DedicatedWorkerJob {
-                                    job: Arc::new(job.job()),
+                                    job: Arc::new(job.clone()),
                                     #[cfg(feature = "enterprise")]
                                     flow_runners: Some(flow_runners),
                                     done_tx: Some(done_tx),
                                 };
 
                                 if let Err(e) = flow_runner_tx.send(dedicated_job).await {
-                                    tracing::info!("failed to send jobs to flow runners: {e:?}");
+                                    let token = match &conn {
+                                        Connection::Sql(db) => {
+                                            windmill_queue::jobs::create_token(db, &job, None).await
+                                        }
+                                        _ => "".to_string(),
+                                    };
+                                    handle_all_job_kind_error(
+                                        &conn,
+                                        &AuthedClient::new(
+                                            base_internal_url.to_owned(),
+                                            job.workspace_id.clone(),
+                                            token,
+                                            None,
+                                        ),
+                                        MiniCompletedJob::from(job),
+                                        error::Error::InternalErr(format!(
+                                            "failed to send jobs to flow runners: {e:?}"
+                                        )),
+                                        Some(&same_worker_tx),
+                                        &worker_dir,
+                                        &worker_name,
+                                        job_completed_tx.clone(),
+                                        &killpill_rx,
+                                        #[cfg(feature = "benchmark")]
+                                        &mut bench,
+                                    )
+                                    .await;
                                 } else {
                                     if let Err(err) = done_rx.await {
                                         tracing::error!("Flow runner done channel has been dropped without being received: {err:?}");
@@ -2060,6 +2090,7 @@ pub async fn run_worker(
                                 &worker_dir,
                                 &worker_name,
                                 job_completed_tx.clone(),
+                                &killpill_rx,
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
                             )
@@ -2606,6 +2637,7 @@ pub async fn handle_queued_job(
                 job_completed_tx.clone(),
                 worker_name,
                 flow_runners,
+                &killpill_rx,
             ))
             .warn_after_seconds(10)
             .await?;
