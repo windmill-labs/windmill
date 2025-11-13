@@ -60,7 +60,6 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
-#[cfg(feature = "enterprise")]
 use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::FlowRunners;
 use windmill_queue::MiniCompletedJob;
@@ -1372,7 +1371,7 @@ pub async fn run_worker(
 
     #[cfg(not(feature = "enterprise"))]
     let (dedicated_workers, is_flow_worker, dedicated_handles): (
-        HashMap<String, Sender<Arc<MiniPulledJob>>>,
+        HashMap<String, Sender<DedicatedWorkerJob>>,
         bool,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), false, vec![]);
@@ -1758,7 +1757,6 @@ pub async fn run_worker(
                             if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
                                 let dedicated_job = DedicatedWorkerJob {
                                     job: Arc::new(job.job()),
-                                    #[cfg(feature = "enterprise")]
                                     flow_runners: None,
                                     done_tx: None,
                                 };
@@ -1797,7 +1795,6 @@ pub async fn run_worker(
 
                                 let dedicated_job = DedicatedWorkerJob {
                                     job: Arc::new(job.clone()),
-                                    #[cfg(feature = "enterprise")]
                                     flow_runners: Some(flow_runners),
                                     done_tx: Some(done_tx),
                                 };

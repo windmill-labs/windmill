@@ -9,11 +9,9 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-#[cfg(feature = "enterprise")]
 use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
-#[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
 
 use crate::{
@@ -40,10 +38,8 @@ use tokio::{fs::File, process::Command};
 
 use tokio::io::AsyncReadExt;
 
-#[cfg(feature = "enterprise")]
 use tokio::sync::mpsc::Receiver;
 
-#[cfg(feature = "enterprise")]
 use windmill_common::variables;
 
 use windmill_common::{
@@ -1574,10 +1570,8 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
-#[cfg(feature = "enterprise")]
 use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
 
-#[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
     codebase: Option<String>,

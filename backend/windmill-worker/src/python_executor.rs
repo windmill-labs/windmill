@@ -2129,16 +2129,12 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     }
 }
 
-#[cfg(feature = "enterprise")]
 use crate::JobCompletedSender;
-#[cfg(feature = "enterprise")]
 use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
-#[cfg(feature = "enterprise")]
 use windmill_common::variables;
 
 use windmill_queue::MiniPulledJob;
 
-#[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,

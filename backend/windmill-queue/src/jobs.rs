@@ -5770,7 +5770,6 @@ async fn restarted_flows_resolution(
 // Wrapper struct to send both job and optional flow_runners to dedicated workers
 pub struct DedicatedWorkerJob {
     pub job: Arc<MiniPulledJob>,
-    #[cfg(feature = "enterprise")]
     pub flow_runners: Option<Arc<FlowRunners>>,
     pub done_tx: Option<oneshot::Sender<()>>,
 }

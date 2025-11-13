@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
-use crate::dedicated_worker::spawn_flow_module_runners;
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -3630,24 +3629,25 @@ async fn push_next_flow_job(
     if continue_on_same_worker || continue_with_runners {
         let flow_runners = if start_runners {
             tracing::info!("start flow runners for job: {}", first_uuid);
-            let (new_flow_runners, new_flow_runner_handles) = spawn_flow_module_runners(
-                &flow_job,
-                module,
-                flow.failure_module.as_ref(),
-                &killpill_rx,
-                db,
-                worker_dir,
-                &client.base_internal_url,
-                worker_name,
-                &job_completed_tx,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to spawn flow module runners for job: {}",
-                    flow_job.id
+            let (new_flow_runners, new_flow_runner_handles) =
+                crate::dedicated_worker::spawn_flow_module_runners(
+                    &flow_job,
+                    module,
+                    flow.failure_module.as_ref(),
+                    &killpill_rx,
+                    db,
+                    worker_dir,
+                    &client.base_internal_url,
+                    worker_name,
+                    &job_completed_tx,
                 )
-            })?;
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to spawn flow module runners for job: {}",
+                        flow_job.id
+                    )
+                })?;
 
             let flow_runners = FlowRunners {
                 runners: new_flow_runners,

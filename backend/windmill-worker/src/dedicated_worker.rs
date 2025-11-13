@@ -12,10 +12,12 @@ use tokio::{
     process::Command,
     task::JoinHandle,
 };
-use windmill_common::error::Error;
 #[cfg(feature = "enterprise")]
+use windmill_common::error::Error;
 use windmill_common::flows::FlowNodeId;
+#[cfg(feature = "enterprise")]
 use windmill_common::flows::FlowValue;
+#[cfg(feature = "enterprise")]
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::KillpillSender;
 use windmill_common::{
@@ -28,7 +30,6 @@ use windmill_common::{
 };
 use windmill_queue::append_logs;
 use windmill_queue::MiniPulledJob;
-#[cfg(feature = "enterprise")]
 use windmill_queue::{DedicatedWorkerJob, FlowRunners};
 
 use anyhow::Context;
@@ -66,7 +67,6 @@ async fn write_stdin(stdin: &mut tokio::process::ChildStdin, s: &str) -> error::
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
 pub async fn handle_dedicated_process(
     command_path: &String,
     job_dir: &str,
@@ -272,7 +272,6 @@ type DedicatedWorker = (String, Sender<DedicatedWorkerJob>, Option<JoinHandle<()
 
 // spawn one dedicated worker per compatible steps of the flow, associating the node id to the dedicated worker channel send
 #[async_recursion]
-#[cfg(feature = "enterprise")]
 async fn spawn_dedicated_workers_for_flow(
     mut modules: Vec<FlowModule>,
     failure_module: Option<&Box<FlowModule>>,
@@ -563,6 +562,7 @@ pub async fn spawn_flow_module_runners(
     Ok((hm, dedicated_handles))
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn create_dedicated_worker_map(
     killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
@@ -698,7 +698,6 @@ pub enum SpawnWorker {
 // spawn one dedicated worker and return the key, the channel sender and the join handle
 // note that for it will return none for language that do not support dedicated workers
 // note that go using cache binary does not need dedicated workers so all languages are supported
-#[cfg(feature = "enterprise")]
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
