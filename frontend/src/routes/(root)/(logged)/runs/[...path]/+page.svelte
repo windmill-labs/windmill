@@ -560,6 +560,12 @@
 		}
 	}
 
+	$effect(() => {
+		if (jobTriggerKind === 'schedule' && !showSchedules) {
+			showSchedules = true
+		}
+	})
+
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
@@ -1219,24 +1225,26 @@
 							</div>
 
 							<div class="flex flex-row gap-4 items-center">
-								<div class="flex flex-row gap-1 items-center">
-									<Toggle
-										id="cron-schedules"
-										bind:checked={showSchedules}
-										on:change={() => {
-											localStorage.setItem(
-												'show_schedules_in_run',
-												showSchedules ? 'true' : 'false'
-											)
-										}}
-										options={tableTopBarWidth < 800 || selectionMode
-											? {}
-											: { right: 'Cron schedules' }}
-									/>
-									<span title="Cron schedules">
-										<Calendar size="14" />
-									</span>
-								</div>
+								{#if !jobTriggerKind}
+									<div class="flex flex-row gap-1 items-center">
+										<Toggle
+											id="cron-schedules"
+											bind:checked={showSchedules}
+											on:change={() => {
+												localStorage.setItem(
+													'show_schedules_in_run',
+													showSchedules ? 'true' : 'false'
+												)
+											}}
+											options={tableTopBarWidth < 800 || selectionMode
+												? {}
+												: { right: 'Schedules' }}
+										/>
+										<span title="Schedules">
+											<Calendar size="14" />
+										</span>
+									</div>
+								{/if}
 
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
