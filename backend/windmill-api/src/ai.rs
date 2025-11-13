@@ -442,7 +442,10 @@ impl AIRequestConfig {
                         bedrock_tools.push(serde_json::json!({
                             "toolSpec": {
                                 "name": function.get("name"),
-                                "description": function.get("description"),
+                                "description": function.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("Tool function"),
                                 "inputSchema": {
                                     "json": function.get("parameters")
                                 }
