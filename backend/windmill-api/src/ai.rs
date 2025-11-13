@@ -187,13 +187,16 @@ impl AIRequestConfig {
 
         // Handle AWS Bedrock transformation
         let (url, body) = if is_bedrock && method != Method::GET {
+            println!("AWS: Detected Bedrock provider, transforming request");
             let (model, transformed_body, is_streaming) = Self::transform_openai_to_bedrock(&body)?;
+            println!("AWS: Transformed request - model: {}, streaming: {}, body size: {}", model, is_streaming, transformed_body.len());
             let endpoint = if is_streaming {
                 "converse-stream"
             } else {
                 "converse"
             };
             let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
+            println!("AWS: Built Bedrock URL: {}", bedrock_url);
             (bedrock_url, transformed_body)
         } else if is_azure && method != Method::GET {
             let model = AIProvider::extract_model_from_body(&body)?;
@@ -276,8 +279,10 @@ impl AIRequestConfig {
     fn transform_openai_to_bedrock(body: &[u8]) -> Result<(String, Bytes, bool)> {
         use serde_json::Value;
 
+        println!("AWS: Starting OpenAI → Bedrock transformation");
+
         // Parse the OpenAI request
-        let mut openai_req: Value = serde_json::from_slice(body)
+        let openai_req: Value = serde_json::from_slice(body)
             .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
         // Extract model and streaming flag
@@ -451,6 +456,8 @@ impl AIRequestConfig {
             })?
             .into();
 
+        println!("AWS: Transformation complete - Bedrock request: {}", serde_json::to_string_pretty(&bedrock_req).unwrap_or_default());
+
         Ok((model, transformed_body, is_streaming))
     }
 
@@ -461,10 +468,14 @@ impl AIRequestConfig {
     ) -> Result<Bytes> {
         use serde_json::Value;
 
+        println!("AWS: Transforming non-streaming Bedrock response to OpenAI format");
+
         let bedrock_resp: Value = response
             .json()
             .await
             .map_err(|e| Error::internal_err(format!("Failed to parse Bedrock response: {}", e)))?;
+
+        println!("AWS: Received Bedrock response: {}", serde_json::to_string_pretty(&bedrock_resp).unwrap_or_default());
 
         // Generate unique ID and timestamp
         let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
@@ -560,10 +571,13 @@ impl AIRequestConfig {
             })?
             .into();
 
+        println!("AWS: Successfully transformed to OpenAI response: {}", serde_json::to_string_pretty(&openai_resp).unwrap_or_default());
+
         Ok(response_body)
     }
 
     /// Transform AWS Bedrock streaming response to OpenAI SSE format
+    /// Bedrock uses AWS event stream binary format, not SSE
     fn transform_bedrock_stream_to_openai(
         stream: impl futures::Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>>
             + Send
@@ -574,19 +588,21 @@ impl AIRequestConfig {
         use serde_json::Value;
         use std::collections::HashMap;
 
+        println!("AWS: Starting streaming response transformation (AWS event stream format)");
+
         let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
         let created = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        // State to track partial tool calls
+        // State to track partial tool calls and binary buffer
         struct StreamState {
             id: String,
             model: String,
             created: u64,
             tool_calls: HashMap<usize, (String, String, String)>, // index -> (id, name, args)
-            buffer: String,
+            buffer: Vec<u8>, // Binary buffer for AWS event stream
         }
 
         let state = std::sync::Arc::new(tokio::sync::Mutex::new(StreamState {
@@ -594,7 +610,7 @@ impl AIRequestConfig {
             model: model.clone(),
             created,
             tool_calls: HashMap::new(),
-            buffer: String::new(),
+            buffer: Vec::new(),
         }));
 
         stream
@@ -604,30 +620,86 @@ impl AIRequestConfig {
                     match chunk_result {
                         Ok(chunk) => {
                             let mut state = state.lock().await;
-                            state.buffer.push_str(&String::from_utf8_lossy(&chunk));
+                            state.buffer.extend_from_slice(&chunk);
 
                             let mut events = Vec::new();
 
-                            // Parse SSE events from buffer
-                            while let Some(event_end) = state.buffer.find("\n\n") {
-                                let event_str = state.buffer[..event_end].to_string();
-                                state.buffer = state.buffer[event_end + 2..].to_string();
-
-                                // Parse event type and data
-                                let mut event_type = None;
-                                let mut event_data = None;
-
-                                for line in event_str.lines() {
-                                    if line.starts_with(":event-type:") {
-                                        event_type = Some(line[":event-type:".len()..].trim().to_string());
-                                    } else if !line.starts_with(':') && !line.is_empty() {
-                                        // This is the JSON payload
-                                        event_data = Some(line.to_string());
-                                    }
+                            // Parse AWS event stream messages from buffer
+                            loop {
+                                // Need at least 12 bytes for prelude (8) + prelude CRC (4)
+                                if state.buffer.len() < 12 {
+                                    break;
                                 }
 
-                                if let (Some(evt_type), Some(data)) = (event_type, event_data) {
-                                    if let Ok(parsed_data) = serde_json::from_str::<Value>(&data) {
+                                // Read prelude: total_length (4 bytes) + headers_length (4 bytes)
+                                let total_length = u32::from_be_bytes([
+                                    state.buffer[0],
+                                    state.buffer[1],
+                                    state.buffer[2],
+                                    state.buffer[3],
+                                ]) as usize;
+
+                                // Check if we have the complete message
+                                if state.buffer.len() < total_length {
+                                    break;
+                                }
+
+                                let headers_length = u32::from_be_bytes([
+                                    state.buffer[4],
+                                    state.buffer[5],
+                                    state.buffer[6],
+                                    state.buffer[7],
+                                ]) as usize;
+
+                                // Skip prelude CRC (4 bytes after prelude)
+                                let headers_start = 12;
+                                let payload_start = headers_start + headers_length;
+                                let payload_end = total_length - 4; // Exclude message CRC
+
+                                // Parse headers to extract event type
+                                let mut event_type = None;
+                                let mut pos = headers_start;
+                                while pos < payload_start {
+                                    if pos + 1 > state.buffer.len() {
+                                        break;
+                                    }
+                                    let name_len = state.buffer[pos] as usize;
+                                    pos += 1;
+
+                                    if pos + name_len > state.buffer.len() {
+                                        break;
+                                    }
+                                    let name = String::from_utf8_lossy(&state.buffer[pos..pos + name_len]).to_string();
+                                    pos += name_len;
+
+                                    if pos + 3 > state.buffer.len() {
+                                        break;
+                                    }
+                                    let value_type = state.buffer[pos];
+                                    pos += 1;
+                                    let value_len = u16::from_be_bytes([state.buffer[pos], state.buffer[pos + 1]]) as usize;
+                                    pos += 2;
+
+                                    if pos + value_len > state.buffer.len() {
+                                        break;
+                                    }
+
+                                    if value_type == 7 && name == ":event-type" {
+                                        event_type = Some(String::from_utf8_lossy(&state.buffer[pos..pos + value_len]).to_string());
+                                    }
+                                    pos += value_len;
+                                }
+
+                                // Extract JSON payload (copy to avoid borrow issues)
+                                let payload = state.buffer[payload_start..payload_end].to_vec();
+
+                                // Remove processed message from buffer
+                                state.buffer.drain(0..total_length);
+
+                                // Process the event
+                                if let Some(evt_type) = event_type {
+                                    if let Ok(payload_str) = std::str::from_utf8(&payload) {
+                                        if let Ok(parsed_data) = serde_json::from_str::<Value>(payload_str) {
                                         // Transform based on event type
                                         match evt_type.as_str() {
                                             "messageStart" => {
@@ -749,9 +821,10 @@ impl AIRequestConfig {
                                             }
                                             _ => {}
                                         }
+                                        }
                                     }
                                 }
-                            }
+                            } // end loop
 
                             events
                         }
@@ -978,6 +1051,8 @@ async fn proxy(
 
     let response = request.send().await.map_err(to_anyhow)?;
 
+    println!("AWS: Received response from Bedrock, status: {}", response.status());
+
     let mut tx = db.begin().await?;
 
     audit_log(
@@ -994,15 +1069,18 @@ async fn proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
+        println!("AWS: Error response from Bedrock: {}", err_msg);
         return Err(Error::AIError(err_msg));
     }
 
     // Transform Bedrock responses back to OpenAI format
     if matches!(provider, AIProvider::AWSBedrock) && model_for_transform.is_some() {
+        println!("AWS: Starting response transformation back to OpenAI format");
         let model = model_for_transform.unwrap();
 
         if is_streaming {
             // Transform streaming response
+            println!("AWS: Transforming streaming response");
             use http::StatusCode;
 
             let mut response_headers = HeaderMap::new();
@@ -1014,6 +1092,7 @@ async fn proxy(
             let transformed_stream =
                 AIRequestConfig::transform_bedrock_stream_to_openai(stream, model);
 
+            println!("AWS: Returning streaming response");
             Ok((
                 StatusCode::OK,
                 response_headers,
@@ -1021,8 +1100,11 @@ async fn proxy(
             ))
         } else {
             // Transform non-streaming response
+            println!("AWS: Transforming non-streaming response");
             let transformed_body =
                 AIRequestConfig::transform_bedrock_to_openai(response, model).await?;
+
+            println!("AWS: Returning non-streaming response");
 
             let mut response_headers = HeaderMap::new();
             response_headers.insert("content-type", "application/json".parse().unwrap());
