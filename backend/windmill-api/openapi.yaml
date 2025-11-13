@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.575.0
+  version: 1.575.4
   title: Windmill API
 
   contact:
@@ -8508,6 +8508,7 @@ paths:
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -14481,6 +14482,7 @@ paths:
         - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -14919,6 +14921,27 @@ components:
       in: query
       schema:
         type: integer
+    JobTriggerKind:
+      name: trigger_kind 
+      description: trigger kind (schedule, http, websocket...)
+      in: query
+      schema:
+        type: string
+        enum:
+          - webhook
+          - default_email
+          - email
+          - schedule
+          - http
+          - websocket
+          - postgres
+          - kafka
+          - nats
+          - mqtt
+          - sqs
+          - gcp
+          - poll
+          - cli
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)

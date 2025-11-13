@@ -521,6 +521,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
             listening_trigger.suspend_number,
+            Some(Self::JOB_TRIGGER_KIND),
         )
         .await?;
 

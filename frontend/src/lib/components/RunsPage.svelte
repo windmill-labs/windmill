@@ -54,6 +54,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
+	import type { JobTriggerType } from '$lib/components/triggers/utils'
 
 	let { perPage = $bindable() }: { perPage: number } = $props()
 
@@ -114,6 +115,9 @@
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 	)
+	let jobTriggerKind: JobTriggerType | undefined = $state(
+		(page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
+	)
 
 	// Handled on the main page
 	let minTs = $state(page.url.searchParams.get('min_ts') ?? undefined)
@@ -163,6 +167,7 @@
 		resultFilter = page.url.searchParams.get('result')
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
+		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
 
 		// Handled on the main page
 		minTs = page.url.searchParams.get('min_ts') ?? undefined
@@ -287,6 +292,13 @@
 		} else {
 			searchParams.delete('result')
 		}
+
+		if (jobTriggerKind) {
+			searchParams.set('job_trigger_kind', jobTriggerKind)
+		} else {
+			searchParams.delete('job_trigger_kind')
+		}
+
 		if (schedulePath) {
 			searchParams.set('schedule_path', schedulePath)
 		} else {
@@ -557,10 +569,17 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
+			jobTriggerKind,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			allowWildcards: allowWildcards ? true : undefined
 		}
 	}
+
+	$effect(() => {
+		if (jobTriggerKind === 'schedule' && !showSchedules) {
+			showSchedules = true
+		}
+	})
 
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
@@ -751,6 +770,7 @@
 			showFutureJobs,
 			argFilter,
 			resultFilter,
+			jobTriggerKind,
 			schedulePath,
 			jobKindsCat,
 			concurrencyKey,
@@ -837,6 +857,7 @@
 	{showSkipped}
 	{argFilter}
 	{resultFilter}
+	{jobTriggerKind}
 	{showSchedules}
 	{showFutureJobs}
 	{schedulePath}
@@ -1053,6 +1074,7 @@
 						bind:success
 						bind:argFilter
 						bind:resultFilter
+						bind:jobTriggerKind
 						bind:argError
 						bind:resultError
 						bind:jobKindsCat
@@ -1221,24 +1243,26 @@
 							</div>
 
 							<div class="flex flex-row gap-4 items-center">
-								<div class="flex flex-row gap-1 items-center">
-									<Toggle
-										id="cron-schedules"
-										bind:checked={showSchedules}
-										on:change={() => {
-											localStorage.setItem(
-												'show_schedules_in_run',
-												showSchedules ? 'true' : 'false'
-											)
-										}}
-										options={tableTopBarWidth < 800 || selectionMode
-											? {}
-											: { right: 'Cron schedules' }}
-									/>
-									<span title="Cron schedules">
-										<Calendar size="14" />
-									</span>
-								</div>
+								{#if !jobTriggerKind}
+									<div class="flex flex-row gap-1 items-center">
+										<Toggle
+											id="cron-schedules"
+											bind:checked={showSchedules}
+											on:change={() => {
+												localStorage.setItem(
+													'show_schedules_in_run',
+													showSchedules ? 'true' : 'false'
+												)
+											}}
+											options={tableTopBarWidth < 800 || selectionMode
+												? {}
+												: { right: 'Schedules' }}
+										/>
+										<span title="Schedules">
+											<Calendar size="14" />
+										</span>
+									</div>
+								{/if}
 
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle

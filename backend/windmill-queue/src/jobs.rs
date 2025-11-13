@@ -471,6 +471,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -527,6 +528,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -1376,6 +1378,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+        None,
         )
         .await?;
         tx.commit().await?;
@@ -1924,6 +1927,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -3887,6 +3891,7 @@ pub async fn push<'c, 'd>(
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
     suspend_number: Option<i32>, // If provided, job will be created as suspended with this number
+    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -5281,11 +5286,13 @@ pub async fn push<'c, 'd>(
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
 
-    let trigger_kind = if schedule_path.is_some() {
-        Some(JobTriggerKind::Schedule)
-    } else {
-        None
-    };
+    let trigger_kind = trigger_kind.or_else(|| {
+        if schedule_path.is_some() {
+            Some(JobTriggerKind::Schedule)
+        } else {
+            None
+        }
+    });
 
     let root_job = if root_job.is_some()
         && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))

@@ -94,6 +94,7 @@ impl ListeningTrigger<WebsocketConfig> {
                         None,
                         None,
                         "".to_string(), // doesn't matter as no retry/error handler
+                        Some(windmill_common::jobs::JobTriggerKind::Websocket),
                     )
                     .await
                     .map(|r| r.get().to_owned())?;
@@ -381,6 +382,7 @@ impl Listener for WebsocketTrigger {
                 format!("websocket_trigger/{}", listening_trigger.path),
                 None,
                 *suspend_number,
+                Some(windmill_common::jobs::JobTriggerKind::Websocket),
             )
             .await?;
         } else if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
@@ -411,6 +413,7 @@ impl Listener for WebsocketTrigger {
                         error_handler_path.as_deref(),
                         error_handler_args.as_ref(),
                         format!("websocket_trigger/{}", trigger_path),
+                        Some(windmill_common::jobs::JobTriggerKind::Websocket),
                     ) => {
                         if let Ok((result, success)) = result {
                             if !success && !can_return_error_result {
