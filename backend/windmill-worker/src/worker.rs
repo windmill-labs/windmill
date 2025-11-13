@@ -381,6 +381,50 @@ lazy_static::lazy_static! {
         }
     };
 
+    pub static ref NSJAIL_AVAILABLE: Option<String> = {
+        if *DISABLE_NSJAIL {
+            None
+        } else {
+            let nsjail_path = NSJAIL_PATH.as_str();
+
+            let test_result = std::process::Command::new(nsjail_path)
+                .arg("--help")
+                .output();
+
+            match test_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
+                    Some(nsjail_path.to_string())
+                },
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!(
+                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
+                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        stderr.trim()
+                    );
+                    None
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!(
+                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
+                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail_path
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
+                            nsjail_path,
+                            e
+                        );
+                    }
+                    None
+                }
+            }
+        }
+    };
+
     pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())

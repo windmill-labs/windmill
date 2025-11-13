@@ -143,7 +143,7 @@ async fn update_worker_ping_full_inner(
                         memory: memory,
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
-                        enable_unshare_pid: None,
+                        job_isolation: None,
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -171,7 +171,15 @@ pub async fn insert_ping(
 
     let vcpus = get_vcpus();
     let memory = get_memory();
-    let enable_unshare_pid = Some(*crate::ENABLE_UNSHARE_PID);
+
+    // Determine job isolation method
+    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+        Some("nsjail".to_string())
+    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+        Some("unshare".to_string())
+    } else {
+        Some("none".to_string())
+    };
 
     match db {
         Connection::Sql(db) => {
@@ -185,7 +193,7 @@ pub async fn insert_ping(
                 windmill_common::utils::GIT_VERSION,
                 vcpus,
                 memory,
-                enable_unshare_pid,
+                job_isolation,
                 db,
             )
             .await?;
@@ -212,7 +220,7 @@ pub async fn insert_ping(
                         memory: memory,
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
-                        enable_unshare_pid,
+                        job_isolation,
                         ping_type: PingType::Initial,
                     },
                 )
@@ -274,7 +282,7 @@ pub async fn update_worker_ping_from_job(
                         occupancy_rate_15s: occupancy_rate_15s,
                         occupancy_rate_5m: occupancy_rate_5m,
                         occupancy_rate_30m: occupancy_rate_30m,
-                        enable_unshare_pid: None,
+                        job_isolation: None,
                     },
                 )
                 .await?;

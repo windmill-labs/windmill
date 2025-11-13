@@ -557,8 +557,16 @@
 										<Cell head>Last job</Cell>
 										<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 									{/if}
-									<Cell head>Memory usage<br />(Windmill)</Cell>
+									<Cell head>Memory<br />(Windmill)</Cell>
 									<Cell head>Limits</Cell>
+									<Cell head>
+										Isolation
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/advanced/security_isolation"
+										>
+											The sandboxing method used to isolate job execution: nsjail (enterprise), unshare, or none
+										</Tooltip>
+									</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
 									{#if $superadmin || $devopsRole}
@@ -582,8 +590,8 @@
 											first
 											colspan={(!config || config?.dedicated_worker == undefined) &&
 											($superadmin || $devopsRole)
-												? 12
-												: 9}
+												? 13
+												: 10}
 											scope="colgroup"
 											class="bg-surface-secondary/30 border-b !text-xs"
 										>
@@ -602,7 +610,7 @@
 										</Cell>
 									</tr>
 									{#if workers}
-										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, job_isolation }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 											<tr>
 												<Cell class="py-6 text-secondary" first>
@@ -630,11 +638,12 @@
 												{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 													<Cell class="text-secondary">
 														{#if last_job_id}
-															<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
-																View last job
-															</a>
-															<br />
-															(workspace {last_job_workspace_id})
+															<div class="flex flex-col gap-0.5">
+																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`} class="text-xs">
+																	View
+																</a>
+																<span class="text-2xs text-tertiary">{last_job_workspace_id}</span>
+															</div>
 														{/if}
 													</Cell>
 													<Cell class="text-secondary">
@@ -666,6 +675,15 @@
 															{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
 														</div>
 													</div>
+												</Cell>
+												<Cell class="text-secondary">
+													{#if job_isolation === 'nsjail'}
+														<Badge color="green">nsjail</Badge>
+													{:else if job_isolation === 'unshare'}
+														<Badge color="blue">unshare</Badge>
+													{:else}
+														<Badge color="yellow">none</Badge>
+													{/if}
 												</Cell>
 												<Cell class="text-secondary">
 													<div class="!text-2xs">

@@ -70,7 +70,7 @@ struct WorkerPing {
     #[serde(skip_serializing_if = "Option::is_none")]
     wm_memory_usage: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    enable_unshare_pid: Option<bool>,
+    job_isolation: Option<String>,
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -100,7 +100,7 @@ async fn list_worker_pings(
         WorkerPing,
         "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,
         CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,
-        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, enable_unshare_pid
+        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
