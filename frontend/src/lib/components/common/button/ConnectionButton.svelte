@@ -99,7 +99,10 @@
 			on:click={() => handleConnect(true)}
 			{id}
 			wrapperClasses={twMerge(btnWrapperClasses, selected ? 'opacity-100' : '')}
-			btnClasses={small ? 'p-0' : ''}
+			btnClasses={twMerge(
+				small ? 'p-0' : '',
+				isOpen && selected ? 'bg-surface hover:bg-surface' : ''
+			)}
 		>
 			<Plug size={14} />
 		</Button>

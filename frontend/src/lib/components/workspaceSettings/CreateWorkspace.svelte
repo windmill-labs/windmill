@@ -4,12 +4,14 @@
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import {
+		JobService,
 		ResourceService,
 		SettingService,
 		UserService,
 		VariableService,
 		WorkspaceService,
-		type AIProvider
+		type AIProvider,
+		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -79,8 +81,41 @@
 	const WM_FORK_PREFIX = 'wm-fork-'
 
 	let forkCreationLoading = $state(false)
-	let forkCreationError = $state("")
+	let forkCreationError = $state('')
 	let errorMsgs: string[] = $state([])
+	let failedSyncJobs: string[] = $state([])
+
+	async function fetchFailedSyncJobs(jobs: string[]): Promise<CompletedJob[]> {
+		let ret: CompletedJob[] = []
+		for (const job of jobs) {
+			let j = await JobService.getCompletedJob({
+				id: job,
+				workspace: $workspaceStore!
+			})
+			ret.push(j)
+		}
+		return ret
+	}
+
+	function isPathVersionLessThan(path: string | undefined, version: number): boolean {
+		if (!path || !path.startsWith('hub/')) {
+			return false
+		}
+
+		const parts = path.split('/')
+
+		if (parts.length < 2) {
+			return false
+		}
+
+		const embeddedVersion = parseInt(parts[1], 10)
+
+		if (isNaN(embeddedVersion)) {
+			return false
+		}
+
+		return embeddedVersion < version
+	}
 
 	async function createOrForkWorkspace() {
 		const prefixed_id = `${WM_FORK_PREFIX}${id}`
@@ -88,7 +123,8 @@
 			if ($workspaceStore) {
 				forkCreationLoading = true
 				errorMsgs = []
-				forkCreationError = ""
+				failedSyncJobs = []
+				forkCreationError = ''
 
 				let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
 					workspace: $workspaceStore!,
@@ -109,6 +145,7 @@
 								onProgress: (status) => {
 									if (status.status === 'failure') {
 										errorMsgs.push(status.error ?? 'Deploy fork job failed')
+										failedSyncJobs.push(jobId)
 									}
 								}
 							})
@@ -123,7 +160,7 @@
 					return
 				}
 				if (errorMsgs.length != 0) {
-					forkCreationError = "Failed to create a branch for this fork on the git sync repo(s)"
+					forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
 					forkCreationLoading = false
 					sendUserToast(
 						`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
@@ -143,7 +180,7 @@
 					})
 				} catch (e) {
 					forkCreationError = `Failed to create fork '${prefixed_id}'`
-					errorMsgs.push(e?.body ?? e ?? "Unknown error")
+					errorMsgs.push(e?.body ?? e ?? 'Unknown error')
 					forkCreationLoading = false
 					sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
 					return
@@ -319,11 +356,57 @@
 		{/if}
 		{#if errorMsgs.length != 0}
 			<Alert class="p-2" title={forkCreationError} type="error">
-				<ul class="pl-2 pr-4 break-words">
+				<ul class="pl-2 pr-4 break-words pb-5">
 					{#each errorMsgs as errorMsg}
 						<li><pre class="whitespace-pre-wrap">- {errorMsg}</pre></li>
 					{/each}
 				</ul>
+				{#if failedSyncJobs.length != 0}
+					More details on the jobs that failed:
+					{#await fetchFailedSyncJobs(failedSyncJobs)}
+						<LoaderCircle class="animate-spin" />
+					{:then failedJobs}
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedJobs as job}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${job.id}?workspace=${$workspaceStore}`}
+									>
+										{job.id}
+									</a>
+								</li>
+								<!-- This 28073 is the version where git sync on fork was introduced -->
+								{#if isPathVersionLessThan(job.script_path, 28073)}
+									<div class="font-bold">
+										This job was not running the latest version of the git sync script available on
+										the hub. You might be able to solve this issue by going to `Workspace Settings`
+										-> `Git Sync` and updating the script.
+									</div>
+								{/if}
+							{/each}
+						</ul>
+					{:catch error}
+						Tried to fetch jobs to get more information, but failed: {error}. Here are the failed
+						job ids:
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedSyncJobs as jobId}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${jobId}?workspace=${$workspaceStore}`}
+									>
+										{jobId}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					{/await}
+				{/if}
 			</Alert>
 		{/if}
 		<label class="flex flex-col gap-1">

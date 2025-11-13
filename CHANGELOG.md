@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.575.4](https://github.com/windmill-labs/windmill/compare/v1.575.3...v1.575.4) (2025-11-13)
+
+
+### Bug Fixes
+
+* fix cancel job selection ([d4340b8](https://github.com/windmill-labs/windmill/commit/d4340b83ac94a9dd9febdcfa11288f35c0a57799))
+
+## [1.575.3](https://github.com/windmill-labs/windmill/compare/v1.575.2...v1.575.3) (2025-11-13)
+
+
+### Bug Fixes
+
+* fix cancel job selection ([fbab86c](https://github.com/windmill-labs/windmill/commit/fbab86cc43dae17727a3aa99abc43a57c6b59b57))
+
+## [1.575.2](https://github.com/windmill-labs/windmill/compare/v1.575.1...v1.575.2) (2025-11-13)
+
+
+### Bug Fixes
+
+* fix cancel job selection ([1c0f80d](https://github.com/windmill-labs/windmill/commit/1c0f80dc5594146b0ec18caf3b49c036695ce759))
+
+## [1.575.1](https://github.com/windmill-labs/windmill/compare/v1.575.0...v1.575.1) (2025-11-13)
+
+
+### Bug Fixes
+
+* Fix flow buttons clipped in Safari ([#7126](https://github.com/windmill-labs/windmill/issues/7126)) ([77316cb](https://github.com/windmill-labs/windmill/commit/77316cbd0e3ee81fccee9680541f9b2346c8a209))
+* handle string  in input transform strings ([2ee17ae](https://github.com/windmill-labs/windmill/commit/2ee17aea8b29d99c5d2bb609b2becad354835de7))
+* send alternatives on timeout toast ([#6920](https://github.com/windmill-labs/windmill/issues/6920)) ([6fac896](https://github.com/windmill-labs/windmill/commit/6fac8963909fb40726d85f5e897398d2a691edb0))
+
+## [1.575.0](https://github.com/windmill-labs/windmill/compare/v1.574.3...v1.575.0) (2025-11-12)
+
+
+### Features
+
+* SQL result_collection flag ([#7041](https://github.com/windmill-labs/windmill/issues/7041)) ([14e41ba](https://github.com/windmill-labs/windmill/commit/14e41babfe6321abb22081b1b3601e9009451257))
+
+
+### Bug Fixes
+
+* allow --yes in fork command ([#7122](https://github.com/windmill-labs/windmill/issues/7122)) ([1280617](https://github.com/windmill-labs/windmill/commit/1280617a283ef7bcf53c17d833f1413ffe69dbf8))
+* **backend:** scim email filter ([#7120](https://github.com/windmill-labs/windmill/issues/7120)) ([7a8fd86](https://github.com/windmill-labs/windmill/commit/7a8fd865e289522fd2d5eaaa9af471f01193a03d))
+* **flow chat:** fix chat in edit mode + cleaner code ([#7118](https://github.com/windmill-labs/windmill/issues/7118)) ([9791eb4](https://github.com/windmill-labs/windmill/commit/9791eb4568aa9548174941f1bbfb6a338c3bef00))
+
+## [1.574.3](https://github.com/windmill-labs/windmill/compare/v1.574.2...v1.574.3) (2025-11-11)
+
+
+### Bug Fixes
+
+* **backend:** add sslmode parameter to DuckLake PostgreSQL connections ([ea5b3e6](https://github.com/windmill-labs/windmill/commit/ea5b3e6b9269a0c631c7601313ab97c4bbdc2137))
+* use teams internal_id rather than id ([#7113](https://github.com/windmill-labs/windmill/issues/7113)) ([25c36c1](https://github.com/windmill-labs/windmill/commit/25c36c1e0a6cfc56e079ff5a18980ea67403d4f9))
+
+## [1.574.2](https://github.com/windmill-labs/windmill/compare/v1.574.1...v1.574.2) (2025-11-10)
+
+
+### Bug Fixes
+
+* **backend:** improve pwsh param block parsing ([#7096](https://github.com/windmill-labs/windmill/issues/7096)) ([51cba95](https://github.com/windmill-labs/windmill/commit/51cba95d3961ec637fd5060556f0e7a8a8bdbb88))
+* **backend:** improve sse parsing ([#7100](https://github.com/windmill-labs/windmill/issues/7100)) ([2e245ac](https://github.com/windmill-labs/windmill/commit/2e245accc5f641f64a2cd28fc181e6a806c407e2))
+* fix multiselect in list for apps ([9e4882c](https://github.com/windmill-labs/windmill/commit/9e4882c0a919303480f5a431db3c05b1d5855d37))
+* make ai chat works with unicode messages ([2d54dfb](https://github.com/windmill-labs/windmill/commit/2d54dfbf05f21faa14655b7124daa291a9d8d66d))
+* preproccessor ui and expanding preprocessor support ([#6872](https://github.com/windmill-labs/windmill/issues/6872)) ([fc5034e](https://github.com/windmill-labs/windmill/commit/fc5034e94d513bab2feb0ebb2aff822bbb42e4aa))
+* proper error handling in pulled job preprocessor ([#7098](https://github.com/windmill-labs/windmill/issues/7098)) ([84992cd](https://github.com/windmill-labs/windmill/commit/84992cd8ffa94e009aeb6b25db224a3001581e15))
+
 ## [1.574.1](https://github.com/windmill-labs/windmill/compare/v1.574.0...v1.574.1) (2025-11-08)
 
 
