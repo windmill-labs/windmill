@@ -14,9 +14,9 @@ use crate::ai::{
 #[derive(Deserialize)]
 struct BedrockResponse {
     output: BedrockOutput,
+    #[allow(unused)]
     #[serde(rename = "stopReason")]
     stop_reason: Option<String>,
-    usage: Option<BedrockUsage>,
 }
 
 #[derive(Deserialize)]
@@ -26,6 +26,7 @@ struct BedrockOutput {
 
 #[derive(Deserialize)]
 struct BedrockMessage {
+    #[allow(unused)]
     role: String,
     content: Vec<BedrockContent>,
 }
@@ -48,14 +49,6 @@ struct ToolUse {
     tool_use_id: String,
     name: String,
     input: Value,
-}
-
-#[derive(Deserialize)]
-struct BedrockUsage {
-    #[serde(rename = "inputTokens")]
-    input_tokens: Option<u32>,
-    #[serde(rename = "outputTokens")]
-    output_tokens: Option<u32>,
 }
 
 pub struct BedrockQueryBuilder;
@@ -281,7 +274,7 @@ impl QueryBuilder for BedrockQueryBuilder {
         args: &BuildRequestArgs<'_>,
         _client: &AuthedClient,
         _workspace_id: &str,
-        stream: bool,
+        _stream: bool,
     ) -> Result<String, Error> {
         // Only support text output for now
         if !matches!(args.output_type, OutputType::Text) {

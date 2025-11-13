@@ -197,14 +197,17 @@ export async function fetchAvailableModels(
 
 	// Standard provider handling
 	const endpoint = 'models'
-	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/${endpoint}`, {
-		signal,
-		headers: {
-			'X-Resource-Path': resourcePath,
-			'X-Provider': provider,
-			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+	const models = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/${endpoint}`,
+		{
+			signal,
+			headers: {
+				'X-Resource-Path': resourcePath,
+				'X-Provider': provider,
+				...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+			}
 		}
-	})
+	)
 	if (!models.ok) {
 		console.error('Failed to fetch models for provider', provider, models)
 		throw new Error(`Failed to fetch models for provider ${provider}`)
@@ -369,7 +372,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined
 	},
-	anthropic: DEFAULT_COMPLETION_CONFIG
+	anthropic: DEFAULT_COMPLETION_CONFIG,
+	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const
 
 class WorkspacedAIClients {
