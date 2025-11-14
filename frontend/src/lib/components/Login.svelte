@@ -213,7 +213,7 @@
 
 	function popupListener(event) {
 		let data = event.data
-		console.log('popupListener', data, event.origin, window.location.origin)
+		// console.log('popupListener', data, event.origin, window.location.origin)
 		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
 			console.log('popupListener from different origin', event.origin, window.location.origin)
 			return
