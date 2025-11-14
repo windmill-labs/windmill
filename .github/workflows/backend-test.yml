@@ -67,6 +67,13 @@ jobs:
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
           ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
+      - name: Cache DuckDB FFI module build
+        uses: actions/cache@v3
+        with:
+          path: ./backend/windmill-duckdb-ffi-internal/target
+          key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
         timeout-minutes: 16
         run: deno --version && bun -v && go version && python3 --version &&
