@@ -190,7 +190,7 @@
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
-		active_mode = cfg?.active_mode
+		active_mode = cfg?.active_mode ?? true
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline

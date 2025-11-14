@@ -221,7 +221,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		active_mode = cfg?.active_mode
+		active_mode = cfg?.active_mode ?? true
 	}
 
 	function getSaveCfg() {
