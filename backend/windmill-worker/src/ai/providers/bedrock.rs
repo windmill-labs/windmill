@@ -3,18 +3,13 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::Value;
 use windmill_common::{
-    bedrock_client::{extract_region_from_url, BedrockClient},
-    bedrock_converters::{
-        bedrock_response_to_openai, create_inference_config, openai_messages_to_bedrock,
-        openai_tools_to_bedrock, SimpleOpenAIMessage, SimpleToolCall, SimpleToolDef,
-    },
+    ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall},
     client::AuthedClient,
     error::Error,
 };
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    providers::openai::{OpenAIFunction, OpenAIToolCall},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
@@ -65,67 +60,6 @@ pub struct BedrockQueryBuilder;
 impl BedrockQueryBuilder {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Convert Windmill OpenAIMessage to SimpleOpenAIMessage for SDK converters
-    fn convert_to_simple_messages(messages: &[OpenAIMessage]) -> Vec<SimpleOpenAIMessage> {
-        messages
-            .iter()
-            .map(|msg| {
-                let content = msg.content.as_ref().map(|c| match c {
-                    OpenAIContent::Text(t) => t.clone(),
-                    OpenAIContent::Parts(parts) => {
-                        // Extract text from parts and join them
-                        parts
-                            .iter()
-                            .filter_map(|part| {
-                                if let ContentPart::Text { text } = part {
-                                    Some(text.as_str())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    }
-                });
-
-                let tool_calls = msg.tool_calls.as_ref().map(|tcs| {
-                    tcs.iter()
-                        .map(|tc| SimpleToolCall {
-                            id: tc.id.clone(),
-                            r#type: tc.r#type.clone(),
-                            function: windmill_common::bedrock_converters::SimpleFunction {
-                                name: tc.function.name.clone(),
-                                arguments: tc.function.arguments.clone(),
-                            },
-                        })
-                        .collect()
-                });
-
-                SimpleOpenAIMessage {
-                    role: msg.role.clone(),
-                    content,
-                    tool_calls,
-                    tool_call_id: msg.tool_call_id.clone(),
-                }
-            })
-            .collect()
-    }
-
-    /// Convert ToolDef to SimpleToolDef for SDK converters
-    fn convert_to_simple_tools(tools: &[ToolDef]) -> Vec<SimpleToolDef> {
-        tools
-            .iter()
-            .map(|tool| SimpleToolDef {
-                r#type: tool.r#type.clone(),
-                function: windmill_common::bedrock_converters::SimpleToolDefFunction {
-                    name: tool.function.name.clone(),
-                    description: tool.function.description.clone(),
-                    parameters: tool.function.parameters.clone(),
-                },
-            })
-            .collect()
     }
 
     /// Transform OpenAI format messages to Bedrock Converse format

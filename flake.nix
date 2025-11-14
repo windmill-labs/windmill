@@ -3,12 +3,10 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
-    # Use separate channel for claude code. It always needs to be latest
-    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
     nixpkgs-oapi-gen.url =
       "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay
+  outputs = { self, nixpkgs, flake-utils, rust-overlay
     , nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
@@ -17,11 +15,6 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
-        claude-code = (import nixpkgs-claude {
-          inherit system;
-          config.allowUnfree = true;
-        }).claude-code;
-
         openapi-generator-cli =
           (import nixpkgs-oapi-gen { inherit system; }).openapi-generator-cli;
 
@@ -50,11 +43,10 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
-          libffi  # For deno_ffi
           libtool
-          nodejs
           postgresql
           pkg-config
+          glibc.dev
           clang
           cmake
         ];
@@ -103,7 +95,6 @@
             wasm-pack
             deno
             emscripten
-            nushell
             # Needed for extra dependencies
             glibc_multi
           ]);
@@ -139,8 +130,6 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ [
-            # To update run: `nix flake update nixpkgs-claude`
-            claude-code
             # To update run: `nix flake update nixpkgs-oapi-gen`
             openapi-generator-cli
           ] ++ (with pkgs; [
@@ -232,31 +221,17 @@
               set -e
               cd ./backend
               mkdir -p .minio-data/wmill
-              ${pkgs.minio}/bin/minio server ./.minio-data --console-address ":9001"
+              ${pkgs.minio}/bin/minio server ./.minio-data
             '')
             # Generate keys
             # TODO: Do not set new keys if ran multiple times
             (pkgs.writeScriptBin "wm-minio-keys" ''
               set -e
               cd ./backend
-
-              # Set up MinIO alias
               ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
-
-              # Check if secrets file exists and contains valid keys
-              if [[ -f .minio-data/secrets.txt ]] && [[ -s .minio-data/secrets.txt ]]; then
-                  echo "Access keys already exist:"
-                  cat .minio-data/secrets.txt
-                  echo ""
-                  echo "Keys loaded from: ./backend/.minio-data/secrets.txt"
-              else
-                  echo "Creating new access keys..."
-                  mkdir -p .minio-data
-                  ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
-                  echo ""
-                  echo 'New keys saved to: ./backend/.minio-data/secrets.txt'
-              fi
-
+              ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
+              echo ""
+              echo 'Saving to: ./backend/.minio-data/secrets.txt'
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')
@@ -313,10 +288,9 @@
           # included we need to look in a few places.
           # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
           BINDGEN_EXTRA_CLANG_ARGS =
-            # Prevent clang from using system headers - only use Nix headers
-            "-nostdinc ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
+            "${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
               builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
-            } ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} ${
+            }${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}${
               builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
             } -idirafter ${pkgs.libiconv}/include ${
               lib.optionalString stdenv.cc.isClang
@@ -329,10 +303,9 @@
                 lib.getVersion stdenv.cc.cc
               } -isystem ${stdenv.cc.cc}/include/c++/${
                 lib.getVersion stdenv.cc.cc
-              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${
-                lib.getVersion stdenv.cc.cc
-              }/include"
-            }";
+              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/14.2.1/include"
+            }"; # NOTE: It is hardcoded to 14.2.1 -------------------------------------------------------------^^^^^^
+          # Please update the version here as well if you want to update flake.
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

@@ -27,6 +27,7 @@ use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
+pub mod ai_types;
 pub mod apps;
 pub mod bedrock_auth;
 pub mod bedrock_client;

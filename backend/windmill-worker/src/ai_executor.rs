@@ -17,10 +17,11 @@ use uuid::Uuid;
 use windmill_common::mcp_client::McpClient;
 use windmill_common::{
     ai_providers::{AIProvider, AZURE_API_VERSION},
+    ai_types::{OpenAIMessage, ToolDef},
     bedrock_client::{extract_region_from_url, BedrockClient},
     bedrock_converters::{
         bedrock_response_to_openai, create_inference_config, openai_messages_to_bedrock,
-        openai_tools_to_bedrock, SimpleOpenAIMessage, SimpleToolCall, SimpleToolDef,
+        openai_tools_to_bedrock,
     },
     cache,
     client::AuthedClient,
@@ -40,7 +41,6 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 use crate::{
     ai::{
         image_handler::upload_image_to_s3,
-        providers::openai::{OpenAIFunction, OpenAIToolCall},
         query_builder::{
             create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
         },
@@ -83,79 +83,6 @@ lazy_static::lazy_static! {
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
-
-/// Convert Windmill OpenAIMessage to SimpleOpenAIMessage for Bedrock SDK converters
-fn convert_to_simple_messages(messages: &[OpenAIMessage]) -> Vec<SimpleOpenAIMessage> {
-    messages
-        .iter()
-        .map(|msg| {
-            let content = msg.content.as_ref().map(|c| match c {
-                OpenAIContent::Text(t) => t.clone(),
-                OpenAIContent::Parts(parts) => {
-                    // Extract text from parts and join them
-                    parts
-                        .iter()
-                        .filter_map(|part| {
-                            if let ContentPart::Text { text } = part {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                }
-            });
-
-            let tool_calls = msg.tool_calls.as_ref().map(|tcs| {
-                tcs.iter()
-                    .map(|tc| SimpleToolCall {
-                        id: tc.id.clone(),
-                        r#type: tc.r#type.clone(),
-                        function: windmill_common::bedrock_converters::SimpleFunction {
-                            name: tc.function.name.clone(),
-                            arguments: tc.function.arguments.clone(),
-                        },
-                    })
-                    .collect()
-            });
-
-            SimpleOpenAIMessage {
-                role: msg.role.clone(),
-                content,
-                tool_calls,
-                tool_call_id: msg.tool_call_id.clone(),
-            }
-        })
-        .collect()
-}
-
-/// Convert ToolDef to SimpleToolDef for Bedrock SDK converters
-fn convert_to_simple_tools(tools: &[ToolDef]) -> Vec<SimpleToolDef> {
-    tools
-        .iter()
-        .map(|tool| SimpleToolDef {
-            r#type: tool.r#type.clone(),
-            function: windmill_common::bedrock_converters::SimpleToolDefFunction {
-                name: tool.function.name.clone(),
-                description: tool.function.description.clone(),
-                parameters: tool.function.parameters.clone(),
-            },
-        })
-        .collect()
-}
-
-/// Convert SimpleToolCall back to OpenAIToolCall
-fn convert_from_simple_tool_calls(simple_calls: Vec<SimpleToolCall>) -> Vec<OpenAIToolCall> {
-    simple_calls
-        .into_iter()
-        .map(|tc| OpenAIToolCall {
-            id: tc.id,
-            r#type: tc.r#type,
-            function: OpenAIFunction { name: tc.function.name, arguments: tc.function.arguments },
-        })
-        .collect()
-}
 
 pub async fn handle_ai_agent_job(
     // connection
@@ -654,12 +581,9 @@ pub async fn run_agent(
             // Create Bedrock client with bearer token authentication
             let bedrock_client = BedrockClient::from_bearer_token(api_key.to_string(), region).await?;
 
-            // Convert messages to simple format for SDK converters
-            let simple_messages = convert_to_simple_messages(&messages);
-
             // Convert messages to Bedrock format (separates system prompts)
             let (bedrock_messages, system_prompts) =
-                openai_messages_to_bedrock(&simple_messages)?;
+                openai_messages_to_bedrock(&messages)?;
 
             // Build request using AWS SDK types
             let mut request_builder = bedrock_client
@@ -682,8 +606,7 @@ pub async fn run_agent(
 
             // Add tools if provided
             if let Some(tools) = tool_defs.as_deref() {
-                let simple_tools = convert_to_simple_tools(tools);
-                let bedrock_tools = openai_tools_to_bedrock(&simple_tools)?;
+                let bedrock_tools = openai_tools_to_bedrock(tools)?;
                 let tool_config = aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
                     .set_tools(Some(bedrock_tools))
                     .build()
@@ -699,11 +622,10 @@ pub async fn run_agent(
 
             // Convert response back to OpenAI format
             let (content, tool_calls) = bedrock_response_to_openai(&response)?;
-            let openai_tool_calls = convert_from_simple_tool_calls(tool_calls);
 
             ParsedResponse::Text {
                 content,
-                tool_calls: openai_tool_calls,
+                tool_calls,
                 events_str: None,
             }
         } else {

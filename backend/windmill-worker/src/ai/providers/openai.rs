@@ -11,19 +11,8 @@ use crate::ai::{
     utils::should_use_structured_output_tool,
 };
 
-// OpenAI-specific types
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIFunction {
-    pub name: String,
-    pub arguments: String,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIToolCall {
-    pub id: String,
-    pub function: OpenAIFunction,
-    pub r#type: String,
-}
+// Re-export OpenAI types from windmill_common
+pub use windmill_common::ai_types::{OpenAIFunction, OpenAIToolCall};
 
 #[derive(Deserialize)]
 pub struct OpenAIChoice {

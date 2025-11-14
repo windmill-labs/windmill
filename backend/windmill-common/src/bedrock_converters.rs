@@ -5,55 +5,12 @@
 //! This module provides bidirectional conversion between OpenAI-compatible
 //! message formats (used throughout Windmill) and AWS Bedrock Converse API formats.
 
+use crate::ai_types::{OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
 use crate::error::{Error, Result};
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, InferenceConfiguration, Message, SystemContentBlock, Tool,
     ToolInputSchema, ToolSpecification,
 };
-use serde_json::value::RawValue;
-
-// Re-export types from worker AI module when they become available in common
-// For now, we'll define minimal types here and convert when integrated
-use serde::{Deserialize, Serialize};
-
-/// Simplified OpenAI message for conversion
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SimpleOpenAIMessage {
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<SimpleToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SimpleToolCall {
-    pub id: String,
-    pub r#type: String,
-    pub function: SimpleFunction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SimpleFunction {
-    pub name: String,
-    pub arguments: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SimpleToolDef {
-    pub r#type: String,
-    pub function: SimpleToolDefFunction,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SimpleToolDefFunction {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub parameters: Box<RawValue>,
-}
 
 /// Convert AWS Smithy Document to serde_json::Value
 fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
@@ -118,7 +75,7 @@ fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document {
 /// # Returns
 /// Tuple of (conversation_messages, system_prompts)
 pub fn openai_messages_to_bedrock(
-    messages: &[SimpleOpenAIMessage],
+    messages: &[OpenAIMessage],
 ) -> Result<(Vec<Message>, Vec<SystemContentBlock>)> {
     let mut bedrock_messages = Vec::new();
     let mut system_prompts = Vec::new();
@@ -128,7 +85,10 @@ pub fn openai_messages_to_bedrock(
             "system" => {
                 // Extract system messages separately
                 if let Some(ref content) = msg.content {
-                    system_prompts.push(SystemContentBlock::Text(content.clone()));
+                    let text = content_to_text(content);
+                    if !text.is_empty() {
+                        system_prompts.push(SystemContentBlock::Text(text));
+                    }
                 }
             }
             "user" | "assistant" => {
@@ -147,8 +107,29 @@ pub fn openai_messages_to_bedrock(
     Ok((bedrock_messages, system_prompts))
 }
 
+/// Helper to extract text from OpenAIContent
+fn content_to_text(content: &OpenAIContent) -> String {
+    match content {
+        OpenAIContent::Text(text) => text.clone(),
+        OpenAIContent::Parts(parts) => {
+            // Extract text from parts and join them
+            parts
+                .iter()
+                .filter_map(|part| {
+                    if let crate::ai_types::ContentPart::Text { text } = part {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    }
+}
+
 /// Convert a single OpenAI message to Bedrock Message
-fn convert_message(msg: &SimpleOpenAIMessage) -> Result<Message> {
+fn convert_message(msg: &OpenAIMessage) -> Result<Message> {
     let role = match msg.role.as_str() {
         "user" => ConversationRole::User,
         "assistant" => ConversationRole::Assistant,
@@ -161,8 +142,9 @@ fn convert_message(msg: &SimpleOpenAIMessage) -> Result<Message> {
 
     // Handle text content
     if let Some(ref content) = msg.content {
-        if !content.is_empty() {
-            content_blocks.push(ContentBlock::Text(content.clone()));
+        let text = content_to_text(content);
+        if !text.is_empty() {
+            content_blocks.push(ContentBlock::Text(text));
         }
     }
 
@@ -186,7 +168,7 @@ fn convert_message(msg: &SimpleOpenAIMessage) -> Result<Message> {
 }
 
 /// Convert OpenAI tool call to Bedrock ToolUse content block
-fn convert_tool_call_to_content(tool_call: &SimpleToolCall) -> Result<ContentBlock> {
+fn convert_tool_call_to_content(tool_call: &OpenAIToolCall) -> Result<ContentBlock> {
     // Parse arguments string to JSON value, then convert to Document
     let input: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
         .map_err(|e| Error::internal_err(format!("Invalid tool arguments: {}", e)))?;
@@ -204,17 +186,21 @@ fn convert_tool_call_to_content(tool_call: &SimpleToolCall) -> Result<ContentBlo
 }
 
 /// Convert tool result message to Bedrock format
-fn convert_tool_message(msg: &SimpleOpenAIMessage) -> Result<Message> {
+fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message> {
     let tool_call_id = msg
         .tool_call_id
         .as_ref()
         .ok_or_else(|| Error::internal_err("Tool message missing tool_call_id"))?;
 
-    let content_str = msg.content.as_ref().map(|s| s.as_str()).unwrap_or("");
+    let content_str = msg
+        .content
+        .as_ref()
+        .map(|c| content_to_text(c))
+        .unwrap_or_default();
 
     // Try to parse as JSON, otherwise use text
     let tool_result_content =
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(content_str) {
+        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&content_str) {
             if json_val.is_object() {
                 vec![aws_sdk_bedrockruntime::types::ToolResultContentBlock::Json(
                     json_to_document(json_val),
@@ -247,7 +233,7 @@ fn convert_tool_message(msg: &SimpleOpenAIMessage) -> Result<Message> {
 }
 
 /// Convert OpenAI tool definitions to Bedrock format
-pub fn openai_tools_to_bedrock(tools: &[SimpleToolDef]) -> Result<Vec<Tool>> {
+pub fn openai_tools_to_bedrock(tools: &[ToolDef]) -> Result<Vec<Tool>> {
     tools
         .iter()
         .map(|tool_def| {
@@ -295,7 +281,7 @@ pub fn create_inference_config(
 /// Extract text content and tool calls from Bedrock Converse response
 pub fn bedrock_response_to_openai(
     output: &aws_sdk_bedrockruntime::operation::converse::ConverseOutput,
-) -> Result<(Option<String>, Vec<SimpleToolCall>)> {
+) -> Result<(Option<String>, Vec<OpenAIToolCall>)> {
     let mut text_content = String::new();
     let mut tool_calls = Vec::new();
 
@@ -314,10 +300,10 @@ pub fn bedrock_response_to_openai(
                         let arguments =
                             serde_json::to_string(&input_value).unwrap_or_else(|_| "{}".to_string());
 
-                        tool_calls.push(SimpleToolCall {
+                        tool_calls.push(OpenAIToolCall {
                             id: tool_use.tool_use_id().to_string(),
                             r#type: "function".to_string(),
-                            function: SimpleFunction {
+                            function: crate::ai_types::OpenAIFunction {
                                 name: tool_use.name().to_string(),
                                 arguments,
                             },
@@ -354,11 +340,12 @@ mod tests {
 
     #[test]
     fn test_openai_to_bedrock_simple_user_message() {
-        let messages = vec![SimpleOpenAIMessage {
+        let messages = vec![OpenAIMessage {
             role: "user".to_string(),
-            content: Some("Hello, world!".to_string()),
+            content: Some(OpenAIContent::Text("Hello, world!".to_string())),
             tool_calls: None,
             tool_call_id: None,
+            agent_action: None,
         }];
 
         let (bedrock_messages, system_prompts) = openai_messages_to_bedrock(&messages).unwrap();
@@ -374,17 +361,19 @@ mod tests {
     #[test]
     fn test_openai_to_bedrock_with_system_prompt() {
         let messages = vec![
-            SimpleOpenAIMessage {
+            OpenAIMessage {
                 role: "system".to_string(),
-                content: Some("You are a helpful assistant.".to_string()),
+                content: Some(OpenAIContent::Text("You are a helpful assistant.".to_string())),
                 tool_calls: None,
                 tool_call_id: None,
+                agent_action: None,
             },
-            SimpleOpenAIMessage {
+            OpenAIMessage {
                 role: "user".to_string(),
-                content: Some("Hello!".to_string()),
+                content: Some(OpenAIContent::Text("Hello!".to_string())),
                 tool_calls: None,
                 tool_call_id: None,
+                agent_action: None,
             },
         ];
 
