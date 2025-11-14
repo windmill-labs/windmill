@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.576.0](https://github.com/windmill-labs/windmill/compare/v1.575.4...v1.576.0) (2025-11-14)
+
+
+### Features
+
+* add support for switch and attributes in pwsh params ([#7143](https://github.com/windmill-labs/windmill/issues/7143)) ([c16bef8](https://github.com/windmill-labs/windmill/commit/c16bef8f296645ff873f9d8d28e3dcb50a65e304))
+* **ai:** handle aws bedrock as provider ([#7131](https://github.com/windmill-labs/windmill/issues/7131)) ([30eb9aa](https://github.com/windmill-labs/windmill/commit/30eb9aae25eeb563ad119ef93f3ff1ab17c66d75))
+* webhook by flow version ([#7062](https://github.com/windmill-labs/windmill/issues/7062)) ([09cdfb4](https://github.com/windmill-labs/windmill/commit/09cdfb4556748903dc5bbf53ef3356ac97c57d90))
+
+
+### Bug Fixes
+
+* use proper TLS connector for DuckLake instance catalog setup ([#7138](https://github.com/windmill-labs/windmill/issues/7138)) ([cf36fe3](https://github.com/windmill-labs/windmill/commit/cf36fe3bb1beec80fa84dc342a8a38cc7369bc4d))
+
 ## [1.575.4](https://github.com/windmill-labs/windmill/compare/v1.575.3...v1.575.4) (2025-11-13)
 
 

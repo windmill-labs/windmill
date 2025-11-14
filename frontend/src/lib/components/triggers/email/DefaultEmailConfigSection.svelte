@@ -14,12 +14,12 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
-	let requestType: 'hash' | 'path' = $state('path')
+	let requestType: 'runnableVersion' | 'path' = $state('path')
 
 	function emailAddress() {
-		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
+		const pathOrHash = requestType === 'runnableVersion' ? runnableVersion : path.replaceAll('/', '.')
 		const plainPrefix = `${$workspaceStore}+${
-			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
+			(requestType === 'runnableVersion' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
 		}+${token}`
 		const encodedPrefix = base32
 			.stringify(new TextEncoder().encode(plainPrefix), {
@@ -32,7 +32,7 @@
 	interface Props {
 		token?: string
 		isFlow?: boolean
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		path: string
 		userSettings: UserSettings
 		emailDomain?: string | null
@@ -42,7 +42,7 @@
 	let {
 		token = $bindable(''),
 		isFlow = false,
-		hash = undefined,
+		runnableVersion = undefined,
 		path,
 		userSettings,
 		emailDomain = null,
@@ -90,7 +90,7 @@
 					<ToggleButtonGroup class="w-auto" bind:selected={requestType}>
 						{#snippet children({ item })}
 							<ToggleButton label="By path" value="path" {item} />
-							<ToggleButton label="By hash" value="hash" {item} />
+							<ToggleButton label="By hash" value="runnableVersion" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>

@@ -256,20 +256,42 @@ pub async fn handle_powershell_job(
             job.args.as_ref()
         };
 
-        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
+        let parsed_sig = windmill_parser_bash::parse_powershell_sig(&content)?;
+
+        parsed_sig
             .args
             .iter()
-            .map(|arg| {
-                (
-                    arg.name.clone(),
-                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_pwsh_param(x.get()))),
-                )
-            })
-            .collect::<Vec<(String, Option<String>)>>();
+            .filter_map(|arg| {
+                let value_opt = job_args.and_then(|x| x.get(&arg.name));
 
-        args_owned
-            .into_iter()
-            .filter_map(|(n, v)| v.map(|v| format!("-{n} {v}")))
+                // Check if this is a switch parameter (only [switch], not [bool])
+                let is_switch = arg.otyp.as_ref().map(|t| {
+                    t.to_lowercase() == "switch"
+                }).unwrap_or(false);
+
+                if is_switch {
+                    // Handle switch parameters: -SwitchName or omit
+                    if let Some(value) = value_opt {
+                        match serde_json::from_str::<serde_json::Value>(value.get()) {
+                            Ok(serde_json::Value::Bool(true)) => {
+                                // Switch is enabled: just pass -SwitchName
+                                Some(format!("-{}", arg.name))
+                            }
+                            Ok(serde_json::Value::Bool(false)) | _ => {
+                                // Switch is disabled or invalid: omit the parameter
+                                None
+                            }
+                        }
+                    } else {
+                        // No value provided, omit the switch (defaults to false)
+                        None
+                    }
+                } else {
+                    // Regular parameter (including [bool]): format as -ParamName Value
+                    // For [bool] parameters, this will be -ParamName $true or -ParamName $false
+                    value_opt.map(|v| format!("-{} {}", arg.name, raw_to_pwsh_param(v.get())))
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
