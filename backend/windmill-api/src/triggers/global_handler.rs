@@ -1,16 +1,22 @@
-use crate::{db::{ApiAuthed, DB}, triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE};
+use crate::{db::ApiAuthed, triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE};
 use axum::{
     extract::{Extension, Path},
     response::Json,
 };
-use windmill_common::{error, jobs::JobTriggerKind, utils::require_admin};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::{db::UserDB, error, jobs::JobTriggerKind, utils::require_admin};
 
 pub async fn resume_suspended_trigger_jobs(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, trigger_kind, trigger_path)): Path<(String, JobTriggerKind, String)>,
 ) -> error::Result<Json<String>> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Use the date constant to identify suspended jobs
+    // This date (9999-12-31 23:59:59) is used as a marker for suspended jobs
     let scheduled_for = INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone();
     let result = sqlx::query!(
         r#"
@@ -33,10 +39,33 @@ pub async fn resume_suspended_trigger_jobs(
         trigger_kind as _,
         trigger_path
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
     let count = result.rows_affected();
+
+    let trigger_kind_str = format!("{:?}", trigger_kind);
+    let count_str = count.to_string();
+    audit_log(
+        &mut *tx,
+        &authed,
+        "triggers.bulk_resume",
+        ActionKind::Execute,
+        &w_id,
+        Some(&trigger_path),
+        Some(
+            [
+                ("trigger_kind", trigger_kind_str.as_str()),
+                ("jobs_count", count_str.as_str()),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        ),
+    )
+    .await?;
+
+    tx.commit().await?;
 
     let message = format!(
         "Successfully resumed {} suspended job{} for trigger at path: {}",
@@ -49,10 +78,13 @@ pub async fn resume_suspended_trigger_jobs(
 
 pub async fn cancel_suspended_trigger_jobs(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, trigger_kind, trigger_path)): Path<(String, JobTriggerKind, String)>,
 ) -> error::Result<Json<String>> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
     let scheduled_for = INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone();
 
     let result = sqlx::query!(
@@ -79,10 +111,33 @@ pub async fn cancel_suspended_trigger_jobs(
         trigger_kind as _,
         trigger_path
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
     let count = result.rows_affected();
+
+    let trigger_kind_str = format!("{:?}", trigger_kind);
+    let count_str = count.to_string();
+    audit_log(
+        &mut *tx,
+        &authed,
+        "triggers.bulk_cancel",
+        ActionKind::Delete,
+        &w_id,
+        Some(&trigger_path),
+        Some(
+            [
+                ("trigger_kind", trigger_kind_str.as_str()),
+                ("jobs_count", count_str.as_str()),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        ),
+    )
+    .await?;
+
+    tx.commit().await?;
 
     let message = format!(
         "Successfully cancelled {} suspended job{} for trigger at path: {}",

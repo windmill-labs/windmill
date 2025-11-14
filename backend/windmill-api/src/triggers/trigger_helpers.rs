@@ -25,6 +25,12 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
+/// Helper function to check if triggers should use queue mode.
+/// Queue mode suspends jobs by scheduling them for a far future date.
+fn is_queue_mode(active_mode: Option<bool>) -> bool {
+    matches!(active_mode, Some(false))
+}
+
 #[cfg(feature = "enterprise")]
 use crate::jobs::check_license_key_valid;
 use crate::{
@@ -532,9 +538,11 @@ pub async fn trigger_runnable_inner(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let scheduled_for = active_mode
-        .filter(|active_mode| !*active_mode)
-        .map(|_| INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone());
+    let scheduled_for = if is_queue_mode(active_mode) {
+        Some(INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone())
+    } else {
+        None
+    };
     let (uuid, delete_after_use, early_return) = if is_flow {
         let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
         let path = StripPath(runnable_path.to_string());

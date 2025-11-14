@@ -17542,7 +17542,7 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
+          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -18725,7 +18725,7 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
+          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -18755,7 +18755,7 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
+          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
       required:
         - path
         - script_path

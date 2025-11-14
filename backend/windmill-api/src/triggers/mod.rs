@@ -126,7 +126,6 @@ pub struct BaseTriggerData {
     pub is_flow: bool,
     pub enabled: Option<bool>,
     pub active_mode: Option<bool>,
-    pub process_queued_jobs: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
