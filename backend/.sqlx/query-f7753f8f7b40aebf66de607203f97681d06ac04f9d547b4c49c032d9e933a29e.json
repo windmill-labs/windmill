@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n                j.tag AS \"tag!\", j.priority\n            FROM v2_job j\n            WHERE j.id = $1 and j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "tag!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "priority",
+        "type_info": "Int2"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "f7753f8f7b40aebf66de607203f97681d06ac04f9d547b4c49c032d9e933a29e"
+}

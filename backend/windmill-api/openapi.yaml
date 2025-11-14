@@ -15137,22 +15137,7 @@ components:
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
-        type: string
-        enum:
-          - webhook
-          - default_email
-          - email
-          - schedule
-          - http
-          - websocket
-          - postgres
-          - kafka
-          - nats
-          - mqtt
-          - sqs
-          - gcp
-          - poll
-          - cli
+        $ref: "#/components/schemas/JobTriggerKind"
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -17254,6 +17239,27 @@ components:
         - timezone
         - args
 
+    JobTriggerKind:
+      name: trigger_kind 
+      description: trigger kind (schedule, http, websocket...)
+      schema:
+        type: string
+        enum:
+          - webhook
+          - default_email
+          - email
+          - schedule
+          - http
+          - websocket
+          - postgres
+          - kafka
+          - nats
+          - mqtt
+          - sqs
+          - gcp
+          - poll
+          - cli
+
     SuspendedJobRequest:
       type: object
       properties:
@@ -17261,7 +17267,7 @@ components:
           type: string
           description: The path of the trigger
         trigger_kind:
-          $ref: "#/components/parameters/JobTriggerKind"
+          $ref: "#/components/schemas/JobTriggerKind"
       required:
         - runnable_path
         - trigger_kind

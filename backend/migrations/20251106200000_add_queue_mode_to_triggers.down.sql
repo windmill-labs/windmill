@@ -7,6 +7,8 @@ DROP INDEX IF EXISTS idx_mqtt_trigger_active_mode;
 DROP INDEX IF EXISTS idx_kafka_trigger_active_mode;
 DROP INDEX IF EXISTS idx_http_trigger_active_mode;
 DROP INDEX IF EXISTS idx_gcp_trigger_active_mode;
+DROP INDEX IF EXISTS idx_email_trigger_active_mode;
+
 
 ALTER TABLE websocket_trigger 
 DROP COLUMN IF EXISTS active_mode;
@@ -30,4 +32,7 @@ ALTER TABLE http_trigger
 DROP COLUMN IF EXISTS active_mode;
 
 ALTER TABLE gcp_trigger 
+DROP COLUMN IF EXISTS active_mode;
+
+ALTER TABLE email_trigger 
 DROP COLUMN IF EXISTS active_mode;

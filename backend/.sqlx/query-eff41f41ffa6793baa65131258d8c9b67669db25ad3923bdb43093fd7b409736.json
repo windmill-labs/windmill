@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by AS \"created_by!\", coalesce(job_logs.logs, '') as logs\n            FROM v2_job\n            LEFT JOIN job_logs ON job_logs.job_id = v2_job.id\n            WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))\n            ORDER BY job_logs.log_offset DESC\n            LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "logs",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "eff41f41ffa6793baa65131258d8c9b67669db25ad3923bdb43093fd7b409736"
+}

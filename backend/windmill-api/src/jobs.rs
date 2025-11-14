@@ -3927,6 +3927,7 @@ async fn batch_rerun_handle_job(
                     job.script_hash,
                     RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
+                    None,
                 )
                 .await
             };
@@ -5646,6 +5647,7 @@ pub async fn stream_job(
                 script_hash,
                 run_query,
                 args,
+                None,
             )
             .await?
             .0
@@ -6843,8 +6845,17 @@ pub async fn run_job_by_hash(
         )
         .await?;
 
-    let (uuid, _) =
-        run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await?;
+    let (uuid, _) = run_job_by_hash_inner(
+        authed,
+        db,
+        user_db,
+        w_id,
+        script_hash,
+        run_query,
+        args,
+        None,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -6857,6 +6868,7 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger: Option<TriggerInfo>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -6951,7 +6963,7 @@ pub async fn run_job_by_hash_inner(
         false,
         None,
         None,
-        None,
+        trigger,
     )
     .await?;
     tx.commit().await?;

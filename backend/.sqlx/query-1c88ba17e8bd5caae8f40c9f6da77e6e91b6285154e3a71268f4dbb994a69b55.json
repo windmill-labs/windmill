@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    path \n                FROM \n                    flow_version \n                WHERE \n                    id = $1 AND \n                    workspace_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1c88ba17e8bd5caae8f40c9f6da77e6e91b6285154e3a71268f4dbb994a69b55"
+}
