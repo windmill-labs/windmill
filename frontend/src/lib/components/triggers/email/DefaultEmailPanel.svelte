@@ -16,7 +16,7 @@
 		token: string
 		scopes?: string[]
 		isFlow?: boolean
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		path: string
 		onEmailDomain: (domain: string) => void
 	}
@@ -25,7 +25,7 @@
 		token = $bindable(),
 		scopes = [],
 		isFlow = false,
-		hash = undefined,
+		runnableVersion = undefined,
 		path,
 		onEmailDomain
 	}: Props = $props()
@@ -70,7 +70,7 @@
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<DefaultEmailConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
+			<DefaultEmailConfigSection {runnableVersion} {token} {path} {isFlow} {userSettings} {emailDomain} />
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">

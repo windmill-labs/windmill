@@ -1668,7 +1668,7 @@
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
-									hash={script.parent_hash}
+									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 

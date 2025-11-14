@@ -10,7 +10,7 @@
 		args?: Record<string, any>
 		scopes?: string[]
 		isFlow?: boolean
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		path: string
 		newItem?: boolean
 	}
@@ -20,7 +20,7 @@
 		args = {},
 		scopes = [],
 		isFlow = false,
-		hash = undefined,
+		runnableVersion = undefined,
 		path,
 		newItem = false
 	}: Props = $props()
@@ -39,5 +39,5 @@
 			{isFlow ? 'flow' : 'script'}.
 		</Alert>
 	{/if}
-	<WebhooksConfigSection {isFlow} {path} {hash} {token} runnableArgs={args} {scopes} />
+	<WebhooksConfigSection {isFlow} {path} {runnableVersion} {token} runnableArgs={args} {scopes} />
 </Section>
