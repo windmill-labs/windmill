@@ -131,7 +131,7 @@
 						workspace: $workspaceStore!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after 5s'
+							reason: 'Slack message not sent after 10s'
 						}
 					})
 				} catch (err) {
@@ -139,7 +139,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 	}
 
@@ -345,7 +345,7 @@
 
 		{#if !handlerPath}
 			<Button
-				btnClasses="ml-4"
+				btnClasses="ml-4 whitespace-nowrap"
 				variant="default"
 				size="xs"
 				href={customScriptTemplate}
@@ -437,7 +437,7 @@
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center"
+				btnClasses="w-32 text-center whitespace-nowrap"
 				variant="default"
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
 				unifiedSize="md">Send test message</Button
@@ -496,19 +496,16 @@
 					minWidth="200px"
 					placeholder="Search Teams channels"
 					teamId={teams_team_id}
-					bind:selectedChannel={
-						() =>
-							handlerExtraArgs['channel']
-								? {
-										channel_id: handlerExtraArgs['channel'],
-										channel_name: handlerExtraArgs['channel_name']
-									}
-								: undefined,
-						(channel) => {
-							handlerExtraArgs['channel'] = channel?.channel_id
-							handlerExtraArgs['channel_name'] = channel?.channel_name
-						}
-					}
+					selectedChannel={handlerExtraArgs['channel']
+						? {
+								channel_id: handlerExtraArgs['channel'],
+								channel_name: handlerExtraArgs['channel_name']
+							}
+						: undefined}
+					onSelectedChannelChange={(channel) => {
+						handlerExtraArgs['channel'] = channel?.channel_id
+						handlerExtraArgs['channel_name'] = channel?.channel_name
+					}}
 					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 				/>
 			</div>
@@ -545,7 +542,7 @@
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center mt-2"
+				btnClasses="w-32 text-center mt-2 whitespace-nowrap"
 				variant="default"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button

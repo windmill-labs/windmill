@@ -1,7 +1,7 @@
 #[cfg(feature = "ts-parser")]
 use serde_json::json;
 #[allow(unused_imports)]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::wasm_bindgen;
 use windmill_parser::MainArgSignature;
 #[cfg(feature = "ts-parser")]
 use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};
@@ -134,8 +134,11 @@ pub fn parse_graphql(code: &str) -> String {
 
 #[cfg(feature = "php-parser")]
 #[wasm_bindgen]
-pub fn parse_php(code: &str) -> String {
-    wrap_sig(windmill_parser_php::parse_php_signature(code, None))
+pub fn parse_php(code: &str, main_override: Option<String>) -> String {
+    wrap_sig(windmill_parser_php::parse_php_signature(
+        code,
+        main_override,
+    ))
 }
 
 #[cfg(feature = "rust-parser")]

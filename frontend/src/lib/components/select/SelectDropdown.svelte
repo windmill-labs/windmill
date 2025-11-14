@@ -153,7 +153,7 @@
 		<div
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] text-primary text-sm select-none',
+				'z-[5002] text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
 				uiState.visible ? '' : 'pointer-events-none',
 				className
@@ -169,10 +169,7 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div
-					bind:this={listEl}
-					class="flex flex-col max-h-64 rounded-md overflow-clip bg-surface-tertiary"
-				>
+				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-tertiary">
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
@@ -198,11 +195,12 @@
 											: item.value === value
 												? 'bg-surface-hover/60'
 												: 'hover:bg-surface-hover',
-										itemButtonWrapperClasses
+										itemButtonWrapperClasses,
+										item.disabled ? 'cursor-not-allowed text-disabled' : ''
 									)}
 									onclick={(e) => {
 										e.stopImmediatePropagation()
-										onSelectValue(item)
+										if (!item.disabled) onSelectValue(item)
 									}}
 								>
 									{@render startSnippet?.({ item, close: () => (open = false) })}

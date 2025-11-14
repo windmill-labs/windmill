@@ -53,6 +53,7 @@ pub mod job_metrics;
 pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
+pub mod lockfiles;
 
 #[cfg(feature = "private")]
 pub mod git_sync_ee;
@@ -97,6 +98,7 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 
 #[macro_export]
@@ -767,7 +769,7 @@ where
     }
 }
 
-pub fn get_latest_flow_version_info_for_path_from_version<
+pub fn get_flow_version_info_from_version<
     'a,
     'e,
     A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
@@ -780,7 +782,6 @@ pub fn get_latest_flow_version_info_for_path_from_version<
     async move {
         // as instructed in the docstring of sqlx::Acquire
         let key = (w_id.to_string(), version);
-
         match FLOW_INFO_CACHE.get(&key) {
             Some(info) => {
                 tracing::debug!("Using cached flow version info for {version} ({path})");
@@ -789,21 +790,37 @@ pub fn get_latest_flow_version_info_for_path_from_version<
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
                 let mut conn = db.acquire().await?;
-                let info = sqlx::query_as!(
-                    FlowVersionInfo,
-                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, on_behalf_of_email, edited_by, flow_version.id AS version
-                    FROM flow
-                    INNER JOIN flow_version
-                        ON flow_version.id = $3
-                    WHERE flow.path = $1 and flow.workspace_id = $2",
-                path,
-                w_id,
-                version
-            )
-                .fetch_optional(&mut *conn)
-                .await?;
+                let flow_info = 
+                        sqlx::query_as!(
+                            FlowVersionInfo,
+                            r#"
+                                SELECT
+                                    flow_version.id AS version,
+                                    flow_version.value->>'early_return' as early_return, 
+                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, 
+                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, 
+                                    flow.tag, 
+                                    flow.dedicated_worker, 
+                                    flow.on_behalf_of_email, 
+                                    flow.edited_by
+                                FROM 
+                                    flow_version
+                                INNER JOIN flow
+                                    ON flow.path = flow_version.path AND
+                                       flow.workspace_id = flow_version.workspace_id
+                                WHERE 
+                                    flow_version.workspace_id = $1 AND
+                                    flow_version.path = $2 AND
+                                    flow_version.id = $3
+                            "#,
+                            w_id,
+                            path,
+                            version,
+                        )
+                        .fetch_optional(&mut *conn)
+                        .await?;
 
-                let info = utils::not_found_if_none(info, "flow", path)?;
+                let info = utils::not_found_if_none(flow_info, "flow", path)?;
 
                 FLOW_INFO_CACHE.insert(key, info.clone());
 
@@ -823,7 +840,7 @@ pub async fn get_latest_flow_version_info_for_path<'e>(
     // as instructed in the docstring of sqlx::Acquire
     let version =
         get_latest_flow_version_id_for_path(db_authed, &db.clone(), w_id, path, use_cache).await?;
-    get_latest_flow_version_info_for_path_from_version(db, version, w_id, path).await
+    get_flow_version_info_from_version(db, version, w_id, path).await
 }
 
 async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(

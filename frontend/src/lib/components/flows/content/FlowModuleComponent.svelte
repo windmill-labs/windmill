@@ -49,7 +49,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { checkIfParentLoop } from '../utils'
+	import { checkIfParentLoop } from '../utils.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -692,7 +692,7 @@
 														{/snippet}
 														{#if flowModule.value.type == 'rawscript'}
 															<Label label="Max number of executions within the time window">
-																<div class="flex flex-row gap-2 max-w-sm">
+																<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
 																	<input
 																		disabled={!$enterpriseLicense}
 																		bind:value={flowModule.value.concurrent_limit}

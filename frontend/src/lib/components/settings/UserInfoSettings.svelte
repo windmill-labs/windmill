@@ -51,8 +51,11 @@
 						bind:value={newPassword}
 						error={passwordError}
 					/>
-					<Button size="sm" variant="default" btnClasses="w-min" on:click={setPassword}
-						>Set password</Button
+					<Button
+						size="sm"
+						variant="default"
+						btnClasses="w-min whitespace-nowrap"
+						on:click={setPassword}>Set password</Button
 					>
 				</div>
 				{#if passwordError}

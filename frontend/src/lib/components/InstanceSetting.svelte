@@ -163,13 +163,17 @@
 		teamItem: { team_id: string; team_name: string } | undefined,
 		i: number
 	) {
+		const currentTeamChannel = $values['critical_error_channels'][i]?.teams_channel
+		const teamIdChanged = currentTeamChannel?.team_id !== teamItem?.team_id
+
 		$values['critical_error_channels'][i] = {
 			teams_channel: teamItem
 				? {
 						team_id: teamItem.team_id,
 						team_name: teamItem.team_name,
-						channel_id: undefined, // Will be set when channel is selected
-						channel_name: undefined
+						// Preserve existing channel if team didn't actually change
+						channel_id: teamIdChanged ? undefined : currentTeamChannel?.channel_id,
+						channel_name: teamIdChanged ? undefined : currentTeamChannel?.channel_name
 					}
 				: undefined
 		}
@@ -191,6 +195,7 @@
 			}
 		}
 	}
+
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
@@ -367,6 +372,11 @@
 							placeholder={setting.placeholder}
 							onKeyDown={() => {
 								licenseKeyChanged = true
+							}}
+							onBlur={() => {
+								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
+									$values[setting.key] = $values[setting.key].trim()
+								}
 							}}
 							bind:password={$values[setting.key]}
 						/>
@@ -558,24 +568,25 @@
 												value={v?.slack_channel ?? ''}
 											/>
 										{:else if v && 'teams_channel' in v}
+											{@const currentTeam = $values['critical_error_channels'][i]?.teams_channel
+												? {
+														team_id: $values['critical_error_channels'][i]?.teams_channel?.team_id,
+														team_name: $values['critical_error_channels'][i]?.teams_channel?.team_name
+													}
+												: undefined}
+											{@const currentChannel = $values['critical_error_channels'][i]?.teams_channel?.channel_id
+												? {
+														channel_id: $values['critical_error_channels'][i]?.teams_channel?.channel_id,
+														channel_name: $values['critical_error_channels'][i]?.teams_channel?.channel_name
+													}
+												: undefined}
 											<div class="flex flex-row gap-2 w-full">
 												<TeamSelector
 													containerClass="w-44"
 													minWidth="140px"
 													showRefreshButton={false}
-													bind:selectedTeam={
-														() =>
-															$values['critical_error_channels'][i]?.teams_channel
-																? {
-																		team_id:
-																			$values['critical_error_channels'][i]?.teams_channel?.team_id,
-																		team_name:
-																			$values['critical_error_channels'][i]?.teams_channel
-																				?.team_name
-																	}
-																: undefined,
-														(team) => handleTeamChange(team, i)
-													}
+													selectedTeam={currentTeam}
+													onSelectedTeamChange={(team) => handleTeamChange(team, i)}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
@@ -583,20 +594,8 @@
 														containerClass=""
 														placeholder="Search channels"
 														teamId={$values['critical_error_channels'][i]?.teams_channel?.team_id}
-														bind:selectedChannel={
-															() =>
-																$values['critical_error_channels'][i]?.teams_channel?.channel_id
-																	? {
-																			channel_id:
-																				$values['critical_error_channels'][i]?.teams_channel
-																					?.channel_id,
-																			channel_name:
-																				$values['critical_error_channels'][i]?.teams_channel
-																					?.channel_name
-																		}
-																	: undefined,
-															(channel) => handleChannelChange(channel, i)
-														}
+														selectedChannel={currentChannel}
+														onSelectedChannelChange={(channel) => handleChannelChange(channel, i)}
 														onError={(e) =>
 															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
@@ -862,9 +861,10 @@
 				{:else if setting.fieldType == 'smtp_connect'}
 					<div class="flex flex-col gap-4 border rounded p-4">
 						{#if $values[setting.key]}
-							<div class="flex gap-4"
-								><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
+							<div class="flex gap-4">
+								<input type="email" bind:value={to} placeholder="contact@windmill.dev" />
 								<Button
+									wrapperClasses="shrink-0"
 									disabled={to == ''}
 									on:click={async () => {
 										let smtp = $values[setting.key]

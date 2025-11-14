@@ -15,7 +15,7 @@
 		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import { emptyFlowModuleState } from '../utils.svelte'
 
 	import { dfs } from '../dfs'
 	import { push } from '$lib/history.svelte'
@@ -327,7 +327,7 @@
 				loadingJobs: true
 			}
 		}
-		const previousJobId = await JobService.listJobs({
+		const previousJobId = await JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),

@@ -31,6 +31,7 @@
 	import type { PickableProperties } from '../previousResults'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		pickableProperties: PickableProperties | undefined
@@ -69,6 +70,10 @@
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	flowPropPickerConfig.set(undefined)
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let flow_env = $derived(pickableProperties?.flow_env || flowStore.val.value.flow_env)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
@@ -156,6 +161,7 @@
 						<PropPicker
 							{displayContext}
 							{error}
+							{flow_env}
 							previousId={pickableProperties?.previousId}
 							{pickableProperties}
 							allowCopy={!notSelectable && !$propPickerConfig}

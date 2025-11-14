@@ -45,7 +45,7 @@
 			lang: 'snowflake',
 			argName: 'database'
 		},
-		ms_sql_server: {
+		mssql: {
 			code: `SELECT 1`,
 			lang: 'mssql',
 			argName: 'database'

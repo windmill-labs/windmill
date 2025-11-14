@@ -206,7 +206,7 @@
 			newAssetEdges: allAssetEdges,
 			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
 		}
-		computeAssetNodesCache = [nodes, ret]
+		computeAssetNodesCache = [clone(nodes), ret]
 		return ret
 	}
 </script>
@@ -226,7 +226,7 @@
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { pluralize } from '$lib/utils'
+	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -305,9 +305,7 @@
 					href={undefined}
 					class={twMerge(
 						'text-xs',
-						data.asset.kind === 'resource'
-							? 'text-blue-400 cursor-pointer'
-							: 'dark:text-primary text-primary-inverse'
+						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
@@ -316,8 +314,8 @@
 				>
 					{data.asset.path}
 				</a><br />
-				<span class="dark:text-primary text-primary-inverse text-xs"
-					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+				<span class="text-hint text-xs">
+					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
 			</svelte:fragment>
 		</Tooltip>

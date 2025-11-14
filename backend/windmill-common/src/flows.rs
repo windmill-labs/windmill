@@ -23,7 +23,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     cache,
     db::DB,
-    error::Error,
+    error::{Error, Result as WindmillResult},
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
@@ -66,6 +66,7 @@ pub struct FlowWithStarred {
     pub starred: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock_error_logs: Option<String>,
+    pub version_id: i64,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -93,12 +94,51 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
+fn validate_retry(retry: &Retry, module_id: &str) -> WindmillResult<()> {
+    if retry.exponential.attempts > 0 && retry.exponential.seconds == 0 {
+        return Err(Error::BadRequest(format!(
+            "Module '{}': Exponential backoff base (seconds) must be greater than 0. A base of 0 would cause immediate retries.",
+            module_id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_flow_value<'de, D>(deserializer: D) -> Result<Box<RawValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw_value = Box::<RawValue>::deserialize(deserializer)?;
+
+    let flow_value: FlowValue = serde_json::from_str(raw_value.get())
+        .map_err(|e| serde::de::Error::custom(format!("Invalid flow value: {}", e)))?;
+
+    FlowModule::traverse_modules(&flow_value.modules, &mut |module| {
+        if let Some(ref retry) = module.retry {
+            validate_retry(retry, &module.id)?;
+        }
+        return Ok(());
+    })
+    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+    if let Some(ref _failure_module) = flow_value.failure_module {
+        //add validation logic here for failure module
+    }
+
+    if let Some(ref _preprocessor_module) = flow_value.preprocessor_module {
+        //add validation logic here for preprocessor module
+    }
+
+    Ok(raw_value)
+}
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
     pub description: Option<String>,
-    pub value: serde_json::Value,
+    #[serde(deserialize_with = "validate_flow_value")]
+    pub value: Box<RawValue>,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
@@ -107,6 +147,15 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
+}
+
+impl NewFlow {
+    pub fn parse_flow_value(&self) -> crate::error::Result<FlowValue> {
+        serde_json::from_str(self.value.get()).map_err(|e| {
+            crate::error::Error::InternalErr(format!("Failed to parse flow value: {}", e))
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -144,6 +193,8 @@ pub struct FlowValue {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_env: Option<HashMap<String, Box<RawValue>>>
 }
 
 impl FlowValue {
@@ -170,7 +221,7 @@ impl FlowValue {
     // #[async_recursion::async_recursion(?Send)]
     // TODO: We may be want this async.
     pub fn traverse_leafs<C: FnMut(&FlowModuleValue, &String) -> crate::error::Result<()>>(
-        modules: &Vec<FlowModule>,
+        modules: Vec<&FlowModule>,
         cb: &mut C,
     ) -> crate::error::Result<()> {
         use FlowModuleValue::*;
@@ -182,7 +233,7 @@ impl FlowValue {
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
-                    Self::traverse_leafs(&modules, cb)?
+                    Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
                 AIAgent { tools, .. } => {
                     for tool in tools {
@@ -196,7 +247,7 @@ impl FlowValue {
                 }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
-                        Self::traverse_leafs(&branch.modules, cb)?;
+                        Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
                     }
                 }
             }
@@ -479,6 +530,10 @@ impl FlowModule {
             .map_err(crate::error::to_anyhow)
     }
 
+    pub fn is_ai_agent(&self) -> bool {
+        self.get_type().is_ok_and(|x| x == "aiagent")
+    }
+
     pub fn is_simple(&self) -> bool {
         //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()
@@ -494,6 +549,64 @@ impl FlowModule {
         serde_json::from_str::<FlowModuleValueType>(self.value.get())
             .map_err(crate::error::to_anyhow)
             .map(|x| x.r#type)
+    }
+
+    pub fn traverse_modules<C: FnMut(&FlowModule) -> crate::error::Result<()>>(
+        modules: &Vec<FlowModule>,
+        cb: &mut C,
+    ) -> crate::error::Result<()> {
+        for module in modules {
+            cb(module)?;
+            match module
+                .get_value()
+                .map_err(|e| Error::BadRequest(format!("Module '{}': {}", module.id, e)))?
+            {
+                FlowModuleValue::ForloopFlow { modules, .. }
+                | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                    Self::traverse_modules(&modules, cb)?;
+                }
+                FlowModuleValue::BranchOne { branches, default, .. } => {
+                    for branch in branches {
+                        Self::traverse_modules(&branch.modules, cb)?;
+                    }
+                    Self::traverse_modules(&default, cb)?;
+                }
+                FlowModuleValue::BranchAll { branches, .. } => {
+                    for branch in branches {
+                        Self::traverse_modules(&branch.modules, cb)?;
+                    }
+                }
+                FlowModuleValue::AIAgent { tools, .. } => {
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => match module_value {
+                                FlowModuleValue::ForloopFlow { modules, .. }
+                                | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                                    Self::traverse_modules(&modules, cb)?;
+                                }
+                                FlowModuleValue::BranchOne { branches, default, .. } => {
+                                    for branch in branches {
+                                        Self::traverse_modules(&branch.modules, cb)?;
+                                    }
+                                    Self::traverse_modules(&default, cb)?;
+                                }
+                                FlowModuleValue::BranchAll { branches, .. } => {
+                                    for branch in branches {
+                                        Self::traverse_modules(&branch.modules, cb)?;
+                                    }
+                                }
+                                _ => {}
+                            },
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModule to traverse
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 
@@ -533,6 +646,7 @@ pub enum InputTransform {
         #[serde(default = "default_empty_string")]
         expr: String,
     },
+    Ai,
 }
 
 impl InputTransform {
@@ -551,6 +665,7 @@ impl TryFrom<UntaggedInputTransform> for InputTransform {
         let input_transform = match value.type_.as_str() {
             "static" => InputTransform::new_static_value(value.value.unwrap_or_else(default_null)),
             "javascript" => InputTransform::new_javascript_expr(&value.expr.unwrap_or_default()),
+            "ai" => InputTransform::Ai,
             other => {
                 return Err(anyhow::anyhow!(
                     "got value: {other} for field `type`, expected value: `static` or `javascript`"
@@ -706,6 +821,10 @@ pub struct McpToolValue {
     pub exclude_tools: Vec<String>,
 }
 
+fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
+    expr.is_none() || expr.as_ref().unwrap().is_empty()
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -797,7 +916,7 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "is_none_or_empty_vec")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
 
@@ -823,7 +942,7 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "is_none_or_empty_vec")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
 

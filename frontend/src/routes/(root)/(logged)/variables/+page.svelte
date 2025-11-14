@@ -16,6 +16,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import TableSimple from '$lib/components/TableSimple.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
@@ -69,11 +70,20 @@
 		}
 	})
 
-	let preFilteredItems = $derived(
-		ownerFilter == undefined
-			? variables
-			: variables?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
-	)
+	let preFilteredItems = $derived.by(() => {
+		let l =
+			ownerFilter == undefined
+				? variables
+				: variables?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+		if (filterUserFolders) {
+			l = l?.filter((item) => {
+				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+				if (filterUserFoldersType === 'u/username and f/*')
+					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			})
+		}
+		return l
+	})
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -141,6 +151,15 @@
 			loadContextualVariables()
 		}, 5000)
 	}
+
+	let filterUserFolders = $state(false)
+	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
@@ -220,6 +239,17 @@
 				<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
 			</div>
 			<div class="relative overflow-x-auto pb-40 pr-4">
+				<div class="flex flex-row items-center justify-end gap-4 pb-2">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
 				{#if !filteredItems}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(3) as _}

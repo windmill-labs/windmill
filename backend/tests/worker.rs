@@ -2395,7 +2395,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT script_path FROM v2_as_completed_job  WHERE id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2466,7 +2466,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT script_path FROM v2_as_completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -2553,7 +2553,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT script_path FROM v2_as_completed_job  WHERE id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2625,7 +2625,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT script_path FROM v2_as_completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -2769,7 +2769,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let response = windmill_api::jobs::run_wait_result(
         &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
-        "test-workspace".to_string(),
+        "test-workspace",
         None,
         "test-user",
     )

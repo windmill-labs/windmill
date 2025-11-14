@@ -145,7 +145,7 @@
 				<div class="text-xs text-primary whitespace-nowrap"
 					>{`${totalNumberOfAlerts === 1000 ? '1000+' : (totalNumberOfAlerts ?? '?')} items`}
 				</div>
-				<RefreshButton {loading} on:click={refreshAlerts} />
+				<RefreshButton {loading} onClick={refreshAlerts} />
 			</List>
 		</List>
 	</div>

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     db::ApiAuthed,
-    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs},
+    triggers::trigger_helpers::{
+        trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -64,9 +66,8 @@ pub fn value_to_args_hashmap(
     args: Option<&Box<RawValue>>,
 ) -> Result<HashMap<String, Box<RawValue>>> {
     let args = if let Some(args) = args {
-        let args_map: Option<HashMap<String, serde_json::Value>> =
-            serde_json::from_str(args.get())
-                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?;
+        let args_map: Option<HashMap<String, serde_json::Value>> = serde_json::from_str(args.get())
+            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?;
 
         args_map
             .unwrap_or_else(HashMap::new)
@@ -112,6 +113,7 @@ pub async fn get_url_from_runnable_value(
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
+        Some(windmill_common::jobs::JobTriggerKind::Websocket),
     )
     .await?;
 
