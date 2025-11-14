@@ -2,8 +2,8 @@
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import DefaultTags from '$lib/components/DefaultTags.svelte'
@@ -263,26 +263,6 @@
 	function isWorkerMaybeAlive(last_ping: number | undefined): boolean | undefined {
 		return last_ping != undefined ? last_ping < 60 : undefined
 	}
-
-	function hasWorkersWithoutIsolation(
-		worker_group: [string, [string, WorkerPing[]][]] | undefined
-	): boolean {
-		if (!worker_group) return false
-
-		return worker_group[1].some(([_, workers]) =>
-			workers.some((w) => !w.job_isolation || w.job_isolation === 'none')
-		)
-	}
-
-	function getWorkersWithoutIsolation(
-		worker_group: [string, [string, WorkerPing[]][]] | undefined
-	): WorkerPing[] {
-		if (!worker_group) return []
-
-		return worker_group[1].flatMap(([_, workers]) =>
-			workers.filter((w) => !w.job_isolation || w.job_isolation === 'none')
-		)
-	}
 </script>
 
 {#if $superadmin || $devopsRole}
@@ -541,44 +521,6 @@
 						activeWorkers={activeWorkers?.length ?? 0}
 						{defaultTagPerWorkspace}
 					/>
-
-					{#if hasWorkersWithoutIsolation(worker_group)}
-						{@const unsafeWorkers = getWorkersWithoutIsolation(worker_group)}
-						<Alert
-							type="warning"
-							title="Workers without job isolation detected"
-							collapsible={true}
-							isCollapsed={true}
-							size="xs"
-							class="my-2 !px-2 !py-1"
-						>
-							<div class="flex flex-col gap-2">
-								<p>
-									{unsafeWorkers.length}
-									{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
-									{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
-									This may pose security risks.
-									<a
-										href="https://www.windmill.dev/docs/advanced/security_isolation"
-										target="_blank"
-										class="text-blue-600 hover:underline"
-									>
-										Learn more
-									</a>
-								</p>
-								<div class="flex flex-wrap gap-1">
-									{#each unsafeWorkers as worker}
-										<Badge color="orange" verySmall={true}>
-											{worker.worker}
-										</Badge>
-									{/each}
-								</div>
-								<p class="text-2xs">
-									Configure workers with nsjail or unshare for proper job isolation.
-								</p>
-							</div>
-						</Alert>
-					{/if}
 
 					<div class="flex flex-row items-center gap-2 relative my-2">
 						<input
