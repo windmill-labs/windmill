@@ -8,7 +8,6 @@ use std::{
 };
 use uuid::Uuid;
 use windmill_common::{
-    ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
@@ -312,9 +311,9 @@ pub fn get_step_name_from_flow(
     )
 }
 
-/// AWS Bedrock do not handle structured output query param, so we use a tool for structured output. Same for every Claude models.
-pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> bool {
-    model.contains("claude") || provider == &AIProvider::AWSBedrock
+/// Claude models starts with claude if provider is anthropic, or anthropic for openrouter and other providers
+pub fn is_claude_model(model: &str) -> bool {
+    model.starts_with("claude") || model.starts_with("anthropic")
 }
 
 /// Cleanup MCP clients by gracefully shutting down connections
