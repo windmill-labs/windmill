@@ -188,7 +188,7 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let (_, expired) = validate_license_key(license_key).await?;
+    let (_, expired) = validate_license_key(license_key, Some(&db)).await?;
 
     if expired {
         Err(error::Error::BadRequest("Expired license key".to_string()))
