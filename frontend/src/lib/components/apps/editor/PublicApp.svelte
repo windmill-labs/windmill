@@ -97,7 +97,7 @@
 	<div class="px-4 mt-20 w-full text-center font-bold text-xl"> This app requires read access </div>
 	<div class="text-center mt-8 text-sm text-primary">
 		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && workspace}
-			You are logged in but are not member of the workspace <span class="text-xl font-bold"
+			You are logged in but are not a member of the workspace <span class="text-xl font-bold"
 				>{workspace}</span
 			> this app is part of
 		{:else}You must be logged in and have read access to this app{/if}</div
