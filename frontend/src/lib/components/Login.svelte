@@ -19,7 +19,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
-	import { sameOrigin } from '$lib/cookies'
+	import { sameTopDomainOrigin } from '$lib/cookies'
 
 	interface Props {
 		rd?: string | undefined
@@ -214,7 +214,7 @@
 	function popupListener(event) {
 		let data = event.data
 		console.log('popupListener', data, event.origin, window.location.origin)
-		if (!sameOrigin(event.origin, window.location.origin)) {
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
 			console.log('popupListener from different origin', event.origin, window.location.origin)
 			return
 		}

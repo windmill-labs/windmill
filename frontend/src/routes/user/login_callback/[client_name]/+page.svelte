@@ -12,7 +12,7 @@
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
-	import { getAndDeleteCookie } from '$lib/cookies'
+	import { getCookie } from '$lib/cookies'
 	// import { getAndDeleteCookie } from '$lib/cookies'
 
 	let error = page.url.searchParams.get('error')
@@ -27,7 +27,7 @@
 		if (rd) {
 			localStorage.removeItem('rd')
 		}
-		const cookieCloseUponLogin = getAndDeleteCookie('close') == 'true'
+		const cookieCloseUponLogin = getCookie('close') == 'true'
 		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)

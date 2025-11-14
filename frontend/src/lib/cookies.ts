@@ -10,25 +10,10 @@ export function getCookie(name: string): string | undefined {
 	return match ? decodeURIComponent(match[1]) : undefined
 }
 
-/**
- * Deletes a cookie by name.
- * @param {string} name - The name of the cookie to delete.
- * @param {string} [path] - Optional cookie path (defaults to '/').
- */
-export function deleteCookie(name: string, path: string = '/') {
-	document.cookie = `${encodeURIComponent(name)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path};`
-}
-
-export function getAndDeleteCookie(name: string): string | undefined {
-	const value = getCookie(name)
-	if (value) {
-		deleteCookie(name)
-	}
-	return value
-}
 
 
-export function sameOrigin(origin: string | null, desktopOrigin: string): boolean {
+// this only check the last 2 segments to work for popup on shared top-domain
+export function sameTopDomainOrigin(origin: string | null, desktopOrigin: string): boolean {
 	if (origin == null) {
 		return false
 	}

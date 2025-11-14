@@ -58,6 +58,7 @@
 	}
 
 	onMount(() => {
+		// this is to avoid loading global user if the userStore is set at loading
 		setTimeout(() => {
 			if ($userStore) return
 			loadGlobalUser()

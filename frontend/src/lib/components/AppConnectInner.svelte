@@ -33,7 +33,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pollJobResult } from './jobs/utils'
-	import { sameOrigin } from '$lib/cookies'
+	import { sameTopDomainOrigin } from '$lib/cookies'
 
 	interface Props {
 		step?: number
@@ -240,7 +240,7 @@
 	function popupListener(event) {
 		console.log('Received oauth popup message', event)
 		let data = event.data
-		if (!sameOrigin(event.origin, window.location.origin)) {
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
 			console.log(
 				'Received oauth popup message from different origin',
 				event.origin,
