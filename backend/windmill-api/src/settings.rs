@@ -700,8 +700,7 @@ async fn setup_ducklake_catalog_db_inner(
         dbname = dbname,
         sslmode = ssl_mode
     );
-
-    if ssl_mode == "require" {
+    let (client, join_handle) = if ssl_mode == "require" {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
 
@@ -721,32 +720,7 @@ async fn setup_ducklake_catalog_db_inner(
         .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
 
         let join_handle = tokio::spawn(async move { connection.await });
-        logs.db_connect = "OK".to_string();
-
-        client
-            .batch_execute(&format!(
-                "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
-                GRANT USAGE ON SCHEMA public TO ducklake_user;
-                GRANT CREATE ON SCHEMA public TO ducklake_user;
-                ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
-            ))
-            .await
-            .map_err(|e| {
-                error::Error::ExecutionErr(format!(
-                    "Failed to grant permissions to ducklake_user: {}",
-                    e.to_string(),
-                ))
-            })?;
-        logs.grant_permissions = "OK".to_string();
-
-        drop(client); // /!\ Drop before joining to avoid deadlock
-        join_handle
-            .await
-            .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
-            .map_err(|e| {
-                error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
-            })?;
+        (client, join_handle)
     } else {
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -757,33 +731,35 @@ async fn setup_ducklake_catalog_db_inner(
         .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
 
         let join_handle = tokio::spawn(async move { connection.await });
-        logs.db_connect = "OK".to_string();
+        (client, join_handle)
+    };
 
-        client
-            .batch_execute(&format!(
-                "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
-                GRANT USAGE ON SCHEMA public TO ducklake_user;
-                GRANT CREATE ON SCHEMA public TO ducklake_user;
-                ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+    logs.db_connect = "OK".to_string();
+
+    client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
+             GRANT USAGE ON SCHEMA public TO ducklake_user;
+             GRANT CREATE ON SCHEMA public TO ducklake_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+        ))
+        .await
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "Failed to grant permissions to ducklake_user: {}",
+                e.to_string(),
             ))
-            .await
-            .map_err(|e| {
-                error::Error::ExecutionErr(format!(
-                    "Failed to grant permissions to ducklake_user: {}",
-                    e.to_string(),
-                ))
-            })?;
-        logs.grant_permissions = "OK".to_string();
+        })?;
+    logs.grant_permissions = "OK".to_string();
 
-        drop(client); // /!\ Drop before joining to avoid deadlock
-        join_handle
-            .await
-            .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
-            .map_err(|e| {
-                error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
-            })?;
-    }
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    join_handle
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
+        })?;
 
     Ok(())
 }
