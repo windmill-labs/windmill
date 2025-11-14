@@ -70,6 +70,7 @@ jobs:
       - name: cargo test
         timeout-minutes: 16
         run: deno --version && bun -v && go version && python3 --version &&
+          cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd .. &&
           SQLX_OFFLINE=true
           DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
           DISABLE_EMBEDDING=true RUST_LOG=info RUST_LOG_STYLE=never

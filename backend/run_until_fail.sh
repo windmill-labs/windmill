@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Run the command repeatedly until it fails (exits with non-zero code)
+cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
 while true; do
     DISABLE_EMBEDDING=true \
     RUST_LOG=info \
