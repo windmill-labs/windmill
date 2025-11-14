@@ -739,6 +739,22 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
+    {
+        use crate::triggers::global_handler::{
+            cancel_suspended_trigger_jobs, resume_suspended_trigger_jobs,
+        };
+
+        router = router
+            .route(
+                "/trigger/:trigger_kind/resume_suspended_trigger_job/*trigger_path",
+                post(resume_suspended_trigger_jobs),
+            )
+            .route(
+                "/trigger/:trigger_kind/cancel_suspended_trigger_job/*trigger_path",
+                post(cancel_suspended_trigger_jobs),
+            );
+    }
+
     router
 }
 

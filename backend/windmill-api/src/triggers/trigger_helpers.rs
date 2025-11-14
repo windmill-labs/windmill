@@ -16,7 +16,7 @@ use windmill_common::{
     jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     triggers::{
-        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerInfo, TriggerKind,
+        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerMetadata, TriggerKind,
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
     users::username_to_permissioned_as,
@@ -519,7 +519,7 @@ pub async fn trigger_runnable_inner(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
     active_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let error_handler_args = error_handler_args.map(|args| {
@@ -588,7 +588,7 @@ pub async fn trigger_runnable(
     trigger_path: String,
     job_id: Option<Uuid>,
     active_mode: bool,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let uuid = trigger_runnable_inner(
         db,
@@ -624,7 +624,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -667,7 +667,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
 ) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -718,7 +718,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
 ) -> Result<Box<RawValue>> {
     let (result, success) = trigger_runnable_and_wait_for_raw_result(
         db,
@@ -759,7 +759,7 @@ async fn trigger_script_internal(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
     scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
@@ -808,7 +808,7 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger: TriggerInfo,
+    trigger: TriggerMetadata,
     scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]

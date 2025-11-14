@@ -37,7 +37,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
-use windmill_common::triggers::TriggerInfo;
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
@@ -3887,7 +3887,7 @@ pub async fn push<'c, 'd>(
     // If we know there is already a debounce job, we can use this for debouncing.
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {

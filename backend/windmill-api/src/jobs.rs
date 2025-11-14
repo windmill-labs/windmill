@@ -37,7 +37,7 @@ use windmill_common::jobs::{
     DynamicInput, JobTriggerKind, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
-use windmill_common::triggers::TriggerInfo;
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
@@ -1823,6 +1823,7 @@ pub struct ListQueueQuery {
     pub concurrency_key: Option<String>,
     pub allow_wildcards: Option<bool>,
     pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_path: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1855,6 +1856,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             concurrency_key: lcq.concurrency_key,
             allow_wildcards: lcq.allow_wildcards,
             trigger_kind: lcq.trigger_kind,
+            trigger_path: lcq.trigger_path,
         }
     }
 }
@@ -1980,6 +1982,10 @@ pub fn filter_list_queue_query(
 
     if let Some(tk) = &lq.trigger_kind {
         sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+    }
+
+    if let Some(tp) = &lq.trigger_path {
+        sqlb.and_where_eq("trigger", "?".bind(tp));
     }
 
     sqlb
@@ -2435,7 +2441,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    // tracing::info!("sql: {}", sql);
+    // tracing::info!("sql: {}", &sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
@@ -4053,7 +4059,7 @@ pub async fn run_flow(
     flow_version_info: FlowVersionInfo,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<(Uuid, Option<String>)> {
     let FlowVersionInfo {
         version,
@@ -4159,7 +4165,7 @@ pub async fn run_flow_and_wait_result(
     flow_version_info: FlowVersionInfo,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<Response> {
     let (uuid, early_return) = run_flow(
         authed,
@@ -4185,7 +4191,7 @@ pub async fn push_flow_job_by_path_into_queue(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4246,7 +4252,7 @@ pub async fn run_flow_by_version_inner(
     version: i64,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4426,7 +4432,7 @@ pub async fn push_script_job_by_path_into_queue(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -6868,7 +6874,7 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger: Option<TriggerInfo>,
+    trigger: Option<TriggerMetadata>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -7934,6 +7940,10 @@ pub fn filter_list_completed_query(
 
     if let Some(tk) = &lq.trigger_kind {
         sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+    }
+
+    if let Some(tp) = &lq.trigger_path {
+        sqlb.and_where_eq("trigger", "?".bind(tp));
     }
 
     sqlb

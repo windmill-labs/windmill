@@ -8582,21 +8582,28 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/jobs/queue/resume_suspended:
+  /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_job/{trigger_path}:
     post:
-      summary: resume all suspended jobs with the given suspend number
-      operationId: resumeSuspendedJobs
+      summary: resume all suspended jobs for a specific trigger
+      operationId: resumeSuspendedTriggerJobs
       tags:
-        - job
+        - trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: suspend number of the jobs to resume
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SuspendedJobRequest"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
       responses:
         "200":
           description: confirmation message
@@ -8605,21 +8612,28 @@ paths:
                 schema:
                   type: string
 
-  /w/{workspace}/jobs/queue/cancel_suspended:
+  /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_job/{trigger_path}:
     post:
-      summary: cancel all suspended jobs with the given suspend number
-      operationId: cancelSuspendedJobs
+      summary: cancel all suspended jobs for a specific trigger
+      operationId: cancelSuspendedTriggerJobs
       tags:
-        - job
+        - trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: suspend number of the jobs to cancel
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SuspendedJobRequest"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
       responses:
         "200":
           description: confirmation message
@@ -17257,18 +17271,6 @@ components:
         - gcp
         - poll
         - cli
-
-    SuspendedJobRequest:
-      type: object
-      properties:
-        trigger_path:
-          type: string
-          description: The path of the trigger
-        trigger_kind:
-          $ref: "#/components/schemas/JobTriggerKind"
-      required:
-        - runnable_path
-        - trigger_kind
 
     TriggerExtraProperty:
       type: object

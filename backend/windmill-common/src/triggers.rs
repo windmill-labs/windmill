@@ -85,13 +85,13 @@ lazy_static! {
         Cache::new(1000);
 }
 
-pub struct TriggerInfo {
+pub struct TriggerMetadata {
     pub trigger_path: Option<String>,
     pub trigger_kind: JobTriggerKind,
 }
 
-impl TriggerInfo {
-    pub fn new(trigger_path: Option<String>, trigger_kind: JobTriggerKind) -> TriggerInfo {
-        TriggerInfo { trigger_path, trigger_kind }
+impl TriggerMetadata {
+    pub fn new(trigger_path: Option<String>, trigger_kind: JobTriggerKind) -> TriggerMetadata {
+        TriggerMetadata { trigger_path, trigger_kind }
     }
 }

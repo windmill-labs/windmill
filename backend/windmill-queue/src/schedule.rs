@@ -24,7 +24,7 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::triggers::TriggerInfo;
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::FlowVersionInfo;
@@ -502,7 +502,7 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
         None,
-        Some(TriggerInfo::new(
+        Some(TriggerMetadata::new(
             Some(schedule.path.clone()),
             JobTriggerKind::Schedule,
         )),

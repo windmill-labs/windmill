@@ -33,6 +33,7 @@ pub mod websocket;
 mod handler;
 mod listener;
 pub mod trigger_helpers;
+pub mod global_handler;
 
 #[allow(unused)]
 pub(crate) use handler::TriggerCrud;

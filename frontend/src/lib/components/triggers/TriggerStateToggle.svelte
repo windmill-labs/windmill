@@ -6,9 +6,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import RunRow from '../runs/RunRow.svelte'
 	import '../runs/runs-grid.css'
-	import { JobService } from '$lib/gen'
+	import { JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { type JobTriggerType } from './utils'
+	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
 	type Props = {
 		active_mode: boolean
 		triggerPath: string
@@ -32,15 +33,23 @@
 	let loading = $state(false)
 	let error = $state<string | null>(null)
 	let processingAction = $state(false)
+	let isPreviousLoading = $state(false)
+	let isNextLoading = $state(false)
 	let workspace = $workspaceStore!
 	let containerWidth = $state(1000)
+	let currentPage = $state(1)
+	let perPage = $state(20)
+	let hasMorePages = $derived(queuedJobs.length === perPage)
 	$effect(() => {
 		if (shouldShowModal) {
 			fetchQueuedJobs()
 		}
 	})
 
-	async function fetchQueuedJobs() {
+	async function fetchQueuedJobs(resetPage = false) {
+		if (resetPage) {
+			currentPage = 1
+		}
 		loading = true
 		error = null
 
@@ -50,7 +59,8 @@
 				triggerKind: jobTriggerKind,
 				triggerPath,
 				running: false,
-				perPage: 100
+				perPage,
+				page: currentPage
 			})
 
 			queuedJobs = allSuspendedJobs
@@ -62,6 +72,26 @@
 		}
 	}
 
+	function nextPage() {
+		if (hasMorePages && !loading) {
+			isNextLoading = true
+			currentPage += 1
+			fetchQueuedJobs().finally(() => {
+				isNextLoading = false
+			})
+		}
+	}
+
+	function prevPage() {
+		if (currentPage > 1 && !loading) {
+			isPreviousLoading = true
+			currentPage -= 1
+			fetchQueuedJobs().finally(() => {
+				isPreviousLoading = false
+			})
+		}
+	}
+
 	async function runAllJobs() {
 		if (queuedJobs.length === 0) return
 
@@ -69,12 +99,10 @@
 		error = null
 
 		try {
-			const resumedJobs = await JobService.resumeSuspendedJobs({
+			const resumedJobs = await TriggerService.resumeSuspendedTriggerJobs({
 				workspace,
-				requestBody: {
-					trigger_kind: jobTriggerKind,
-					trigger_path: triggerPath
-				}
+				triggerKind: jobTriggerKind,
+				triggerPath
 			})
 			sendUserToast(resumedJobs)
 		} catch (e) {
@@ -82,7 +110,6 @@
 			console.error('Failed to run jobs:', e)
 		} finally {
 			processingAction = false
-
 			closeModal()
 		}
 	}
@@ -94,12 +121,10 @@
 		error = null
 
 		try {
-			await JobService.cancelSuspendedJobs({
+			await TriggerService.cancelSuspendedTriggerJobs({
 				workspace,
-				requestBody: {
-					trigger_kind: jobTriggerKind,
-					trigger_path: triggerPath
-				}
+				triggerKind: jobTriggerKind,
+				triggerPath
 			})
 
 			sendUserToast(`Successfully canceled all jobs`)
@@ -123,7 +148,9 @@
 {#if shouldShowModal}
 	<Modal2
 		bind:isOpen={shouldShowModal}
-		title="{queuedJobs.length} job{queuedJobs.length === 1 ? '' : 's'} queued for this trigger"
+		title="{hasMorePages
+			? `${queuedJobs.length}+ suspended`
+			: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'} for this trigger"
 		target="#content"
 		fixedSize="lg"
 	>
@@ -142,16 +169,18 @@
 			{:else if queuedJobs.length === 0}
 				<div class="flex flex-col items-center w-full py-12 px-4">
 					<div class="text-center">
-						<div class="text-base font-medium text-secondary mb-2">No queued jobs found</div>
+						<div class="text-base font-medium text-secondary mb-2">No suspended jobs found</div>
 						<div class="text-sm text-tertiary"
-							>This trigger has no jobs waiting to be processed.</div
+							>This trigger has no suspended jobs waiting to be processed.</div
 						>
 					</div>
 				</div>
 			{:else}
 				<div class="flex-1 overflow-auto">
 					<div class="mb-3">
-						<h3 class="text-sm font-medium">Queued Jobs ({queuedJobs.length})</h3>
+						<h3 class="text-sm font-medium">
+							Suspended Jobs {#if hasMorePages}(Page {currentPage}){:else}({queuedJobs.length}){/if}
+						</h3>
 						<p class="text-xs text-gray-500 mt-1">Click on any job to view details</p>
 					</div>
 
@@ -185,10 +214,51 @@
 					</div>
 				</div>
 
+				{#if queuedJobs.length > 0 && (currentPage > 1 || hasMorePages)}
+					<div
+						class="w-full bg-surface border-t flex flex-row justify-between p-2 items-center gap-2"
+					>
+						<div class="flex flex-row gap-2 items-center">
+							<span class="text-xs text-secondary">
+								{queuedJobs.length}
+								{hasMorePages ? '+' : ''} suspended job{queuedJobs.length === 1 ? '' : 's'}
+							</span>
+						</div>
+
+						<div class="flex flex-row gap-3 items-center">
+							<div class="flex text-xs text-secondary">Page {currentPage}</div>
+
+							<Button
+								variant="subtle"
+								size="xs2"
+								startIcon={{ icon: ChevronLeft }}
+								on:click={prevPage}
+								disabled={currentPage === 1 || loading}
+								loading={isPreviousLoading}
+							>
+								Previous
+							</Button>
+
+							<Button
+								variant="subtle"
+								size="xs2"
+								endIcon={{ icon: ChevronRight }}
+								on:click={nextPage}
+								disabled={!hasMorePages || loading}
+								loading={isNextLoading}
+							>
+								Next
+							</Button>
+						</div>
+					</div>
+				{/if}
+
 				<div class="bg-blue-50 p-4 rounded-lg">
 					<p class="text-sm text-blue-700">
 						You are switching this trigger from inactive to active mode. What would you like to do
-						with the {queuedJobs.length} queued job{queuedJobs.length === 1 ? '' : 's'}?
+						with the {hasMorePages
+							? `${queuedJobs.length}+ suspended`
+							: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'}?
 					</p>
 				</div>
 			{/if}
@@ -198,7 +268,7 @@
 					<Button
 						variant="border"
 						size="sm"
-						on:click={discardAllJobs}
+						onClick={discardAllJobs}
 						disabled={processingAction}
 						color="red"
 					>
@@ -208,7 +278,7 @@
 					<Button
 						variant="contained"
 						size="sm"
-						on:click={runAllJobs}
+						onClick={runAllJobs}
 						disabled={processingAction}
 						color="green"
 					>

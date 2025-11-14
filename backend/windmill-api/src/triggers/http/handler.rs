@@ -41,7 +41,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{TriggerInfo, TriggerKind},
+    triggers::{TriggerMetadata, TriggerKind},
     utils::{not_found_if_none, require_admin, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -1040,7 +1040,7 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
-    let trigger_info = TriggerInfo::new(Some(trigger.path.clone()), JobTriggerKind::Http);
+    let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
     if !trigger.active_mode {
         let _ = trigger_runnable(
             &db,

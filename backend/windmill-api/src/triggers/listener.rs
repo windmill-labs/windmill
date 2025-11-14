@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{TriggerInfo, TriggerKind},
+    triggers::{TriggerMetadata, TriggerKind},
     utils::report_critical_error,
     DB, INSTANCE_NAME,
 };
@@ -507,7 +507,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
             listening_trigger.active_mode.unwrap_or(false),
-            TriggerInfo::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
+            TriggerMetadata::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
         )
         .await?;
 

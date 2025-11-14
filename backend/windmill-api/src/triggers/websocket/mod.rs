@@ -12,7 +12,7 @@ use sqlx::{types::Json as SqlxJson, FromRow};
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{TriggerInfo, TriggerKind},
+    triggers::{TriggerMetadata, TriggerKind},
     worker::to_raw_value,
     DB,
 };
@@ -114,7 +114,7 @@ pub async fn get_url_from_runnable_value(
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
-        TriggerInfo::new(Some(path.to_owned()), JobTriggerKind::Websocket),
+        TriggerMetadata::new(Some(path.to_owned()), JobTriggerKind::Websocket),
     )
     .await?;
 

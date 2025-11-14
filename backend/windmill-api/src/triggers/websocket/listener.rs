@@ -24,7 +24,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
-    triggers::TriggerInfo,
+    triggers::TriggerMetadata,
     utils::report_critical_error,
     worker::to_raw_value,
     DB,
@@ -95,7 +95,7 @@ impl ListeningTrigger<WebsocketConfig> {
                         None,
                         None,
                         "".to_string(), // doesn't matter as no retry/error handler
-                        TriggerInfo::new(Some(self.path.to_owned()), JobTriggerKind::Websocket),
+                        TriggerMetadata::new(Some(self.path.to_owned()), JobTriggerKind::Websocket),
                     )
                     .await
                     .map(|r| r.get().to_owned())?;
@@ -368,7 +368,7 @@ impl Listener for WebsocketTrigger {
             None => (None, None, None),
         };
         let active_mode = active_mode.unwrap_or(false);
-        let trigger = TriggerInfo::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
+        let trigger = TriggerMetadata::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
         if active_mode || extra.is_none() {
             trigger_runnable(
                 db,
