@@ -27,6 +27,8 @@ pub enum AIProvider {
     OpenRouter,
     TogetherAI,
     CustomAI,
+    #[serde(rename = "aws_bedrock")]
+    AWSBedrock,
 }
 
 impl AIProvider {
@@ -64,7 +66,7 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AWSBedrock) => {
                 if let Some(base_url) = resource_base_url {
                     Ok(base_url)
                 } else {
