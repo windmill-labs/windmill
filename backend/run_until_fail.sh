@@ -9,7 +9,7 @@ while true; do
     GO_PATH=$(which go) \
     UV_PATH=$(which uv) \
     CARGO_PATH=$(which cargo) \
-    cargo test --features enterprise,deno_core,license,python,rust,scoped_cache \
+    cargo test --features enterprise,deno_core,license,python,duckdb,rust,scoped_cache \
         -- --nocapture --test-threads=8 | tee /tmp/test.log
     
     # Capture the exit code of the cargo test command (not tee)
