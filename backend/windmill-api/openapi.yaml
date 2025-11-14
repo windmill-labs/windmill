@@ -17240,25 +17240,23 @@ components:
         - args
 
     JobTriggerKind:
-      name: trigger_kind 
       description: trigger kind (schedule, http, websocket...)
-      schema:
-        type: string
-        enum:
-          - webhook
-          - default_email
-          - email
-          - schedule
-          - http
-          - websocket
-          - postgres
-          - kafka
-          - nats
-          - mqtt
-          - sqs
-          - gcp
-          - poll
-          - cli
+      type: string
+      enum:
+        - webhook
+        - default_email
+        - email
+        - schedule
+        - http
+        - websocket
+        - postgres
+        - kafka
+        - nats
+        - mqtt
+        - sqs
+        - gcp
+        - poll
+        - cli
 
     SuspendedJobRequest:
       type: object
