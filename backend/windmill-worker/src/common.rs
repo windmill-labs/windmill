@@ -669,12 +669,6 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
-    let executable = if *crate::ENABLE_UNSHARE_PID {
-        "unshare"
-    } else {
-        executable
-    };
-
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
