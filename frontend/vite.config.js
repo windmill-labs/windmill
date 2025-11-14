@@ -36,8 +36,8 @@ const config = {
 			},
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
-				changeOrigin: true
-				// cookieDomainRewrite: 'localhost'
+				changeOrigin: true,
+				cookieDomainRewrite: 'localhost'
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? 'https://app.windmill.dev',
