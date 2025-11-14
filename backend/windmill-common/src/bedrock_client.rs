@@ -38,13 +38,13 @@ impl BedrockClient {
     /// # }
     /// ```
     pub async fn from_bearer_token(bearer_token: String, region: String) -> Result<Self> {
-        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        let config = aws_sdk_bedrockruntime::config::Builder::new()
             .region(aws_config::Region::new(region))
+            .behavior_version(BehaviorVersion::latest())
             .token_provider(BearerTokenProvider::new(bearer_token))
-            .load()
-            .await;
+            .build();
 
-        Ok(Self { client: BedrockRuntimeClient::new(&sdk_config) })
+        Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
     }
 
     /// Get reference to underlying AWS SDK client
