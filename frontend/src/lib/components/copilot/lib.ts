@@ -76,6 +76,10 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'Together AI',
 		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
 	},
+	aws_bedrock: {
+		label: 'AWS Bedrock',
+		defaultModels: ['amazon.titan-embed-image-v1:0']
+	},
 	customai: {
 		label: 'Custom AI',
 		defaultModels: []
@@ -100,18 +104,115 @@ export async function fetchAvailableModels(
 	provider: AIProvider,
 	signal?: AbortSignal
 ): Promise<string[]> {
-	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
-		signal,
-		headers: {
+	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
+	if (provider === 'aws_bedrock') {
+		const headers = {
 			'X-Resource-Path': resourcePath,
-			'X-Provider': provider,
-			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+			'X-Provider': provider
 		}
-	})
+
+		// Fetch both foundation models and inference profiles
+		const [foundationModelsResp, inferenceProfilesResp] = await Promise.all([
+			fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/foundation-models`, {
+				signal,
+				headers
+			}),
+			fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/inference-profiles`, {
+				signal,
+				headers
+			})
+		])
+
+		if (!foundationModelsResp.ok) {
+			console.error('Failed to fetch foundation models', foundationModelsResp)
+			throw new Error('Failed to fetch foundation models for AWS Bedrock')
+		}
+
+		const foundationModelsData = (await foundationModelsResp.json()) as {
+			modelSummaries: Array<{
+				modelId: string
+				modelArn: string
+				inputModalities: string[]
+				outputModalities: string[]
+				inferenceTypesSupported: string[]
+			}>
+		}
+
+		// Inference profiles fetch might fail in some regions/accounts
+		let inferenceProfiles: Array<{
+			inferenceProfileId: string
+			models: Array<{ modelArn: string }>
+		}> = []
+
+		if (inferenceProfilesResp.ok) {
+			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+				inferenceProfileSummaries: Array<{
+					inferenceProfileId: string
+					models: Array<{ modelArn: string }>
+				}>
+			}
+			inferenceProfiles = inferenceProfilesData.inferenceProfileSummaries || []
+		} else {
+			console.warn('Failed to fetch inference profiles, will use direct model IDs only')
+		}
+
+		// Filter to TEXT-capable models
+		const textModels = foundationModelsData.modelSummaries.filter(
+			(m) => m.inputModalities?.includes('TEXT') && m.outputModalities?.includes('TEXT')
+		)
+
+		// Map models to their invocable IDs
+		const modelIds = textModels.map((model) => {
+			const supportsOnDemand = model.inferenceTypesSupported?.includes('ON_DEMAND')
+
+			// If model supports ON_DEMAND, use the model ID directly
+			if (supportsOnDemand) {
+				return model.modelId
+			}
+
+			// Otherwise, find matching inference profile
+			const matchingProfile = inferenceProfiles.find((profile) =>
+				profile.models.some((m) => m.modelArn === model.modelArn)
+			)
+
+			if (matchingProfile) {
+				return matchingProfile.inferenceProfileId
+			}
+
+			// Fallback to model ID if no matching profile found (may fail at runtime)
+			console.warn(`No inference profile found for ${model.modelId}, using direct ID`)
+			return model.modelId
+		})
+
+		// Sort by default models
+		const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+		return modelIds.sort((a, b) => {
+			const aInDefault = defaultModels.includes(a)
+			const bInDefault = defaultModels.includes(b)
+			if (aInDefault && !bInDefault) return -1
+			if (!aInDefault && bInDefault) return 1
+			return 0
+		})
+	}
+
+	// Standard provider handling
+	const endpoint = 'models'
+	const models = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/${endpoint}`,
+		{
+			signal,
+			headers: {
+				'X-Resource-Path': resourcePath,
+				'X-Provider': provider,
+				...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+			}
+		}
+	)
 	if (!models.ok) {
 		console.error('Failed to fetch models for provider', provider, models)
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
+
 	const data = (await models.json()) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
@@ -271,7 +372,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined
 	},
-	anthropic: DEFAULT_COMPLETION_CONFIG
+	anthropic: DEFAULT_COMPLETION_CONFIG,
+	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const
 
 class WorkspacedAIClients {

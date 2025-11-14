@@ -572,12 +572,12 @@ paths:
                 use_case:
                   type: string
       responses:
-        '200':
+        "200":
           description: Onboarding data submitted successfully
           content:
             application/json:
               schema:
-                type: string                
+                type: string
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -15046,8 +15046,7 @@ components:
 
     CreatedAfterQueue:
       name: created_after_queue
-      description:
-        filter on jobs created after X for jobs in the queue only
+      description: filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -15055,8 +15054,7 @@ components:
 
     CreatedBeforeQueue:
       name: created_before_queue
-      description:
-        filter on jobs created before X for jobs in the queue only
+      description: filter on jobs created before X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -15351,6 +15349,7 @@ components:
           groq,
           openrouter,
           togetherai,
+          aws_bedrock,
           customai,
         ]
 
@@ -16502,30 +16501,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-        python3,
-        deno,
-        go,
-        bash,
-        powershell,
-        postgresql,
-        mysql,
-        bigquery,
-        snowflake,
-        mssql,
-        oracledb,
-        graphql,
-        nativets,
-        bun,
-        php,
-        rust,
-        ansible,
-        csharp,
-        nu,
-        java,
-        ruby,
-        duckdb,
-        # for related places search: ADD_NEW_LANG
-      ]
+          python3,
+          deno,
+          go,
+          bash,
+          powershell,
+          postgresql,
+          mysql,
+          bigquery,
+          snowflake,
+          mssql,
+          oracledb,
+          graphql,
+          nativets,
+          bun,
+          php,
+          rust,
+          ansible,
+          csharp,
+          nu,
+          java,
+          ruby,
+          duckdb,
+          # for related places search: ADD_NEW_LANG
+        ]
 
     Preview:
       type: object
