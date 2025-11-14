@@ -170,8 +170,8 @@ use crate::duckdb_executor::do_duckdb;
 #[cfg(all(feature = "enterprise", feature = "oracledb"))]
 use crate::oracledb_executor::do_oracledb;
 
-#[cfg(feature = "enterprise")]
-use crate::dedicated_worker::create_dedicated_worker_map;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use crate::dedicated_worker_oss::create_dedicated_worker_map;
 
 #[cfg(feature = "enterprise")]
 use crate::snowflake_executor::do_snowflake;
@@ -1348,7 +1348,7 @@ pub async fn run_worker(
     // Option<Sender<Arc<QueuedJob>>>,
     // Option<JoinHandle<()>>,
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     let (dedicated_workers, is_flow_worker, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
         bool,
@@ -1369,7 +1369,7 @@ pub async fn run_worker(
         Connection::Http(_) => (HashMap::new(), false, vec![]),
     };
 
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
     let (dedicated_workers, is_flow_worker, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
         bool,
@@ -1528,7 +1528,7 @@ pub async fn run_worker(
 
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                 same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
-                tracing::debug!(
+                tracing::info!(
                     worker = %worker_name, hostname = %hostname,
                     "received {} from same worker channel",
                     same_worker_job.job_id
@@ -1783,11 +1783,13 @@ pub async fn run_worker(
 
                     if let Some(flow_runners) = flow_runners {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
-                        tracing::info!("key_o: {:?}", key_o);
                         if let Some(key) = key_o {
-                            tracing::info!("flow_runners.runners: {:?}", flow_runners.runners);
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
-                                tracing::info!("sending job to flow runner: {}", key);
+                                tracing::info!(
+                                    "sending job {} to flow runner step {}",
+                                    job.id,
+                                    key
+                                );
                                 let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
                                 let flow_runners = flow_runners.clone();
 

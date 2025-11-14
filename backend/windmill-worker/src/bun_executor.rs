@@ -9,10 +9,8 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::DedicatedWorkerJob;
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
-use crate::common::build_envs_map;
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 use crate::{
     common::{
@@ -37,10 +35,6 @@ use crate::SYSTEM_ROOT;
 use tokio::{fs::File, process::Command};
 
 use tokio::io::AsyncReadExt;
-
-use tokio::sync::mpsc::Receiver;
-
-use windmill_common::variables;
 
 use windmill_common::{
     error::{self, Result},
@@ -1570,8 +1564,18 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
-use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "private")]
+use crate::{
+    common::build_envs_map, dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
+};
+#[cfg(feature = "private")]
+use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "private")]
+use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<String>,
     codebase: Option<String>,

@@ -3,7 +3,6 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
@@ -512,10 +511,14 @@ async fn build_import_map(
     Ok(()) as error::Result<()>
 }
 
-use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-
+#[cfg(feature = "private")]
+use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
+#[cfg(feature = "private")]
 pub async fn start_worker(
     inner_content: &str,
     base_internal_url: &str,

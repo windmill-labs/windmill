@@ -3629,9 +3629,9 @@ async fn push_next_flow_job(
 
     if continue_on_same_worker || continue_with_runners {
         let flow_runners = if start_runners {
-            tracing::info!("start flow runners for job: {}", first_uuid);
+            tracing::info!(id = %flow_job.id, "starting flow runners for module {}", module.id);
             let (new_flow_runners, new_flow_runner_handles) =
-                crate::dedicated_worker::spawn_flow_module_runners(
+                crate::dedicated_worker_oss::spawn_flow_module_runners(
                     &flow_job,
                     module,
                     flow.failure_module.as_ref(),

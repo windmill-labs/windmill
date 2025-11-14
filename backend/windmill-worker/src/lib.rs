@@ -23,7 +23,10 @@ mod bun_executor;
 pub mod common;
 mod config;
 mod csharp_executor;
-mod dedicated_worker;
+
+#[cfg(feature = "private")]
+mod dedicated_worker_ee;
+mod dedicated_worker_oss;
 mod deno_executor;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
