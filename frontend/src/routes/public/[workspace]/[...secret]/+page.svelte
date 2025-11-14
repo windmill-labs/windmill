@@ -51,6 +51,7 @@
 	}
 
 	function loadAll() {
+		console.log('loadAll')
 		loadUser().then(() => {
 			loadApp()
 		})

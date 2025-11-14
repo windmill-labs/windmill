@@ -26,3 +26,19 @@ export function getAndDeleteCookie(name: string): string | undefined {
 	}
 	return value
 }
+
+
+export function sameOrigin(origin: string | null, desktopOrigin: string): boolean {
+	if (origin == null) {
+		return false
+	}
+	const getLastTwoSegments = (url: string) => {
+		const parts = url.split('.');
+		return parts.length >= 2 ? parts.slice(-2).join('.') : url;
+	};
+	if (origin.includes('.') && desktopOrigin.includes('.')) {
+		return getLastTwoSegments(origin) === getLastTwoSegments(desktopOrigin);
+	} else {
+		return origin === desktopOrigin;
+	}
+}
