@@ -45,7 +45,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerStateToggle from '../TriggerStateToggle.svelte'
+	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	let {
 		useDrawer = true,
@@ -595,7 +595,7 @@
 					</div>
 				</Section>
 
-				<TriggerStateToggle triggerPath={path} jobTriggerKind={'http'} bind:active_mode />
+				<TriggerActiveMode triggerPath={path} jobTriggerKind={'http'} bind:active_mode />
 			{/if}
 
 			<RouteEditorConfigSection

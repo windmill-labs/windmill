@@ -35,7 +35,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerStateToggle from '../TriggerStateToggle.svelte'
+	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -580,7 +580,7 @@
 				</Section>
 			{/if}
 
-			<TriggerStateToggle triggerPath={path} jobTriggerKind={'postgres'} bind:active_mode />
+			<TriggerActiveMode triggerPath={path} jobTriggerKind={'postgres'} bind:active_mode />
 			<Section label="Database">
 				{#snippet badge()}
 					{#if isEditor}

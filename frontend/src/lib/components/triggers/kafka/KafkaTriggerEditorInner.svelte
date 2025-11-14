@@ -19,7 +19,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerStateToggle from '../TriggerStateToggle.svelte'
+	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -387,7 +387,7 @@
 					</div>
 				</Section>
 
-				<TriggerStateToggle triggerPath={path} jobTriggerKind={'kafka'} bind:active_mode />
+				<TriggerActiveMode triggerPath={path} jobTriggerKind={'kafka'} bind:active_mode />
 			{/if}
 
 			<KafkaTriggersConfigSection
