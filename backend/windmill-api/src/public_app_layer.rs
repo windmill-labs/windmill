@@ -71,6 +71,7 @@ fn is_public_route_whitelisted(path: &str) -> bool {
         "/user/login_callback/*",
         "/api/workspaces/users",
         "/api/users/whoami",
+        "/api/apps_u/*",
         "/api/oauth/list_connects",
         "/api/oauth/list_logins",
         "/public/*",
