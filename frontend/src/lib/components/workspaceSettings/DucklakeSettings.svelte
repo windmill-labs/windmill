@@ -65,12 +65,11 @@
 	import { SettingService, WorkspaceService, type DucklakeInstanceCatalogDbStatus } from '$lib/gen'
 	import { type GetSettingsResponse } from '$lib/gen'
 
-	import { superadmin, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { isCloudHosted } from '$lib/cloud'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import { clone } from '$lib/utils'
@@ -81,6 +80,7 @@
 	import LoggedWizardResult, { firstEmptyStepIsError } from '../wizards/LoggedWizardResult.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import { slide } from 'svelte/transition'
+	import { isCustomInstanceDbEnabled } from './utils.svelte'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
@@ -95,8 +95,6 @@
 		onSave: onSaveProp = undefined
 	}: Props = $props()
 
-	let isInstanceCatalogEnabled = $derived($superadmin && !isCloudHosted())
-
 	function onNewDucklake() {
 		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
 			? `${random_adj()}_ducklake`
@@ -104,8 +102,8 @@
 		ducklakeSettings.ducklakes.push({
 			name,
 			catalog: {
-				resource_type: isInstanceCatalogEnabled ? 'instance' : 'postgresql',
-				resource_path: isInstanceCatalogEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
+				resource_path: $isCustomInstanceDbEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
 			},
 			storage: {
 				storage: undefined,
@@ -135,7 +133,7 @@
 	async function onSave() {
 		try {
 			if (
-				isInstanceCatalogEnabled &&
+				$isCustomInstanceDbEnabled &&
 				ducklakeSettings.ducklakes.some(
 					(d) =>
 						d.catalog.resource_type === 'instance' &&
@@ -223,7 +221,7 @@
 	<tbody class="divide-y bg-surface">
 		{#if ducklakeSettings.ducklakes.length == 0}
 			<Row>
-				<Cell colspan={tableHeadNames.length} class="text-center">
+				<Cell colspan={tableHeadNames.length} class="text-center py-6">
 					No ducklake in this workspace yet
 				</Cell>
 			</Row>
@@ -255,7 +253,7 @@
 									{
 										value: 'instance',
 										label: 'Instance',
-										subtitle: isInstanceCatalogEnabled ? undefined : 'Superadmin only'
+										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
 									}
 								]}
 								bind:value={
@@ -276,8 +274,6 @@
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
-									selectInputClass="min-h-9"
-									class="min-h-9"
 								/>
 							{:else}
 								{@const status =
@@ -289,7 +285,7 @@
 									onCreateItem={(i) => (ducklake.catalog.resource_path = i)}
 									placeholder="PostgreSQL database name"
 									items={safeSelectItems(Object.keys(instanceCatalogStatuses.value ?? {}))}
-									disabled={!isInstanceCatalogEnabled}
+									disabled={!$isCustomInstanceDbEnabled}
 								/>
 
 								<Popover
@@ -481,7 +477,7 @@
 		<Button
 			wrapperClasses="flex-1"
 			size="sm"
-			disabled={!isInstanceCatalogEnabled}
+			disabled={!$isCustomInstanceDbEnabled}
 			onClick={async () => {
 				if (instanceCatalogSetupIsRunning) return
 
@@ -516,7 +512,7 @@
 			}}
 			loading={instanceCatalogSetupIsRunning}
 		>
-			{#if !isInstanceCatalogEnabled}
+			{#if !$isCustomInstanceDbEnabled}
 				Only superadmins can setup instance catalogs
 			{:else if status?.success}
 				Check again
@@ -532,7 +528,7 @@
 				asset={{ kind: 'resource', path: 'INSTANCE_DUCKLAKE_CATALOG/' + dbname }}
 				_resourceMetadata={{ resource_type: 'postgresql' }}
 				{dbManagerDrawer}
-				disabled={!isInstanceCatalogEnabled}
+				disabled={!$isCustomInstanceDbEnabled}
 				onClick={() => instanceCatalogPopover?.close()}
 			/>
 		{/if}
