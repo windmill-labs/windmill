@@ -25,6 +25,7 @@ pub struct OpenAIToolCall {
     pub r#type: String,
 }
 
+// Chat Completions API types
 #[derive(Deserialize)]
 pub struct OpenAIChoice {
     pub message: OpenAIMessage,
@@ -33,6 +34,47 @@ pub struct OpenAIChoice {
 #[derive(Deserialize)]
 pub struct OpenAIResponse {
     pub choices: Vec<OpenAIChoice>,
+}
+
+// Responses API types
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResponseOutput {
+    #[serde(rename = "message")]
+    Message {
+        role: String,
+        content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_calls: Option<Vec<OpenAIToolCall>>,
+    },
+    #[serde(rename = "image_generation_call")]
+    ImageGenerationCall {
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<String>,
+    },
+}
+
+#[derive(Deserialize)]
+pub struct ResponsesAPIResponse {
+    pub output: Vec<ResponseOutput>,
+}
+
+#[derive(Serialize)]
+pub struct ResponsesAPIRequest<'a> {
+    pub model: &'a str,
+    pub input: &'a [OpenAIMessage],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<&'a [ToolDef]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    pub stream: bool,
 }
 
 #[derive(Serialize)]
@@ -67,42 +109,12 @@ pub struct ImageGenerationRequest<'a> {
     pub tools: Vec<ImageGenerationTool>,
 }
 
-#[derive(Deserialize)]
-pub struct OpenAIImageResponse {
-    pub output: Vec<OpenAIImageOutput>,
-}
-
-#[derive(Deserialize)]
-pub struct OpenAIImageOutput {
-    pub r#type: String, // Expected to be "image_generation_call"
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<String>, // Base64 encoded image, None if not completed
-}
-
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolChoice {
     #[allow(dead_code)]
     Auto,
     Required,
-}
-
-#[derive(Serialize)]
-pub struct OpenAIRequest<'a> {
-    pub model: &'a str,
-    pub messages: &'a [OpenAIMessage],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<&'a [ToolDef]>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_completion_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<ResponseFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
-    pub stream: bool,
 }
 
 pub struct OpenAIQueryBuilder {
@@ -211,9 +223,10 @@ impl OpenAIQueryBuilder {
             None
         };
 
-        let request = OpenAIRequest {
+        // Use Responses API format (input instead of messages)
+        let request = ResponsesAPIRequest {
             model: args.model,
-            messages: &prepared_messages,
+            input: &prepared_messages,
             tools: args.tools,
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
@@ -301,71 +314,45 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // Check if this is an image response
-        let url = response.url().path();
-        if url.contains("/responses") {
-            // Parse image generation response
-            let response_text = response
-                .text()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+        // Parse as Responses API format (unified for both text and image)
+        let response_text = response
+            .text()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
 
-            let image_response: OpenAIImageResponse = serde_json::from_str(&response_text)
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Failed to parse OpenAI image response: {}. Raw response: {}",
-                        e, response_text
-                    ))
-                })?;
-
-            // Find the first completed image generation output
-            let image_generation_call = image_response
-                .output
-                .iter()
-                .find(|output| {
-                    output.r#type == "image_generation_call" && output.status == "completed"
-                })
-                .and_then(|output| output.result.as_ref());
-
-            if let Some(base64_image) = image_generation_call {
-                Ok(ParsedResponse::Image { base64_data: base64_image.clone() })
-            } else {
-                Err(Error::internal_err(
-                    "No completed image output received from OpenAI".to_string(),
+        let responses_api_response: ResponsesAPIResponse = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to parse OpenAI Responses API response: {}. Raw response: {}",
+                    e, response_text
                 ))
-            }
-        } else {
-            // Parse text/chat completion response
-            let openai_response: OpenAIResponse = response
-                .json()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to parse response: {}", e)))?;
+            })?;
 
-            let first_choice = openai_response
-                .choices
-                .into_iter()
-                .next()
-                .ok_or_else(|| Error::internal_err("No response from API"))?;
-
-            Ok(ParsedResponse::Text {
-                content: first_choice.message.content.map(|c| match c {
-                    OpenAIContent::Text(text) => text,
-                    OpenAIContent::Parts(parts) => {
-                        // Extract text from parts
-                        parts
-                            .into_iter()
-                            .filter_map(|part| match part {
-                                ContentPart::Text { text } => Some(text),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
+        // Process the output array
+        for output in responses_api_response.output {
+            match output {
+                ResponseOutput::Message { role: _, content, tool_calls } => {
+                    // This is a text message response
+                    return Ok(ParsedResponse::Text {
+                        content,
+                        tool_calls: tool_calls.unwrap_or_default(),
+                        events_str: None,
+                    });
+                }
+                ResponseOutput::ImageGenerationCall { status, result } => {
+                    // This is an image generation response
+                    if status == "completed" {
+                        if let Some(base64_image) = result {
+                            return Ok(ParsedResponse::Image { base64_data: base64_image });
+                        }
                     }
-                }),
-                tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
-                events_str: None,
-            })
+                }
+            }
         }
+
+        Err(Error::internal_err(
+            "No valid output received from OpenAI Responses API".to_string(),
+        ))
     }
 
     async fn parse_streaming_response(
@@ -405,11 +392,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
         })
     }
 
-    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
-        let path = match output_type {
-            OutputType::Text => "chat/completions",
-            OutputType::Image => "responses",
-        };
+    fn get_endpoint(&self, base_url: &str, model: &str, _output_type: &OutputType) -> String {
+        // Use Responses API for both text and image
+        let path = "responses";
 
         if self.provider_kind.is_azure_openai(base_url) {
             AIProvider::build_azure_openai_url(base_url, model, path)
