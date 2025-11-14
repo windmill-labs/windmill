@@ -701,7 +701,7 @@ async fn setup_ducklake_catalog_db_inner(
         sslmode = ssl_mode
     );
 
-    let (client, connection) = if ssl_mode == "require" || ssl_mode == "verify-ca" || ssl_mode == "verify-full" {
+    let (client, connection) = if ssl_mode == "require" {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
 
