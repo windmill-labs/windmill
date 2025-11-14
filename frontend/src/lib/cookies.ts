@@ -18,3 +18,11 @@ export function getCookie(name: string): string | undefined {
 export function deleteCookie(name: string, path: string = '/') {
 	document.cookie = `${encodeURIComponent(name)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path};`
 }
+
+export function getAndDeleteCookie(name: string): string | undefined {
+	const value = getCookie(name)
+	if (value) {
+		deleteCookie(name)
+	}
+	return value
+}
