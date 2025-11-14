@@ -791,7 +791,7 @@
 			{#if script}
 				<TriggersEditor
 					{args}
-					hash={script.hash}
+					runnableVersion={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}
