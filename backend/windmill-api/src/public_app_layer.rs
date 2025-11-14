@@ -75,6 +75,7 @@ fn is_public_route_whitelisted(path: &str) -> bool {
         "/api/oauth/list_logins",
         "/public/*",
         "/a/*",
+        "/api/oauth/get_connect/*",
         "/Inter-Variable.woff2",
     ];
 

@@ -34,7 +34,7 @@ use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    DynamicInput, ENTRYPOINT_OVERRIDE,
+    DynamicInput, JobTriggerKind, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -1821,6 +1821,7 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
     pub allow_wildcards: Option<bool>,
+    pub trigger_kind: Option<JobTriggerKind>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1852,6 +1853,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             is_not_schedule: lcq.is_not_schedule,
             concurrency_key: lcq.concurrency_key,
             allow_wildcards: lcq.allow_wildcards,
+            trigger_kind: lcq.trigger_kind,
         }
     }
 }
@@ -1973,6 +1975,10 @@ pub fn filter_list_queue_query(
 
     if lq.is_not_schedule.unwrap_or(false) {
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
+    }
+
+    if let Some(tk) = &lq.trigger_kind {
+        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
     }
 
     sqlb
@@ -2182,7 +2188,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND j.trigger_kind != 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+        "SELECT j.id AS \"id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -3891,6 +3897,7 @@ async fn batch_rerun_handle_job(
                 StripPath(job.script_path.clone()),
                 RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
+                None,
             )
             .await;
             if let Ok((uuid, _)) = result {
@@ -3907,6 +3914,7 @@ async fn batch_rerun_handle_job(
                     StripPath(job.script_path.clone()),
                     RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
+                    None,
                 )
                 .await
             } else {
@@ -4027,7 +4035,7 @@ pub async fn run_flow_by_path(
         .await?;
 
     let (uuid, _) =
-        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
+        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -4041,6 +4049,7 @@ pub async fn run_flow(
     flow_version_info: FlowVersionInfo,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<String>)> {
     let FlowVersionInfo {
         version,
@@ -4110,6 +4119,7 @@ pub async fn run_flow(
         false,
         None,
         None,
+        trigger_kind,
     )
     .await?;
 
@@ -4145,6 +4155,7 @@ pub async fn run_flow_and_wait_result(
     flow_version_info: FlowVersionInfo,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<Response> {
     let (uuid, early_return) = run_flow(
         authed,
@@ -4155,6 +4166,7 @@ pub async fn run_flow_and_wait_result(
         flow_version_info,
         run_query,
         args,
+        trigger_kind,
     )
     .await?;
 
@@ -4169,6 +4181,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4191,6 +4204,7 @@ pub async fn run_flow_by_path_inner(
         flow_version_info,
         run_query,
         args,
+        trigger_kind,
     )
     .await
 }
@@ -4214,7 +4228,8 @@ pub async fn run_flow_by_version(
         .await?;
 
     let (uuid, _) =
-        run_flow_by_version_inner(authed, db, user_db, w_id, version, run_query, args).await?;
+        run_flow_by_version_inner(authed, db, user_db, w_id, version, run_query, args, None)
+            .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -4227,6 +4242,7 @@ pub async fn run_flow_by_version_inner(
     version: i64,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4261,6 +4277,7 @@ pub async fn run_flow_by_version_inner(
         flow_version_info,
         run_query,
         args,
+        trigger_kind,
     )
     .await
 }
@@ -4357,6 +4374,7 @@ pub async fn restart_flow(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4381,8 +4399,17 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    let (uuid, _) =
-        run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
+    let (uuid, _) = run_script_by_path_inner(
+        authed,
+        db,
+        user_db,
+        w_id,
+        script_path,
+        run_query,
+        args,
+        None,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -4395,6 +4422,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4466,6 +4494,7 @@ pub async fn run_script_by_path_inner(
         false,
         None,
         None,
+        trigger_kind,
     )
     .await?;
     tx.commit().await?;
@@ -4621,6 +4650,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -5160,6 +5190,7 @@ pub async fn run_wait_result_job_by_path_get(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5304,6 +5335,7 @@ pub async fn run_wait_result_script_by_path_internal(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5424,6 +5456,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -5596,6 +5629,7 @@ pub async fn stream_job(
                 StripPath(script_path),
                 run_query,
                 args,
+                None,
             )
             .await?
             .0
@@ -5622,6 +5656,7 @@ pub async fn stream_job(
                 StripPath(flow_path),
                 run_query,
                 args,
+                None,
             )
             .await?
             .0
@@ -5635,6 +5670,7 @@ pub async fn stream_job(
                 version,
                 run_query,
                 args,
+                None
             )
             .await?
             .0
@@ -5709,6 +5745,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         flow_version_info,
         run_query,
         args,
+        None,
     )
     .await
 }
@@ -5765,6 +5802,7 @@ pub async fn run_wait_result_flow_by_version_get(
         flow_version_info,
         run_query,
         args,
+        None,
     )
     .await
 }
@@ -5820,6 +5858,7 @@ pub async fn run_wait_result_flow_by_version(
         flow_version_info,
         run_query,
         args,
+        None,
     )
     .await
 }
@@ -5890,6 +5929,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
     )
@@ -6010,6 +6050,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
                 None,
                 None,
             )
@@ -6151,6 +6192,7 @@ async fn run_dependencies_job(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6218,6 +6260,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
     )
@@ -6533,7 +6576,15 @@ async fn run_preview_flow_job(
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
-    let (uuid, tx) = push(
+    let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
+    let flow_path = raw_flow.path.clone().unwrap_or_default();
+    let user_message = raw_flow
+        .args
+        .as_ref()
+        .and_then(|args| args.get("user_message"))
+        .cloned();
+
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -6565,8 +6616,28 @@ async fn run_preview_flow_job(
         false,
         None,
         None,
+        None,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path,
+            &run_query,
+            user_message.as_ref(),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -6638,6 +6709,7 @@ async fn run_dynamic_select(
                     StripPath(path),
                     run_query.clone(),
                     push_args.clone(),
+                    None,
                 )
                 .await?;
 
@@ -6740,6 +6812,7 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
     )
@@ -6873,6 +6946,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
     )
@@ -7843,6 +7917,10 @@ pub fn filter_list_completed_query(
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
+    if let Some(tk) = &lq.trigger_kind {
+        sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
+    }
+
     sqlb
 }
 
@@ -7919,6 +7997,7 @@ pub struct ListCompletedQuery {
     pub concurrency_key: Option<String>,
     pub worker: Option<String>,
     pub allow_wildcards: Option<bool>,
+    pub trigger_kind: Option<JobTriggerKind>,
 }
 
 async fn list_completed_jobs(
