@@ -32,6 +32,7 @@
 	import { slide } from 'svelte/transition'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -189,11 +190,18 @@
 					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold"
 							>Squash
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-								Squashing a for loop runs all steps on the same worker using common runners (no cold
-								start between iterations) for supported languages (TypeScript and Python).
-							</Tooltip></div
-						>
+
+							<Badge
+								>Beta <Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+									<span class="font-semibold"
+										>This can result in unexpected behavior, use at your own risk for now.</span
+									><br />
+									Squashing a for loop runs all iterations on the same worker, using a single runner
+									per step for the entire loop. This eliminates cold starts between iterations for supported
+									languages (Bun, Deno, and Python).
+								</Tooltip>
+							</Badge>
+						</div>
 						<Toggle
 							bind:checked={mod.value.squash}
 							on:change={({ detail }) => {
