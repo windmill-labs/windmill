@@ -701,13 +701,33 @@ async fn setup_ducklake_catalog_db_inner(
         sslmode = ssl_mode
     );
 
-    let (client, connection) = tokio::time::timeout(
-        std::time::Duration::from_secs(20),
-        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-    )
-    .await
-    .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-    .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+    let (client, connection) = if ssl_mode == "require" || ssl_mode == "verify-ca" || ssl_mode == "verify-full" {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let mut connector = TlsConnector::builder();
+        connector.danger_accept_invalid_certs(true);
+        connector.danger_accept_invalid_hostnames(true);
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(
+                &conn_str,
+                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+            ),
+        )
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?
+    } else {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
+        )
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?
+    };
     let join_handle = tokio::spawn(async move { connection.await });
     logs.db_connect = "OK".to_string();
 
