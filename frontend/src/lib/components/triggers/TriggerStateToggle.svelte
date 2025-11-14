@@ -1,26 +1,27 @@
 <script lang="ts">
 	import Modal2 from '../common/modal/Modal2.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { JobService } from '$lib/gen/services.gen'
 	import type { QueuedJob } from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import RunRow from '../runs/RunRow.svelte'
 	import '../runs/runs-grid.css'
+	import { JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { type JobTriggerType } from './utils'
 	type Props = {
 		active_mode: boolean
-		suspendNumber?: number
-		triggerPath?: string
+		triggerPath: string
+		jobTriggerKind: JobTriggerType
 	}
 
-	let { active_mode = $bindable(), suspendNumber }: Props = $props()
+	let { active_mode = $bindable(), jobTriggerKind, triggerPath }: Props = $props()
 
 	let wasInInactiveMode = $state(!active_mode)
 	let shouldShowModal = $state(false)
 
 	$effect(() => {
-		if (active_mode && wasInInactiveMode && suspendNumber !== undefined) {
+		if (active_mode && wasInInactiveMode) {
 			shouldShowModal = true
 		} else if (!active_mode) {
 			wasInInactiveMode = true
@@ -34,25 +35,25 @@
 	let workspace = $workspaceStore!
 	let containerWidth = $state(1000)
 	$effect(() => {
-		if (shouldShowModal && suspendNumber !== undefined) {
+		if (shouldShowModal) {
 			fetchQueuedJobs()
 		}
 	})
 
 	async function fetchQueuedJobs() {
-		if (!suspendNumber) return
-
 		loading = true
 		error = null
 
 		try {
 			const allSuspendedJobs = await JobService.listQueue({
 				workspace,
-				suspended: true,
+				triggerKind: jobTriggerKind,
+				triggerPath,
+				running: false,
 				perPage: 100
 			})
 
-			queuedJobs = allSuspendedJobs.filter((job) => job.suspend === suspendNumber)
+			queuedJobs = allSuspendedJobs
 		} catch (e) {
 			error = `Failed to fetch queued jobs: ${e}`
 			console.error('Failed to fetch queued jobs:', e)
@@ -62,7 +63,7 @@
 	}
 
 	async function runAllJobs() {
-		if (queuedJobs.length === 0 || !suspendNumber) return
+		if (queuedJobs.length === 0) return
 
 		processingAction = true
 		error = null
@@ -71,7 +72,8 @@
 			const resumedJobs = await JobService.resumeSuspendedJobs({
 				workspace,
 				requestBody: {
-					suspend_number: suspendNumber
+					trigger_kind: jobTriggerKind,
+					trigger_path: triggerPath
 				}
 			})
 			sendUserToast(resumedJobs)
@@ -86,7 +88,7 @@
 	}
 
 	async function discardAllJobs() {
-		if (queuedJobs.length === 0 || !suspendNumber) return
+		if (queuedJobs.length === 0) return
 
 		processingAction = true
 		error = null
@@ -95,11 +97,12 @@
 			await JobService.cancelSuspendedJobs({
 				workspace,
 				requestBody: {
-					suspend_number: suspendNumber
+					trigger_kind: jobTriggerKind,
+					trigger_path: triggerPath
 				}
 			})
 
-			sendUserToast(`Successfully canceled all jobs with suspend number: ${suspendNumber}`)
+			sendUserToast(`Successfully canceled all jobs`)
 		} catch (e) {
 			error = `Failed to discard jobs: ${e}`
 			console.error('Failed to discard jobs:', e)

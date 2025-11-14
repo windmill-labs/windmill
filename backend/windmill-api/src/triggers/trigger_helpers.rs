@@ -1,31 +1,17 @@
 use anyhow::Context;
 use axum::response::IntoResponse;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
+use std::collections::HashMap;
 use std::future::Future;
-use std::{collections::HashMap, i32};
 use uuid::Uuid;
 use windmill_common::{
-    db::{UserDB, UserDbWithAuthed},
-    error::Result,
-    flows::{FlowModuleValue, Retry},
-    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    jobs::{
-        get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload,
-        JobTriggerKind,
-    },
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    triggers::{
-        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerKind,
-        RUNNABLE_FORMAT_VERSION_CACHE,
-    },
-    users::username_to_permissioned_as,
-    utils::StripPath,
-    worker::to_raw_value,
-    FlowVersionInfo,
+    FlowVersionInfo, db::{UserDB, UserDbWithAuthed}, error::Result, flows::{FlowModuleValue, Retry}, get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path, jobs::{JobPayload, get_has_preprocessor_from_content_and_lang, script_path_to_payload}, scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path}, triggers::{
+        HubOrWorkspaceId, RUNNABLE_FORMAT_VERSION_CACHE, RunnableFormat, RunnableFormatVersion, TriggerInfo, TriggerKind
+    }, users::username_to_permissioned_as, utils::StripPath, worker::to_raw_value
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -34,9 +20,11 @@ use crate::jobs::check_license_key_valid;
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{
-        check_tag_available_for_workspace, delete_job_metadata_after_use, result_to_response,
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
+        check_tag_available_for_workspace, delete_job_metadata_after_use,
+        push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
+        run_wait_result_internal, RunJobQuery,
     },
+    triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE,
     utils::check_scopes,
     HTTP_CLIENT,
 };
@@ -498,7 +486,8 @@ pub async fn trigger_runnable_inner(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
+    active_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let error_handler_args = error_handler_args.map(|args| {
         let args = args
@@ -510,10 +499,13 @@ pub async fn trigger_runnable_inner(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
+    let scheduled_for = active_mode
+        .filter(|active_mode| !*active_mode)
+        .map(|_| INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone());
     let (uuid, delete_after_use, early_return) = if is_flow {
-        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
         let path = StripPath(runnable_path.to_string());
-        let (uuid, early_return) = run_flow_by_path_inner(
+        let (uuid, early_return) = push_flow_job_by_path_into_queue(
             authed,
             db.clone(),
             user_db,
@@ -521,7 +513,7 @@ pub async fn trigger_runnable_inner(
             path,
             run_query,
             args,
-            trigger_kind,
+            Some(trigger),
         )
         .await?;
         (uuid, None, early_return)
@@ -538,7 +530,8 @@ pub async fn trigger_runnable_inner(
             error_handler_args.as_ref(),
             trigger_path,
             job_id,
-            trigger_kind,
+            trigger,
+            scheduled_for,
         )
         .await?;
         (uuid, delete_after_use, None)
@@ -561,49 +554,27 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    suspend_number: Option<i32>,
-    trigger_kind: Option<JobTriggerKind>,
+    active_mode: bool,
+    trigger: TriggerInfo,
 ) -> Result<axum::response::Response> {
-    let uuid = match suspend_number {
-        Some(suspend_number) => {
-            trigger_runnable_with_suspend(
-                db,
-                user_db,
-                authed,
-                workspace_id,
-                runnable_path,
-                is_flow,
-                args,
-                retry,
-                error_handler_path,
-                error_handler_args,
-                trigger_path,
-                job_id,
-                suspend_number,
-                trigger_kind,
-            )
-            .await?
-        }
-        _ => {
-            trigger_runnable_inner(
-                db,
-                user_db,
-                authed,
-                workspace_id,
-                runnable_path,
-                is_flow,
-                args,
-                retry,
-                error_handler_path,
-                error_handler_args,
-                trigger_path,
-                job_id,
-                trigger_kind,
-            )
-            .await?
-            .0
-        }
-    };
+    let uuid = trigger_runnable_inner(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+        job_id,
+        trigger,
+        Some(active_mode),
+    )
+    .await?
+    .0;
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
@@ -620,7 +591,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -636,7 +607,8 @@ pub async fn trigger_runnable_and_wait_for_result(
         error_handler_args,
         trigger_path,
         None,
-        trigger_kind,
+        trigger,
+        None,
     )
     .await?;
     let (result, success) =
@@ -663,7 +635,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
 ) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -679,7 +651,8 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         error_handler_args,
         trigger_path,
         None,
-        trigger_kind,
+        trigger,
+        None,
     )
     .await?;
 
@@ -713,7 +686,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
 ) -> Result<Box<RawValue>> {
     let (result, success) = trigger_runnable_and_wait_for_raw_result(
         db,
@@ -727,7 +700,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         error_handler_path,
         error_handler_args,
         trigger_path,
-        trigger_kind,
+        trigger,
     )
     .await?;
 
@@ -754,12 +727,13 @@ async fn trigger_script_internal(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
+    scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
-        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
         let path = StripPath(script_path.to_string());
-        run_script_by_path_inner(
+        push_script_job_by_path_into_queue(
             authed,
             db.clone(),
             user_db,
@@ -767,7 +741,7 @@ async fn trigger_script_internal(
             path,
             run_query,
             args,
-            trigger_kind,
+            Some(trigger),
         )
         .await
     } else {
@@ -783,7 +757,8 @@ async fn trigger_script_internal(
             error_handler_args,
             trigger_path,
             job_id,
-            trigger_kind,
+            trigger,
+            scheduled_for,
         )
         .await
     }
@@ -801,7 +776,8 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerInfo,
+    scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -874,7 +850,7 @@ async fn trigger_script_with_retry_and_error_handler(
             priority,
             tag_override: tag.clone(),
             apply_preprocessor,
-            trigger_path: Some(trigger_path),
+            trigger_path: Some(trigger_path.clone()),
             custom_debounce_key,
             debounce_delay_s,
         },
@@ -885,7 +861,6 @@ async fn trigger_script_with_retry_and_error_handler(
             )))
         }
     };
-
     let (uuid, tx) = push(
         &db,
         tx,
@@ -896,7 +871,7 @@ async fn trigger_script_with_retry_and_error_handler(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
-        None,
+        scheduled_for,
         None,
         None,
         None,
@@ -914,217 +889,10 @@ async fn trigger_script_with_retry_and_error_handler(
         false,
         None,
         None,
-        None,
-        trigger_kind,
+        Some(trigger),
     )
     .await?;
     tx.commit().await?;
 
     Ok((uuid, delete_after_use))
-}
-
-
-async fn trigger_runnable_with_suspend(
-    db: &DB,
-    user_db: Option<UserDB>,
-    authed: ApiAuthed,
-    workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
-    args: PushArgsOwned,
-    retry: Option<&sqlx::types::Json<Retry>>,
-    error_handler_path: Option<&str>,
-    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
-    trigger_path: String,
-    job_id: Option<Uuid>,
-    suspend_number: i32,
-    trigger_kind: Option<JobTriggerKind>,
-) -> Result<Uuid> {
-    let far_future_utc = Utc.with_ymd_and_hms(9999, 12, 31, 23, 59, 59).unwrap();
-    if is_flow {
-        let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-        let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-
-        let FlowVersionInfo { version, .. } = get_latest_flow_version_info_for_path(
-            Some(db_authed),
-            &db,
-            workspace_id,
-            runnable_path,
-            false,
-        )
-        .await?;
-
-        let (email, permissioned_as, push_authed, tx) = (
-            authed.email.as_str(),
-            username_to_permissioned_as(&authed.username),
-            Some(authed.clone().into()),
-            PushIsolationLevel::Isolated(user_db, authed.clone().into()),
-        );
-
-        let push_args = windmill_queue::PushArgs { args: &args.args, extra: args.extra };
-
-        let flow_payload = windmill_common::jobs::JobPayload::Flow {
-            path: runnable_path.to_string(),
-            version: version,
-            dedicated_worker: None,
-            apply_preprocessor: false,
-        };
-
-        let (uuid, tx) = push(
-            db,
-            tx,
-            workspace_id,
-            flow_payload,
-            push_args,
-            authed.display_username(),
-            email,
-            permissioned_as,
-            authed.token_prefix.as_deref(),
-            Some(far_future_utc),
-            None,
-            None,
-            None,
-            None,
-            job_id,
-            false,
-            false,
-            None,
-            true,
-            None,
-            None,
-            None,
-            None,
-            push_authed.as_ref(),
-            false,
-            None,
-            None,
-            Some(suspend_number),
-            trigger_kind
-        )
-        .await?;
-
-        tx.commit().await?;
-        Ok(uuid)
-    } else {
-        use crate::jobs::check_tag_available_for_workspace;
-        use windmill_common::db::UserDbWithAuthed;
-        use windmill_common::jobs::script_path_to_payload;
-        use windmill_common::users::username_to_permissioned_as;
-        use windmill_queue::{push, PushIsolationLevel};
-
-        let error_handler_args = error_handler_args.map(|args| {
-            args.0
-                .iter()
-                .map(|(key, value)| (key.to_owned(), to_raw_value(&value)))
-                .collect::<HashMap<String, Box<RawValue>>>()
-        });
-
-        let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-        let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-        let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
-            runnable_path,
-            Some(db_authed),
-            db.clone(),
-            workspace_id,
-            Some(false),
-        )
-        .await?;
-
-        check_tag_available_for_workspace(db, workspace_id, &tag, &authed).await?;
-
-        let (email, permissioned_as, push_authed, tx) =
-            if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-                (
-                    on_behalf_of.email.as_str(),
-                    on_behalf_of.permissioned_as.clone(),
-                    None,
-                    PushIsolationLevel::IsolatedRoot(db.clone()),
-                )
-            } else {
-                (
-                    authed.email.as_str(),
-                    username_to_permissioned_as(&authed.username),
-                    Some(authed.clone().into()),
-                    PushIsolationLevel::Isolated(user_db, authed.clone().into()),
-                )
-            };
-
-        let push_args = windmill_queue::PushArgs { args: &args.args, extra: args.extra };
-
-        let retryable_job_payload = match job_payload {
-            windmill_common::jobs::JobPayload::ScriptHash {
-                hash,
-                path,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
-                custom_debounce_key,
-                debounce_delay_s,
-                cache_ttl,
-                priority,
-                apply_preprocessor,
-                ..
-            } => windmill_common::jobs::JobPayload::SingleStepFlow {
-                path,
-                hash: Some(hash),
-                flow_version: None,
-                args: HashMap::from(&push_args),
-                retry: retry.map(|r| r.0.clone()),
-                error_handler_path: error_handler_path.map(|s| s.to_string()),
-                error_handler_args,
-                skip_handler: None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
-                cache_ttl,
-                priority,
-                tag_override: tag.clone(),
-                apply_preprocessor,
-                trigger_path: Some(trigger_path),
-                custom_debounce_key,
-                debounce_delay_s,
-            },
-            _ => {
-                return Err(windmill_common::error::Error::internal_err(format!(
-                    "Unsupported job payload for suspended execution"
-                )))
-            }
-        };
-
-        let (uuid, tx) = push(
-            db,
-            tx,
-            workspace_id,
-            retryable_job_payload,
-            push_args,
-            authed.display_username(),
-            email,
-            permissioned_as,
-            authed.token_prefix.as_deref(),
-            Some(far_future_utc),
-            None,
-            None,
-            None,
-            None,
-            job_id,
-            false,
-            false,
-            None,
-            true,
-            tag,
-            timeout,
-            None,
-            None,
-            push_authed.as_ref(),
-            false,
-            None,
-            None,
-            Some(suspend_number),
-            trigger_kind
-        )
-        .await?;
-
-        tx.commit().await?;
-        Ok(uuid)
-    }
 }

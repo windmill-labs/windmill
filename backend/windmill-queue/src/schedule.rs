@@ -21,8 +21,10 @@ use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::get_latest_flow_version_info_for_path_from_version;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
+use windmill_common::jobs::JobTriggerKind;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
+use windmill_common::triggers::TriggerInfo;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::FlowVersionInfo;
@@ -503,8 +505,10 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
         None,
-        None,
-        Some(windmill_common::jobs::JobTriggerKind::Schedule),
+        Some(TriggerInfo::new(
+            Some(schedule.path.clone()),
+            JobTriggerKind::Schedule,
+        )),
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;

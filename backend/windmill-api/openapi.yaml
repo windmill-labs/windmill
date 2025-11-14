@@ -8088,6 +8088,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
+        - $ref: "#/components/parameters/TriggerPath"
+        - $ref: "#/components/parameters/JobTriggerKind"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -8374,13 +8376,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                suspend_number:
-                  type: integer
-                  description: the suspend number of jobs to resume
-              required:
-                - suspend_number
+              $ref: "#/components/schemas/SuspendedJobRequest"
       responses:
         "200":
           description: confirmation message
@@ -8403,13 +8399,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                suspend_number:
-                  type: integer
-                  description: the suspend number of jobs to cancel
-              required:
-                - suspend_number
+              $ref: "#/components/schemas/SuspendedJobRequest"
       responses:
         "200":
           description: confirmation message
@@ -15039,6 +15029,12 @@ components:
       in: query
       schema:
         type: string
+    TriggerPath:
+      name: trigger_path
+      description: mask to filter by trigger path
+      in: query
+      schema:
+        type: string
     ScriptExactPath:
       name: script_path_exact
       description: mask to filter exact matching path
@@ -17038,6 +17034,18 @@ components:
         - timezone
         - args
 
+    SuspendedJobRequest:
+      type: object
+      properties:
+        trigger_path:
+          type: string
+          description: The path of the trigger
+        trigger_kind:
+          $ref: "#/components/parameters/JobTriggerKind"
+      required:
+        - runnable_path
+        - trigger_kind
+
     TriggerExtraProperty:
       type: object
       properties:
@@ -17060,8 +17068,8 @@ components:
           format: date-time
         is_flow:
           type: boolean
-        suspend_number:
-          type: number
+        active_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -17071,6 +17079,7 @@ components:
         - edited_by
         - edited_at
         - is_flow
+        - active_mode
 
     AuthenticationMethod:
       type: string
@@ -17307,7 +17316,7 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
+          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -17372,7 +17381,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -17509,7 +17517,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
@@ -17561,7 +17568,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
@@ -17706,7 +17712,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -17748,7 +17753,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18040,7 +18044,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - queue_url
         - aws_resource_path
@@ -18186,7 +18189,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18222,7 +18224,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path
@@ -18295,7 +18296,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
@@ -18329,7 +18329,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -18412,7 +18411,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
 
       required:
         - path
@@ -18452,7 +18450,6 @@ components:
         active_mode:
           type: boolean
           default: true
-          description: If true, queue jobs with suspend functionality instead of immediate execution
       required:
         - path
         - script_path

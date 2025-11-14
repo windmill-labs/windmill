@@ -1,6 +1,5 @@
 use crate::{
     db::ApiAuthed,
-    jobs::generate_unique_suspend_number,
     triggers::{StandardTriggerQuery, TriggerData, BASE_TRIGGER_FIELDS},
 };
 use async_trait::async_trait;
@@ -100,7 +99,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
-        suspend_number: Option<i32>,
     ) -> Result<()>;
 
     async fn update_trigger(
@@ -111,7 +109,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
-        suspend_number: Option<i32>,
     ) -> Result<()>;
 
     async fn test_connection(
@@ -290,7 +287,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
-            "suspend_number",
+            "active_mode",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -354,20 +351,6 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     router
 }
 
-pub async fn get_suspend_number_for_inactive_mode(
-    db: &DB,
-    workspace_id: &str,
-    active_mode: Option<bool>,
-) -> Result<Option<i32>> {
-    if let Some(false) = active_mode {
-        Ok(Some(
-            generate_unique_suspend_number(db, workspace_id).await?,
-        ))
-    } else {
-        Ok(None)
-    }
-}
-
 async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -398,19 +381,9 @@ async fn create_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = new_trigger.base.path.clone();
-    let suspend_number =
-        get_suspend_number_for_inactive_mode(&db, &workspace_id, new_trigger.base.active_mode)
-            .await?;
 
     handler
-        .create_trigger(
-            &db,
-            &mut *tx,
-            &authed,
-            &workspace_id,
-            new_trigger,
-            suspend_number,
-        )
+        .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
         .await?;
 
     audit_log(
@@ -501,20 +474,9 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
-    let suspend_number =
-        get_suspend_number_for_inactive_mode(&db, &workspace_id, edit_trigger.base.active_mode)
-            .await?;
 
     handler
-        .update_trigger(
-            &db,
-            &mut *tx,
-            &authed,
-            &workspace_id,
-            path,
-            edit_trigger,
-            suspend_number,
-        )
+        .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
 
     audit_log(

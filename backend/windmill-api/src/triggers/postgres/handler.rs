@@ -71,7 +71,6 @@ impl TriggerCrud for PostgresTrigger {
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
-        suspend_number: Option<i32>,
     ) -> Result<()> {
         let Self::TriggerConfigRequest {
             postgres_resource_path,
@@ -128,7 +127,7 @@ impl TriggerCrud for PostgresTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                suspend_number
+                active_mode
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14
             )
@@ -146,7 +145,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            suspend_number
+            trigger.base.active_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;
@@ -161,7 +160,6 @@ impl TriggerCrud for PostgresTrigger {
         w_id: &str,
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
-        suspend_number: Option<i32>,
     ) -> Result<()> {
         let Self::TriggerConfigRequest {
             replication_slot_name,
@@ -232,7 +230,7 @@ impl TriggerCrud for PostgresTrigger {
                 error_handler_path = $11,
                 error_handler_args = $12,
                 retry = $13,
-                suspend_number = $14
+                active_mode = $14
             WHERE 
                 workspace_id = $9 AND path = $10
             "#,
@@ -249,7 +247,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            suspend_number
+            trigger.base.active_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;

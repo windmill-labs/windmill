@@ -62,7 +62,6 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let active_mode = $state(true)
-	let suspend_number: number | undefined = $state(undefined)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -191,8 +190,7 @@
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
-		active_mode = cfg?.suspend_number ? false : true
-		suspend_number = cfg?.suspend_number
+		active_mode = cfg?.active_mode
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
@@ -398,7 +396,7 @@
 					</div>
 				</Section>
 
-				<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
+				<TriggerStateToggle triggerPath={path} jobTriggerKind={'gcp'} bind:active_mode />
 			{/if}
 
 			<GcpTriggerEditorConfigSection

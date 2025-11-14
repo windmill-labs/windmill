@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum_macros::EnumIter;
 
+use crate::jobs::JobTriggerKind;
+
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, EnumIter)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -81,4 +83,15 @@ pub type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
 lazy_static! {
     pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> =
         Cache::new(1000);
+}
+
+pub struct TriggerInfo {
+    pub trigger_path: Option<String>,
+    pub trigger_kind: JobTriggerKind,
+}
+
+impl TriggerInfo {
+    pub fn new(trigger_path: Option<String>, trigger_kind: JobTriggerKind) -> TriggerInfo {
+        TriggerInfo { trigger_path, trigger_kind }
+    }
 }

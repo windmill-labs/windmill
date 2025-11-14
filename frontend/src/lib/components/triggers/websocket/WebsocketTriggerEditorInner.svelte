@@ -107,7 +107,6 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let active_mode = $state(true)
-	let suspend_number: number | undefined = $state(undefined)
 
 	const websocketCfg = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -222,8 +221,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		active_mode = cfg?.suspend_number ? false : true
-		suspend_number = cfg?.suspend_number
+		active_mode = cfg?.active_mode
 	}
 
 	function getSaveCfg() {
@@ -496,7 +494,7 @@
 				/>
 			</Section>
 
-			<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
+			<TriggerStateToggle triggerPath={path} jobTriggerKind={'websocket'} bind:active_mode />
 
 			<WebsocketEditorConfigSection
 				bind:url

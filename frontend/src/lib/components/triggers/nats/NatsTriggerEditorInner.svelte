@@ -93,7 +93,6 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let active_mode = $state(true)
-	let suspend_number: number | undefined = $state(undefined)
 
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !can_write || !isValid
@@ -193,8 +192,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		active_mode = cfg?.suspend_number ? false : true
-		suspend_number = cfg?.suspend_number
+		active_mode = cfg?.active_mode
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -404,7 +402,7 @@
 				</Section>
 			{/if}
 
-			<TriggerStateToggle suspendNumber={suspend_number} bind:active_mode />
+			<TriggerStateToggle triggerPath={path} jobTriggerKind={'nats'} bind:active_mode />
 
 			<NatsTriggersConfigSection
 				{path}

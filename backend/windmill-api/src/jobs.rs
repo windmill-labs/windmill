@@ -38,6 +38,7 @@ use windmill_common::jobs::{
     DynamicInput, JobTriggerKind, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
+use windmill_common::triggers::TriggerInfo;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
@@ -47,6 +48,7 @@ use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_common::variables::get_workspace_key;
 
 use crate::triggers::trigger_helpers::ScriptId;
+use crate::triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE;
 use crate::{
     add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
@@ -1819,6 +1821,7 @@ pub struct ListQueueQuery {
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub schedule_path: Option<String>,
+    pub trigger_path: Option<String>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
@@ -1840,6 +1843,7 @@ pub struct ListQueueQuery {
 impl From<ListCompletedQuery> for ListQueueQuery {
     fn from(lcq: ListCompletedQuery) -> Self {
         Self {
+            trigger_path: lcq.trigger_path,
             script_path_start: lcq.script_path_start,
             script_path_exact: lcq.script_path_exact,
             script_hash: lcq.script_hash,
@@ -1994,6 +1998,9 @@ pub fn filter_list_queue_query(
         sqlb.and_where_eq("trigger_kind", "?".bind(&format!("{}", tk)));
     }
 
+    if let Some(p) = &lq.trigger_path {
+        sqlb.and_where_eq("trigger", "?".bind(p));
+    }
     sqlb
 }
 
@@ -2220,46 +2227,50 @@ async fn cancel_selection(
 }
 
 #[derive(Deserialize)]
-pub struct ResumeSuspendedJobsRequest {
-    suspend_number: i32,
+#[serde(untagged)]
+enum SuspendJobsRequest {
+    Trigger { trigger_path: String, trigger_kind: JobTriggerKind },
 }
 
 async fn resume_suspended_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(request): Json<ResumeSuspendedJobsRequest>,
+    Json(request): Json<SuspendJobsRequest>,
 ) -> error::JsonResult<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        r#"
-        WITH jobs_to_resume AS (
-            SELECT 
-                jq.id
-            FROM 
-                v2_job_queue jq 
-            INNER JOIN v2_job j ON j.id = jq.id 
-            WHERE 
-                j.workspace_id = $1 AND 
-                jq.suspend = $2 AND 
-                jq.canceled_by IS NULL
-        )
-        UPDATE 
-            v2_job_queue 
-        SET 
-            suspend = 0, 
-            scheduled_for = NOW()
-        WHERE 
-            id IN (SELECT id FROM jobs_to_resume)
-        "#,
-        w_id,
-        request.suspend_number
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    match request {
+        SuspendJobsRequest::Trigger { trigger_path, trigger_kind } => {
+            let scheduled_for = INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone();
+            sqlx::query!(
+                r#"
+                UPDATE 
+                    v2_job_queue
+                SET 
+                    scheduled_for = NOW()
+                FROM 
+                    v2_job
+                WHERE 
+                    v2_job_queue.running is FALSE AND
+                    v2_job_queue.id = v2_job.id
+                    AND v2_job.workspace_id = $1
+                    AND v2_job_queue.scheduled_for = $2
+                    AND v2_job_queue.canceled_by IS NULL
+                    AND v2_job.trigger_kind = $3
+                    AND v2_job.trigger = $4
+                "#,
+                w_id,
+                scheduled_for,
+                trigger_kind as JobTriggerKind,
+                trigger_path
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+        }
+    }
 
     audit_log(
         &mut *tx,
@@ -2267,81 +2278,78 @@ async fn resume_suspended_jobs(
         "jobs.resume_suspended",
         ActionKind::Update,
         &w_id,
-        Some(&format!("suspend_number:{}", request.suspend_number)),
+        None,
         None,
     )
     .await?;
 
     tx.commit().await?;
 
-    Ok(Json(format!(
-        "Resumed all suspended workspace jobs for suspend number: {}",
-        request.suspend_number
-    )))
-}
-
-#[derive(Deserialize)]
-pub struct CancelSuspendedJobsRequest {
-    suspend_number: i32,
+    Ok(Json(format!("Resumed all suspended workspace jobs",)))
 }
 
 async fn cancel_suspended_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(request): Json<CancelSuspendedJobsRequest>,
+    Json(request): Json<SuspendJobsRequest>,
 ) -> error::JsonResult<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        r#"
-        WITH jobs_to_cancel AS (
-            SELECT 
-                v2_job_queue.id
-            FROM 
-                v2_job_queue 
-            INNER JOIN v2_job ON v2_job.id = v2_job_queue.id 
-            WHERE 
-                v2_job.workspace_id = $1 AND 
-                v2_job_queue.suspend = $2 AND 
-                v2_job_queue.canceled_by IS NULL
-        )
-        UPDATE 
-            v2_job_queue 
-        SET 
-            canceled_by = $3,
-            canceled_reason = 'Canceled all suspended jobs with suspend number',
-            suspend = 0,
-            scheduled_for = now()
-        WHERE 
-            id IN (SELECT id FROM jobs_to_cancel)
-        "#,
-        w_id,
-        request.suspend_number,
-        authed.username
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    match request {
+        SuspendJobsRequest::Trigger { trigger_path, trigger_kind } => {
+            let scheduled_for = INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone();
 
+            let reason = format!(
+                "Canceled all suspended jobs for {} with trigger at path: {}",
+                &trigger_kind, &trigger_path
+            );
+            sqlx::query!(
+                r#"
+                UPDATE 
+                    v2_job_queue
+                SET 
+                    canceled_by = $1,
+                    canceled_reason = $2,
+                    scheduled_for = NOW()
+                FROM 
+                    v2_job
+                WHERE 
+                    v2_job_queue.id = v2_job.id
+                    AND v2_job_queue.running is FALSE
+                    AND v2_job_queue.scheduled_for = $3
+                    AND v2_job.workspace_id = $4
+                    AND v2_job_queue.canceled_by IS NULL
+                    AND v2_job.trigger_kind = $5
+                    AND v2_job.trigger = $6
+                "#,
+                authed.username,
+                reason,
+                scheduled_for,
+                w_id,
+                trigger_kind as JobTriggerKind,
+                trigger_path
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+        }
+    }
     audit_log(
         &mut *tx,
         &authed,
         "jobs.cancel_suspended",
         ActionKind::Delete,
         &w_id,
-        Some(&format!("suspend_number:{}", request.suspend_number)),
+        None,
         None,
     )
     .await?;
 
     tx.commit().await?;
 
-    Ok(Json(format!(
-        "Canceled all suspended workspace jobs for suspend number: {}",
-        request.suspend_number
-    )))
+    Ok(Json(format!("Canceled all suspended workspace jobs",)))
 }
 
 async fn list_filtered_job_uuids(
@@ -4027,7 +4035,7 @@ async fn batch_rerun_handle_job(
     // Call appropriate function to push job to queue
     match job.kind {
         JobKind::Flow => {
-            let result = run_flow_by_path_inner(
+            let result = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 user_db.clone(),
@@ -4044,7 +4052,7 @@ async fn batch_rerun_handle_job(
         }
         JobKind::Script => {
             let result = if use_latest_version {
-                run_script_by_path_inner(
+                push_script_job_by_path_into_queue(
                     authed.clone(),
                     db.clone(),
                     user_db.clone(),
@@ -4172,13 +4180,15 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    let (uuid, _) =
-        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await?;
+    let (uuid, _) = push_flow_job_by_path_into_queue(
+        authed, db, user_db, w_id, flow_path, run_query, args, None,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_flow_by_path_inner(
+pub async fn push_flow_job_by_path_into_queue(
     authed: ApiAuthed,
     db: DB,
     user_db: UserDB,
@@ -4186,7 +4196,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: Option<TriggerInfo>,
 ) -> error::Result<(Uuid, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4265,8 +4275,7 @@ pub async fn run_flow_by_path_inner(
         false,
         None,
         None,
-        None,
-        trigger_kind,
+        trigger,
     )
     .await?;
 
@@ -4385,7 +4394,6 @@ pub async fn restart_flow(
         None,
         None,
         None,
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -4410,7 +4418,7 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    let (uuid, _) = run_script_by_path_inner(
+    let (uuid, _) = push_script_job_by_path_into_queue(
         authed,
         db,
         user_db,
@@ -4425,7 +4433,7 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_script_by_path_inner(
+pub async fn push_script_job_by_path_into_queue(
     authed: ApiAuthed,
     db: DB,
     user_db: UserDB,
@@ -4433,7 +4441,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: Option<TriggerInfo>,
 ) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -4505,8 +4513,7 @@ pub async fn run_script_by_path_inner(
         false,
         None,
         None,
-        None,
-        trigger_kind,
+        trigger,
     )
     .await?;
     tx.commit().await?;
@@ -4662,7 +4669,6 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
-        None,
         None,
         None,
         None,
@@ -5211,7 +5217,6 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         None,
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -5367,7 +5372,6 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         None,
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -5488,7 +5492,6 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
-        None,
         None,
         None,
         None,
@@ -5642,7 +5645,7 @@ pub async fn stream_job(
     let uuid = match runnable_id {
         RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
         | RunnableId::HubScript(script_path) => {
-            run_script_by_path_inner(
+            push_script_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -5669,7 +5672,7 @@ pub async fn stream_job(
             .0
         }
         RunnableId::FlowPath(flow_path) => {
-            run_flow_by_path_inner(
+            push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -5808,7 +5811,6 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         None,
-        None,
     )
     .await?;
 
@@ -5901,7 +5903,6 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
         None,
         None,
         None,
@@ -6023,7 +6024,6 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
-                None,
                 None,
                 None,
                 None,
@@ -6167,7 +6167,6 @@ async fn run_dependencies_job(
         None,
         None,
         None,
-        None,
     )
     .await?;
     tx.commit().await?;
@@ -6235,7 +6234,6 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
         None,
         None,
         None,
@@ -6593,7 +6591,6 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
-        None,
     )
     .await?;
 
@@ -6678,7 +6675,7 @@ async fn run_dynamic_select(
 
                 let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
 
-                let (uuid, _) = run_script_by_path_inner(
+                let (uuid, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
                     db.clone(),
                     user_db.clone(),
@@ -6789,7 +6786,6 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
         None,
         None,
         None,
@@ -6924,7 +6920,6 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
-        None,
         None,
         None,
         None,
@@ -7789,6 +7784,10 @@ pub fn filter_list_completed_query(
         sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
 
+    if let Some(p) = &lq.trigger_path {
+        sqlb.and_where_eq("trigger", "?".bind(p));
+    }
+
     if let Some(ps) = &lq.script_path_start {
         sqlb.and_where_like_left("runnable_path", ps);
     }
@@ -7963,6 +7962,7 @@ pub struct ListCompletedQuery {
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
     pub schedule_path: Option<String>,
+    pub trigger_path: Option<String>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset

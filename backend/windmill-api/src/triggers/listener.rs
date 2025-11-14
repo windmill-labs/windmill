@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::TriggerKind,
+    triggers::{TriggerInfo, TriggerKind},
     utils::report_critical_error,
     DB, INSTANCE_NAME,
 };
@@ -95,7 +95,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
                 trigger_mode: true,
-                suspend_number: trigger.base.suspend_number,
+                active_mode: Some(trigger.base.active_mode),
             })
             .collect_vec();
 
@@ -145,7 +145,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_mode: false,
                 is_flow: capture.is_flow,
                 error_handling: None,
-                suspend_number: None,
+                active_mode: None,
             })
             .collect_vec();
 
@@ -506,8 +506,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
-            listening_trigger.suspend_number,
-            Some(Self::JOB_TRIGGER_KIND),
+            listening_trigger.active_mode.unwrap_or(false),
+            TriggerInfo::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
         )
         .await?;
 
@@ -802,7 +802,7 @@ pub struct ListeningTrigger<T> {
     pub script_path: String,
     pub trigger_mode: bool,
     pub error_handling: Option<TriggerErrorHandling>,
-    pub suspend_number: Option<i32>,
+    pub active_mode: Option<bool>,
 }
 
 impl<T> ListeningTrigger<T> {
