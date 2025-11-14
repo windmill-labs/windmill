@@ -33,6 +33,21 @@
         "type": "indirect"
       }
     },
+    "nixpkgs-claude": {
+      "locked": {
+        "lastModified": 1753694789,
+        "narHash": "sha256-cKgvtz6fKuK1Xr5LQW/zOUiAC0oSQoA9nOISB0pJZqM=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "dc9637876d0dcc8c9e5e22986b857632effeb727",
+        "type": "github"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "ref": "nixos-unstable",
+        "type": "indirect"
+      }
+    },
     "nixpkgs-oapi-gen": {
       "locked": {
         "lastModified": 1740303746,
@@ -68,6 +83,7 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-claude": "nixpkgs-claude",
         "nixpkgs-oapi-gen": "nixpkgs-oapi-gen",
         "rust-overlay": "rust-overlay"
       }
