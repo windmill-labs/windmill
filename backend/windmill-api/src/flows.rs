@@ -1135,6 +1135,7 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
             flow_version.schema, 
             flow_version.value, 
             flow_version.created_at AS edited_at, 
@@ -1174,8 +1175,9 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
             flow_version.schema, 
-            flow_version.value, 
+            flow_version.value,
             flow_version.created_at AS edited_at, 
             flow_version.created_by AS edited_by, 
             NULL AS starred

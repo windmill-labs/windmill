@@ -2771,7 +2771,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let response = windmill_api::jobs::run_wait_result(
         &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
-        "test-workspace".to_string(),
+        "test-workspace",
         None,
         "test-user",
     )
