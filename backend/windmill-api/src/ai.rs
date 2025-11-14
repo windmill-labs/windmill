@@ -352,7 +352,12 @@ impl AIRequestConfig {
 
                                         // Parse arguments JSON string to object
                                         let input = serde_json::from_str::<Value>(arguments_str)
-                                            .unwrap_or(serde_json::json!({}));
+                                            .map_err(|e| {
+                                                Error::internal_err(format!(
+                                                    "Failed to parse tool call arguments: {}",
+                                                    e
+                                                ))
+                                            })?;
 
                                         content.push(serde_json::json!({
                                             "toolUse": {
