@@ -4,12 +4,13 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		minTs: string | undefined;
-		maxTs: string | undefined;
-		loading?: boolean;
-		selectedManualDate?: number;
-		loadText?: string | undefined;
-		serviceLogsChoices?: boolean;
+		minTs: string | undefined
+		maxTs: string | undefined
+		loading?: boolean
+		selectedManualDate?: number
+		loadText?: string | undefined
+		serviceLogsChoices?: boolean
+		numberOfLastJobsToFetch?: number
 	}
 
 	let {
@@ -18,8 +19,9 @@
 		loading = false,
 		selectedManualDate = $bindable(0),
 		loadText = undefined,
-		serviceLogsChoices = false
-	}: Props = $props();
+		serviceLogsChoices = false,
+		numberOfLastJobsToFetch = 1000
+	}: Props = $props()
 
 	export function computeMinMax(): { minTs: string; maxTs: string | undefined } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
@@ -75,7 +77,7 @@
 
 	let manualDates = $derived([
 		{
-			label: loadText ?? 'Last 1000 runs',
+			label: loadText ?? `Last ${numberOfLastJobsToFetch} runs`,
 			computeMinMax: () => {
 				return undefined
 			}
