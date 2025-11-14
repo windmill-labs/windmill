@@ -1365,6 +1365,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1510,11 +1511,12 @@ pub async fn update_worker_ping_from_job_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9, job_isolation = $10 WHERE worker = $5",
             job_id,
         w_id,
         memory_usage,
@@ -1524,6 +1526,7 @@ pub async fn update_worker_ping_from_job_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        job_isolation,
     )
     .execute(db)
     .await?;

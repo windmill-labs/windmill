@@ -243,6 +243,15 @@ pub async fn update_worker_ping_from_job(
     let occupancy_rate_15s = occupancy.as_ref().and_then(|x| x.occupancy_rate_15s);
     let occupancy_rate_5m = occupancy.as_ref().and_then(|x| x.occupancy_rate_5m);
     let occupancy_rate_30m = occupancy.as_ref().and_then(|x| x.occupancy_rate_30m);
+
+    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+        Some("nsjail".to_string())
+    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+        Some("unshare".to_string())
+    } else {
+        Some("none".to_string())
+    };
+
     match conn.clone() {
         Connection::Sql(ref db) => {
             update_worker_ping_from_job_query(
@@ -255,6 +264,7 @@ pub async fn update_worker_ping_from_job(
                 occupancy_rate_15s,
                 occupancy_rate_5m,
                 occupancy_rate_30m,
+                job_isolation,
                 db,
             )
             .await?;
@@ -282,7 +292,7 @@ pub async fn update_worker_ping_from_job(
                         occupancy_rate_15s: occupancy_rate_15s,
                         occupancy_rate_5m: occupancy_rate_5m,
                         occupancy_rate_30m: occupancy_rate_30m,
-                        job_isolation: None,
+                        job_isolation,
                     },
                 )
                 .await?;
