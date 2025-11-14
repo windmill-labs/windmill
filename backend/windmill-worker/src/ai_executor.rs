@@ -574,7 +574,7 @@ pub async fn run_agent(
         };
 
         // Special handling for AWS Bedrock using the official SDK
-        let parsed = if args.provider.kind == AIProvider::AWSBedrock && !should_stream {
+        let parsed = if args.provider.kind == AIProvider::AWSBedrock {
             // Extract region from base URL
             let region = extract_region_from_url(&base_url)?;
 
@@ -585,51 +585,144 @@ pub async fn run_agent(
             let (bedrock_messages, system_prompts) =
                 openai_messages_to_bedrock(&messages)?;
 
-            // Build request using AWS SDK types
-            let mut request_builder = bedrock_client
-                .client()
-                .converse()
-                .model_id(args.provider.get_model())
-                .set_messages(Some(bedrock_messages));
-
-            // Add system prompts if any
-            if !system_prompts.is_empty() {
-                request_builder = request_builder.set_system(Some(system_prompts));
-            }
-
-            // Add inference configuration
-            if let Some(inference_config) =
-                create_inference_config(args.temperature, args.max_completion_tokens.map(|t| t as i32))
-            {
-                request_builder = request_builder.inference_config(inference_config);
-            }
+            // Build request parameters
+            let model_id = args.provider.get_model();
+            let inference_config = create_inference_config(
+                args.temperature,
+                args.max_completion_tokens.map(|t| t as i32),
+            );
 
             // Add tools if provided
-            if let Some(tools) = tool_defs.as_deref() {
+            let tool_config = if let Some(tools) = tool_defs.as_deref() {
                 let bedrock_tools = openai_tools_to_bedrock(tools)?;
-                let tool_config = aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
-                    .set_tools(Some(bedrock_tools))
-                    .build()
-                    .map_err(|e| Error::internal_err(format!("Failed to build tool configuration: {}", e)))?;
-                request_builder = request_builder.set_tool_config(Some(tool_config));
-            }
+                Some(
+                    aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
+                        .set_tools(Some(bedrock_tools))
+                        .build()
+                        .map_err(|e| Error::internal_err(format!("Failed to build tool configuration: {}", e)))?,
+                )
+            } else {
+                None
+            };
 
-            // Execute the request
-            let response = request_builder
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Bedrock API error: {}", e)))?;
+            if should_stream {
+                use windmill_common::bedrock_converters::bedrock_stream_event_to_text;
 
-            // Convert response back to OpenAI format
-            let (content, tool_calls) = bedrock_response_to_openai(&response)?;
+                // Build streaming request
+                let mut request_builder = bedrock_client
+                    .client()
+                    .converse_stream()
+                    .model_id(model_id)
+                    .set_messages(Some(bedrock_messages));
 
-            ParsedResponse::Text {
-                content,
-                tool_calls,
-                events_str: None,
+                if !system_prompts.is_empty() {
+                    request_builder = request_builder.set_system(Some(system_prompts));
+                }
+
+                if let Some(config) = inference_config {
+                    request_builder = request_builder.inference_config(config);
+                }
+
+                if let Some(config) = tool_config {
+                    request_builder = request_builder.set_tool_config(Some(config));
+                }
+
+                // Execute streaming request
+                let mut stream = request_builder
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Bedrock streaming API error: {}", e)))?
+                    .stream;
+
+                let mut accumulated_text = String::new();
+                let mut events_str = String::new();
+
+                // Process stream events
+                if let Some(processor) = stream_event_processor.as_ref() {
+                    loop {
+                        match stream.recv().await {
+                            Ok(Some(event)) => {
+                                if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
+                                    accumulated_text.push_str(&text_delta);
+                                    processor
+                                        .send(
+                                            crate::ai::types::StreamingEvent::TokenDelta { content: text_delta },
+                                            &mut events_str,
+                                        )
+                                        .await?;
+                                }
+                            }
+                            Ok(None) => break, // Stream ended
+                            Err(e) => {
+                                return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
+                            }
+                        }
+                    }
+                } else {
+                    // No stream processor, just accumulate text
+                    loop {
+                        match stream.recv().await {
+                            Ok(Some(event)) => {
+                                if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
+                                    accumulated_text.push_str(&text_delta);
+                                }
+                            }
+                            Ok(None) => break, // Stream ended
+                            Err(e) => {
+                                return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
+                            }
+                        }
+                    }
+                }
+
+                let content = if accumulated_text.is_empty() {
+                    None
+                } else {
+                    Some(accumulated_text)
+                };
+
+                ParsedResponse::Text {
+                    content,
+                    tool_calls: vec![], // Streaming doesn't support tool calls yet
+                    events_str: if events_str.is_empty() { None } else { Some(events_str) },
+                }
+            } else {
+                // Non-streaming request
+                let mut request_builder = bedrock_client
+                    .client()
+                    .converse()
+                    .model_id(model_id)
+                    .set_messages(Some(bedrock_messages));
+
+                if !system_prompts.is_empty() {
+                    request_builder = request_builder.set_system(Some(system_prompts));
+                }
+
+                if let Some(config) = inference_config {
+                    request_builder = request_builder.inference_config(config);
+                }
+
+                if let Some(config) = tool_config {
+                    request_builder = request_builder.set_tool_config(Some(config));
+                }
+
+                // Execute the request
+                let response = request_builder
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Bedrock API error: {}", e)))?;
+
+                // Convert response back to OpenAI format
+                let (content, tool_calls) = bedrock_response_to_openai(&response)?;
+
+                ParsedResponse::Text {
+                    content,
+                    tool_calls,
+                    events_str: None,
+                }
             }
         } else {
-            // For non-Bedrock providers or streaming Bedrock, use HTTP client
+            // For non-Bedrock providers, use HTTP client
             let request_body = query_builder
                 .build_request(&build_args, client, &job.workspace_id, should_stream)
                 .await?;
