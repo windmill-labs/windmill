@@ -30,6 +30,7 @@ pub mod ai_providers;
 pub mod apps;
 pub mod bedrock_auth;
 pub mod bedrock_client;
+pub mod bedrock_converters;
 pub mod assets;
 pub mod auth;
 #[cfg(feature = "benchmark")]

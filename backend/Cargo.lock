@@ -15427,6 +15427,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
  "aws-sdk-sts",
+ "aws-smithy-types",
  "aws-smithy-types-convert",
  "axum",
  "backon",
