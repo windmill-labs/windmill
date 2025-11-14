@@ -18720,6 +18720,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -18746,6 +18750,10 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        active_mode:
+          type: boolean
+          default: true
+          description: If set to false, each incomming event will be suspend job until ran manually or set it to true
       required:
         - path
         - script_path

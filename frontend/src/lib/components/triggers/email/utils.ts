@@ -29,6 +29,7 @@ export async function saveEmailTriggerFromCfg(
 		workspaced_local_part: routeCfg.workspaced_local_part,
 		error_handler_path: routeCfg.error_handler_path,
 		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
+		active_mode: routeCfg.active_mode,
 		retry: routeCfg.retry
 	}
 	try {
