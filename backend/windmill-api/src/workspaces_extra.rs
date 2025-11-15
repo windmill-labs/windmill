@@ -629,11 +629,10 @@ pub async fn get_incomplete_migration(
             w.id 
         FROM 
             workspace w 
+        LEFT JOIN usr u ON u.workspace_id = w.id
         WHERE 
             w.parent_workspace_id = $1 
-        AND NOT EXISTS (
-            SELECT 1 FROM usr u WHERE u.workspace_id = w.id
-        )
+        AND u.workspace_id IS NULL
         "#,
         w_id
     )
