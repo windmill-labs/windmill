@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-mod jobs;
+pub mod jobs;
 #[cfg(feature = "private")]
 pub mod jobs_ee;
 pub mod jobs_oss;

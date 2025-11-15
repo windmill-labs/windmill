@@ -1577,6 +1577,7 @@ mod tests {
                         skip_failures: true,
                         parallel: false,
                         parallelism: None,
+                        squash: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),

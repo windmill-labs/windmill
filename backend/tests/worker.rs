@@ -217,6 +217,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -396,6 +397,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Static { value: windmill_common::worker::to_raw_value(&[1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
