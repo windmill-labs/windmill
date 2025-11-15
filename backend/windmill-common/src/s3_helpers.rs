@@ -396,6 +396,21 @@ pub struct S3Resource {
     pub port: Option<u16>,
 }
 
+impl S3Resource {
+    pub fn endpoint_with_region_fallback(&self, region_fallback: Option<String>) -> String {
+        if self.endpoint.is_empty() {
+            let final_region = if self.region.is_empty() {
+                region_fallback.unwrap_or_else(|| "us-east-1".to_string())
+            } else {
+                self.region.clone()
+            };
+            format!("s3.{}.amazonaws.com", final_region)
+        } else {
+            self.endpoint.clone()
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AzureBlobResource {
     pub endpoint: Option<String>,
@@ -642,7 +657,7 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
 
     let s3_resource = s3_resource_ref.clone();
     let endpoint = render_endpoint(
-        s3_resource.endpoint,
+        s3_resource.endpoint_with_region_fallback(None),
         s3_resource.use_ssl,
         s3_resource.port,
         s3_resource.path_style,
@@ -1216,7 +1231,13 @@ pub fn duckdb_connection_settings_internal(
         duckdb_settings.push_str("SET s3_url_style='path';\n");
     }
     duckdb_settings.push_str(format!("SET s3_region='{}';\n", s3_resource.region).as_str());
-    duckdb_settings.push_str(format!("SET s3_endpoint='{}';\n", s3_resource.endpoint).as_str());
+    duckdb_settings.push_str(
+        format!(
+            "SET s3_endpoint='{}';\n",
+            s3_resource.endpoint_with_region_fallback(None)
+        )
+        .as_str(),
+    );
     if !s3_resource.use_ssl {
         duckdb_settings.push_str("SET s3_use_ssl=0;\n"); // default is true for DuckDB
     }

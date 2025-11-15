@@ -218,6 +218,8 @@
 	</div>
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
+			variant="accent"
+			size="xl"
 			on:click={() => {
 				editWindmillLFSSettings()
 				console.log('Saving S3 settings', s3ResourceSettings)
