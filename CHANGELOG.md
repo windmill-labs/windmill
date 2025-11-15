@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.576.3](https://github.com/windmill-labs/windmill/compare/v1.576.2...v1.576.3) (2025-11-15)
+
+
+### Bug Fixes
+
+* handle better alias types in duckdb ([2c04e04](https://github.com/windmill-labs/windmill/commit/2c04e04bf0e3272c89f321392158888d02a1191b))
+
 ## [1.576.2](https://github.com/windmill-labs/windmill/compare/v1.576.1...v1.576.2) (2025-11-15)
 
 
