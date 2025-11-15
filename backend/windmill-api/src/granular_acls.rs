@@ -116,7 +116,7 @@ async fn add_granular_acl(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
-    .bind(vec![owner])
+    .bind(vec![owner.clone()])
     .bind(write.unwrap_or(false))
     .bind(path)
     .bind(&w_id)
@@ -124,6 +124,30 @@ async fn add_granular_acl(
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
+
+    // Log permission changes for folders and groups
+    if kind == "folder" {
+        crate::folders::log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            path,
+            &authed.username,
+            "update_extra_perms",
+            Some(&owner),
+        )
+        .await?;
+    } else if kind == "group_" {
+        crate::groups::log_group_permission_change(
+            &mut *tx,
+            &w_id,
+            path,
+            &authed.username,
+            "update_extra_perms",
+            Some(&owner),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     match kind {
@@ -229,13 +253,37 @@ async fn remove_granular_acl(
         "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND \
          workspace_id = $3 RETURNING extra_perms"
     ))
-    .bind(owner)
+    .bind(&owner)
     .bind(path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
+
+    // Log permission changes for folders and groups
+    if kind == "folder" {
+        crate::folders::log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            path,
+            &authed.username,
+            "remove_extra_perms",
+            Some(&owner),
+        )
+        .await?;
+    } else if kind == "group_" {
+        crate::groups::log_group_permission_change(
+            &mut *tx,
+            &w_id,
+            path,
+            &authed.username,
+            "remove_extra_perms",
+            Some(&owner),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     match kind {
