@@ -245,7 +245,7 @@ fn do_duckdb_inner(
     }
     // Statement needs to be stepped at least once or stmt.column_names() will panic
     let mut column_names = None;
-    // let mut type_aliases = None;
+    let mut type_aliases = None;
     loop {
         let row = rows.next();
         match row {
@@ -260,18 +260,26 @@ fn do_duckdb_inner(
                         column_names.as_ref().unwrap()
                     }
                 };
-                // let type_aliases = match type_aliases.as_ref() {
-                //     Some(type_aliases) => type_aliases,
-                //     None => {
-                //         type_aliases = Some(
-                //             (0..stmt.column_count())
-                //                 .map(|i| stmt.column_logical_type(i).get_alias())
-                //                 .collect::<Vec<_>>(),
-                //         );
-                //         type_aliases.as_ref().unwrap()
-                //     }
-                // };
-                let type_aliases = (0..stmt.column_count()).map(|_| None).collect::<Vec<_>>();
+                let type_aliases = match type_aliases.as_ref() {
+                    Some(type_aliases) => type_aliases,
+                    None => {
+                        type_aliases = Some(
+                            (0..stmt.column_count())
+                                .map(|i| {
+                                    let logical_type = stmt.column_logical_type(i);
+                                    if logical_type.is_invalid() {
+                                        None
+                                    } else {
+                                        logical_type.get_alias()
+                                    }
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                        type_aliases.as_ref().unwrap()
+                    }
+                };
+
+                // let type_aliases = (0..stmt.column_count()).map(|_| None).collect::<Vec<_>>();
 
                 let row = row_to_value(row, &column_names.as_slice(), &type_aliases.as_slice())
                     .map_err(|e| e.to_string())?;
