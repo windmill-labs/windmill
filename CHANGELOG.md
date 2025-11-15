@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.576.2](https://github.com/windmill-labs/windmill/compare/v1.576.1...v1.576.2) (2025-11-15)
+
+
+### Bug Fixes
+
+* temporary fix for duckdb type_aliases causing issues ([#7148](https://github.com/windmill-labs/windmill/issues/7148)) ([6426ebf](https://github.com/windmill-labs/windmill/commit/6426ebf8cb713443904065064b6a07eb1db0761a))
+
 ## [1.576.1](https://github.com/windmill-labs/windmill/compare/v1.576.0...v1.576.1) (2025-11-14)
 
 
