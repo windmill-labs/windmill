@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.576.1](https://github.com/windmill-labs/windmill/compare/v1.576.0...v1.576.1) (2025-11-14)
+
+
+### Bug Fixes
+
+* DuckDB FFI crash fix ([#7145](https://github.com/windmill-labs/windmill/issues/7145)) ([d3fc459](https://github.com/windmill-labs/windmill/commit/d3fc459b407682bf588236236916363d94f3e1ff))
+
 ## [1.576.0](https://github.com/windmill-labs/windmill/compare/v1.575.4...v1.576.0) (2025-11-14)
 
 
