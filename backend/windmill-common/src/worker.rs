@@ -1301,6 +1301,7 @@ pub struct Ping {
     pub occupancy_rate_15s: Option<f32>,
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
+    pub job_isolation: Option<String>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1348,6 +1349,7 @@ pub async fn update_ping_http(
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1363,6 +1365,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1476,10 +1479,11 @@ pub async fn insert_ping_query(
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
         DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
@@ -1489,7 +1493,8 @@ pub async fn insert_ping_query(
         dw,
         version,
         vcpus,
-        memory
+        memory,
+        job_isolation.as_deref()
         )
         .execute(db)
         .await?;
@@ -1506,11 +1511,12 @@ pub async fn update_worker_ping_from_job_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9, job_isolation = $10 WHERE worker = $5",
             job_id,
         w_id,
         memory_usage,
@@ -1520,6 +1526,7 @@ pub async fn update_worker_ping_from_job_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        job_isolation,
     )
     .execute(db)
     .await?;

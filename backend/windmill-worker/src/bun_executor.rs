@@ -17,7 +17,7 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
-        read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
+        build_command_with_isolation, read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
         StreamNotifier,
     },
     handle_child::handle_child,
@@ -1430,15 +1430,15 @@ try {{
     } else {
         let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
+            let args = vec!["--preserve-symlinks", script_path.as_str()];
 
-            let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
+            let mut bun_cmd = build_command_with_isolation(&*NODE_BIN_PATH, &args);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
-                .args(vec!["--preserve-symlinks", &script_path])
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -1450,8 +1450,7 @@ try {{
         } else {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
-            let mut bun_cmd = Command::new(&*BUN_PATH);
-            let args = if codebase.is_some() || has_bundle_cache {
+            let args: Vec<&str> = if codebase.is_some() || has_bundle_cache {
                 vec!["run", &script_path]
             } else {
                 vec![
@@ -1463,13 +1462,13 @@ try {{
                     &script_path,
                 ]
             };
+            let mut bun_cmd = build_command_with_isolation(&*BUN_PATH, &args);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
-                .args(args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -1480,16 +1479,12 @@ try {{
             bun_cmd
         };
 
-        start_child_process(
-            cmd,
-            if annotation.nodejs {
-                &*NODE_BIN_PATH
-            } else {
-                &*BUN_PATH
-            },
-            false,
-        )
-        .await?
+        let executable = if annotation.nodejs {
+            &*NODE_BIN_PATH
+        } else {
+            &*BUN_PATH
+        };
+        start_child_process(cmd, executable, false).await?
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);
