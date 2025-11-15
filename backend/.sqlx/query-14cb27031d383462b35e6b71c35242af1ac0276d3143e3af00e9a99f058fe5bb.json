@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \n            COUNT(*) \n        FROM (\n            SELECT id FROM v2_job WHERE workspace_id = $1\n            UNION ALL\n            SELECT id FROM v2_job_completed WHERE workspace_id = $1\n        ) as total_jobs",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "14cb27031d383462b35e6b71c35242af1ac0276d3143e3af00e9a99f058fe5bb"
+}

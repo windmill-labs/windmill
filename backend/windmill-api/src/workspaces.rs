@@ -67,6 +67,8 @@ use crate::teams_oss::{
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
 
+use crate::workspaces_extra::{get_migration_status, migrate_jobs, migrate_workspace, complete_workspace_migration, revert_workspace_migration, get_incomplete_migration};
+
 lazy_static::lazy_static! {
     static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
 }
@@ -147,10 +149,6 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
-        .route(
-            "/change_workspace_id",
-            post(crate::workspaces_extra::change_workspace_id),
-        )
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
@@ -174,6 +172,19 @@ pub fn workspaced_service() -> Router {
     #[cfg(not(feature = "stripe"))]
     router
 }
+
+pub fn migrate_service() -> Router {
+    Router::new().nest(
+        "/migrate",
+        Router::new()
+            .route("/tables", post(migrate_workspace))
+            .route("/jobs", post(migrate_jobs))
+            .route("/status", get(get_migration_status))
+            .route("/complete", post(complete_workspace_migration))
+            .route("/:workspace/revert", post(revert_workspace_migration))
+            .route("/:workspace/incomplete", get(get_incomplete_migration)),
+    )
+}
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
@@ -193,6 +204,7 @@ pub fn global_service() -> Router {
             "/create_workspace_require_superadmin",
             get(create_workspace_require_superadmin),
         )
+        .merge(migrate_service())
 }
 
 #[derive(FromRow, Serialize)]
@@ -2305,6 +2317,13 @@ lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
         match std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN") {
+            Ok(val) => val == "true",
+            Err(_) => true,
+        }
+    };
+
+    pub static ref MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
+        match std::env::var("MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN") {
             Ok(val) => val == "true",
             Err(_) => true,
         }

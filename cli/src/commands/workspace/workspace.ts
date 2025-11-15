@@ -5,6 +5,7 @@ import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
+import migrate from "./migrate.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
