@@ -350,14 +350,14 @@ pub async fn get_raw_postgres_connection(
     }
 
     let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
-
     let client = if let Some(connector) = connector {
         let (client, connection) = config.connect(connector).await.map_err(to_anyhow)?;
         tokio::spawn(async move {
+            tracing::info!("Successfully connected to PostgreSQL database for trigger execution");
             if let Err(e) = connection.await {
-                tracing::debug!("{:#?}", e);
+                tracing::debug!("Error during PostgreSQL trigger connection: {:#?}", e);
             };
-            tracing::info!("Successfully Connected into database");
+            tracing::info!("PostgreSQL trigger connection closed");
         });
         client
     } else {
