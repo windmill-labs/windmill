@@ -1,7 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
+use windmill_common::jobs::JobTriggerKind;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HandlerAction {
+    Trigger { path: String, trigger_kind: JobTriggerKind },
+    // Future variants can be added here (e.g., Script, Flow, etc.)
+}
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
 pub mod email;
@@ -25,6 +33,7 @@ pub mod websocket;
 mod handler;
 mod listener;
 pub mod trigger_helpers;
+pub mod global_handler;
 
 #[allow(unused)]
 pub(crate) use handler::TriggerCrud;
@@ -52,6 +61,7 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
+    pub active_mode: bool,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -98,8 +108,10 @@ where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
 {
     fn from_row(row: &sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        let base = BaseTrigger::from_row(row)?;
+
         Ok(Trigger {
-            base: BaseTrigger::from_row(row)?,
+            base,
             config: T::from_row(row)?,
             server_state: ServerState::from_row(row).ok(),
             error_handling: TriggerErrorHandling::from_row(row)?,
@@ -113,6 +125,7 @@ pub struct BaseTriggerData {
     pub script_path: String,
     pub is_flow: bool,
     pub enabled: Option<bool>,
+    pub active_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,4 +156,20 @@ impl Default for StandardTriggerQuery {
     fn default() -> Self {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
+}
+
+pub const BASE_TRIGGER_FIELDS: [&'static str; 9] = [
+    "workspace_id",
+    "path",
+    "script_path",
+    "is_flow",
+    "edited_by",
+    "email",
+    "edited_at",
+    "extra_perms",
+    "active_mode",
+];
+
+lazy_static::lazy_static! {
+    pub static ref INACTIVE_TRIGGER_SCHEDULED_FOR_DATE: DateTime<Utc> = Utc.with_ymd_and_hms(9999, 12, 31, 23, 59, 59).unwrap();
 }

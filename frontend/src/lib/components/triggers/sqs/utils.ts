@@ -25,6 +25,7 @@ export async function saveSqsTriggerFromCfg(
 		message_attributes: cfg.message_attributes,
 		aws_auth_resource_type: cfg.aws_auth_resource_type,
 		enabled: cfg.enabled,
+		active_mode: cfg.active_mode,
 		...errorHandlerAndRetries
 	}
 	try {

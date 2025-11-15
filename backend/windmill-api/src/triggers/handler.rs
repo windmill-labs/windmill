@@ -1,6 +1,6 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{StandardTriggerQuery, TriggerData},
+    triggers::{StandardTriggerQuery, TriggerData, BASE_TRIGGER_FIELDS},
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -135,16 +135,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<Self::Trigger> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-        ];
+        let mut fields = Vec::from(BASE_TRIGGER_FIELDS);
 
         if Self::SUPPORTS_SERVER_STATE {
             fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
@@ -296,6 +287,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
+            "active_mode",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -482,6 +474,7 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
+
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
@@ -744,6 +737,22 @@ pub fn generate_trigger_routers() -> Router {
             EmailTrigger::ROUTE_PREFIX,
             complete_trigger_routes(EmailTrigger),
         );
+    }
+
+    {
+        use crate::triggers::global_handler::{
+            cancel_suspended_trigger_jobs, resume_suspended_trigger_jobs,
+        };
+
+        router = router
+            .route(
+                "/trigger/:trigger_kind/resume_suspended_trigger_job/*trigger_path",
+                post(resume_suspended_trigger_jobs),
+            )
+            .route(
+                "/trigger/:trigger_kind/cancel_suspended_trigger_job/*trigger_path",
+                post(cancel_suspended_trigger_jobs),
+            );
     }
 
     router

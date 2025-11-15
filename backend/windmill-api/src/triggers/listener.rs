@@ -6,7 +6,7 @@ use crate::{
     triggers::{
         handler::TriggerCrud,
         trigger_helpers::{trigger_runnable, TriggerJobArgs},
-        Trigger, TriggerErrorHandling,
+        Trigger, TriggerErrorHandling, BASE_TRIGGER_FIELDS,
     },
     users::fetch_api_authed,
 };
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::TriggerKind,
+    triggers::{TriggerMetadata, TriggerKind},
     utils::report_critical_error,
     DB, INSTANCE_NAME,
 };
@@ -34,8 +34,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     type Extra: Send + Sync;
     type ExtraState: Send + Sync;
 
-    //to use in next PR to add job trigger kind to eow
-    #[allow(unused)]
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];
@@ -60,16 +58,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         &self,
         db: &DB,
     ) -> Result<Vec<ListeningTrigger<Self::TriggerConfig>>> {
-        let mut fields = vec![
-            "workspace_id",
-            "path",
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "extra_perms",
-        ];
+        let mut fields = Vec::from(BASE_TRIGGER_FIELDS);
 
         if Self::SUPPORTS_SERVER_STATE {
             fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
@@ -106,6 +95,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
                 trigger_mode: true,
+                active_mode: Some(trigger.base.active_mode),
             })
             .collect_vec();
 
@@ -155,6 +145,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_mode: false,
                 is_flow: capture.is_flow,
                 error_handling: None,
+                active_mode: None,
             })
             .collect_vec();
 
@@ -515,7 +506,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
-            Some(Self::JOB_TRIGGER_KIND),
+            listening_trigger.active_mode.unwrap_or(false),
+            TriggerMetadata::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
         )
         .await?;
 
@@ -810,6 +802,7 @@ pub struct ListeningTrigger<T> {
     pub script_path: String,
     pub trigger_mode: bool,
     pub error_handling: Option<TriggerErrorHandling>,
+    pub active_mode: Option<bool>,
 }
 
 impl<T> ListeningTrigger<T> {

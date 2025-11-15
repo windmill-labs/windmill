@@ -1,5 +1,6 @@
 use anyhow::Context;
 use axum::response::IntoResponse;
+use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -12,13 +13,10 @@ use windmill_common::{
     error::Result,
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    jobs::{
-        get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload,
-        JobTriggerKind,
-    },
+    jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     triggers::{
-        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerKind,
+        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerMetadata, TriggerKind,
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
     users::username_to_permissioned_as,
@@ -27,14 +25,22 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
+/// Helper function to check if triggers should use queue mode.
+/// Queue mode suspends jobs by scheduling them for a far future date.
+fn is_queue_mode(active_mode: Option<bool>) -> bool {
+    matches!(active_mode, Some(false))
+}
+
 #[cfg(feature = "enterprise")]
 use crate::jobs::check_license_key_valid;
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{
-        check_tag_available_for_workspace, delete_job_metadata_after_use, result_to_response,
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
+        check_tag_available_for_workspace, delete_job_metadata_after_use,
+        push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
+        run_wait_result_internal, RunJobQuery,
     },
+    triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE,
     utils::check_scopes,
     HTTP_CLIENT,
 };
@@ -519,7 +525,8 @@ pub async fn trigger_runnable_inner(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
+    active_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let error_handler_args = error_handler_args.map(|args| {
         let args = args
@@ -531,10 +538,15 @@ pub async fn trigger_runnable_inner(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
+    let scheduled_for = if is_queue_mode(active_mode) {
+        Some(INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone())
+    } else {
+        None
+    };
     let (uuid, delete_after_use, early_return) = if is_flow {
-        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
         let path = StripPath(runnable_path.to_string());
-        let (uuid, early_return) = run_flow_by_path_inner(
+        let (uuid, early_return) = push_flow_job_by_path_into_queue(
             authed,
             db.clone(),
             user_db,
@@ -542,7 +554,7 @@ pub async fn trigger_runnable_inner(
             path,
             run_query,
             args,
-            trigger_kind,
+            Some(trigger),
         )
         .await?;
         (uuid, None, early_return)
@@ -559,7 +571,8 @@ pub async fn trigger_runnable_inner(
             error_handler_args.as_ref(),
             trigger_path,
             job_id,
-            trigger_kind,
+            trigger,
+            scheduled_for,
         )
         .await?;
         (uuid, delete_after_use, None)
@@ -582,9 +595,10 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    active_mode: bool,
+    trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
-    let (uuid, _, _) = trigger_runnable_inner(
+    let uuid = trigger_runnable_inner(
         db,
         user_db,
         authed,
@@ -597,9 +611,11 @@ pub async fn trigger_runnable(
         error_handler_args,
         trigger_path,
         job_id,
-        trigger_kind,
+        trigger,
+        Some(active_mode),
     )
-    .await?;
+    .await?
+    .0;
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
@@ -616,7 +632,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -632,7 +648,8 @@ pub async fn trigger_runnable_and_wait_for_result(
         error_handler_args,
         trigger_path,
         None,
-        trigger_kind,
+        trigger,
+        None,
     )
     .await?;
     let (result, success) =
@@ -658,7 +675,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
 ) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
@@ -674,7 +691,8 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         error_handler_args,
         trigger_path,
         None,
-        trigger_kind,
+        trigger,
+        None,
     )
     .await?;
 
@@ -708,7 +726,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
 ) -> Result<Box<RawValue>> {
     let (result, success) = trigger_runnable_and_wait_for_raw_result(
         db,
@@ -722,7 +740,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         error_handler_path,
         error_handler_args,
         trigger_path,
-        trigger_kind,
+        trigger,
     )
     .await?;
 
@@ -749,12 +767,13 @@ async fn trigger_script_internal(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
+    scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
-        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
         let path = StripPath(script_path.to_string());
-        run_script_by_path_inner(
+        push_script_job_by_path_into_queue(
             authed,
             db.clone(),
             user_db,
@@ -762,7 +781,7 @@ async fn trigger_script_internal(
             path,
             run_query,
             args,
-            trigger_kind,
+            Some(trigger),
         )
         .await
     } else {
@@ -778,7 +797,8 @@ async fn trigger_script_internal(
             error_handler_args,
             trigger_path,
             job_id,
-            trigger_kind,
+            trigger,
+            scheduled_for,
         )
         .await
     }
@@ -796,7 +816,8 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: TriggerMetadata,
+    scheduled_for: Option<DateTime<Utc>>,
 ) -> Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -869,7 +890,7 @@ async fn trigger_script_with_retry_and_error_handler(
             priority,
             tag_override: tag.clone(),
             apply_preprocessor,
-            trigger_path: Some(trigger_path),
+            trigger_path: Some(trigger_path.clone()),
             custom_debounce_key,
             debounce_delay_s,
         },
@@ -880,7 +901,6 @@ async fn trigger_script_with_retry_and_error_handler(
             )))
         }
     };
-
     let (uuid, tx) = push(
         &db,
         tx,
@@ -891,7 +911,7 @@ async fn trigger_script_with_retry_and_error_handler(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
-        None,
+        scheduled_for,
         None,
         None,
         None,
@@ -909,7 +929,7 @@ async fn trigger_script_with_retry_and_error_handler(
         false,
         None,
         None,
-        trigger_kind,
+        Some(trigger),
     )
     .await?;
     tx.commit().await?;

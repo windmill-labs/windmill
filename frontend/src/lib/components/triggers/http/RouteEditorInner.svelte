@@ -45,6 +45,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	let {
 		useDrawer = true,
@@ -110,6 +111,7 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
+	let active_mode = $state(true)
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -288,6 +290,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		active_mode = cfg?.active_mode ?? true
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -355,7 +358,8 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			active_mode
 		}
 
 		return nCfg
@@ -590,6 +594,8 @@
 						{/if}
 					</div>
 				</Section>
+
+				<TriggerActiveMode triggerPath={path} jobTriggerKind={'http'} bind:active_mode />
 			{/if}
 
 			<RouteEditorConfigSection

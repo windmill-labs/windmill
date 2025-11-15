@@ -40,7 +40,8 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    triggers::TriggerKind,
+    jobs::JobTriggerKind,
+    triggers::{TriggerMetadata, TriggerKind},
     utils::{not_found_if_none, require_admin, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -206,10 +207,11 @@ pub async fn insert_new_trigger_into_db(
                 is_static_website,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                active_mode
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22, $23
             )
             "#,
             w_id,
@@ -233,7 +235,8 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.is_static_website,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.base.active_mode.unwrap_or(true)
         )
         .execute(&mut *tx)
         .await?;
@@ -494,10 +497,11 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $18,
                 error_handler_path = $19,
                 error_handler_args = $20,
-                retry = $21
+                retry = $21,
+                active_mode = $22
             WHERE
-                workspace_id = $22 AND
-                path = $23
+                workspace_id = $23 AND
+                path = $24
             "#,
                 route_path,
                 &route_path_key,
@@ -520,6 +524,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
+                trigger.base.active_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -551,10 +556,11 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $15,
                 error_handler_path = $16,
                 error_handler_args = $17,
-                retry = $18
+                retry = $18,
+                active_mode = $19
             WHERE
-                workspace_id = $19 AND
-                path = $20
+                workspace_id = $20 AND
+                path = $21
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
@@ -574,6 +580,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
+                trigger.base.active_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -1033,6 +1040,37 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
+    let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
+    if !trigger.active_mode {
+        let _ = trigger_runnable(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            None,
+            trigger.active_mode,
+            trigger_info,
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        return Ok((
+            StatusCode::OK,
+            format!(
+                "Trigger: {} in inactive mode, incoming request has been queued",
+                &trigger.path
+            ),
+        )
+            .into_response());
+    }
+
     // Handle execution based on the execution mode
     match trigger.request_type {
         RequestType::SyncSse => {
@@ -1050,7 +1088,8 @@ async fn route_job(
                 trigger.error_handler_args.as_ref(),
                 format!("http_trigger/{}", trigger.path),
                 None,
-                Some(windmill_common::jobs::JobTriggerKind::Http),
+                trigger_info,
+                None,
             )
             .await
             .map_err(|e| e.into_response())?;
@@ -1109,7 +1148,8 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            Some(windmill_common::jobs::JobTriggerKind::Http),
+            trigger.active_mode,
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),
@@ -1125,7 +1165,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
-            Some(windmill_common::jobs::JobTriggerKind::Http),
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),

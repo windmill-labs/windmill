@@ -101,10 +101,11 @@ impl TriggerCrud for MqttTrigger {
                 edited_by,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                active_mode
             ) 
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
             )"#,
             trigger.config.mqtt_resource_path,
             subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
@@ -121,7 +122,8 @@ impl TriggerCrud for MqttTrigger {
             authed.username,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.base.active_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;
@@ -169,7 +171,8 @@ impl TriggerCrud for MqttTrigger {
                 server_id = NULL,
                 error_handler_path = $14,
                 error_handler_args = $15,
-                retry = $16
+                retry = $16,
+                active_mode = $17
             WHERE 
                 workspace_id = $12 AND 
                 path = $13
@@ -189,7 +192,8 @@ impl TriggerCrud for MqttTrigger {
             path,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.base.active_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;

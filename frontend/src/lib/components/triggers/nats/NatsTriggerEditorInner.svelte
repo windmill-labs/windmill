@@ -19,6 +19,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -91,6 +92,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let active_mode = $state(true)
 
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !can_write || !isValid
@@ -190,6 +192,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		active_mode = cfg?.active_mode ?? true
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -218,7 +221,8 @@
 			use_jetstream: natsCfg.use_jetstream,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			active_mode
 		}
 	}
 
@@ -397,6 +401,8 @@
 					</div>
 				</Section>
 			{/if}
+
+			<TriggerActiveMode triggerPath={path} jobTriggerKind={'nats'} bind:active_mode />
 
 			<NatsTriggersConfigSection
 				{path}

@@ -126,6 +126,7 @@ export async function savePostgresTriggerFromCfg(
 			publication_name: config.publication_name,
 			publication: config.publication,
 			enabled: config.enabled,
+			active_mode: config.active_mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

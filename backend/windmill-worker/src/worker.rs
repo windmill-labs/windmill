@@ -826,7 +826,6 @@ pub fn start_interactive_worker_shell(
                     Connection::Sql(db) => {
                         let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
                         let job = pull(
@@ -872,10 +871,11 @@ pub fn start_interactive_worker_shell(
                     }
                 };
 
+
+
                 match pulled_job {
                     Ok(Some(job)) => {
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
