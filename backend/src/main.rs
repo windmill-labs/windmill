@@ -114,7 +114,7 @@ mod ee_oss;
 mod monitor;
 
 // Windows service support - EE feature
-#[cfg(all(windows, feature = "private"))]
+#[cfg(all(windows, feature = "enterprise", feature = "private"))]
 mod windows_service_ee;
 
 pub fn setup_deno_runtime() -> anyhow::Result<()> {
