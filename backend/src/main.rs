@@ -217,8 +217,6 @@ pub fn main() -> anyhow::Result<()> {
         if windows_service_ee::is_running_as_service() {
             // Run as Windows service with SCM handlers
             return windows_service_ee::run_as_windows_service()
-                .map_err(|e| anyhow::anyhow!("Windows service error: {:?}", e));
-            return windows_service_ee::run_as_windows_service()
                 .map_err(|e| anyhow::anyhow!("Failed to run as Windows service: {}", e));
     }
 
