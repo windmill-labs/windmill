@@ -5,13 +5,13 @@ import {
   Command,
   Confirm,
   ensureDir,
-  minimatch,
   JSZip,
-  path,
   log,
-  yamlStringify,
-  yamlParseContent,
+  minimatch,
+  path,
   SEP,
+  yamlParseContent,
+  yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -37,24 +37,24 @@ import {
 import { handleFile } from "../script/script.ts";
 import { deepEqual, isFileResource } from "../../utils/utils.ts";
 import {
-  SyncOptions,
   getEffectiveSettings,
-  validateBranchConfiguration,
   mergeConfigWithConfigFile,
+  SyncOptions,
+  validateBranchConfiguration,
 } from "../../core/conf.ts";
 import {
-  SpecificItemsConfig,
-  getSpecificItemsForCurrentBranch,
-  isSpecificItem,
-  getBranchSpecificPath,
   fromBranchSpecificPath,
-  isCurrentBranchFile,
+  getBranchSpecificPath,
+  getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
+  isCurrentBranchFile,
+  isSpecificItem,
+  SpecificItemsConfig,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
@@ -70,7 +70,7 @@ import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../w
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
-  T extends GlobalOptions & SyncOptions & { repository?: string }
+  T extends GlobalOptions & SyncOptions & { repository?: string },
 >(cliOpts: T, effectiveOpts: SyncOptions): T {
   // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
   return Object.assign({}, effectiveOpts, cliOpts) as T;
@@ -80,7 +80,7 @@ function mergeCliWithEffectiveOptions<
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
-  promotion?: string
+  promotion?: string,
 ): Promise<SyncOptions> {
   return await getEffectiveSettings(localConfig, promotion);
 }
@@ -95,7 +95,7 @@ type DynFSElement = {
 
 export function findCodebase(
   path: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
 ): SyncCodebase | undefined {
   if (!path.endsWith(".ts")) {
     return;
@@ -135,7 +135,7 @@ async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
   codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
   if (!isScript) {
@@ -159,7 +159,7 @@ async function addCodebaseDigestIfRelevant(
         parsed = yamlParseContent(path, content);
       } catch (error) {
         log.error(
-          `Failed to parse YAML content for codebase digest at path: ${path}`
+          `Failed to parse YAML content for codebase digest at path: ${path}`,
         );
         throw error;
       }
@@ -173,7 +173,7 @@ async function addCodebaseDigestIfRelevant(
         return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
-          `Expected local yaml ${path} to be an object, found: ${content} instead`
+          `Expected local yaml ${path} to be an object, found: ${content} instead`,
         );
       }
     }
@@ -184,12 +184,12 @@ async function addCodebaseDigestIfRelevant(
 export async function FSFSElement(
   p: string,
   codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): Promise<DynFSElement> {
   function _internal_element(
     localP: string,
     isDir: boolean,
-    codebases: SyncCodebase[]
+    codebases: SyncCodebase[],
   ): DynFSElement {
     return {
       isDirectory: isDir,
@@ -201,7 +201,7 @@ export async function FSFSElement(
             yield _internal_element(
               path.join(localP, e.name),
               e.isDirectory,
-              codebases
+              codebases,
             );
           }
         } catch (e) {
@@ -218,7 +218,7 @@ export async function FSFSElement(
           itemPath,
           content,
           codebases,
-          ignoreCodebaseChanges
+          ignoreCodebaseChanges,
         );
         return r;
       },
@@ -262,7 +262,7 @@ export interface InlineScript {
 
 export function extractInlineScriptsForApps(
   rec: any,
-  pathAssigner: PathAssigner
+  pathAssigner: PathAssigner,
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -304,23 +304,26 @@ function ZipFSElement(
   useYaml: boolean,
   defaultTs: "bun" | "deno",
   resourceTypeToFormatExtension: Record<string, string>,
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): DynFSElement {
   async function _internal_file(
     p: string,
-    f: JSZip.JSZipObject
+    f: JSZip.JSZipObject,
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
-      "flow.json"
-    )
-      ? "flow"
-      : p.endsWith("app.json")
-      ? "app"
-      : p.endsWith("script.json")
-      ? "script"
-      : p.endsWith("resource.json")
-      ? "resource"
-      : "other";
+    const kind: "flow" | "app" | "script" | "resource" | "other" | "raw_app" =
+      p.endsWith(
+          ".flow.json",
+        )
+        ? "flow"
+        : p.endsWith(".app.json")
+        ? "app"
+        : p.endsWith(".raw_app.json")
+        ? "raw_app"
+        : p.endsWith(".script.json")
+        ? "script"
+        : p.endsWith(".resource.json")
+        ? "resource"
+        : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -335,9 +338,10 @@ function ZipFSElement(
     }
 
     const finalPath = transformPath();
+
     const r = [
       {
-        isDirectory: kind == "flow" || kind == "app",
+        isDirectory: kind == "flow" || kind == "app" || kind == "raw_app",
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
@@ -354,11 +358,11 @@ function ZipFSElement(
                 flow.value.modules,
                 {},
                 SEP,
-                defaultTs
+                defaultTs,
               );
             } catch (error) {
               log.error(
-                `Failed to extract inline scripts for flow at path: ${p}`
+                `Failed to extract inline scripts for flow at path: ${p}`,
               );
               throw error;
             }
@@ -395,14 +399,15 @@ function ZipFSElement(
             try {
               inlineScripts = extractInlineScriptsForApps(
                 app?.["value"],
-                newPathAssigner(defaultTs)
+                newPathAssigner(defaultTs),
               );
             } catch (error) {
               log.error(
-                `Failed to extract inline scripts for app at path: ${p}`
+                `Failed to extract inline scripts for app at path: ${p}`,
               );
               throw error;
             }
+
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -424,6 +429,84 @@ function ZipFSElement(
                 return yamlStringify(app, yamlOptions);
               },
             };
+          } else if (kind == "raw_app") {
+            let rawApp;
+            try {
+              rawApp = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse app.yaml at path: ${p}`);
+              throw error;
+            }
+            // console.log("rawApp", rawApp);
+
+            let inlineScripts;
+            try {
+              inlineScripts = extractInlineScriptsForApps(
+                rawApp?.["value"],
+                newPathAssigner(defaultTs),
+              );
+            } catch (error) {
+              log.error(
+                `Failed to extract inline scripts for raw app at path: ${p}`,
+              );
+              throw error;
+            }
+
+            try {
+              for (
+                const [filePath, content] of Object.entries(
+                  rawApp?.["value"]?.["files"] ?? [],
+                )
+              ) {
+                console.log(
+                  "filePath",
+                  filePath,
+                  "path",
+                  path.join(finalPath, filePath.substring(1)),
+                  "content",
+                  content,
+                );
+                yield {
+                  isDirectory: false,
+                  path: path.join(finalPath, filePath.substring(1)),
+                  async *getChildren() {},
+                  // deno-lint-ignore require-await
+                  async getContentText() {
+                    if (typeof content !== "string") {
+                      throw new Error(
+                        `Content of raw app file ${filePath} is not a string`,
+                      );
+                    }
+                    return content as string;
+                  },
+                };
+              }
+            } catch (error) {
+              log.error(`Failed to extract files for raw app at path: ${p}`);
+              throw error;
+            }
+
+            for (const s of inlineScripts) {
+              yield {
+                isDirectory: false,
+                path: path.join(finalPath, "runnables", s.path),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return s.content;
+                },
+              };
+            }
+
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "raw_app.yaml"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return yamlStringify(rawApp, yamlOptions);
+              },
+            };
           }
         },
 
@@ -443,8 +526,7 @@ function ZipFSElement(
               parsed["lock"] != "" &&
               parsed["codebase"] == undefined
             ) {
-              parsed["lock"] =
-                "!inline " +
+              parsed["lock"] = "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".json") +
                 ".lock";
             } else if (parsed["lock"] == "") {
@@ -473,8 +555,7 @@ function ZipFSElement(
               resourceTypeToFormatExtension[parsed["resource_type"]];
 
             if (formatExtension) {
-              parsed["value"]["content"] =
-                "!inline " +
+              parsed["value"]["content"] = "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
                 ".resource.file." +
                 formatExtension;
@@ -486,13 +567,13 @@ function ZipFSElement(
 
           return useYaml && isJson
             ? (() => {
-                try {
-                  return yamlStringify(JSON.parse(content), yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to parse JSON content at path: ${p}`);
-                  throw error;
-                }
-              })()
+              try {
+                return yamlStringify(JSON.parse(content), yamlOptions);
+              } catch (error) {
+                log.error(`Failed to parse JSON content at path: ${p}`);
+                throw error;
+              }
+            })()
             : content;
         },
       },
@@ -536,8 +617,7 @@ function ZipFSElement(
         if (typeof fileContent === "string") {
           r.push({
             isDirectory: false,
-            path:
-              removeSuffix(finalPath, ".resource.json") +
+            path: removeSuffix(finalPath, ".resource.json") +
               ".resource.file." +
               formatExtension,
             async *getChildren() {},
@@ -585,7 +665,7 @@ function ZipFSElement(
 
 export async function* readDirRecursiveWithIgnore(
   ignore: (path: string, isDirectory: boolean) => boolean,
-  root: DynFSElement
+  root: DynFSElement,
 ): AsyncGenerator<{
   path: string;
   ignored: boolean;
@@ -656,7 +736,7 @@ export async function elementsToMap(
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
   skips: Skips,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -703,15 +783,17 @@ export async function elementsToMap(
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext))
-    )
+    ) {
       continue;
+    }
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
-    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) {
       continue;
+    }
 
     // Use getTypeStrFromPath for consistent type detection
     try {
@@ -750,8 +832,9 @@ export async function elementsToMap(
         // for related places search: ADD_NEW_LANG
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
-    )
+    ) {
       continue;
+    }
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
@@ -847,13 +930,13 @@ async function compareDynFSElement(
   ignoreMetadataDeletion: boolean,
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems),
-        elementsToMap(els2, ignore, json, skips, specificItems),
-      ])
+      elementsToMap(els1, ignore, json, skips, specificItems),
+      elementsToMap(els2, ignore, json, skips, specificItems),
+    ])
     : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
 
   const changes: Change[] = [];
@@ -908,8 +991,8 @@ async function compareDynFSElement(
   const codebaseChanges: Record<string, string> = {};
 
   for (let [k, v] of Object.entries(m1)) {
-    const isScriptMetadata =
-      k.endsWith(".script.yaml") || k.endsWith(".script.json");
+    const isScriptMetadata = k.endsWith(".script.yaml") ||
+      k.endsWith(".script.json");
     const skipMetadata = skips.skipScriptsMetadata && isScriptMetadata;
 
     if (m2[k] === undefined) {
@@ -926,7 +1009,7 @@ async function compareDynFSElement(
           parsedV = JSON.parse(v);
         } catch (error) {
           log.error(
-            `Failed to parse new JSON content for comparison at path: ${k}`
+            `Failed to parse new JSON content for comparison at path: ${k}`,
           );
           throw error;
         }
@@ -934,7 +1017,7 @@ async function compareDynFSElement(
           parsedM2 = JSON.parse(m2[k]);
         } catch (error) {
           log.error(
-            `Failed to parse existing JSON content for comparison at path: ${k}`
+            `Failed to parse existing JSON content for comparison at path: ${k}`,
           );
           throw error;
         }
@@ -983,7 +1066,7 @@ async function compareDynFSElement(
       ) {
         changes.push({ name: "deleted", path: k });
       } else if (k?.endsWith(".script.yaml")) {
-        let o = parseYaml(k, m2[k]);
+        const o = parseYaml(k, m2[k]);
         if (o.codebase != undefined) {
           remoteCodebase[k] = o.codebase;
         }
@@ -996,7 +1079,8 @@ async function compareDynFSElement(
       const tsFile = k.replace(".script.yaml", ".ts");
       if (
         changes.find(
-          (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
+          (c) =>
+            c.path == tsFile && (c.name == "edited" || c.name == "deleted"),
         )
       ) {
         continue;
@@ -1254,8 +1338,10 @@ async function buildTracker(changes: Change[]) {
 }
 
 export async function pull(
-  opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string }
+  opts:
+    & GlobalOptions
+    & SyncOptions
+    & { repository?: string; promotion?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
@@ -1282,7 +1368,7 @@ export async function pull(
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
-    opts.promotion
+    opts.promotion,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
@@ -1295,8 +1381,8 @@ export async function pull(
 
   log.info(
     colors.gray(
-      "Computing the files to update locally to match remote (taking wmill.yaml into account)"
-    )
+      "Computing the files to update locally to match remote (taking wmill.yaml into account)",
+    ),
   );
 
   let resourceTypeToFormatExtension: Record<string, string> = {};
@@ -1321,12 +1407,12 @@ export async function pull(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
-    true
+    true,
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
@@ -1340,11 +1426,11 @@ export async function pull(
     false,
     codebases,
     true,
-    specificItems
+    specificItems,
   );
 
   log.info(
-    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
 
   // Handle JSON output for dry-run
@@ -1359,12 +1445,12 @@ export async function pull(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
-                change.path,
-                specificItems
-              ),
-            }
+            branch_specific: true,
+            branch_specific_path: getBranchSpecificPath(
+              change.path,
+              specificItems,
+            ),
+          }
           : {}),
       })),
       total: changes.length,
@@ -1384,7 +1470,8 @@ export async function pull(
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes to your local files?`,
+        message:
+          `Do you want to apply these ${changes.length} changes to your local files?`,
         default: true,
       }))
     ) {
@@ -1400,7 +1487,7 @@ export async function pull(
       if (specificItems && isSpecificItem(change.path, specificItems)) {
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
-          specificItems
+          specificItems,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -1419,8 +1506,8 @@ export async function pull(
             ) {
               log.info(
                 colors.red(
-                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
-                )
+                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`,
+                ),
               );
               if (opts.failConflicts) {
                 conflicts.push({
@@ -1432,14 +1519,14 @@ export async function pull(
               } else if (opts.yes) {
                 log.info(
                   colors.red(
-                    `Override local version with remote since --yes was passed and no --fail-conflicts.`
-                  )
+                    `Override local version with remote since --yes was passed and no --fail-conflicts.`,
+                  ),
                 );
               } else {
                 showConflict(change.path, currentLocal, change.after);
                 if (
                   await Confirm.prompt(
-                    "Preserve local (push to change remote and avoid seeing this again)?"
+                    "Preserve local (push to change remote and avoid seeing this again)?",
                   )
                 ) {
                   continue;
@@ -1456,7 +1543,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         } else if (
           change.path.endsWith(".yaml") ||
@@ -1467,7 +1554,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         }
         await Deno.writeTextFile(target, change.after);
@@ -1485,7 +1572,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         }
         await Deno.writeTextFile(target, change.content);
@@ -1494,7 +1581,7 @@ export async function pull(
             targetPath !== change.path
               ? colors.gray(` (branch-specific override for ${change.path})`)
               : ""
-          }`
+          }`,
         );
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
@@ -1502,7 +1589,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
+            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
           );
           await Deno.remove(target);
           if (opts.stateful) {
@@ -1526,7 +1613,7 @@ export async function pull(
           colors.red(`Please resolve these conflicts manually by either:
   - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
-`)
+`),
         );
         Deno.exit(1);
       }
@@ -1546,7 +1633,7 @@ export async function pull(
         true,
         globalDeps,
         codebases,
-        true
+        true,
       );
     }
     for (const change of tracker.flows) {
@@ -1555,15 +1642,18 @@ export async function pull(
     }
     if (tracker.apps.length > 0) {
       log.info(
-        `Apps ${tracker.apps.join(
-          ", "
-        )} scripts were changed but ignoring for now`
+        `Apps ${
+          tracker.apps.join(
+            ", ",
+          )
+        } scripts were changed but ignoring for now`,
       );
     }
     if (opts.jsonOutput) {
       const result = {
         success: true,
-        message: `All ${changes.length} changes applied locally and wmill-lock.yaml updated`,
+        message:
+          `All ${changes.length} changes applied locally and wmill-lock.yaml updated`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -1572,12 +1662,12 @@ export async function pull(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
-                  change.path,
-                  specificItems
-                ),
-              }
+              branch_specific: true,
+              branch_specific_path: getBranchSpecificPath(
+                change.path,
+                specificItems,
+              ),
+            }
             : {}),
         })),
         total: changes.length,
@@ -1586,8 +1676,8 @@ export async function pull(
     } else {
       log.info(
         colors.bold.green.underline(
-          `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
-        )
+          `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`,
+        ),
       );
     }
   } else if (opts.jsonOutput) {
@@ -1595,8 +1685,8 @@ export async function pull(
       JSON.stringify(
         { success: true, message: "No changes to apply", total: 0 },
         null,
-        2
-      )
+        2,
+      ),
     );
   }
 }
@@ -1610,7 +1700,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
     if (specificItems && isSpecificItem(change.path, specificItems)) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
-        specificItems
+        specificItems,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -1623,16 +1713,16 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
         colors.green(
           `+ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote)
-        )
+            colors.gray(branchNote),
+        ),
       );
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
           `- ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote)
-        )
+            colors.gray(branchNote),
+        ),
       );
     } else if (change.name === "edited") {
       log.info(
@@ -1640,8 +1730,8 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
           `~ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
             colors.gray(branchNote) +
-            (change.codebase ? ` (codebase changed)` : "")
-        )
+            (change.codebase ? ` (codebase changed)` : ""),
+        ),
       );
       if (change.before != change.after) {
         if (change.path.endsWith(".yaml")) {
@@ -1649,12 +1739,12 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
             showDiff(
               yamlStringify(
                 yamlParseContent(change.path, change.before),
-                yamlOptions
+                yamlOptions,
               ),
               yamlStringify(
                 yamlParseContent(change.path, change.after),
-                yamlOptions
-              )
+                yamlOptions,
+              ),
             );
           } catch {
             showDiff(change.before, change.after);
@@ -1694,7 +1784,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string }
+  opts: GlobalOptions & SyncOptions & { repository?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -1720,7 +1810,7 @@ export async function push(
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
-    opts.promotion
+    opts.promotion,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
@@ -1736,7 +1826,7 @@ export async function push(
   if (opts.stateful) {
     if (!opts.skipPull) {
       log.info(
-        colors.gray("You need to be up-to-date before pushing, pulling first.")
+        colors.gray("You need to be up-to-date before pushing, pulling first."),
       );
       await pull(opts);
       log.info(colors.green("Pull done, now pushing."));
@@ -1746,8 +1836,8 @@ export async function push(
 
   log.info(
     colors.gray(
-      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
-    )
+      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)",
+    ),
   );
   let resourceTypeToFormatExtension: Record<string, string> = {};
   try {
@@ -1771,12 +1861,12 @@ export async function push(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
-    false
+    false,
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
@@ -1789,7 +1879,7 @@ export async function push(
     true,
     codebases,
     false,
-    specificItems
+    specificItems,
   );
 
   const globalDeps = await findGlobalDeps();
@@ -1807,7 +1897,7 @@ export async function push(
       true,
       globalDeps,
       codebases,
-      false
+      false,
     );
     if (stale) {
       staleScripts.push(stale);
@@ -1817,7 +1907,7 @@ export async function push(
   if (staleScripts.length > 0) {
     log.info("");
     log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:"
+      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
     );
     for (const stale of staleScripts) {
       log.warn(stale);
@@ -1833,7 +1923,7 @@ export async function push(
       workspace,
       opts,
       false,
-      true
+      true,
     );
     if (stale) {
       staleFlows.push(stale);
@@ -1842,7 +1932,7 @@ export async function push(
 
   if (staleFlows.length > 0) {
     log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:"
+      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
     );
     for (const stale of staleFlows) {
       log.warn(stale);
@@ -1855,7 +1945,7 @@ export async function push(
   log.info(colors.gray("Remote version: " + version));
 
   log.info(
-    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
 
   // Handle JSON output for dry-run
@@ -1870,12 +1960,12 @@ export async function push(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
-                change.path,
-                specificItems
-              ),
-            }
+            branch_specific: true,
+            branch_specific_path: getBranchSpecificPath(
+              change.path,
+              specificItems,
+            ),
+          }
           : {}),
       })),
       total: changes.length,
@@ -1895,7 +1985,8 @@ export async function push(
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes to the remote?`,
+        message:
+          `Do you want to apply these ${changes.length} changes to the remote?`,
         default: true,
       }))
     ) {
@@ -1930,12 +2021,12 @@ export async function push(
     }
     const groupedChangesArray = Array.from(groupedChanges.entries());
     log.info(
-      `found changes for ${
-        groupedChangesArray.length
-      } items with a total of ${groupedChangesArray.reduce(
-        (acc, [_, changes]) => acc + changes.length,
-        0
-      )} files to process`
+      `found changes for ${groupedChangesArray.length} items with a total of ${
+        groupedChangesArray.reduce(
+          (acc, [_, changes]) => acc + changes.length,
+          0,
+        )
+      } files to process`,
     );
     if (parallelizationFactor > 1) {
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
@@ -1972,7 +2063,7 @@ export async function push(
                   opts.message,
                   globalDeps,
                   codebases,
-                  opts
+                  opts,
                 )
               ) {
                 if (stateTarget) {
@@ -1987,7 +2078,7 @@ export async function push(
                   opts.message,
                   opts,
                   globalDeps,
-                  codebases
+                  codebases,
                 )
               ) {
                 if (stateTarget) {
@@ -1998,7 +2089,7 @@ export async function push(
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
                 log.info(
-                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
+                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
               }
 
@@ -2009,7 +2100,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await Deno.readTextFile(resourceFilePath)
+                    await Deno.readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -2020,7 +2111,7 @@ export async function push(
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
                       resourceFilePath,
-                      currentBranch
+                      currentBranch,
                     );
                   }
 
@@ -2029,7 +2120,7 @@ export async function push(
                     serverPath,
                     undefined,
                     newObj,
-                    resourceFilePath
+                    resourceFilePath,
                   );
                   if (stateTarget) {
                     await Deno.writeTextFile(stateTarget, change.after);
@@ -2045,7 +2136,7 @@ export async function push(
               if (specificItems && isSpecificItem(change.path, specificItems)) {
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 );
               }
 
@@ -2057,7 +2148,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 alreadySynced,
                 opts.message,
-                originalBranchSpecificPath
+                originalBranchSpecificPath,
               );
 
               if (stateTarget) {
@@ -2079,7 +2170,7 @@ export async function push(
                   opts.message,
                   opts,
                   globalDeps,
-                  codebases
+                  codebases,
                 )
               ) {
                 continue;
@@ -2087,7 +2178,7 @@ export async function push(
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
                 log.info(
-                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
+                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
               }
               const obj = parseFromPath(change.path, change.content);
@@ -2098,7 +2189,7 @@ export async function push(
               if (specificItems && isSpecificItem(change.path, specificItems)) {
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -2113,7 +2204,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 [],
                 opts.message,
-                localFilePath // Pass the actual local file path
+                localFilePath, // Pass the actual local file path
               );
 
               if (stateTarget) {
@@ -2243,7 +2334,7 @@ export async function push(
 
                   const email = removeSuffix(
                     removePathPrefix(change.path, "users"),
-                    ".user.json"
+                    ".user.json",
                   );
                   const user = users.find((u) => u.email === email);
                   if (!user) {
@@ -2260,7 +2351,7 @@ export async function push(
                     workspace: workspaceId,
                     name: removeSuffix(
                       removePathPrefix(change.path, "groups"),
-                      ".group.json"
+                      ".group.json",
                     ),
                   });
                   break;
@@ -2291,7 +2382,8 @@ export async function push(
     if (opts.jsonOutput) {
       const result = {
         success: true,
-        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        message:
+          `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -2300,12 +2392,12 @@ export async function push(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
-                  change.path,
-                  specificItems
-                ),
-              }
+              branch_specific: true,
+              branch_specific_path: getBranchSpecificPath(
+                change.path,
+                specificItems,
+              ),
+            }
             : {}),
         })),
         total: changes.length,
@@ -2315,14 +2407,12 @@ export async function push(
     } else {
       log.info(
         colors.bold.green.underline(
-          `\nDone! All ${
-            changes.length
-          } changes pushed to the remote workspace ${
-            workspace.workspaceId
-          } named ${workspace.name} (${(performance.now() - start).toFixed(
-            0
-          )}ms)`
-        )
+          `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name} (${
+            (performance.now() - start).toFixed(
+              0,
+            )
+          }ms)`,
+        ),
       );
     }
   } else if (opts.jsonOutput) {
@@ -2330,17 +2420,16 @@ export async function push(
       JSON.stringify(
         { success: true, message: "No changes to push", total: 0 },
         null,
-        2
-      )
+        2,
+      ),
     );
   }
 }
 
 const command = new Command()
   .description(
-    "sync local with a remote workspaces or the opposite (push or pull)"
+    "sync local with a remote workspaces or the opposite (push or pull)",
   )
-
   .action(() =>
     log.info("2 actions available, pull and push. Use -h to display help.")
   )
@@ -2349,7 +2438,7 @@ const command = new Command()
   .option("--yes", "Pull without needing confirmation")
   .option(
     "--dry-run",
-    "Show changes that would be pulled without actually pushing"
+    "Show changes that would be pulled without actually pushing",
   )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
@@ -2372,23 +2461,23 @@ const command = new Command()
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes",
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
+    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes",
   )
   .option(
     "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
   )
   .option(
     "--repository <repo:string>",
-    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   .option(
     "--promotion <branch:string>",
-    "Use promotionOverrides from the specified branch instead of regular overrides"
+    "Use promotionOverrides from the specified branch instead of regular overrides",
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
@@ -2397,7 +2486,7 @@ const command = new Command()
   .option("--yes", "Push without needing confirmation")
   .option(
     "--dry-run",
-    "Show changes that would be pushed without actually pushing"
+    "Show changes that would be pushed without actually pushing",
   )
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
@@ -2420,24 +2509,24 @@ const command = new Command()
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)",
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
+    "Comma separated patterns to specify which file to NOT take into account.",
   )
   .option(
     "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
   )
   .option(
     "--message <message:string>",
-    "Include a message that will be added to all scripts/flows/apps updated during this push"
+    "Include a message that will be added to all scripts/flows/apps updated during this push",
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
   .option(
     "--repository <repo:string>",
-    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

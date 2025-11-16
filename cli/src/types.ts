@@ -1,11 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 
 import {
-  Diff,
-  SEP,
   colors,
+  Diff,
   log,
   path,
+  SEP,
   yamlParseContent,
   yamlStringify,
 } from "../deps.ts";
@@ -21,7 +21,7 @@ import { deepEqual, isFileResource } from "./utils/utils.ts";
 import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
-import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
+import { pushWorkspaceKey, pushWorkspaceSettings } from "./core/settings.ts";
 import { pushTrigger } from "./commands/trigger/trigger.ts";
 
 export interface DifferenceCreate {
@@ -46,15 +46,15 @@ export interface DifferenceChange {
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
 export const TRIGGER_TYPES = [
-  'http',
-  'websocket',
-  'kafka',
-  'nats',
-  'postgres',
-  'mqtt',
-  'sqs',
-  'gcp',
-  'email',
+  "http",
+  "websocket",
+  "kafka",
+  "nats",
+  "postgres",
+  "mqtt",
+  "sqs",
+  "gcp",
+  "email",
 ] as const;
 
 export type GlobalOptions = {
@@ -66,7 +66,7 @@ export type GlobalOptions = {
 
 export function isSuperset(
   subset: Record<string, any>,
-  superset: Record<string, any>
+  superset: Record<string, any>,
 ): boolean {
   return Object.keys(subset).every((key) => {
     const eq = deepEqual(subset[key], superset[key]);
@@ -79,7 +79,7 @@ export function isSuperset(
         log.info(`Found diff for ${key}:`);
         showDiff(
           yamlStringify(sub, yamlOptions),
-          yamlStringify(supers, yamlOptions)
+          yamlStringify(supers, yamlOptions),
         );
       }
     }
@@ -142,7 +142,7 @@ export async function pushObj(
   plainSecrets: boolean,
   alreadySynced: string[],
   message?: string,
-  originalLocalPath?: string
+  originalLocalPath?: string,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -193,7 +193,7 @@ export async function pushObj(
     await pushWorkspaceKey(workspace, p, befObj, newObj);
   } else {
     throw new Error(
-      `The item ${p} has an unrecognized type ending ${typeEnding}`
+      `The item ${p} has an unrecognized type ending ${typeEnding}`,
     );
   }
 }
@@ -215,7 +215,7 @@ export function parseFromFile(p: string): any {
   }
 }
 export function getTypeStrFromPath(
-  p: string
+  p: string,
 ):
   | "script"
   | "variable"
@@ -224,6 +224,7 @@ export function getTypeStrFromPath(
   | "resource-type"
   | "folder"
   | "app"
+  | "raw_app"
   | "schedule"
   | "http_trigger"
   | "websocket_trigger"
@@ -243,6 +244,9 @@ export function getTypeStrFromPath(
   }
   if (p.includes(".app" + SEP)) {
     return "app";
+  }
+  if (p.includes(".raw_app" + SEP)) {
+    return "raw_app";
   }
   const parsed = path.parse(p);
   if (
