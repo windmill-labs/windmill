@@ -22,7 +22,15 @@ let plugin = {
 const config = {
 	server: {
 		https: process.env.HTTPS === 'true',
-		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz'],
+		allowedHosts: [
+			'localhost',
+			'127.0.0.1',
+			'0.0.0.0',
+			'rubendev.wimill.xyz',
+			'windmill.xyz',
+			'app.windmill.xyz',
+			'public.windmill.xyz'
+		],
 		port: 3000,
 		cors: {
 			origin: '*'

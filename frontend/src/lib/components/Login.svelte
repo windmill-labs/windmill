@@ -16,9 +16,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import { sameTopDomainOrigin } from '$lib/cookies'
 
 	interface Props {
 		rd?: string | undefined
@@ -27,6 +28,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		onLoginSuccess?: () => void
 	}
 
 	let {
@@ -35,7 +37,8 @@
 		password = $bindable(undefined),
 		error = undefined,
 		popup = false,
-		firstTime = false
+		firstTime = false,
+		onLoginSuccess = undefined
 	}: Props = $props()
 
 	const providers = [
@@ -200,8 +203,6 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
 	onMount(() => {
 		try {
 			localStorage.removeItem('closeUponLogin')
@@ -212,19 +213,24 @@
 
 	function popupListener(event) {
 		let data = event.data
-		if (event.origin !== window.location.origin) {
+		// console.log('popupListener', data, event.origin, window.location.origin)
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
+			console.log('popupListener from different origin', event.origin, window.location.origin)
 			return
 		}
 
 		processPopupData(data)
-		window.removeEventListener('message', popupListener)
+		if (data.type === 'success' || data.type === 'error') {
+			console.log('Removing popup listener')
+			window.removeEventListener('message', popupListener)
+		}
 	}
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			dispatch('login')
+			onLoginSuccess?.()
 		}
 	}
 
@@ -257,7 +263,9 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		let url = base + '/api/oauth/login/' + provider
+		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
+		console.log('storeRedirect', popup, url)
+
 		if (popup) {
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)

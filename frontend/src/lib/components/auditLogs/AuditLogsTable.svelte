@@ -4,7 +4,7 @@
 	import { displayDate } from '$lib/utils'
 	import { onMount, tick } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ChevronLeft, ChevronRight, ListFilterPlus } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, ListFilterPlus, Loader2 } from 'lucide-svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { twMerge } from 'tailwind-merge'
 
@@ -19,6 +19,7 @@
 		usernameFilter?: string | undefined
 		resourceFilter?: string | undefined
 		showWorkspace?: boolean
+		loading?: boolean
 		onselect?: (id: number) => void
 	}
 
@@ -33,7 +34,8 @@
 		usernameFilter = $bindable(),
 		resourceFilter = $bindable(),
 		showWorkspace = false,
-		onselect
+		onselect,
+		loading
 	}: Props = $props()
 
 	function groupLogsByDay(logs: AuditLog[]): Record<string, AuditLog[]> {
@@ -120,6 +122,7 @@
 		}
 		return 'gray'
 	}
+	let height = $derived(tableHeight - headerHeight - footerHeight)
 </script>
 
 <svelte:window onresize={() => computeHeight()} />
@@ -139,12 +142,22 @@
 			<div class="w-2/12">Resource</div>
 		</div>
 	</div>
-	{#if logs?.length == 0}
-		<div class="text-xs text-secondary p-8"> No logs found for the selected filters. </div>
+
+	{#if loading}
+		<div style="height: {height}px;" class="flex justify-center items-center">
+			<Loader2 class="animate-spin" />
+		</div>
+	{:else if !logs?.length}
+		<div
+			class="text-xs text-secondary p-8 flex justify-center items-center"
+			style="height: {height}px;"
+		>
+			No logs found for the selected filters.
+		</div>
 	{:else}
 		<VirtualList
 			width="100%"
-			height={tableHeight - headerHeight - footerHeight}
+			{height}
 			itemCount={flatLogs?.length ?? 0}
 			itemSize={(index) => {
 				if (flatLogs?.[index]?.type === 'date') {
