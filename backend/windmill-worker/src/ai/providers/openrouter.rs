@@ -4,6 +4,7 @@ use serde_json;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
+    image_handler::prepare_messages_for_api,
     providers::openai::{OpenAIQueryBuilder, OpenAIResponse},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
@@ -91,11 +92,9 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             }
             OutputType::Image => {
                 // For image generation, we need to add modalities field
-                // First, prepare the messages using the OpenAI builder's logic
-                let openai_builder = &self.openai_builder;
-                let prepared_messages = openai_builder
-                    .prepare_messages_for_api(args.messages, client, workspace_id)
-                    .await?;
+                // First, prepare the messages
+                let prepared_messages =
+                    prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
                 // Check if we need to add response_format for structured output
                 let has_output_properties = args
@@ -204,7 +203,13 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             .await
     }
 
-    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        _model: &str,
+        _output_type: &OutputType,
+        _stream: bool,
+    ) -> String {
         // OpenRouter uses the same endpoint for both text and image generation
         format!("{}/chat/completions", base_url)
     }

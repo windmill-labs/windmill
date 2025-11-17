@@ -69,7 +69,13 @@ pub trait QueryBuilder: Send + Sync {
     }
 
     /// Get the API endpoint for this provider
-    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        model: &str,
+        output_type: &OutputType,
+        stream: bool,
+    ) -> String;
 
     /// Get the authentication headers for this provider
     fn get_auth_headers(
