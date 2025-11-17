@@ -4,6 +4,7 @@ import type { ExtendedOpenFlow } from '../flows/types'
 import type { NoteColor } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
+import { completeAndSplitGroup } from './groupDetectionUtils'
 
 /**
  * Utility class for editing flow notes via direct flowStore mutations
@@ -124,6 +125,87 @@ export class NoteEditor {
 	 */
 	isAvailable(): boolean {
 		return !!this.flowStore.val.value
+	}
+
+	/**
+	 * Clean up group notes using DAG path completion
+	 */
+	cleanupGroupNotes(flowNodes: { id: string; parentIds?: string[]; offset?: number }[]): void {
+		if (!this.isAvailable()) {
+			return
+		}
+
+		const allNotes = this.getNotes()
+		const groupNotes = allNotes.filter((note) => note.type === 'group')
+		if (groupNotes.length === 0) return
+
+		let hasChanges = false
+		const nodeSet = new Set(flowNodes.map((n) => n.id))
+
+		// Step 1: Clean invalid nodes from existing group notes
+		for (const note of groupNotes) {
+			const originalIds = note.contained_node_ids || []
+			const validIds = originalIds.filter((id) => nodeSet.has(id))
+
+			if (validIds.length !== originalIds.length) {
+				note.contained_node_ids = validIds
+				hasChanges = true
+			}
+		}
+
+		// Step 2: Complete paths for each group using the DAG algorithm
+		const splitGroups: FlowNote[] = []
+
+		for (const note of groupNotes) {
+			const originalNodes = note.contained_node_ids || []
+			if (originalNodes.length === 0) continue
+
+			// Use the DAG path completion and splitting algorithm
+			const completedGroups = completeAndSplitGroup(originalNodes, flowNodes)
+
+			if (completedGroups.length <= 1) {
+				// Single group or no change needed
+				const completeNodes = completedGroups.length > 0 ? completedGroups[0] : []
+				const sortedComplete = completeNodes.sort()
+				const sortedOriginal = originalNodes.sort()
+
+				if (
+					sortedComplete.length !== sortedOriginal.length ||
+					!sortedComplete.every((id, i) => id === sortedOriginal[i])
+				) {
+					note.contained_node_ids = completeNodes
+					hasChanges = true
+				}
+			} else {
+				// Multiple groups - split into separate notes
+				hasChanges = true
+				// Mark original note for removal
+				note.contained_node_ids = []
+
+				// Create new notes for each completed group
+				for (const completedGroup of completedGroups) {
+					splitGroups.push({
+						...note,
+						id: generateId(),
+						contained_node_ids: completedGroup
+					})
+				}
+			}
+		}
+
+		// Remove empty group notes and add split component notes
+		const nonEmptyGroupNotes = groupNotes.filter(
+			(note) => (note.contained_node_ids?.length || 0) > 0
+		)
+
+		if (hasChanges || splitGroups.length > 0) {
+			const updatedNotes = [
+				...allNotes.filter((note) => note.type !== 'group'),
+				...nonEmptyGroupNotes,
+				...splitGroups
+			]
+			this.setNotes(updatedNotes)
+		}
 	}
 }
 

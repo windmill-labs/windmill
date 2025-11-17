@@ -75,6 +75,7 @@
 	import { setGraphContext } from './graphContext'
 	import { buildNodeSpacingMap, getNoteStateSignature } from './groupNoteUtils'
 	import { Tooltip } from '../meltComponents'
+	import { getNoteEditorContext } from './noteEditor.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -505,6 +506,20 @@
 		if (graph.error) {
 			return
 		}
+
+		// Clean up group notes if we're in edit mode and have a note editor
+		if (editMode) {
+			const noteEditorContext = getNoteEditorContext()
+			if (noteEditorContext?.noteEditor?.isAvailable()) {
+				const flowNodes = Object.values(graph.nodes).map((n) => ({
+					id: n.id,
+					parentIds: n.parentIds,
+					offset: n.data.offset ?? 0
+				}))
+				noteEditorContext.noteEditor.cleanupGroupNotes(flowNodes)
+			}
+		}
+
 		// console.log('compute')
 
 		let layoutedNodes = layoutNodes(
@@ -783,6 +798,8 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
+
+	$inspect('dbg nodes', nodes)
 </script>
 
 {#if insertable}
