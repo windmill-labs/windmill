@@ -78,7 +78,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	aws_bedrock: {
 		label: 'AWS Bedrock',
-		defaultModels: ['amazon.titan-embed-image-v1:0']
+		defaultModels: ['global.anthropic.claude-haiku-4-5-20251001-v1:0']
 	},
 	customai: {
 		label: 'Custom AI',
