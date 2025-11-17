@@ -421,7 +421,7 @@
 	{/if}
 
 	<LoggedWizardResult
-		class="max-h-[24rem] overflow-y-auto shrink"
+		class="max-h-[24rem] overflow-y-auto"
 		steps={firstEmptyStepIsError(
 			[
 				{
