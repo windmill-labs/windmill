@@ -561,7 +561,7 @@ pub async fn run_agent(
                 ));
             }
             // Use Bedrock SDK via dedicated query builder
-            crate::ai::providers::bedrock_sdk::BedrockQueryBuilder::default()
+            crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                 .execute_request(
                     &messages,
                     tool_defs.as_deref(),
