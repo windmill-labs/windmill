@@ -374,32 +374,16 @@ impl ServerHandler for Runner {
         let scopes = authed.scopes.as_ref().map(|s| s.as_slice()).unwrap_or(&[]);
         let scope_config = parse_mcp_scopes(scopes)?;
 
-        // Determine query parameters based on scope configuration
-        let (scope_type, scope_path) = if scope_config.all {
-            ("all", None::<&str>)
-        } else if scope_config.favorites {
-            ("favorites", None::<&str>)
+        let scope_type = if scope_config.favorites {
+            "favorites"
         } else {
-            // For granular scopes, fetch all and filter after
-            ("all", None::<&str>)
+            // Fetch all items if either all or granular scope set (we filter later for granular scopes)
+            "all"
         };
 
-        let scripts_fn = get_items::<ScriptInfo>(
-            user_db,
-            authed,
-            &workspace_id,
-            scope_type,
-            "script",
-            scope_path.as_deref(),
-        );
-        let flows_fn = get_items::<FlowInfo>(
-            user_db,
-            authed,
-            &workspace_id,
-            scope_type,
-            "flow",
-            scope_path.as_deref(),
-        );
+        let scripts_fn =
+            get_items::<ScriptInfo>(user_db, authed, &workspace_id, scope_type, "script");
+        let flows_fn = get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = get_resources_types(user_db, authed, &workspace_id);
         let hub_scripts_fn = get_scripts_from_hub(db, scope_config.hub_apps.as_deref());
         let (scripts, flows, resources_types, hub_scripts) = if scope_config.hub_apps.is_some() {
