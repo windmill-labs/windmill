@@ -86,6 +86,7 @@ openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
 url.workspace = true
+urlencoding.workspace = true
 async-recursion.workspace = true
 
 semver.workspace = true

@@ -15452,6 +15452,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
+ "urlencoding",
  "uuid",
  "windmill-macros",
  "windmill-parser",
