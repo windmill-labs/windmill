@@ -556,7 +556,7 @@ pub async fn run_agent(
         // Special handling for AWS Bedrock using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
             // Use Bedrock SDK via dedicated query builder
-            crate::ai::providers::bedrock_sdk::BedrockQueryBuilder::new()
+            crate::ai::providers::bedrock_sdk::BedrockQueryBuilder::default()
                 .execute_request(
                     &messages,
                     tool_defs.as_deref(),

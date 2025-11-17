@@ -8,12 +8,16 @@ use crate::ai::{
 use aws_config::BehaviorVersion;
 use aws_credential_types::provider::token::ProvideToken;
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration,
-    Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
+    ContentBlock, ConversationRole, ConverseStreamOutput, ImageBlock, ImageFormat, ImageSource,
+    InferenceConfiguration, Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
+
+/// Constants for commonly used strings to avoid allocations
+const FUNCTION_TYPE: &str = "function";
+const EMPTY_JSON: &str = "{}";
 
 #[derive(Debug, Clone)]
 pub struct BearerTokenProvider {
@@ -185,20 +189,17 @@ pub fn openai_messages_to_bedrock(
 /// Helper to extract text from OpenAIContent (ignoring images)
 fn content_to_text(content: &OpenAIContent) -> String {
     match content {
-        OpenAIContent::Text(text) => text.clone(),
+        OpenAIContent::Text(text) => text.to_string(),
         OpenAIContent::Parts(parts) => {
             // Extract only text parts and join them
-            parts
+            let text_parts: Vec<&str> = parts
                 .iter()
-                .filter_map(|part| {
-                    if let ContentPart::Text { text } = part {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => Some(text.as_str()),
+                    _ => None,
                 })
-                .collect::<Vec<_>>()
-                .join(" ")
+                .collect();
+            text_parts.join(" ")
         }
     }
 }
@@ -451,11 +452,11 @@ pub fn bedrock_response_to_openai(
                         // Convert aws_smithy_types::Document to serde_json::Value
                         let input_value = document_to_json(tool_use.input());
                         let arguments = serde_json::to_string(&input_value)
-                            .unwrap_or_else(|_| "{}".to_string());
+                            .unwrap_or_else(|_| EMPTY_JSON.to_string());
 
                         tool_calls.push(OpenAIToolCall {
                             id: tool_use.tool_use_id().to_string(),
-                            r#type: "function".to_string(),
+                            r#type: FUNCTION_TYPE.to_string(),
                             function: OpenAIFunction {
                                 name: tool_use.name().to_string(),
                                 arguments,
@@ -478,11 +479,7 @@ pub fn bedrock_response_to_openai(
 }
 
 /// Extract text delta from Bedrock stream event
-pub fn bedrock_stream_event_to_text(
-    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
-) -> Option<String> {
-    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
-
+pub fn bedrock_stream_event_to_text(event: &ConverseStreamOutput) -> Option<String> {
     match event {
         ConverseStreamOutput::ContentBlockDelta(delta) => delta
             .delta()
@@ -502,10 +499,8 @@ pub struct StreamingToolCall {
 
 /// Extract tool use start event from stream
 pub fn bedrock_stream_event_to_tool_start(
-    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
+    event: &ConverseStreamOutput,
 ) -> Option<StreamingToolCall> {
-    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
-
     match event {
         ConverseStreamOutput::ContentBlockStart(start) => {
             if let Some(tool_use) = start.start().and_then(|s| s.as_tool_use().ok()) {
@@ -523,11 +518,7 @@ pub fn bedrock_stream_event_to_tool_start(
 }
 
 /// Extract tool use input delta from stream
-pub fn bedrock_stream_event_to_tool_delta(
-    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
-) -> Option<String> {
-    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
-
+pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Option<String> {
     match event {
         ConverseStreamOutput::ContentBlockDelta(delta) => delta
             .delta()
@@ -538,10 +529,7 @@ pub fn bedrock_stream_event_to_tool_delta(
 }
 
 /// Check if stream event indicates content block stop
-pub fn bedrock_stream_event_is_block_stop(
-    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
-) -> bool {
-    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
+pub fn bedrock_stream_event_is_block_stop(event: &ConverseStreamOutput) -> bool {
     matches!(event, ConverseStreamOutput::ContentBlockStop(_))
 }
 
@@ -552,18 +540,15 @@ pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec
         .map(|tc| OpenAIToolCall {
             id: tc.id,
             function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
-            r#type: "function".to_string(),
+            r#type: FUNCTION_TYPE.to_string(),
         })
         .collect()
 }
 
+#[derive(Default)]
 pub struct BedrockQueryBuilder;
 
 impl BedrockQueryBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-
     /// Execute Bedrock request (streaming or non-streaming)
     pub async fn execute_request(
         &self,
@@ -689,7 +674,7 @@ impl BedrockQueryBuilder {
     }
 
     /// Execute streaming Bedrock request
-    pub async fn execute_converse_stream(
+    async fn execute_converse_stream(
         &self,
         bedrock_client: &BedrockClient,
         model: &str,
