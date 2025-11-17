@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.578.0](https://github.com/windmill-labs/windmill/compare/v1.577.0...v1.578.0) (2025-11-17)
+
+
+### Features
+
+* support to run windows binary as service ([#7153](https://github.com/windmill-labs/windmill/issues/7153)) ([ceeff5f](https://github.com/windmill-labs/windmill/commit/ceeff5f76c69d98319bb3fb7f7779b6046478d6b))
+
 ## [1.577.0](https://github.com/windmill-labs/windmill/compare/v1.576.3...v1.577.0) (2025-11-17)
 
 
