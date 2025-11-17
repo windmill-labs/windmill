@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { colors, log, encodeHex, SEP } from "../../deps.ts";
+import { colors, encodeHex, log, SEP } from "../../deps.ts";
 import crypto from "node:crypto";
 
 export function deepEqual<T>(a: T, b: T): boolean {
@@ -86,10 +86,10 @@ export function getHeaders(): Record<string, string> | undefined {
   const headers = Deno.env.get("HEADERS");
   if (headers) {
     const parsedHeaders = Object.fromEntries(
-      headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
+      headers.split(",").map((h) => h.split(":").map((s) => s.trim())),
     );
     log.debug(
-      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders))
+      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders)),
     );
     return parsedHeaders;
   } else {
@@ -116,7 +116,7 @@ export async function generateHash(content: string): Promise<string> {
 }
 
 export async function generateHashFromBuffer(
-  content: BufferSource
+  content: BufferSource,
 ): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", content);
   return encodeHex(hashBuffer);
@@ -145,11 +145,17 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+export function isRawAppFile(path: string): boolean {
+  return path.includes(".raw_app" + SEP);
+}
+
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
-  let bytesWritten = 0
-  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input
+  let bytesWritten = 0;
+  const bytes = typeof input === "string"
+    ? new TextEncoder().encode(input)
+    : input;
   while (bytesWritten < bytes.length) {
-    bytesWritten += to.writeSync(bytes.subarray(bytesWritten))
+    bytesWritten += to.writeSync(bytes.subarray(bytesWritten));
   }
 }
 
@@ -161,14 +167,17 @@ export interface Repository {
 // Shared repository selection logic
 export async function selectRepository<T extends Repository>(
   repositories: T[],
-  operation?: string
+  operation?: string,
 ): Promise<T> {
   if (repositories.length === 0) {
     throw new Error("No git-sync repositories configured in workspace");
   }
 
   if (repositories.length === 1) {
-    const repoPath = repositories[0].git_repo_resource_path.replace(/^\$res:/, "");
+    const repoPath = repositories[0].git_repo_resource_path.replace(
+      /^\$res:/,
+      "",
+    );
     log.info(colors.cyan(`Auto-selected repository: ${colors.bold(repoPath)}`));
     return repositories[0];
   }
@@ -177,24 +186,34 @@ export async function selectRepository<T extends Repository>(
   const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
 
   if (!isInteractive) {
-    const repoPaths = repositories.map(r => r.git_repo_resource_path.replace(/^\$res:/, ""));
-    throw new Error(`Multiple repositories found: ${repoPaths.join(', ')}. Use --repository to specify which one to ${operation || 'use'}.`);
+    const repoPaths = repositories.map((r) =>
+      r.git_repo_resource_path.replace(/^\$res:/, "")
+    );
+    throw new Error(
+      `Multiple repositories found: ${
+        repoPaths.join(", ")
+      }. Use --repository to specify which one to ${operation || "use"}.`,
+    );
   }
 
   // Import Select dynamically to avoid dependency issues
   const { Select } = await import("../../deps.ts");
 
-  console.log(`\nMultiple repositories found. Please select which repository to ${operation || 'use'}:\n`);
+  console.log(
+    `\nMultiple repositories found. Please select which repository to ${
+      operation || "use"
+    }:\n`,
+  );
 
   const selectedRepo = await Select.prompt({
-    message: `Select repository for ${operation || 'operation'}:`,
+    message: `Select repository for ${operation || "operation"}:`,
     options: repositories.map((repo, index) => {
       const displayPath = repo.git_repo_resource_path.replace(/^\$res:/, "");
       return {
         name: `${index + 1}. ${displayPath}`,
-        value: repo.git_repo_resource_path
+        value: repo.git_repo_resource_path,
       };
-    })
+    }),
   });
 
   return repositories.find((r) => r.git_repo_resource_path === selectedRepo)!;
@@ -212,7 +231,7 @@ export async function getIsWin(): Promise<boolean> {
 /**
  * Writes content to a file only if it differs from existing content.
  * Creates parent directories if they don't exist.
- * 
+ *
  * @param path - The file path to write to
  * @param content - The content to write
  * @returns true if file was written, false if skipped (content unchanged)

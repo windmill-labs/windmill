@@ -35,7 +35,7 @@ import {
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
-import { deepEqual, isFileResource } from "../../utils/utils.ts";
+import { deepEqual, isFileResource, isRawAppFile } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
@@ -88,6 +88,7 @@ async function resolveEffectiveSyncOptions(
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
+  whitelistedExt?: boolean;
   // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
   getChildren(): AsyncIterable<DynFSElement>;
@@ -332,6 +333,8 @@ function ZipFSElement(
         return p.replace("flow.json", "flow");
       } else if (kind == "app") {
         return p.replace("app.json", "app");
+      } else if (kind == "raw_app") {
+        return p.replace("raw_app.json", "raw_app");
       } else {
         return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
       }
@@ -458,14 +461,6 @@ function ZipFSElement(
                   rawApp?.["value"]?.["files"] ?? [],
                 )
               ) {
-                console.log(
-                  "filePath",
-                  filePath,
-                  "path",
-                  path.join(finalPath, filePath.substring(1)),
-                  "content",
-                  content,
-                );
                 yield {
                   isDirectory: false,
                   path: path.join(finalPath, filePath.substring(1)),
@@ -706,7 +701,6 @@ export async function* readDirRecursiveWithIgnore(
           continue;
         }
       }
-      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -741,35 +735,42 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
 
-  // First pass: collect all file paths to identify branch-specific files
-  const allPaths: string[] = [];
-  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (!entry.isDirectory && !entry.ignored) {
-      allPaths.push(entry.path);
-    }
-  }
-
-  const branchSpecificExists = new Set<string>();
-
-  if (specificItems) {
-    const currentBranch = getCurrentGitBranch();
-    if (currentBranch) {
-      for (const path of allPaths) {
-        if (isCurrentBranchFile(path)) {
-          const basePath = fromBranchSpecificPath(path, currentBranch);
-          if (isSpecificItem(basePath, specificItems)) {
-            branchSpecificExists.add(basePath);
-          }
-        }
-      }
-    }
-  }
-
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const path = entry.path;
-    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
-    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
+    if (!isFileResource(path) && !isRawAppFile(path)) {
+      if (json && path.endsWith(".yaml")) continue;
+      if (!json && path.endsWith(".json")) continue;
+
+      if (
+        ![
+          "json",
+          "yaml",
+          "go",
+          "sh",
+          "ts",
+          "py",
+          "sql",
+          "gql",
+          "ps1",
+          "php",
+          "js",
+          "lock",
+          "rs",
+          "cs",
+          "yml",
+          "nu",
+          "java",
+          "rb",
+          // for related places search: ADD_NEW_LANG
+        ].includes(path.split(".").pop() ?? "")
+      ) {
+        continue;
+      }
+    }
+
+    if (skips.skipResources && isFileResource(path)) continue;
+
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (
@@ -805,35 +806,6 @@ export async function elementsToMap(
       if (skips.skipFolders && fileType === "folder") continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
-    }
-
-    if (skips.skipResources && isFileResource(path)) continue;
-
-    if (
-      ![
-        "json",
-        "yaml",
-        "go",
-        "sh",
-        "ts",
-        "py",
-        "sql",
-        "gql",
-        "ps1",
-        "php",
-        "js",
-        "lock",
-        "rs",
-        "cs",
-        "yml",
-        "nu",
-        "java",
-        "rb",
-        // for related places search: ADD_NEW_LANG
-      ].includes(path.split(".").pop() ?? "") &&
-      !isFileResource(path)
-    ) {
-      continue;
     }
 
     // Handle branch-specific files - skip files for other branches
