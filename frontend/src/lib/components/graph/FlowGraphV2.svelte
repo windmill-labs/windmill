@@ -249,8 +249,9 @@
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
-		noteManager
-	})
+		noteManager,
+		clearFlowSelection
+	} as any)
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {

@@ -3,11 +3,12 @@ import type { SelectionManager } from './selectionUtils.svelte'
 import type { NoteManager } from './noteManager.svelte'
 import type { Writable } from 'svelte/store'
 
-type GraphContext = {
+export type GraphContext = {
 	selectionManager: SelectionManager
 	useDataflow: Writable<boolean | undefined>
 	showAssets: Writable<boolean | undefined>
 	noteManager?: NoteManager
+	clearFlowSelection?: () => void
 }
 
 const graphContextKey = 'FlowGraphContext'

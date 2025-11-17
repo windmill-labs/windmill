@@ -3,6 +3,8 @@
 	import { StickyNote } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { getGraphContext } from './graphContext'
+	import { tick } from 'svelte'
 
 	interface Props {
 		children: Snippet
@@ -13,6 +15,8 @@
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
+	// Get Graph context for clearFlowSelection function
+	const graphContext = getGraphContext()
 
 	const menuItems: ContextMenuItem[] = $derived([
 		{
@@ -21,8 +25,15 @@
 			icon: StickyNote,
 			disabled: selectedNodeIds.length === 0 || !noteEditorContext?.noteEditor,
 			onClick: () => {
-				if (selectedNodeIds.length > 0 && noteEditorContext?.noteEditor) {
+				if (selectedNodeIds.length > 0 && noteEditorContext?.noteEditor && graphContext) {
+					// Create the group note first
 					noteEditorContext.noteEditor.createGroupNote(selectedNodeIds, 'Group Note')
+
+					// Wait for next tick to ensure DOM updates
+					tick().then(() => {
+						graphContext?.clearFlowSelection?.()
+						graphContext?.selectionManager.selectId(selectedNodeIds[0])
+					})
 				}
 			}
 		}
