@@ -15113,7 +15113,7 @@ components:
       schema:
         type: integer
     JobTriggerKind:
-      name: trigger_kind 
+      name: trigger_kind
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
