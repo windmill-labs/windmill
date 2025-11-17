@@ -328,7 +328,10 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
 
 /// Convert OpenAI tool call to Bedrock ToolUse content block
 fn convert_tool_call_to_content(tool_call: &OpenAIToolCall) -> Result<ContentBlock, Error> {
-    let input = json_to_document(serde_json::from_str(&tool_call.function.arguments).unwrap());
+    let input = json_to_document(
+        serde_json::from_str(&tool_call.function.arguments)
+            .unwrap_or_else(|_| serde_json::json!({})),
+    );
     Ok(ContentBlock::ToolUse(
         aws_sdk_bedrockruntime::types::ToolUseBlock::builder()
             .tool_use_id(&tool_call.id)
