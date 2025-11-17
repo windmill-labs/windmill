@@ -129,11 +129,19 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 
 /**
  * Calculate the bounding box for a collection of nodes, accounting for CSS offset
+ * Also includes expanded subflow nodes when calculating bounds for subflow containers
  * @param nodes - Array of nodes with position and data.offset properties
+ * @param allNodes - Optional array of all nodes to search for expanded subflow nodes
  * @returns The bounds { minX, minY, maxX, maxY }
  */
 export function calculateNodesBoundsWithOffset(
 	nodes: Array<{
+		id?: string
+		position: { x: number; y: number }
+		data?: { offset?: number }
+	}>,
+	allNodes?: Array<{
+		id: string
 		position: { x: number; y: number }
 		data?: { offset?: number }
 	}>
@@ -143,7 +151,16 @@ export function calculateNodesBoundsWithOffset(
 	maxX: number
 	maxY: number
 } {
-	return nodes.reduce(
+	let nodesToCalculate = nodes
+
+	// If we have node IDs and all nodes available, find related subflow nodes
+	if (allNodes && nodes.every((node) => node.id)) {
+		const nodeIds = nodes.map((node) => node.id!).filter(Boolean)
+		const relatedNodes = getAllRelatedSubflowNodes(nodeIds, allNodes)
+		nodesToCalculate = relatedNodes
+	}
+
+	return nodesToCalculate.reduce(
 		(acc, node) => {
 			// Account for CSS offset applied by NodeWrapper
 			const cssOffset = node.data?.offset ?? 0
@@ -163,6 +180,46 @@ export function calculateNodesBoundsWithOffset(
 			maxY: -Infinity
 		}
 	)
+}
+
+/**
+ * Find all nodes related to the given node IDs, including expanded subflow nodes
+ * @param targetNodeIds - Array of node IDs to find related nodes for
+ * @param allNodes - Array of all available nodes
+ * @returns Array of nodes including original nodes and any related subflow nodes
+ */
+function getAllRelatedSubflowNodes(
+	targetNodeIds: string[],
+	allNodes: Array<{
+		id: string
+		position: { x: number; y: number }
+		data?: { offset?: number }
+	}>
+): Array<{
+	id: string
+	position: { x: number; y: number }
+	data?: { offset?: number }
+}> {
+	const relatedNodeIds = new Set<string>()
+
+	// Add original target nodes
+	targetNodeIds.forEach((id) => relatedNodeIds.add(id))
+
+	// For each target node, check if it's a subflow and find expanded nodes
+	targetNodeIds.forEach((nodeId) => {
+		// Find nodes like "subflow:{nodeId}:*"
+		const subflowNodes = allNodes.filter((node) => node.id.startsWith(`subflow:${nodeId}:`))
+
+		// Find end node like "{nodeId}-subflow-end"
+		const endNode = allNodes.find((node) => node.id === `${nodeId}-subflow-end`)
+
+		// Add all found nodes
+		subflowNodes.forEach((node) => relatedNodeIds.add(node.id))
+		if (endNode) relatedNodeIds.add(endNode.id)
+	})
+
+	// Return actual node objects that exist in allNodes
+	return allNodes.filter((node) => relatedNodeIds.has(node.id))
 }
 
 /**

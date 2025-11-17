@@ -150,7 +150,7 @@ export class NoteManager {
 		}
 
 		// Find bounds of all contained nodes, accounting for CSS offset
-		const bounds = calculateNodesBoundsWithOffset(containedNodes)
+		const bounds = calculateNodesBoundsWithOffset(containedNodes, nodes)
 
 		const padding = 16
 

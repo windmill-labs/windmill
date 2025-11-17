@@ -828,6 +828,7 @@
 					>
 						<SelectionBoundingBox
 							selectedNodes={nodes.filter((node) => selectionManager.selectedIds.includes(node.id))}
+							allNodes={nodes}
 						/>
 					</NodeContextMenu>
 				{/if}

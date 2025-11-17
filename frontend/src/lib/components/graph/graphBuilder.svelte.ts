@@ -88,6 +88,7 @@ export type NodeLayout = {
 	data: {
 		offset?: number
 	}
+	selectable?: boolean
 } & FlowNode
 
 export type FlowNode =
@@ -424,8 +425,10 @@ export function graphBuilder(
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
+			let selectable = true
 			if (module.id.startsWith('subflow:')) {
 				extra.insertable = false
+				selectable = false
 			}
 
 			nodes.push({
@@ -447,7 +450,8 @@ export function graphBuilder(
 					moduleAction: extra.moduleActions?.[module.id],
 					onShowModuleDiff: extra.onShowModuleDiff
 				},
-				type: 'module'
+				type: 'module',
+				selectable: selectable
 			})
 
 			return module.id

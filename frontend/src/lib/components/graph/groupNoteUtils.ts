@@ -1,9 +1,9 @@
 import type { Node } from '@xyflow/svelte'
-import { NODE } from './util'
 import type { FlowNote } from '../../gen'
 import type { NoteManager } from './noteManager.svelte'
 import type { NoteEditorContext } from './noteEditor.svelte'
 import { StickyNote } from 'lucide-svelte'
+import { calculateNodesBoundsWithOffset } from './util'
 
 type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 
@@ -14,45 +14,6 @@ export interface GroupNoteBounds {
 	y: number
 	width: number
 	height: number
-}
-
-/**
- * Computes the bounding box that wraps all contained nodes with padding
- * Uses the same calculation logic as SelectionBoundingBox for consistency
- */
-export function computeGroupNoteBounds(
-	containedNodeIds: string[],
-	nodes: Node[],
-	textHeight: number = 60
-): GroupNoteBounds {
-	const containedNodes = nodes.filter((node) => containedNodeIds.includes(node.id))
-
-	if (containedNodes.length === 0) {
-		throw new Error('No nodes contained in group note')
-	}
-
-	// Calculate flow coordinates bounds using same logic as SelectionBoundingBox
-	let minX = Infinity
-	let maxX = -Infinity
-	let minY = Infinity
-	let maxY = -Infinity
-
-	containedNodes.forEach((node) => {
-		minX = Math.min(minX, node.position.x)
-		maxX = Math.max(maxX, node.position.x + NODE.width)
-		minY = Math.min(minY, node.position.y)
-		maxY = Math.max(maxY, node.position.y + NODE.height)
-	})
-
-	// Add padding in flow coordinates (same as SelectionBoundingBox)
-	const padding = 10
-
-	return {
-		x: minX - padding,
-		y: minY - padding - textHeight, // Position text above the nodes
-		width: maxX - minX + padding * 2,
-		height: maxY - minY + padding * 2 + textHeight
-	}
 }
 
 /**

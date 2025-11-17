@@ -5,9 +5,10 @@
 
 	interface Props {
 		selectedNodes: Node[]
+		allNodes?: Node[]
 	}
 
-	let { selectedNodes }: Props = $props()
+	let { selectedNodes, allNodes }: Props = $props()
 
 	const { flowToScreenPosition } = useSvelteFlow()
 
@@ -16,8 +17,8 @@
 			return null
 		}
 
-		// Calculate flow coordinates bounds, accounting for CSS offset
-		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(selectedNodes)
+		// Calculate flow coordinates bounds, accounting for CSS offset and expanded subflows
+		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(selectedNodes, allNodes)
 
 		// Add padding in flow coordinates
 
