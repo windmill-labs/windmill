@@ -9,7 +9,6 @@ use crate::ai::utils::{
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
-use aws_sdk_bedrockruntime;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
@@ -18,12 +17,6 @@ use windmill_common::mcp_client::McpClient;
 use windmill_common::{
     ai_providers::{AIProvider, AZURE_API_VERSION},
     ai_types::{OpenAIMessage, ToolDef},
-    aws_bedrock::{
-        bedrock_response_to_openai, bedrock_stream_event_is_block_stop,
-        bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
-        bedrock_stream_event_to_tool_start, create_inference_config, openai_messages_to_bedrock,
-        openai_tools_to_bedrock, streaming_tool_calls_to_openai, BedrockClient, StreamingToolCall,
-    },
     cache,
     client::AuthedClient,
     db::DB,
@@ -41,7 +34,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::{
-        image_handler::{prepare_messages_for_api, upload_image_to_s3},
+        image_handler::upload_image_to_s3,
         query_builder::{
             create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
         },
@@ -563,210 +556,23 @@ pub async fn run_agent(
 
         // Special handling for AWS Bedrock using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
-            // TODO: add this check when we have a way to set the region
-            // if region.is_none() {
-            //     return Err(Error::internal_err(
-            //         "AWS Bedrock region is not set".to_string(),
-            //     ));
-            // }
-            // Create Bedrock client with bearer token authentication
-            let bedrock_client = BedrockClient::from_bearer_token(
-                api_key.to_string(),
-                region.unwrap_or("us-east-2"),
-            )
-            .await?;
-
-            // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
-            let prepared_messages =
-                prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
-
-            // Convert messages to Bedrock format (separates system prompts)
-            let (bedrock_messages, system_prompts) =
-                openai_messages_to_bedrock(&prepared_messages)?;
-
-            // Build request parameters
-            let model_id = args.provider.get_model();
-            let inference_config = create_inference_config(
-                args.temperature,
-                args.max_completion_tokens.map(|t| t as i32),
-            );
-
-            // Add tools if provided
-            let tool_config = if let Some(tools) = tool_defs.as_deref() {
-                let bedrock_tools = openai_tools_to_bedrock(tools)?;
-                let mut tool_config_builder =
-                    aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
-                        .set_tools(Some(bedrock_tools));
-
-                // For structured output, force the model to use the tool
-                if structured_output_tool_name.is_some() {
-                    tool_config_builder = tool_config_builder.tool_choice(
-                        aws_sdk_bedrockruntime::types::ToolChoice::Any(
-                            aws_sdk_bedrockruntime::types::AnyToolChoice::builder().build(),
-                        ),
-                    );
-                }
-
-                Some(
-                    tool_config_builder.build().map_err(|e| {
-                        Error::internal_err(format!("Failed to build tool configuration: {}", e))
-                    })?,
+            // Use Bedrock SDK via dedicated query builder
+            crate::ai::providers::bedrock_sdk::BedrockQueryBuilder::new()
+                .execute_request(
+                    &messages,
+                    tool_defs.as_deref(),
+                    args.provider.get_model(),
+                    args.temperature,
+                    args.max_completion_tokens,
+                    api_key,
+                    region.unwrap_or("us-east-2"),
+                    should_stream,
+                    stream_event_processor.clone(),
+                    client,
+                    &job.workspace_id,
+                    structured_output_tool_name.as_deref(),
                 )
-            } else {
-                None
-            };
-
-            if should_stream {
-                use std::collections::HashMap;
-
-                // Build streaming request
-                let mut request_builder = bedrock_client
-                    .client()
-                    .converse_stream()
-                    .model_id(model_id)
-                    .set_messages(Some(bedrock_messages));
-
-                if !system_prompts.is_empty() {
-                    request_builder = request_builder.set_system(Some(system_prompts));
-                }
-
-                if let Some(config) = inference_config {
-                    request_builder = request_builder.inference_config(config);
-                }
-
-                if let Some(config) = tool_config {
-                    request_builder = request_builder.set_tool_config(Some(config));
-                }
-
-                // Execute streaming request
-                let mut stream = request_builder
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!("Bedrock streaming API error: {}", e))
-                    })?
-                    .stream;
-
-                let mut accumulated_text = String::new();
-                let mut events_str = String::new();
-                let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
-                let mut current_tool_use_id: Option<String> = None;
-
-                // Process stream events
-                loop {
-                    match stream.recv().await {
-                        Ok(Some(event)) => {
-                            // Handle tool use start
-                            if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
-                                current_tool_use_id = Some(tool_call.id.clone());
-                                accumulated_tool_calls.insert(tool_call.id.clone(), tool_call);
-                            }
-
-                            // Handle text delta
-                            if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
-                                accumulated_text.push_str(&text_delta);
-                                if let Some(processor) = stream_event_processor.as_ref() {
-                                    processor
-                                        .send(
-                                            crate::ai::types::StreamingEvent::TokenDelta {
-                                                content: text_delta,
-                                            },
-                                            &mut events_str,
-                                        )
-                                        .await?;
-                                }
-                            }
-
-                            // Handle tool use input delta
-                            if let Some(input_delta) = bedrock_stream_event_to_tool_delta(&event) {
-                                if let Some(tool_id) = &current_tool_use_id {
-                                    if let Some(tool_call) = accumulated_tool_calls.get_mut(tool_id)
-                                    {
-                                        tool_call.arguments.push_str(&input_delta);
-                                    }
-                                }
-                            }
-
-                            // Handle content block stop
-                            if bedrock_stream_event_is_block_stop(&event) {
-                                current_tool_use_id = None;
-                            }
-                        }
-                        Ok(None) => break, // Stream ended
-                        Err(e) => {
-                            return Err(Error::internal_err(format!(
-                                "Bedrock stream error: {}",
-                                e
-                            )));
-                        }
-                    }
-                }
-
-                // Send tool call events to stream processor
-                if let Some(processor) = stream_event_processor.as_ref() {
-                    for tool_call in accumulated_tool_calls.values() {
-                        processor
-                            .send(
-                                crate::ai::types::StreamingEvent::ToolCallArguments {
-                                    call_id: tool_call.id.clone(),
-                                    function_name: tool_call.name.clone(),
-                                    arguments: tool_call.arguments.clone(),
-                                },
-                                &mut events_str,
-                            )
-                            .await?;
-                    }
-                }
-
-                let content = if accumulated_text.is_empty() {
-                    None
-                } else {
-                    Some(accumulated_text)
-                };
-
-                let tool_calls =
-                    streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
-
-                ParsedResponse::Text {
-                    content,
-                    tool_calls,
-                    events_str: if events_str.is_empty() {
-                        None
-                    } else {
-                        Some(events_str)
-                    },
-                }
-            } else {
-                // Non-streaming request
-                let mut request_builder = bedrock_client
-                    .client()
-                    .converse()
-                    .model_id(model_id)
-                    .set_messages(Some(bedrock_messages));
-
-                if !system_prompts.is_empty() {
-                    request_builder = request_builder.set_system(Some(system_prompts));
-                }
-
-                if let Some(config) = inference_config {
-                    request_builder = request_builder.inference_config(config);
-                }
-
-                if let Some(config) = tool_config {
-                    request_builder = request_builder.set_tool_config(Some(config));
-                }
-
-                // Execute the request
-                let response = request_builder
-                    .send()
-                    .await
-                    .map_err(|e| Error::internal_err(format!("Bedrock API error: {}", e)))?;
-
-                // Convert response back to OpenAI format
-                let (content, tool_calls) = bedrock_response_to_openai(&response)?;
-
-                ParsedResponse::Text { content, tool_calls, events_str: None }
-            }
+                .await?
         } else {
             // For non-Bedrock providers, use HTTP client
             let build_args = BuildRequestArgs {
