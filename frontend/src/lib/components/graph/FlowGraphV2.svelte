@@ -240,6 +240,7 @@
 
 	// Reference to pane context menu component
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
+	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
 	let selectionManager = selectionManagerProp || new SelectionManager()
@@ -693,6 +694,49 @@
 		}
 	})
 
+	// DOM event handling for pane clicks in rect-select mode
+	$effect(() => {
+		// Only add manual handling when in rect-select mode
+		if (selectionManager.mode !== 'rect-select') {
+			return
+		}
+
+		function paneClickHandler(event: Event) {
+			// Find the pane within our specific flow container
+			const pane = flowContainer?.querySelector('.svelte-flow__pane')
+			if (!pane || !event.target || !pane.contains(event.target as Element)) {
+				return
+			}
+
+			// Don't trigger if clicking on nodes or UI elements
+			const target = event.target as Element
+			if (
+				target.closest('.svelte-flow__node') ||
+				target.closest('button') ||
+				target.closest('[role="button"]') ||
+				target.closest('.svelte-flow__controls')
+			) {
+				return
+			}
+
+			// Trigger the same logic as onpaneclick
+			document.dispatchEvent(new Event('focus'))
+			selectionManager.clearSelection()
+		}
+
+		const pane = flowContainer?.querySelector('.svelte-flow__pane')
+		if (pane) {
+			pane.addEventListener('click', paneClickHandler)
+		}
+
+		return () => {
+			const pane = flowContainer?.querySelector('.svelte-flow__pane')
+			if (pane) {
+				pane.removeEventListener('click', paneClickHandler)
+			}
+		}
+	})
+
 	let showDataflow = $derived(
 		selectedId !== undefined &&
 			selectedId !== null &&
@@ -746,6 +790,7 @@
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip relative"
 	bind:clientWidth={debouncedWidth}
+	bind:this={flowContainer}
 >
 	{#if graph?.error}
 		<div class="center-center p-2">
