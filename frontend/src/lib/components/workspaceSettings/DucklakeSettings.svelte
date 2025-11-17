@@ -503,7 +503,7 @@
 					await instanceCatalogStatuses.refresh()
 					if (result.success) {
 						if (!wasAlreadySuccessful) sendUserToast('Setup successful')
-						else sendUserToast('Everything OK')
+						else sendUserToast('Check successful')
 					} else {
 						sendUserToast(result.error ?? 'An error occured', true)
 					}
