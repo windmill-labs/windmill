@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.577.0](https://github.com/windmill-labs/windmill/compare/v1.576.3...v1.577.0) (2025-11-17)
+
+
+### Features
+
+* add support for validateset in pwsh ([#7158](https://github.com/windmill-labs/windmill/issues/7158)) ([b66e038](https://github.com/windmill-labs/windmill/commit/b66e038a0f8b6bffe157a83671c8e692c1441f23))
+* allow http trigger to be disabled ([#6976](https://github.com/windmill-labs/windmill/issues/6976)) ([09082de](https://github.com/windmill-labs/windmill/commit/09082de53971d0d2f2a6308bc8ee573458a3b913))
+
+
+### Bug Fixes
+
+* create app_themes/groups/components only when needed ([cf5d58e](https://github.com/windmill-labs/windmill/commit/cf5d58ea43cef6add3da2aa1e24efc83be6df3b9))
+* fix parse_postgres_uri not decoding password ([#7157](https://github.com/windmill-labs/windmill/issues/7157)) ([2cae72c](https://github.com/windmill-labs/windmill/commit/2cae72c9db6bd08689e1672be6dda32f6af831fb))
+
 ## [1.576.3](https://github.com/windmill-labs/windmill/compare/v1.576.2...v1.576.3) (2025-11-15)
 
 
