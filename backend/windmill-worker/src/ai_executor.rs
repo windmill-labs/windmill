@@ -16,7 +16,6 @@ use uuid::Uuid;
 use windmill_common::mcp_client::McpClient;
 use windmill_common::{
     ai_providers::{AIProvider, AZURE_API_VERSION},
-    ai_types::{OpenAIMessage, ToolDef},
     cache,
     client::AuthedClient,
     db::DB,
