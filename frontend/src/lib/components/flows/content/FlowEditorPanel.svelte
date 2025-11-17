@@ -15,7 +15,7 @@
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
 	import type { StateStore } from '$lib/utils'
-	import FlowCard from '../common/FlowCard.svelte'
+	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
 
 	interface Props {
 		noEditor?: boolean
@@ -88,19 +88,7 @@
 </script>
 
 {#if selectionManager && selectionManager.selectedIds.length > 1}
-	<FlowCard {noEditor} title="Multiple Selection">
-		<div class="px-4">
-			<p class="text-xs text-secondary mb-4">{selectionManager.selectedIds.length} nodes selected</p
-			>
-			<div class="space-y-2">
-				{#each selectionManager.selectedIds as nodeId}
-					<div class="text-sm px-2 py-1 bg-surface rounded border">
-						{nodeId}
-					</div>
-				{/each}
-			</div>
-		</div>
-	</FlowCard>
+	<FlowSelectionPanel {selectionManager} {noEditor} />
 {:else if selectedId?.startsWith('settings')}
 	<FlowSettings {enableAi} {noEditor} />
 {:else if selectedId === 'Input'}
