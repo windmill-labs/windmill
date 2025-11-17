@@ -32,6 +32,7 @@
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { NoteEditor, setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -539,6 +540,10 @@
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
+
+	// Set up NoteEditor context for note editing capabilities
+	const noteEditor = new NoteEditor(flowStore)
+	setNoteEditorContext(noteEditor)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {

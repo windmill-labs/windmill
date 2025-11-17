@@ -3,7 +3,7 @@ import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 import type { NoteColor } from './noteColors'
 import { generateId } from './util'
-import { getContext, setContext, tick } from 'svelte'
+import { getContext, setContext } from 'svelte'
 
 /**
  * Utility class for editing flow notes via direct flowStore mutations
