@@ -885,7 +885,7 @@
 									try {
 										localStorage.setItem(
 											'svelvet',
-											encodeState({ modules, failureModule, preprocessorModule })
+											encodeState({ modules, failureModule, preprocessorModule, notes })
 										)
 									} catch (e) {
 										console.error('error interacting with local storage', e)
