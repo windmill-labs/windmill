@@ -113,6 +113,10 @@ pub mod ee;
 mod ee_oss;
 mod monitor;
 
+// Windows service support - EE feature
+#[cfg(all(windows, feature = "enterprise", feature = "private"))]
+mod windows_service_ee;
+
 pub fn setup_deno_runtime() -> anyhow::Result<()> {
     // https://github.com/denoland/deno/blob/main/cli/main.rs#L477
     #[cfg(feature = "deno_core")]
@@ -207,6 +211,17 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() -> anyhow::Result<()> {
+    // On Windows with enterprise feature, check if running as a service
+    #[cfg(all(windows, feature = "enterprise", feature = "private"))]
+    {
+        if windows_service_ee::is_running_as_service() {
+            // Run as Windows service with SCM handlers
+            return windows_service_ee::run_as_windows_service()
+                .map_err(|e| anyhow::anyhow!("Failed to run as Windows service: {}", e));
+        }
+    }
+
+    // Normal execution (console/foreground mode)
     setup_deno_runtime()?;
     create_and_run_current_thread_inner(windmill_main())
 }
