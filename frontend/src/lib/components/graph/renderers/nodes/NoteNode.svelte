@@ -319,7 +319,7 @@
 					const size = { width: params.width, height: params.height }
 					if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 						// Use NoteEditor context in edit mode
-						console.log('dbg updateSize', size)
+
 						noteEditorContext.noteEditor.updateSize(data.noteId, size)
 					}
 				}

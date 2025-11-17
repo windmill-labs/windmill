@@ -58,11 +58,6 @@
 		}
 	}
 
-	function handleContextMenu(event: MouseEvent) {
-		console.log('Context menu event detected:', event)
-		// Let Melt UI handle this
-	}
-
 	function close() {
 		open.set(false)
 	}
@@ -84,7 +79,6 @@
 	role="button"
 	tabindex="0"
 	aria-label="Right click for context menu"
-	oncontextmenu={handleContextMenu}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: false,

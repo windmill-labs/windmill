@@ -775,9 +775,7 @@
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
-					if (selectionManager.mode === 'normal') {
-						selectionManager.clearSelection()
-					}
+					selectionManager.clearSelection()
 				}}
 				onpanecontextmenu={({ event }) => {
 					paneContextMenu?.onPaneContextMenu(event)
