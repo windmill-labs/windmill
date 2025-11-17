@@ -27,7 +27,7 @@
 {#if store.selectionRect}
 	{@const bounds = store.selectionRect!}
 	<div
-		class="absolute rounded cursor-pointer bg-surface-selected/30 border border-accent/30 pointer-events-none"
+		class="absolute rounded cursor-pointer bg-surface-selected/30 pointer-events-none"
 		style="
 			left: {bounds.x}px;
 			top: {bounds.y}px;
