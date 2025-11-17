@@ -2,6 +2,8 @@
 	import { useSvelteFlow, type XYPosition } from '@xyflow/svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { DEFAULT_NOTE_COLOR, MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
+	import { StickyNote } from 'lucide-svelte'
+	import ContextMenu, { type ContextMenuItem } from '../common/contextmenu/ContextMenu.svelte'
 
 	interface Props {
 		exitNoteMode?: () => void
@@ -18,6 +20,7 @@
 	let startPosition: XYPosition | null = $state(null)
 	let endPosition: XYPosition | null = $state(null)
 	let rect: DOMRect | null = $state(null)
+	let contextMenuPosition: XYPosition | null = $state(null)
 
 	function onPointerDown(event: PointerEvent) {
 		// Capture pointer to continue tracking outside the element
@@ -95,6 +98,39 @@
 		startPosition = null
 	}
 
+	function handleAddStickyNote() {
+		if (!noteEditorContext?.noteEditor || !contextMenuPosition) return
+
+		noteEditorContext.noteEditor.addNote({
+			text: '### Free note\nDouble click to edit me',
+			position: contextMenuPosition,
+			size: { width: 300, height: 200 },
+			color: DEFAULT_NOTE_COLOR,
+			type: 'free',
+			locked: false
+		})
+
+		// Clear the position after use
+		contextMenuPosition = null
+
+		exitNoteMode?.()
+	}
+
+	function handleItemClick(item: ContextMenuItem) {
+		if (item.id === 'add-sticky-note') {
+			handleAddStickyNote()
+		}
+	}
+
+	const contextMenuItems: ContextMenuItem[] = [
+		{
+			id: 'add-sticky-note',
+			label: 'Add sticky note',
+			icon: StickyNote,
+			onClick: handleAddStickyNote
+		}
+	]
+
 	const previewNote = $derived(
 		startPosition && endPosition
 			? {
@@ -111,40 +147,49 @@
 	)
 </script>
 
-<div
-	class="tool-overlay"
-	onpointerdown={onPointerDown}
-	onpointermove={onPointerMove}
-	onpointerup={onPointerUp}
-	role="button"
-	tabindex="0"
-	aria-label="Click and drag to create a note"
-	onkeydown={(e) => {
-		if (e.key === 'Escape') {
-			if (isDrawing) {
-				// Cancel current drawing
-				isDrawing = false
-				startPosition = null
-			} else {
-				// Exit note mode
-				exitNoteMode?.()
+<ContextMenu items={contextMenuItems} onItemClick={handleItemClick}>
+	<div
+		class="tool-overlay"
+		onpointerdown={onPointerDown}
+		onpointermove={onPointerMove}
+		onpointerup={onPointerUp}
+		oncontextmenu={(e) => {
+			// Capture the position when context menu is triggered
+			contextMenuPosition = screenToFlowPosition({
+				x: e.clientX,
+				y: e.clientY
+			})
+		}}
+		role="button"
+		tabindex="0"
+		aria-label="Click and drag to create a note, or right-click to add a sticky note"
+		onkeydown={(e) => {
+			if (e.key === 'Escape') {
+				if (isDrawing) {
+					// Cancel current drawing
+					isDrawing = false
+					startPosition = null
+				} else {
+					// Exit note mode
+					exitNoteMode?.()
+				}
 			}
-		}
-	}}
->
-	<!-- Preview note while drawing -->
-	{#if previewNote}
-		<div
-			class="absolute border-2 border-dashed border-lime-400 bg-lime-100 bg-opacity-50 rounded-md pointer-events-none"
-			style="
-        width: {previewNote.size.width}px;
-        height: {previewNote.size.height}px;
-        transform: translate({previewNote.position.x}px, {previewNote.position.y}px);
-      "
-		>
-		</div>
-	{/if}
-</div>
+		}}
+	>
+		<!-- Preview note while drawing -->
+		{#if previewNote}
+			<div
+				class="absolute border-2 border-dashed border-lime-400 bg-lime-100 bg-opacity-50 rounded-md pointer-events-none"
+				style="
+          width: {previewNote.size.width}px;
+          height: {previewNote.size.height}px;
+          transform: translate({previewNote.position.x}px, {previewNote.position.y}px);
+        "
+			>
+			</div>
+		{/if}
+	</div>
+</ContextMenu>
 
 <style>
 	.tool-overlay {
