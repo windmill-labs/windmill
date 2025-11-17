@@ -128,23 +128,34 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 }
 
 /**
- * Calculate the bounding box for a collection of nodes
- * @param nodes - Array of nodes with position.x and position.y properties
+ * Calculate the bounding box for a collection of nodes, accounting for CSS offset
+ * @param nodes - Array of nodes with position and data.offset properties
  * @returns The bounds { minX, minY, maxX, maxY }
  */
-export function calculateNodesBounds(nodes: Array<{ position: { x: number; y: number } }>): {
+export function calculateNodesBoundsWithOffset(
+	nodes: Array<{
+		position: { x: number; y: number }
+		data?: { offset?: number }
+	}>
+): {
 	minX: number
 	minY: number
 	maxX: number
 	maxY: number
 } {
 	return nodes.reduce(
-		(acc, node) => ({
-			minX: Math.min(acc.minX, node.position.x),
-			minY: Math.min(acc.minY, node.position.y),
-			maxX: Math.max(acc.maxX, node.position.x + NODE.width),
-			maxY: Math.max(acc.maxY, node.position.y + NODE.height)
-		}),
+		(acc, node) => {
+			// Account for CSS offset applied by NodeWrapper
+			const cssOffset = node.data?.offset ?? 0
+			const visualX = node.position.x + cssOffset
+
+			return {
+				minX: Math.min(acc.minX, visualX),
+				minY: Math.min(acc.minY, node.position.y),
+				maxX: Math.max(acc.maxX, visualX + NODE.width),
+				maxY: Math.max(acc.maxY, node.position.y + NODE.height)
+			}
+		},
 		{
 			minX: Infinity,
 			minY: Infinity,

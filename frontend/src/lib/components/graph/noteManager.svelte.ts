@@ -1,6 +1,6 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
-import { calculateNodesBounds } from './util'
+import { calculateNodesBoundsWithOffset } from './util'
 import {
 	getLayoutSignature,
 	getPropertySignature,
@@ -149,8 +149,8 @@ export class NoteManager {
 			}
 		}
 
-		// Find bounds of all contained nodes
-		const bounds = calculateNodesBounds(containedNodes)
+		// Find bounds of all contained nodes, accounting for CSS offset
+		const bounds = calculateNodesBoundsWithOffset(containedNodes)
 
 		const padding = 16
 
