@@ -471,13 +471,16 @@ async fn proxy(
     };
 
     // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-    let (model_for_transform, is_streaming) =
+    let (model, is_streaming) =
         if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-            let parsed: serde_json::Value = serde_json::from_slice(&body)
+            #[derive(Deserialize, Debug)]
+            struct BedrockRequest {
+                model: String,
+                stream: bool,
+            }
+            let parsed: BedrockRequest = serde_json::from_slice(&body)
                 .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-            let model = parsed["model"].as_str().unwrap_or("").to_string();
-            let is_streaming = parsed["stream"].as_bool().unwrap_or(false);
-            (Some(model), is_streaming)
+            (Some(parsed.model), parsed.stream)
         } else {
             (None, false)
         };
@@ -506,9 +509,10 @@ async fn proxy(
     }
 
     // Transform Bedrock responses back to OpenAI format
-    if matches!(provider, AIProvider::AWSBedrock) && model_for_transform.is_some() {
-        let model = model_for_transform.unwrap();
-
+    if matches!(provider, AIProvider::AWSBedrock) {
+        let Some(model) = model else {
+            return Err(Error::BadRequest("Model is required".to_string()));
+        };
         if is_streaming {
             // Transform streaming response
             use http::StatusCode;
