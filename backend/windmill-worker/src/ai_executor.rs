@@ -563,14 +563,18 @@ pub async fn run_agent(
 
         // Special handling for AWS Bedrock using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
-            if region.is_none() {
-                return Err(Error::internal_err(
-                    "AWS Bedrock region is not set".to_string(),
-                ));
-            }
+            // TODO: add this check when we have a way to set the region
+            // if region.is_none() {
+            //     return Err(Error::internal_err(
+            //         "AWS Bedrock region is not set".to_string(),
+            //     ));
+            // }
             // Create Bedrock client with bearer token authentication
-            let bedrock_client =
-                BedrockClient::from_bearer_token(api_key.to_string(), region.unwrap()).await?;
+            let bedrock_client = BedrockClient::from_bearer_token(
+                api_key.to_string(),
+                region.unwrap_or("us-east-2"),
+            )
+            .await?;
 
             // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
             let prepared_messages =
@@ -590,16 +594,23 @@ pub async fn run_agent(
             // Add tools if provided
             let tool_config = if let Some(tools) = tool_defs.as_deref() {
                 let bedrock_tools = openai_tools_to_bedrock(tools)?;
-                Some(
+                let mut tool_config_builder =
                     aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
-                        .set_tools(Some(bedrock_tools))
-                        .build()
-                        .map_err(|e| {
-                            Error::internal_err(format!(
-                                "Failed to build tool configuration: {}",
-                                e
-                            ))
-                        })?,
+                        .set_tools(Some(bedrock_tools));
+
+                // For structured output, force the model to use the tool
+                if structured_output_tool_name.is_some() {
+                    tool_config_builder = tool_config_builder.tool_choice(
+                        aws_sdk_bedrockruntime::types::ToolChoice::Any(
+                            aws_sdk_bedrockruntime::types::AnyToolChoice::builder().build(),
+                        ),
+                    );
+                }
+
+                Some(
+                    tool_config_builder.build().map_err(|e| {
+                        Error::internal_err(format!("Failed to build tool configuration: {}", e))
+                    })?,
                 )
             } else {
                 None

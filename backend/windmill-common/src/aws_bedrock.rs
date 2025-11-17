@@ -291,17 +291,12 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message> {
 
 /// Convert OpenAI tool call to Bedrock ToolUse content block
 fn convert_tool_call_to_content(tool_call: &OpenAIToolCall) -> Result<ContentBlock> {
-    // Parse arguments string to JSON value, then convert to Document
-    let input: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
-        .map_err(|e| Error::internal_err(format!("Invalid tool arguments: {}", e)))?;
-
-    let input_doc = json_to_document(input);
-
+    let input = json_to_document(serde_json::from_str(&tool_call.function.arguments).unwrap());
     Ok(ContentBlock::ToolUse(
         aws_sdk_bedrockruntime::types::ToolUseBlock::builder()
             .tool_use_id(&tool_call.id)
             .name(&tool_call.function.name)
-            .input(input_doc)
+            .input(input)
             .build()
             .map_err(|e| Error::internal_err(format!("Failed to build tool use: {}", e)))?,
     ))
