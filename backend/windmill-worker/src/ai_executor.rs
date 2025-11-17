@@ -555,6 +555,11 @@ pub async fn run_agent(
 
         // Special handling for AWS Bedrock using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
+            if region.is_none() {
+                return Err(Error::internal_err(
+                    "AWS Bedrock region is required".to_string(),
+                ));
+            }
             // Use Bedrock SDK via dedicated query builder
             crate::ai::providers::bedrock_sdk::BedrockQueryBuilder::default()
                 .execute_request(
@@ -564,7 +569,7 @@ pub async fn run_agent(
                     args.temperature,
                     args.max_completion_tokens,
                     api_key,
-                    region.unwrap_or("us-east-1"),
+                    region.unwrap(),
                     should_stream,
                     stream_event_processor.clone(),
                     client,
