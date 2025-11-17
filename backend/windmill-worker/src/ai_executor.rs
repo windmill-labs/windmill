@@ -564,7 +564,7 @@ pub async fn run_agent(
                     args.temperature,
                     args.max_completion_tokens,
                     api_key,
-                    region.unwrap_or("us-east-2"),
+                    region.unwrap_or("us-east-1"),
                     should_stream,
                     stream_event_processor.clone(),
                     client,

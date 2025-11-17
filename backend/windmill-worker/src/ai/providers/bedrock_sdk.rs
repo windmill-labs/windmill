@@ -57,6 +57,35 @@ impl BedrockClient {
     }
 }
 
+/// Format AWS SDK errors with detailed information
+fn format_bedrock_error<E, R>(error: &aws_sdk_bedrockruntime::error::SdkError<E, R>) -> String
+where
+    E: std::fmt::Debug + std::fmt::Display,
+    R: std::fmt::Debug,
+{
+    use aws_sdk_bedrockruntime::error::SdkError;
+
+    match error {
+        SdkError::ServiceError(err) => {
+            // Include both the display and debug representations for maximum detail
+            format!("Service error: {} (details: {:?})", err.err(), err)
+        }
+        SdkError::ConstructionFailure(err) => {
+            format!("Request construction failed: {:?}", err)
+        }
+        SdkError::DispatchFailure(err) => {
+            format!("Request dispatch failed: {:?}", err)
+        }
+        SdkError::ResponseError(err) => {
+            format!("Response error: {:?}", err)
+        }
+        SdkError::TimeoutError(err) => {
+            format!("Request timeout: {:?}", err)
+        }
+        _ => format!("{:?}", error),
+    }
+}
+
 /// Convert AWS Smithy Document to serde_json::Value
 fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
     use aws_smithy_types::Document;
@@ -648,10 +677,10 @@ impl BedrockQueryBuilder {
         }
 
         // Execute the request
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| Error::internal_err(format!("Bedrock API error: {}", e)))?;
+        let response = request_builder.send().await.map_err(|e| {
+            let error_msg = format!("Bedrock API error: {}", format_bedrock_error(&e));
+            Error::internal_err(error_msg)
+        })?;
 
         // Convert response back to OpenAI format
         let (content, tool_calls) = bedrock_response_to_openai(&response)?;
@@ -693,7 +722,11 @@ impl BedrockQueryBuilder {
         let mut stream = request_builder
             .send()
             .await
-            .map_err(|e| Error::internal_err(format!("Bedrock streaming API error: {}", e)))?
+            .map_err(|e| {
+                let error_msg =
+                    format!("Bedrock streaming API error: {}", format_bedrock_error(&e));
+                Error::internal_err(error_msg)
+            })?
             .stream;
 
         let mut accumulated_text = String::new();
