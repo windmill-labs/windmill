@@ -196,6 +196,7 @@ pub async fn insert_new_trigger_into_db(
                 summary,
                 description,
                 is_flow,
+                enabled,
                 request_type,
                 authentication_method,
                 http_method,
@@ -209,7 +210,7 @@ pub async fn insert_new_trigger_into_db(
                 retry
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23
             )
             "#,
             w_id,
@@ -224,6 +225,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.summary,
             trigger.config.description,
             trigger.base.is_flow,
+            trigger.base.enabled.unwrap_or(true),
             request_type as _,
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
@@ -356,7 +358,7 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
-    const SUPPORTS_ENABLED: bool = false;
+    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
@@ -482,22 +484,23 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $7,
                 path = $8,
                 is_flow = $9,
-                http_method = $10,
-                static_asset_config = $11,
-                edited_by = $12,
-                email = $13,
-                request_type = $14,
-                authentication_method = $15,
-                summary = $16,
-                description = $17,
+                enabled = $10,
+                http_method = $11,
+                static_asset_config = $12,
+                edited_by = $13,
+                email = $14,
+                request_type = $15,
+                authentication_method = $16,
+                summary = $17,
+                description = $18,
                 edited_at = now(),
-                is_static_website = $18,
-                error_handler_path = $19,
-                error_handler_args = $20,
-                retry = $21
+                is_static_website = $19,
+                error_handler_path = $20,
+                error_handler_args = $21,
+                retry = $22
             WHERE
-                workspace_id = $22 AND
-                path = $23
+                workspace_id = $23 AND
+                path = $24
             "#,
                 route_path,
                 &route_path_key,
@@ -508,6 +511,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
+                trigger.base.enabled.unwrap_or(true),
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -584,6 +588,10 @@ impl TriggerCrud for HttpTrigger {
         increase_trigger_version(tx).await?;
 
         Ok(())
+    }
+
+    async fn set_enabled_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
+        increase_trigger_version(tx).await
     }
 
     async fn delete_by_path(
