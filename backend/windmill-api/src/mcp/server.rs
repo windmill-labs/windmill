@@ -203,7 +203,7 @@ impl ServerHandler for Runner {
         for endpoint_tool in endpoint_tools {
             if endpoint_tool.name.as_ref() == request.name {
                 // Validate endpoint scope
-                if !scope_config.endpoints.is_empty()
+                if scope_config.granular
                     && !is_resource_allowed(&endpoint_tool.name, &scope_config.endpoints)
                 {
                     return Err(ErrorData::internal_error(
@@ -231,21 +231,17 @@ impl ServerHandler for Runner {
         })?;
 
         // Validate script/flow scope
-        if !is_hub {
-            if tool_type == "script" && !scope_config.scripts.is_empty() {
-                if !is_resource_allowed(&path, &scope_config.scripts) {
-                    return Err(ErrorData::internal_error(
-                        format!("Access denied: script '{}' not in token scope", path),
-                        None,
-                    ));
-                }
-            } else if tool_type == "flow" && !scope_config.flows.is_empty() {
-                if !is_resource_allowed(&path, &scope_config.flows) {
-                    return Err(ErrorData::internal_error(
-                        format!("Access denied: flow '{}' not in token scope", path),
-                        None,
-                    ));
-                }
+        if !is_hub && scope_config.granular {
+            if tool_type == "script" && !is_resource_allowed(&path, &scope_config.scripts) {
+                return Err(ErrorData::internal_error(
+                    format!("Access denied: script '{}' not in token scope", path),
+                    None,
+                ));
+            } else if tool_type == "flow" && !is_resource_allowed(&path, &scope_config.flows) {
+                return Err(ErrorData::internal_error(
+                    format!("Access denied: flow '{}' not in token scope", path),
+                    None,
+                ));
             }
         }
 
