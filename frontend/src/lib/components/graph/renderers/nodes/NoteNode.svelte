@@ -308,7 +308,7 @@
 	<!-- Node resizer - only visible when selected and not locked and edit mode is available -->
 	{#if !locked && isEditModeAvailable}
 		<NodeResizer
-			isVisible={selected && !dragging}
+			isVisible={selected && !dragging && !data.isGroupNote}
 			minWidth={MIN_NOTE_WIDTH}
 			minHeight={MIN_NOTE_HEIGHT}
 			lineClass="!border-4 !border-transparent !rounded-md"
@@ -319,7 +319,6 @@
 					const size = { width: params.width, height: params.height }
 					if (isEditModeAvailable && noteEditorContext?.noteEditor) {
 						// Use NoteEditor context in edit mode
-
 						noteEditorContext.noteEditor.updateSize(data.noteId, size)
 					}
 				}
