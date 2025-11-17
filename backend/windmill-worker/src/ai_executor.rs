@@ -18,10 +18,11 @@ use windmill_common::mcp_client::McpClient;
 use windmill_common::{
     ai_providers::{AIProvider, AZURE_API_VERSION},
     ai_types::{OpenAIMessage, ToolDef},
-    bedrock_client::{extract_region_from_url, BedrockClient},
-    bedrock_converters::{
-        bedrock_response_to_openai, create_inference_config, openai_messages_to_bedrock,
-        openai_tools_to_bedrock,
+    aws_bedrock::{
+        bedrock_response_to_openai, bedrock_stream_event_is_block_stop,
+        bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
+        bedrock_stream_event_to_tool_start, create_inference_config, openai_messages_to_bedrock,
+        openai_tools_to_bedrock, streaming_tool_calls_to_openai, BedrockClient, StreamingToolCall,
     },
     cache,
     client::AuthedClient,
@@ -40,7 +41,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::{
-        image_handler::upload_image_to_s3,
+        image_handler::{prepare_messages_for_api, upload_image_to_s3},
         query_builder::{
             create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
         },
@@ -383,6 +384,7 @@ pub async fn run_agent(
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key();
+    let region = args.provider.get_region();
 
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
@@ -559,31 +561,24 @@ pub async fn run_agent(
             break;
         }
 
-        // For text output or image output with tools
-        let build_args = BuildRequestArgs {
-            messages: &messages,
-            tools: tool_defs.as_deref(),
-            model: args.provider.get_model(),
-            temperature: args.temperature,
-            max_tokens: args.max_completion_tokens,
-            output_schema: args.output_schema.as_ref(),
-            output_type,
-            system_prompt: args.system_prompt.as_deref(),
-            user_message: &args.user_message,
-            images: args.user_images.as_deref(),
-        };
-
         // Special handling for AWS Bedrock using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
-            // Extract region from base URL
-            let region = extract_region_from_url(&base_url)?;
-
+            if region.is_none() {
+                return Err(Error::internal_err(
+                    "AWS Bedrock region is not set".to_string(),
+                ));
+            }
             // Create Bedrock client with bearer token authentication
-            let bedrock_client = BedrockClient::from_bearer_token(api_key.to_string(), region).await?;
+            let bedrock_client =
+                BedrockClient::from_bearer_token(api_key.to_string(), region.unwrap()).await?;
+
+            // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
+            let prepared_messages =
+                prepare_messages_for_api(&messages, client, &job.workspace_id).await?;
 
             // Convert messages to Bedrock format (separates system prompts)
             let (bedrock_messages, system_prompts) =
-                openai_messages_to_bedrock(&messages)?;
+                openai_messages_to_bedrock(&prepared_messages)?;
 
             // Build request parameters
             let model_id = args.provider.get_model();
@@ -599,7 +594,12 @@ pub async fn run_agent(
                     aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
                         .set_tools(Some(bedrock_tools))
                         .build()
-                        .map_err(|e| Error::internal_err(format!("Failed to build tool configuration: {}", e)))?,
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to build tool configuration: {}",
+                                e
+                            ))
+                        })?,
                 )
             } else {
                 None
@@ -607,11 +607,6 @@ pub async fn run_agent(
 
             if should_stream {
                 use std::collections::HashMap;
-                use windmill_common::bedrock_converters::{
-                    bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
-                    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start,
-                    streaming_tool_calls_to_openai, StreamingToolCall,
-                };
 
                 // Build streaming request
                 let mut request_builder = bedrock_client
@@ -636,7 +631,9 @@ pub async fn run_agent(
                 let mut stream = request_builder
                     .send()
                     .await
-                    .map_err(|e| Error::internal_err(format!("Bedrock streaming API error: {}", e)))?
+                    .map_err(|e| {
+                        Error::internal_err(format!("Bedrock streaming API error: {}", e))
+                    })?
                     .stream;
 
                 let mut accumulated_text = String::new();
@@ -672,7 +669,8 @@ pub async fn run_agent(
                             // Handle tool use input delta
                             if let Some(input_delta) = bedrock_stream_event_to_tool_delta(&event) {
                                 if let Some(tool_id) = &current_tool_use_id {
-                                    if let Some(tool_call) = accumulated_tool_calls.get_mut(tool_id) {
+                                    if let Some(tool_call) = accumulated_tool_calls.get_mut(tool_id)
+                                    {
                                         tool_call.arguments.push_str(&input_delta);
                                     }
                                 }
@@ -685,7 +683,10 @@ pub async fn run_agent(
                         }
                         Ok(None) => break, // Stream ended
                         Err(e) => {
-                            return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
+                            return Err(Error::internal_err(format!(
+                                "Bedrock stream error: {}",
+                                e
+                            )));
                         }
                     }
                 }
@@ -712,14 +713,17 @@ pub async fn run_agent(
                     Some(accumulated_text)
                 };
 
-                let tool_calls = streaming_tool_calls_to_openai(
-                    accumulated_tool_calls.into_values().collect(),
-                );
+                let tool_calls =
+                    streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
 
                 ParsedResponse::Text {
                     content,
                     tool_calls,
-                    events_str: if events_str.is_empty() { None } else { Some(events_str) },
+                    events_str: if events_str.is_empty() {
+                        None
+                    } else {
+                        Some(events_str)
+                    },
                 }
             } else {
                 // Non-streaming request
@@ -750,14 +754,23 @@ pub async fn run_agent(
                 // Convert response back to OpenAI format
                 let (content, tool_calls) = bedrock_response_to_openai(&response)?;
 
-                ParsedResponse::Text {
-                    content,
-                    tool_calls,
-                    events_str: None,
-                }
+                ParsedResponse::Text { content, tool_calls, events_str: None }
             }
         } else {
             // For non-Bedrock providers, use HTTP client
+            let build_args = BuildRequestArgs {
+                messages: &messages,
+                tools: tool_defs.as_deref(),
+                model: args.provider.get_model(),
+                temperature: args.temperature,
+                max_tokens: args.max_completion_tokens,
+                output_schema: args.output_schema.as_ref(),
+                output_type,
+                system_prompt: args.system_prompt.as_deref(),
+                user_message: &args.user_message,
+                images: args.user_images.as_deref(),
+            };
+
             let request_body = query_builder
                 .build_request(&build_args, client, &job.workspace_id, should_stream)
                 .await?;
@@ -836,10 +849,8 @@ pub async fn run_agent(
                         ..Default::default()
                     });
 
-                    update_flow_status_module_with_actions(db, parent_job, &actions)
-                        .await?;
-                    update_flow_status_module_with_actions_success(db, parent_job, true)
-                        .await?;
+                    update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                    update_flow_status_module_with_actions_success(db, parent_job, true).await?;
 
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
@@ -876,7 +887,11 @@ pub async fn run_agent(
                                 )
                                 .await
                                 {
-                                    tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
+                                    tracing::warn!(
+                                        "Failed to add assistant message to conversation {}: {}",
+                                        memory_id,
+                                        e
+                                    );
                                 }
                             });
                         }
@@ -988,7 +1003,11 @@ pub async fn run_agent(
                             )
                             .await
                             {
-                                tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
+                                tracing::warn!(
+                                    "Failed to add assistant message to conversation {}: {}",
+                                    memory_id,
+                                    e
+                                );
                             }
                         });
                     }

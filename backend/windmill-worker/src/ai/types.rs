@@ -3,17 +3,15 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::mcp_client::McpToolSource;
 use windmill_common::{
-    ai_providers::AIProvider,
-    db::DB,
-    error::Error,
-    flow_status::AgentAction,
-    flows::FlowModule,
+    ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
 
 // Re-export types from windmill_common::ai_types
-pub use windmill_common::ai_types::{ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction};
+pub use windmill_common::ai_types::{
+    ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction,
+};
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
 #[derive(Serialize)]
@@ -78,6 +76,7 @@ pub struct ProviderResource {
     pub api_key: String,
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
+    pub region: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -100,6 +99,10 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)
             .await
+    }
+
+    pub fn get_region(&self) -> Option<&str> {
+        self.resource.region.as_deref()
     }
 }
 

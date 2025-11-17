@@ -29,11 +29,9 @@ pub mod agent_workers;
 pub mod ai_providers;
 pub mod ai_types;
 pub mod apps;
-pub mod bedrock_auth;
-pub mod bedrock_client;
-pub mod bedrock_converters;
 pub mod assets;
 pub mod auth;
+pub mod aws_bedrock;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;

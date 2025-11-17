@@ -1,16 +1,54 @@
-// Copyright Windmill Labs. All rights reserved.
-
-//! OpenAI to AWS Bedrock message format converters
-//!
-//! This module provides bidirectional conversion between OpenAI-compatible
-//! message formats (used throughout Windmill) and AWS Bedrock Converse API formats.
-
 use crate::ai_types::{ContentPart, OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
 use crate::error::{Error, Result};
+use aws_config::BehaviorVersion;
+use aws_credential_types::provider::token::ProvideToken;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration,
     Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
+use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
+
+#[derive(Debug, Clone)]
+pub struct BearerTokenProvider {
+    token: String,
+}
+
+impl BearerTokenProvider {
+    pub fn new(token: String) -> Self {
+        Self { token }
+    }
+}
+
+impl ProvideToken for BearerTokenProvider {
+    fn provide_token<'a>(&'a self) -> aws_credential_types::provider::future::ProvideToken<'a>
+    where
+        Self: 'a,
+    {
+        aws_credential_types::provider::future::ProvideToken::ready(Ok(
+            aws_credential_types::Token::new(self.token.clone(), None),
+        ))
+    }
+}
+
+pub struct BedrockClient {
+    client: BedrockRuntimeClient,
+}
+
+impl BedrockClient {
+    pub async fn from_bearer_token(bearer_token: String, region: &str) -> Result<Self> {
+        let config = aws_sdk_bedrockruntime::config::Builder::new()
+            .region(aws_config::Region::new(region.to_string()))
+            .behavior_version(BehaviorVersion::latest())
+            .token_provider(BearerTokenProvider::new(bearer_token))
+            .build();
+
+        Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
+    }
+
+    pub fn client(&self) -> &BedrockRuntimeClient {
+        &self.client
+    }
+}
 
 /// Convert AWS Smithy Document to serde_json::Value
 fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
@@ -30,7 +68,8 @@ fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
         Document::Number(num) => {
             // Try to parse as different number types
             serde_json::Value::Number(
-                serde_json::Number::from_f64(num.to_f64_lossy()).unwrap_or(serde_json::Number::from(0)),
+                serde_json::Number::from_f64(num.to_f64_lossy())
+                    .unwrap_or(serde_json::Number::from(0)),
             )
         }
         Document::String(s) => serde_json::Value::String(s.clone()),
@@ -162,11 +201,8 @@ fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>)> {
     };
 
     // Decode base64
-    let bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        base64_data,
-    )
-    .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
+        .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
 
     Ok((format, bytes))
 }
@@ -207,7 +243,10 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message> {
         "user" => ConversationRole::User,
         "assistant" => ConversationRole::Assistant,
         _ => {
-            return Err(Error::internal_err(format!("Unsupported role: {}", msg.role)));
+            return Err(Error::internal_err(format!(
+                "Unsupported role: {}",
+                msg.role
+            )));
         }
     };
 
@@ -380,8 +419,8 @@ pub fn bedrock_response_to_openai(
                         // Convert to OpenAI tool call format
                         // Convert aws_smithy_types::Document to serde_json::Value
                         let input_value = document_to_json(tool_use.input());
-                        let arguments =
-                            serde_json::to_string(&input_value).unwrap_or_else(|_| "{}".to_string());
+                        let arguments = serde_json::to_string(&input_value)
+                            .unwrap_or_else(|_| "{}".to_string());
 
                         tool_calls.push(OpenAIToolCall {
                             id: tool_use.tool_use_id().to_string(),
@@ -398,7 +437,11 @@ pub fn bedrock_response_to_openai(
         }
     }
 
-    let content = if text_content.is_empty() { None } else { Some(text_content) };
+    let content = if text_content.is_empty() {
+        None
+    } else {
+        Some(text_content)
+    };
 
     Ok((content, tool_calls))
 }
@@ -410,9 +453,10 @@ pub fn bedrock_stream_event_to_text(
     use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
 
     match event {
-        ConverseStreamOutput::ContentBlockDelta(delta) => {
-            delta.delta().and_then(|d| d.as_text().ok()).map(|s| s.to_string())
-        }
+        ConverseStreamOutput::ContentBlockDelta(delta) => delta
+            .delta()
+            .and_then(|d| d.as_text().ok())
+            .map(|s| s.to_string()),
         _ => None,
     }
 }
@@ -454,11 +498,10 @@ pub fn bedrock_stream_event_to_tool_delta(
     use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
 
     match event {
-        ConverseStreamOutput::ContentBlockDelta(delta) => {
-            delta.delta().and_then(|d| d.as_tool_use().ok()).map(|tool_use| {
-                tool_use.input().to_string()
-            })
-        }
+        ConverseStreamOutput::ContentBlockDelta(delta) => delta
+            .delta()
+            .and_then(|d| d.as_tool_use().ok())
+            .map(|tool_use| tool_use.input().to_string()),
         _ => None,
     }
 }
@@ -472,19 +515,14 @@ pub fn bedrock_stream_event_is_block_stop(
 }
 
 /// Convert accumulated streaming tool calls to OpenAI format
-pub fn streaming_tool_calls_to_openai(
-    tool_calls: Vec<StreamingToolCall>,
-) -> Vec<OpenAIToolCall> {
+pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
     use crate::ai_types::OpenAIFunction;
 
     tool_calls
         .into_iter()
         .map(|tc| OpenAIToolCall {
             id: tc.id,
-            function: OpenAIFunction {
-                name: tc.name,
-                arguments: tc.arguments,
-            },
+            function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
             r#type: "function".to_string(),
         })
         .collect()
@@ -519,7 +557,9 @@ mod tests {
         let messages = vec![
             OpenAIMessage {
                 role: "system".to_string(),
-                content: Some(OpenAIContent::Text("You are a helpful assistant.".to_string())),
+                content: Some(OpenAIContent::Text(
+                    "You are a helpful assistant.".to_string(),
+                )),
                 tool_calls: None,
                 tool_call_id: None,
                 agent_action: None,
