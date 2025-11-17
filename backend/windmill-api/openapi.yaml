@@ -572,12 +572,12 @@ paths:
                 use_case:
                   type: string
       responses:
-        '200':
+        "200":
           description: Onboarding data submitted successfully
           content:
             application/json:
               schema:
-                type: string                
+                type: string
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -15113,7 +15113,7 @@ components:
       schema:
         type: integer
     JobTriggerKind:
-      name: trigger_kind 
+      name: trigger_kind
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
@@ -15294,8 +15294,7 @@ components:
 
     CreatedAfterQueue:
       name: created_after_queue
-      description:
-        filter on jobs created after X for jobs in the queue only
+      description: filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -15303,8 +15302,7 @@ components:
 
     CreatedBeforeQueue:
       name: created_before_queue
-      description:
-        filter on jobs created before X for jobs in the queue only
+      description: filter on jobs created before X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -16377,27 +16375,6 @@ components:
           type: array
           items:
             type: string
-          description: |
-            Token scopes control access to resources. For MCP tokens, use granular scopes to specify exactly which resources to expose:
-
-            **Granular MCP Scopes:**
-            - `mcp:scripts:{path1},{path2},f/folder/*` - Specific scripts or folder patterns
-            - `mcp:flows:{path1},{path2},f/folder/*` - Specific flows or folder patterns
-            - `mcp:endpoints:{name1},{name2}` - Specific API endpoint tools
-
-            **Examples:**
-            - `mcp:scripts:u/admin/script1,f/automation/*` - Single script and all scripts in folder
-            - `mcp:flows:f/prod/*` - All flows in production folder
-            - `mcp:endpoints:list_completed_jobs,get_job` - Two specific API endpoints
-
-            **Legacy MCP Scopes (deprecated but still supported):**
-            - `mcp:all` - Access to all scripts, flows, and endpoints
-            - `mcp:favorites` - Access only to favorited scripts and flows
-            - `mcp:hub:{app}` - Access to hub scripts for specific integrations
-
-            **Non-MCP Scopes:**
-            For non-MCP tokens, scopes follow the format `{domain}:{action}[:{resource}]`.
-            Examples: `jobs:read`, `scripts:write:f/folder/*`, `flows:run:u/admin/*`
         workspace_id:
           type: string
 
@@ -16771,30 +16748,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-        python3,
-        deno,
-        go,
-        bash,
-        powershell,
-        postgresql,
-        mysql,
-        bigquery,
-        snowflake,
-        mssql,
-        oracledb,
-        graphql,
-        nativets,
-        bun,
-        php,
-        rust,
-        ansible,
-        csharp,
-        nu,
-        java,
-        ruby,
-        duckdb,
-        # for related places search: ADD_NEW_LANG
-      ]
+          python3,
+          deno,
+          go,
+          bash,
+          powershell,
+          postgresql,
+          mysql,
+          bigquery,
+          snowflake,
+          mssql,
+          oracledb,
+          graphql,
+          nativets,
+          bun,
+          php,
+          rust,
+          ansible,
+          csharp,
+          nu,
+          java,
+          ruby,
+          duckdb,
+          # for related places search: ADD_NEW_LANG
+        ]
 
     Preview:
       type: object
