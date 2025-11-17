@@ -11,7 +11,7 @@ use windmill_common::{
     utils::StripPath,
     DB,
 };
-use windmill_worker::raw_requirements::{NewRawRequirements, RawRequirements};
+use windmill_worker::workspace_dependencies::{NewWorkspaceDependencies, WorkspaceDependencies};
 
 use crate::db::ApiAuthed;
 
@@ -29,10 +29,10 @@ async fn create(
     // authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Json(nrr): Json<NewRawRequirements>,
+    Json(nwr): Json<NewWorkspaceDependencies>,
 ) -> error::Result<(StatusCode, String)> {
     // TODO: Check that it is an admin
-    Ok((StatusCode::CREATED, format!("{}", nrr.create(&db).await?)))
+    Ok((StatusCode::CREATED, format!("{}", nwr.create(&db).await?)))
 }
 
 #[axum::debug_handler]
@@ -41,9 +41,9 @@ async fn list(
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<RawRequirements>> {
+) -> JsonResult<Vec<WorkspaceDependencies>> {
     // TODO: Check that it is an admin
-    Ok(Json(RawRequirements::list(&w_id, &db).await?))
+    Ok(Json(WorkspaceDependencies::list(&w_id, &db).await?))
 }
 
 #[axum::debug_handler]
@@ -54,7 +54,7 @@ async fn archive(
     Path((w_id, language, name)): Path<(String, ScriptLang, Option<String>)>,
 ) -> error::Result<()> {
     // TODO: Check that it is an admin
-    RawRequirements::archive(name, language, &w_id, &db).await
+    WorkspaceDependencies::archive(name, language, &w_id, &db).await
 }
 
 #[axum::debug_handler]
@@ -65,5 +65,5 @@ async fn delete(
     Path((w_id, language, name)): Path<(String, ScriptLang, Option<String>)>,
 ) -> error::Result<()> {
     // TODO: Check that it is an admin
-    RawRequirements::delete(name, language, &w_id, &db).await
+    WorkspaceDependencies::delete(name, language, &w_id, &db).await
 }

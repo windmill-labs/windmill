@@ -99,7 +99,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import RequirementViewer from './RequirementViewer.svelte'
+	import WorkspaceDependenciesViewer from './WorkspaceDependenciesViewer.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -160,7 +160,7 @@
 	let args: Record<string, any> = $state(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
-	let requirementViewer: RequirementViewer | undefined = $state()
+	let workspaceDependenciesViewer: WorkspaceDependenciesViewer | undefined = $state()
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -209,7 +209,7 @@
 			description: `Requirements for ${directoryPath}`
 		}
 		
-		requirementViewer?.openViewer(directoryPath, mockRequirement.content, mockRequirement.language, mockRequirement.description)
+		workspaceDependenciesViewer?.openViewer(directoryPath, mockRequirement.content, mockRequirement.language, mockRequirement.description)
 	}
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
@@ -1887,4 +1887,4 @@
 	Script Builder not available to operators
 {/if}
 
-<RequirementViewer bind:this={requirementViewer} />
+<WorkspaceDependenciesViewer bind:this={workspaceDependenciesViewer} />

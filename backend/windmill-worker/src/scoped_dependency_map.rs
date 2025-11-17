@@ -12,7 +12,7 @@ use windmill_common::{
 use std::collections::HashSet;
 
 use crate::worker_lockfiles::{
-    extract_relative_imports, is_generated_from_raw_requirements,
+    extract_referenced_paths, extract_relative_imports, is_generated_from_raw_requirements,
     LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
 };
 
@@ -294,7 +294,7 @@ SELECT importer_node_id, imported_path
             // Scripts
             tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
             for r in sqlx::query!(
-                "SELECT path, hash FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false",
+                r#"SELECT path, hash, language AS "language: ScriptLang" FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false"#,
                 w_id
             )
             .fetch_all(db)
@@ -304,28 +304,14 @@ SELECT importer_node_id, imported_path
                 let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
                 let mut tx = db.begin().await?;
 
-                if (smd.language.is_some_and(|v| v == ScriptLang::Bun)
-                    && sd
-                        .lock
-                        .as_ref()
-                        .is_some_and(|v| v.contains("generatedFromPackageJson")))
-                    || (smd.language.is_some_and(|v| v == ScriptLang::Python3)
-                        && sd.lock.as_ref().is_some_and(|v| {
-                            v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
-                        }))
-                {
-                    // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
-                    // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
-                    // to update_script_dependency_map will clear the dependency map.
-                } else {
-                    tx = dmap
-                        .patch(
-                            extract_relative_imports(&sd.code, &r.path, &smd.language),
-                            "".into(),
-                            tx,
-                        )
-                        .await?;
-                }
+                tx = dmap
+                .patch(
+                    extract_referenced_paths(&sd.code, &r.path, smd.language),
+                    "".into(),
+                    tx,
+                )
+                .await?;
+
                 if !*WMDEBUG_NO_DMAP_DISSOLVE {
                     dmap.dissolve(tx).await.commit().await?;
                 }

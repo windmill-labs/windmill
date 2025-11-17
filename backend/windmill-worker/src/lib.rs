@@ -57,7 +57,6 @@ mod php_executor;
 mod python_executor;
 #[cfg(feature = "python")]
 mod python_versions;
-pub mod raw_requirements;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
@@ -69,6 +68,7 @@ mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
+pub mod workspace_dependencies;
 
 pub use worker::*;
 pub use worker_lockfiles::{

@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { RawRequirementsService, WorkspaceService } from '$lib/gen'
+	import { WorkspaceDependenciesService, WorkspaceService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import DependencyWarning from './DependencyWarning.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
@@ -23,10 +24,10 @@
 		return name ? `${name}.${extension}` : extension
 	}
 
-	function getRequirementPath(name: string | null, language: string): string | null {
+	function getWorkspaceDependenciesPath(name: string | null, language: string): string | null {
 		const extension = getFileExtension(language)
 		if (extension == null) return null;
-		return name ? `raw_requirements/${name}.${extension}` : `raw_requirements/${extension}`
+		return name ? `workspace_dependencies/${name}.${extension}` : `workspace_dependencies/${extension}`
 	}
 
 	function getFileExtension(language: string): string | null {
@@ -51,14 +52,14 @@
 
 	function goToWorkspaceDefault(): void {
 		// TODO: Navigate to existing workspace default
-		console.log('Navigate to workspace default for', requirement.language)
+		console.log('Navigate to workspace default for', workspaceDependencies.language)
 		drawer?.closeDrawer()
 	}
 
-	let requirementName: string = $state('')
-	let requirementType: 'workspace' | 'named' = $state('workspace')
+	let workspaceDependenciesName: string = $state('')
+	let workspaceDependenciesType: 'workspace' | 'named' = $state('workspace')
 	
-	// Language options for requirements - only supported languages
+	// Language options for workspace dependencies - only supported languages
 	const LANGUAGE_OPTIONS = [
 		{ value: 'python3', label: 'Python' },
 		{ value: 'typescript', label: 'TypeScript' },
@@ -178,7 +179,7 @@ require (
 }`
 	}
 
-	let requirement: {
+	let workspaceDependencies: {
 		content: string
 		language: string
 		description: string
@@ -199,22 +200,23 @@ require (
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let dependents: any[] = $state([])
 	let showWarning = $state(false)
+	let currentImportedPath: string | null = $state(null)
 
-	const MAX_REQUIREMENT_LENGTH = 50000
+	const MAX_WORKSPACE_DEPENDENCIES_LENGTH = 50000
 
 	$effect(() => {
-		valid = requirement.content.length <= MAX_REQUIREMENT_LENGTH
+		valid = workspaceDependencies.content.length <= MAX_WORKSPACE_DEPENDENCIES_LENGTH
 	})
 
 	// Track when editor is ready
 	let editorReady = $state(false)
 	
 	// Calculate when deploy button should be disabled
-	let isDisabled = $derived(!can_write || !valid || (requirementType === 'named' && requirementName.trim() === ''))
+	let isDisabled = $derived(!can_write || !valid || (workspaceDependenciesType === 'named' && workspaceDependenciesName.trim() === ''))
 	
 	$effect(() => {
 		if (editor && !editorReady) {
-			editor.setCode(requirement.content)
+			editor.setCode(workspaceDependencies.content)
 			editorReady = true
 		}
 	})
@@ -222,22 +224,22 @@ require (
 	// Handle editor content changes
 	function handleEditorChange(event: { code: string }) {
 		// SimpleEditor dispatches change event with { code: string }
-		requirement.content = event.code
+		workspaceDependencies.content = event.code
 	}
 
 	// Watch for language changes and update template
 	$effect(() => {
-		if (requirement.language && LANGUAGE_TEMPLATES[requirement.language] && !edit) {
-			// Only update template for new requirements, not when editing existing ones
-			requirement.content = LANGUAGE_TEMPLATES[requirement.language]
+		if (workspaceDependencies.language && LANGUAGE_TEMPLATES[workspaceDependencies.language] && !edit) {
+			// Only update template for new workspace dependencies, not when editing existing ones
+			workspaceDependencies.content = LANGUAGE_TEMPLATES[workspaceDependencies.language]
 			if (editor && editorReady) {
-				editor.setCode(requirement.content)
+				editor.setCode(workspaceDependencies.content)
 			}
 		}
 	})
 
 	export function initNew(): void {
-		requirement = {
+		workspaceDependencies = {
 			content: LANGUAGE_TEMPLATES.python3,
 			language: 'python3',
 			description: "",
@@ -246,8 +248,8 @@ require (
 		initialId = undefined
 		initialName = null
 		initialLanguage = 'python3'
-		requirementName = ''
-		requirementType = 'named' // Start with named by default
+		workspaceDependenciesName = ''
+		workspaceDependenciesType = 'named' // Start with named by default
 		can_write = true
 		editorReady = false
 		// Check for existing workspace defaults
@@ -260,92 +262,87 @@ require (
 		drawer?.openDrawer()
 	}
 
-	export async function editRequirement(id: number, name: string | null, language: string): Promise<void> {
+	export async function editWorkspaceDependencies(id: number, name: string | null, language: string): Promise<void> {
 		edit = true
 		
 		try {
-			// TODO: Implement getRawRequirement endpoint and use actual API call
+			// TODO: Implement getWorkspaceDependencies endpoint and use actual API call
 			// For now, fall back to template content since we don't have a get endpoint
 			const mockContent = LANGUAGE_TEMPLATES[language] || LANGUAGE_TEMPLATES.python
 			
 			can_write = true // TODO: Implement proper permissions
 
-			requirement = {
+			workspaceDependencies = {
 				content: mockContent,
 				language: language,
 				description: `${name || 'Default'} requirements for ${language}`
 			}
 		} catch (error) {
-			console.error('Error loading requirement:', error)
+			console.error('Error loading workspace dependencies:', error)
 			// Fall back to template on error
-			requirement = {
+			workspaceDependencies = {
 				content: LANGUAGE_TEMPLATES[language] || LANGUAGE_TEMPLATES.python3,
 				language: language,
 				description: `${name || 'Default'} requirements for ${language}`
 			}
-			sendUserToast('Could not load requirement content, using template', true)
+			sendUserToast('Could not load workspace dependencies file content, using template', true)
 		}
 		
 		initialId = id
 		initialName = name
 		initialLanguage = language
-		requirementName = name || ''
-		requirementType = name === null ? 'workspace' : 'named'
+		workspaceDependenciesName = name || ''
+		workspaceDependenciesType = name === null ? 'workspace' : 'named'
 		editorReady = false
 		drawer?.openDrawer()
 	}
 
-	async function updateRequirement(): Promise<void> {
+	async function updateWorkspaceDependencies(): Promise<void> {
 		try {
-			await RawRequirementsService.createRawRequirements({
+			await WorkspaceDependenciesService.createWorkspaceDependencies({
 				workspace: $workspaceStore!,
 				requestBody: {
-					name: requirementType === 'workspace' ? undefined : requirementName,
-					content: requirement.content,
-					language: requirement.language as any,
+					name: workspaceDependenciesType === 'workspace' ? undefined : workspaceDependenciesName,
+					content: workspaceDependencies.content,
+					language: workspaceDependencies.language as any,
 					workspace_id: $workspaceStore!
 				}
 			})
 
-			const displayName = requirementType === 'workspace' ? `workspace default for ${requirement.language}` : requirementName
-			sendUserToast(`Deployed raw requirement: ${displayName}`)
+			const displayName = workspaceDependenciesType === 'workspace' ? `workspace default for ${workspaceDependencies.language}` : workspaceDependenciesName
+			sendUserToast(`Deployed workspace dependencies: ${displayName}`)
 			dispatch('create')
 			drawer?.closeDrawer()
 		} catch (error) {
-			console.error('Error updating requirement:', error)
-			sendUserToast(`Failed to update requirement: ${error.message}`, true)
+			console.error('Error updating workspace dependencies:', error)
+			sendUserToast(`Failed to update workspace dependencies: ${error.message}`, true)
 		} finally {
 			showWarning = false
 		}
 	}
 
 	async function handleDeployClick(): Promise<void> {
-		// For updates, check for dependents first
-		try {
-			const existingPath = getRequirementPath(initialName, initialLanguage)
-			console.log(existingPath);
-			// TODO(claude): handle existingPath null, it should toast that it is not expected.
-			dependents = await WorkspaceService.getDependents({
-				workspace: $workspaceStore!,
-				importedPath: existingPath
-			})
-
-			if (dependents.length > 0) {
-				showWarning = true
-			} else {
-				// No dependents, proceed directly
-				await updateRequirement()
+		// For updates, always show warning to confirm deployment
+		if (edit) {
+			const existingPath = getWorkspaceDependenciesPath(initialName, initialLanguage)
+			
+			if (existingPath === null) {
+				sendUserToast('Unsupported language for workspace dependencies path generation', true)
+				return
 			}
-		} catch (error) {
-			console.error('Error fetching dependents:', error)
-			// On error, proceed without warning
-			await updateRequirement()
+
+			// Always show warning for updates
+			currentImportedPath = existingPath
+			showWarning = true
+		} else {
+			// New workspace dependencies, no need to check for dependents
+			await updateWorkspaceDependencies()
 		}
 	}
 
 	function confirmDeploy(): void {
 		showWarning = false
-		updateRequirement()
+		updateWorkspaceDependencies()
 	}
 
 	function cancelDeploy(): void {
@@ -356,7 +353,7 @@ require (
 
 <Drawer bind:this={drawer} size="1200px">
 	<DrawerContent
-		title={edit ? `Deploy ${getFullFilename(requirement.language, requirementType === 'workspace' ? null : requirementName)}` : 'Add a raw requirement'}
+		title={edit ? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}` : 'Add workspace dependencies'}
 		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
@@ -366,52 +363,31 @@ require (
 				</Alert>
 			{/if}
 
-			{#if showWarning}
-				<Alert type="warning" title="Redeploy Warning" collapsible={true} isCollapsed={false}>
-					{#snippet children()}
-						<div class="space-y-3">
-							<p>This deployment will trigger redeployment of the following dependent scripts, flows, and apps:</p>
-							<div class="space-y-2 max-h-40 overflow-y-auto">
-								{#each dependents as dependent}
-									<div class="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border text-sm">
-										<AlertTriangle size={14} class="text-yellow-600 dark:text-yellow-400" />
-										<span class="font-medium">{dependent.importer_kind}:</span>
-										<span class="font-mono">{dependent.importer_path}</span>
-										{#if dependent.importer_node_ids && dependent.importer_node_ids.length > 0}
-											<span class="text-xs text-tertiary">
-												({dependent.importer_node_ids.length} node{dependent.importer_node_ids.length !== 1 ? 's' : ''})
-											</span>
-										{/if}
-									</div>
-								{/each}
-							</div>
-							<div class="flex gap-2 pt-2">
-								<Button size="sm" color="warning" on:click={confirmDeploy}>
-									Deploy Anyway
-								</Button>
-								<Button size="sm" variant="border" on:click={cancelDeploy}>
-									Cancel
-								</Button>
-							</div>
-						</div>
-					{/snippet}
-				</Alert>
+			{#if showWarning && currentImportedPath}
+				<DependencyWarning
+					importedPath={currentImportedPath}
+					title="Deployment Warning"
+					confirmText="Deploy Anyway"
+					cancelText="Cancel"
+					onConfirm={confirmDeploy}
+					onCancel={cancelDeploy}
+				/>
 			{/if}
 			
-			<Section label="Requirement Type">
+			<Section label="Workspace Dependencies Type">
 				<div class="flex flex-col gap-4">
-					{#if hasWorkspaceDefault(requirement.language) && !edit}
+					{#if hasWorkspaceDefault(workspaceDependencies.language) && !edit}
 						<RadioButton
-							bind:value={requirementType}
+							bind:value={workspaceDependenciesType}
 							options={[
-								['Named Requirement', 'named']
+								['Named Dependencies', 'named']
 							]}
 							disabled={!can_write}
 						/>
 						<div class="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
 							<FolderOpen size={16} class="text-blue-600" />
 							<span class="text-sm text-blue-800 flex-1">
-								Workspace default already exists for {requirement.language}
+								Workspace default already exists for {workspaceDependencies.language}
 							</span>
 							<Button size="xs" color="blue" variant="border" on:click={goToWorkspaceDefault}>
 								Go to default
@@ -419,27 +395,27 @@ require (
 						</div>
 					{:else}
 						<RadioButton
-							bind:value={requirementType}
+							bind:value={workspaceDependenciesType}
 							options={[
-								['Named Requirement', 'named'],
+								['Named Dependencies', 'named'],
 								['Workspace Default', 'workspace']
 							]}
 							disabled={!can_write || edit}
 						/>
 					{/if}
-					{#if requirementType === 'named'}
+					{#if workspaceDependenciesType === 'named'}
 						<input
 							type="text"
-							bind:value={requirementName}
-							placeholder="Enter requirement name (e.g., 'data-science', 'web-api')"
+							bind:value={workspaceDependenciesName}
+							placeholder="Enter dependencies name (e.g., 'data-science', 'web-api')"
 							disabled={!can_write}
 							class="input"
 						/>
 					{/if}
 					<div class="text-sm text-tertiary">
 						<FolderOpen size={16} class="inline mr-2" />
-						Workspace default requirements are used when no specific requirement is specified in scripts.
-						Named requirements can be referenced by scripts using
+						Workspace default dependencies are used when no specific dependencies are specified in scripts.
+						Named dependencies can be referenced by scripts using
 						<code class="bg-surface-secondary px-1 rounded">#raw_reqs requirement_name</code> annotations.
 					</div>
 				</div>
@@ -448,13 +424,13 @@ require (
 			<Section label="Language">
 				<div class="flex flex-col gap-4">
 					<Select
-						bind:value={requirement.language}
+						bind:value={workspaceDependencies.language}
 						items={LANGUAGE_OPTIONS}
 						disabled={edit}
 					/>
 					<div class="text-sm text-tertiary">
 						<Code2 size={16} class="inline mr-2" />
-						{edit ? 'Language cannot be changed after creation.' : 'Select the programming language this requirement is for. This will load a default template.'}
+						{edit ? 'Language cannot be changed after creation.' : 'Select the programming language these dependencies are for. This will load a default template.'}
 					</div>
 				</div>
 			</Section>
@@ -462,20 +438,20 @@ require (
 			<Section label="Description">
 				<input
 					type="text"
-					bind:value={requirement.description}
-					placeholder="Brief description of this requirement (optional)"
+					bind:value={workspaceDependencies.description}
+					placeholder="Brief description of these workspace dependencies (optional)"
 					disabled={!can_write}
 					class="input"
 				/>
 				<div class="text-sm text-tertiary mt-2">
-					Provide a brief description to help others understand the purpose of this requirement.
+					Provide a brief description to help others understand the purpose of these workspace dependencies.
 				</div>
 			</Section>
 
-			<Section label="Requirement Content">
+			<Section label="Dependencies File Content">
 				{#snippet header()}
 					<span class="text-sm text-tertiary mr-4 font-normal">
-						({requirement.content.length}/{MAX_REQUIREMENT_LENGTH} characters)
+						({workspaceDependencies.content.length}/{MAX_WORKSPACE_DEPENDENCIES_LENGTH} characters)
 					</span>
 				{/snippet}
 				<div class="border rounded mb-4 w-full">
@@ -486,7 +462,7 @@ require (
 							bind:this={editor}
 							autoHeight
 							lang="markdown"
-							code={requirement.content}
+							code={workspaceDependencies.content}
 							on:change={(e) => handleEditorChange(e.detail)}
 							fixedOverflowWidgets={false}
 							disabled={!can_write}
@@ -500,7 +476,7 @@ require (
 		{#snippet actions()}
 			<Button
 				on:click={handleDeployClick}
-				disabled={false}
+				disabled={isDisabled}
 				startIcon={{ icon: Rocket }}
 				color="dark"
 				size="sm"

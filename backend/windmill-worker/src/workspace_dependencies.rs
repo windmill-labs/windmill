@@ -1,11 +1,14 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 use windmill_common::{error, scripts::ScriptLang};
 
-use crate::trigger_dependents_to_recompute_dependencies;
+use crate::{
+    scoped_dependency_map::DependencyDependent, trigger_dependents_to_recompute_dependencies,
+};
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize)]
-pub struct RawRequirements {
+pub struct WorkspaceDependencies {
     pub id: i64,
     pub name: Option<String>,
     pub workspace_id: String,
@@ -16,7 +19,7 @@ pub struct RawRequirements {
 }
 
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
-pub struct NewRawRequirements {
+pub struct NewWorkspaceDependencies {
     pub workspace_id: String,
     pub language: ScriptLang,
     pub name: Option<String>,
@@ -24,22 +27,21 @@ pub struct NewRawRequirements {
     pub content: String,
 }
 
-impl NewRawRequirements {
+impl NewWorkspaceDependencies {
     // TODO(claude): add docs
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
-        // Enforce validation early.
-        let path = RawRequirements::to_path(&self.name, self.language)?;
+        let mut tx = db.begin().await?;
         let new_id = sqlx::query_scalar!(
             "
             WITH _ AS (
-                UPDATE raw_requirements 
+                UPDATE workspace_dependencies
                 SET archived = true 
                 WHERE archived = false
                     AND name = $1
                     AND workspace_id = $2
                     AND language = $4
             )
-            INSERT INTO raw_requirements (name, workspace_id, content, language)
+            INSERT INTO workspace_dependencies(name, workspace_id, content, language)
             VALUES ($1, $2, $3, $4) 
             RETURNING id
             ",
@@ -48,12 +50,44 @@ impl NewRawRequirements {
             self.content,
             self.language as ScriptLang
         )
-        .fetch_one(db)
+        .fetch_one(&mut *tx)
         .await?;
+
+        let importers = if let Some(name) = self.name {
+            let path = WorkspaceDependencies::to_path(&Some(name), self.language)?;
+            crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
+                path.as_str(),
+                &self.workspace_id,
+                db,
+            )
+            .await?
+        } else {
+            // If it is default, we want to redeploy all scripts.
+            // TODO: big warning when deploying default one:
+            //
+            // (Re)Deployment of this default workspace dependencies file, will trigger 50+ scripts/flows/apps to redeploy.
+            // This might load your instance and if you are using git sync it will take some time and might load your cluster.
+            //
+            // type: "confirm and redeploy 79 runnables" to continue.
+            sqlx::query_scalar!(
+                "SELECT path FROM script WHERE language = $1 AND workspace_id = $2 AND archived = false",
+                self.language as ScriptLang,
+                &self.workspace_id
+            )
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .map(|importer_path| DependencyDependent {
+                importer_path,
+                importer_kind: "script".into(),
+                importer_node_ids: None,
+            })
+            .collect_vec()
+        };
 
         trigger_dependents_to_recompute_dependencies(
             &self.workspace_id,
-            path.as_str(),
+            importers,
             None, // TODO
             None, // TODO
             "",   // TODO
@@ -64,11 +98,13 @@ impl NewRawRequirements {
         )
         .await?;
 
+        // TODO: Check what's up with db and tx
+        tx.commit().await?;
         Ok(new_id)
     }
 }
 
-impl RawRequirements {
+impl WorkspaceDependencies {
     pub fn to_path(name: &Option<String>, language: ScriptLang) -> error::Result<String> {
         let requirements_filename =
             language
@@ -79,9 +115,9 @@ impl RawRequirements {
                 )))?;
 
         Ok(if let Some(name) = name {
-            format!("raw_requirements/{name}.{requirements_filename}")
+            format!("dependencies/{name}.{requirements_filename}")
         } else {
-            format!("raw_requirements/{requirements_filename}")
+            format!("dependencies/{requirements_filename}")
         })
     }
     // TODO(claude): add docs
@@ -93,7 +129,7 @@ impl RawRequirements {
     ) -> error::Result<()> {
         sqlx::query!(
             "
-            UPDATE raw_requirements
+            UPDATE workspace_dependencies
             SET archived = true
             WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
             ",
@@ -116,7 +152,7 @@ impl RawRequirements {
         sqlx::query!(
             "
             DELETE
-            FROM raw_requirements
+            FROM workspace_dependencies
             WHERE name = $1 AND workspace_id = $2 AND language = $3
             ",
             name,
@@ -134,7 +170,7 @@ impl RawRequirements {
             Self,
             r##"
             SELECT id, created_at, archived, name, workspace_id, content, language AS "language: ScriptLang"
-                FROM raw_requirements
+                FROM workspace_dependencies
                 WHERE archived = false AND workspace_id = $1
             "##,
             workspace_id,
@@ -150,16 +186,16 @@ impl RawRequirements {
         language: ScriptLang,
         workspace_id: &str,
         e: impl PgExecutor<'c>,
-    ) -> error::Result<Option<RawRequirements>> {
+    ) -> error::Result<Option<Self>> {
         if name == Some("none".to_owned()) {
             return Ok(None);
         }
 
         sqlx::query_as!(
-            RawRequirements,
+            Self,
             r#"
             SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
-            FROM raw_requirements
+            FROM workspace_dependencies
             WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
             LIMIT 1
             "#,
@@ -177,12 +213,12 @@ impl RawRequirements {
         id: i64,
         workspace_id: &str,
         e: impl PgExecutor<'c>,
-    ) -> error::Result<Option<RawRequirements>> {
+    ) -> error::Result<Option<Self>> {
         sqlx::query_as!(
-            RawRequirements,
+            Self,
             r#"
             SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
-            FROM raw_requirements
+            FROM workspace_dependencies
             WHERE id = $1 AND workspace_id = $2
             LIMIT 1
             "#,
@@ -203,7 +239,7 @@ impl RawRequirements {
     ) -> error::Result<Vec<i64>> {
         sqlx::query_scalar!(
             r#"
-            SELECT id FROM raw_requirements
+            SELECT id FROM workspace_dependencies
             WHERE name = $1 AND workspace_id = $2 AND language = $3
             "#,
             name,
@@ -227,8 +263,14 @@ impl RawRequirements {
 // -[] if default rrs it has no entries in dmap, but they are always used unless told otherwise
 // -[] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)
 // -[] docs
+// -[] add description
 // -[] do we need min_version?
 // -[] delete should also trigger redeploy
+// -[] warning
+// -[] store mode in lock, so when viewed one can tell difference.
+//   - [] amount is displayed correctly (even for apps and flows.)
+// -[] if relative import has raw requirements, should importer inherit those?
+// -[] on deploy depenencies should be verified if they are resolvable or not.
 //
 // TODO(frontend):
 // - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
@@ -240,23 +282,33 @@ impl RawRequirements {
 // - old syntax rejection
 // - dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)
+// - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
 // - redelpoyment of dependents or new deployments build dmap (with and without relative imports)
 // - messed up rrs table will get healed
 // - race condition with other djobs on concurrency basis
-// - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
 // - what if redeployed older script version that has either outdated syntax or other rrs id/name?
 // - how are python version are treated? From lock or from content?
+// - [] leaf's wk deps should be used for inputs to top level runnable
+//    - [] ts
+//    - [] php
+//    - [] go
+//    - [] python
 //
 // cli:
 // - deployment of many at the same time has proper ordering
 
-#[cfg(test)]
-mod raw_requirements_tests {
+// Type aliases for backward compatibility
+pub type RawRequirements = WorkspaceDependencies;
+pub type NewRawRequirements = NewWorkspaceDependencies;
 
-    mod new_raw_requirements {
+#[cfg(test)]
+mod workspace_dependencies_tests {
+
+    // TODO: test all cases when it should reject.
+    mod new_workspace_dependencies {
         use windmill_common::scripts::ScriptLang;
 
-        use crate::raw_requirements::NewRawRequirements;
+        use crate::workspace_dependencies::NewWorkspaceDependencies;
 
         #[cfg(feature = "python")]
         #[sqlx::test(
@@ -265,7 +317,7 @@ mod raw_requirements_tests {
         )]
         async fn test_create(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             assert_eq!(
-                NewRawRequirements {
+                NewWorkspaceDependencies {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
                     name: None,
@@ -278,7 +330,7 @@ mod raw_requirements_tests {
             );
 
             assert_eq!(
-                NewRawRequirements {
+                NewWorkspaceDependencies {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
                     name: Some("rrs1".to_owned()),
@@ -290,7 +342,7 @@ mod raw_requirements_tests {
                 2
             );
 
-            assert!(NewRawRequirements {
+            assert!(NewWorkspaceDependencies {
                 workspace_id: "test-workspace".into(),
                 language: ScriptLang::DuckDb,
                 name: None,
@@ -302,7 +354,7 @@ mod raw_requirements_tests {
 
             // Will act as redeployment
             assert_eq!(
-                NewRawRequirements {
+                NewWorkspaceDependencies {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
                     name: Some("rrs1".to_owned()),
@@ -318,8 +370,8 @@ mod raw_requirements_tests {
         }
     }
 
-    mod raw_requirements {
-        // #[sqlx::test(fixtures("../../migrations/20251106152104_raw_requirements.up.sql"))]
+    mod workspace_dependencies {
+        // #[sqlx::test(fixtures("../../migrations/20251106152104_workspace_dependencies.up.sql"))]
         // async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
         //     todo!()
         // }

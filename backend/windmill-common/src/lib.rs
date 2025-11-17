@@ -53,6 +53,7 @@ pub mod job_metrics;
 pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
+pub mod workspace_dependencies;
 
 #[cfg(feature = "private")]
 pub mod git_sync_ee;

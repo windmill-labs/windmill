@@ -3,21 +3,21 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import { Button } from './common'
-	import RequirementEditor from './RequirementEditor.svelte'
+	import WorkspaceDependenciesEditor from './WorkspaceDependenciesEditor.svelte'
 	import { Code2, Edit, FileText } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 
 	// Component state
 	let drawer: Drawer | undefined = $state()
-	let requirementEditor: RequirementEditor | undefined = $state()
+	let workspaceDependenciesEditor: WorkspaceDependenciesEditor | undefined = $state()
 	
 	// Content state
 	let viewContent: string = $state('')
 	let viewLanguage: string = $state('python')
 	let viewPath: string = $state('')
 	let viewDescription: string = $state('')
-	let canWriteReq: boolean = $state(false)
+	let canWriteDeps: boolean = $state(false)
 
 	// Export methods for external control
 	export function openViewer(path: string, content?: string, language?: string, description?: string) {
@@ -28,7 +28,7 @@
 		
 		// TODO: Replace with actual API call to check permissions
 		// For now, mock the permission check
-		canWriteReq = canWrite(path, {}, $userStore)
+		canWriteDeps = canWrite(path, {}, $userStore)
 		
 		drawer?.openDrawer()
 	}
@@ -37,18 +37,18 @@
 		drawer?.closeDrawer()
 	}
 
-	function editRequirement() {
-		requirementEditor?.editRequirement(viewPath)
+	function editWorkspaceDependencies() {
+		workspaceDependenciesEditor?.editWorkspaceDependencies(1, null, viewLanguage)
 		closeViewer()
 	}
 
-	function onRequirementUpdated() {
-		// TODO: Reload requirement data
-		console.log('Requirement updated, should reload data')
+	function onWorkspaceDependenciesUpdated() {
+		// TODO: Reload workspace dependencies data
+		console.log('Workspace dependencies updated, should reload data')
 	}
 
 	function getLanguageForHighlighting(lang: string): 'python3' | 'nativets' | 'go' | 'php' | undefined {
-		// Map our requirement languages to syntax highlighting languages
+		// Map our workspace dependencies languages to syntax highlighting languages
 		switch (lang) {
 			case 'python':
 				return 'python3'
@@ -64,23 +64,23 @@
 	}
 </script>
 
-<RequirementEditor bind:this={requirementEditor} on:create={onRequirementUpdated} />
+<WorkspaceDependenciesEditor bind:this={workspaceDependenciesEditor} on:create={onWorkspaceDependenciesUpdated} />
 
 <Drawer bind:this={drawer} size="900px">
-	<DrawerContent title="Requirements from {viewPath}" on:close={closeViewer}>
+	<DrawerContent title="Workspace Dependencies from {viewPath}" on:close={closeViewer}>
 		{#snippet actions()}
 			<div class="flex items-center gap-4">
 				<div class="flex items-center gap-2">
 					<Code2 size={16} class="text-secondary" />
 					<span class="text-sm font-mono text-secondary">{viewLanguage}</span>
 				</div>
-				{#if canWriteReq}
+				{#if canWriteDeps}
 					<Button
 						size="xs"
 						variant="border"
 						color="light"
 						startIcon={{ icon: Edit }}
-						on:click={editRequirement}
+						on:click={editWorkspaceDependencies}
 					>
 						Edit
 					</Button>
@@ -100,8 +100,8 @@
 			{:else}
 				<div class="text-center text-secondary py-8">
 					<FileText size={48} class="mx-auto mb-4 opacity-50" />
-					<p>No requirements found for this path</p>
-					<p class="text-xs mt-2">Create a requirement to define dependencies for scripts in this directory</p>
+					<p>No workspace dependencies found for this path</p>
+					<p class="text-xs mt-2">Create workspace dependencies to define dependencies for scripts in this directory</p>
 				</div>
 			{/if}
 		</div>

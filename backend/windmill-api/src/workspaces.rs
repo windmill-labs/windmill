@@ -84,6 +84,7 @@ pub fn workspaced_service() -> Router {
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
         .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -3562,6 +3563,51 @@ async fn get_dependents(
     );
 
     Ok(Json(dependents))
+}
+
+#[derive(Serialize, Debug)]
+struct DependentsAmount {
+    imported_path: String,
+    count: i64,
+}
+
+#[axum::debug_handler]
+async fn get_dependents_amounts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(imported_paths): Json<Vec<String>>,
+) -> JsonResult<Vec<DependentsAmount>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_paths = ?imported_paths,
+        "API: Getting dependents amounts for imported paths"
+    );
+
+    // TODO: Add index on (workspace_id, imported_path) to speed up this query
+    let results = sqlx::query_as!(
+        DependentsAmount,
+        r#"
+        SELECT 
+            imported_path,
+            COUNT(DISTINCT importer_path) as "count!"
+        FROM dependency_map 
+        WHERE workspace_id = $1 AND imported_path = ANY($2)
+        GROUP BY imported_path
+        "#,
+        w_id,
+        &imported_paths
+    )
+    .fetch_all(&db)
+    .await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        results_count = results.len(),
+        "API: Found dependents amounts: {:?}",
+        results
+    );
+
+    Ok(Json(results))
 }
 
 #[derive(Deserialize)]

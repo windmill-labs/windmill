@@ -1,7 +1,7 @@
-CREATE SEQUENCE IF NOT EXISTS requirements_id_seq;
+CREATE SEQUENCE IF NOT EXISTS workspace_dependencies_id_seq;
 
-CREATE TABLE IF NOT EXISTS raw_requirements(
-    id           BIGINT DEFAULT nextval('requirements_id_seq') PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS workspace_dependencies(
+    id           BIGINT DEFAULT nextval('workspace_dependencies_id_seq') PRIMARY KEY,
     name         VARCHAR(255), -- If NULL - it's global
     content      TEXT NOT NULL,
     language     SCRIPT_LANG NOT NULL,

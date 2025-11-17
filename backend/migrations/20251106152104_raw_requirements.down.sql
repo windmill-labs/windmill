@@ -1,2 +1,2 @@
-DROP TABLE IF EXISTS raw_requirements;
-DROP SEQUENCE IF EXISTS requirements_id_seq CASCADE;
+DROP TABLE IF EXISTS workspace_dependencies;
+DROP SEQUENCE IF EXISTS workspace_dependencies_id_seq CASCADE;

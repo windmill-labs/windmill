@@ -5,8 +5,8 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
-use crate::raw_requirements::RawRequirements;
 use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
+use crate::workspace_dependencies::WorkspaceDependencies;
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use itertools::Itertools;
@@ -133,6 +133,39 @@ pub fn extract_relative_imports(
             parse_ts_relative_imports(&raw_code, script_path).ok()
         }
         _ => None,
+    }
+}
+
+pub fn extract_referenced_paths(
+    raw_code: &str,
+    script_path: &str,
+    language: Option<ScriptLang>,
+) -> Option<Vec<String>> {
+    let mut referenced_paths = vec![];
+    if let Some(wk_deps_refs) = language
+        .and_then(|l| l.extract_workspace_dependencies_refs(raw_code))
+        .map(|r| r.external)
+    {
+        for wk_deps_ref in wk_deps_refs {
+            if let Some(path) = WorkspaceDependencies::to_path(
+                &Some(wk_deps_ref),
+                language.expect("should be some"),
+            )
+            .ok()
+            {
+                referenced_paths.push(path);
+            };
+        }
+    }
+
+    if let Some(relative_imports) = extract_relative_imports(raw_code, script_path, &language) {
+        referenced_paths.extend(relative_imports);
+    }
+
+    if referenced_paths.is_empty() {
+        None
+    } else {
+        Some(referenced_paths)
     }
 }
 
@@ -371,19 +404,7 @@ pub async fn process_relative_imports(
     // TODO: Test if works without relative imports.
     // TODO: Can it ever take raw reqs as input?
     {
-        let (mut tx, mut referenced_paths) = (db.begin().await?, vec![]);
-
-        if let Some(raw_requirements) = script_lang
-            .and_then(|l| RawRequirements::to_path(&l.extract_raw_requirements_name(code), l).ok())
-        {
-            // Insert raw requirements to referenced paths
-            referenced_paths.push(raw_requirements);
-        }
-
-        if let Some(relative_imports) = extract_relative_imports(&code, script_path, script_lang) {
-            referenced_paths.extend(relative_imports);
-        }
-
+        let mut tx = db.begin().await?;
         let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
             &w_id,
             script_path,
@@ -395,7 +416,7 @@ pub async fn process_relative_imports(
 
         tx = dependency_map
             .patch(
-                Some(referenced_paths),
+                extract_referenced_paths(&code, script_path, *script_lang),
                 // Ideally should be None, but due to current implementation will use empty string to represent None.
                 "".into(),
                 tx,
@@ -406,7 +427,7 @@ pub async fn process_relative_imports(
     }
 
     {
-        let already_visited = args
+        let mut already_visited = args
             .map(|x| {
                 x.get("already_visited")
                     .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
@@ -415,13 +436,30 @@ pub async fn process_relative_imports(
             .flatten()
             .unwrap_or_default();
 
+        // TODO: There is a race-condition.
+        // This can be old version.
+
+        // Check lines of code below, you will find that we get the latest version of the script/app/flow
+
+        // However the latest version does not necessarily mean that it is finalized.
+        // Instead we assume that this would be the version we would base on.
+
+        // So the script_importers might be behind. Thus some information like nodes_to_relock might be lost.
+        let importers = crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
+            script_path,
+            w_id,
+            db,
+        )
+        .await?;
+
+        already_visited.push(script_path.to_string());
         // But currently we will do this extra db call for every script regardless of whether they have relative imports or not
         // Script might have no relative imports but still be referenced by someone else.
         match timeout(
             core::time::Duration::from_secs(60),
             Box::pin(trigger_dependents_to_recompute_dependencies(
                 w_id,
-                script_path,
+                importers,
                 deployment_message,
                 parent_path,
                 permissioned_as_email,
@@ -460,34 +498,20 @@ pub fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Optio
 
 pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
-    imported_path: &str,
+    importers: Vec<DependencyDependent>,
+    // imported_path: &str,
     deployment_message: Option<String>,
     parent_path: Option<String>,
     email: &str,
     created_by: &str,
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    mut already_visited: Vec<String>,
+    already_visited: Vec<String>,
 ) -> error::Result<()> {
-    // TODO: There is a race-condition.
-    // This can be old version.
-    //
-    // Check lines of code below, you will find that we get the latest version of the script/app/flow
-    //
-    // However the latest version does not necessarily mean that it is finalized.
-    // Instead we assume that this would be the version we would base on.
-    //
-    // So the script_importers might be behind. Thus some information like nodes_to_relock might be lost.
-    let importers =
-        crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(imported_path, w_id, db)
-            .await?;
-
     tracing::debug!(
-        "Triggering dependents to recompute dependencies for: {}",
-        &imported_path
+        "Triggering dependents to recompute dependencies: {}",
+        importers.iter().map(|dd| &dd.importer_path).join(",")
     );
-
-    already_visited.push(imported_path.to_string());
     for DependencyDependent { importer_path, importer_kind, importer_node_ids } in importers.iter()
     {
         tracing::trace!("Processing dependency: {:?}", importer_path);
@@ -2605,7 +2629,7 @@ async fn capture_dependency_job(
             #[cfg(feature = "python")]
             {
                 let annotations = PythonAnnotations::parse(job_raw_code);
-                let rrs_o = RawRequirements::get_latest(
+                let wd_o = WorkspaceDependencies::get_latest(
                     annotations.raw_reqs.clone(),
                     *job_language,
                     w_id,
@@ -2615,16 +2639,16 @@ async fn capture_dependency_job(
 
                 // Manually assigned version from requirements.txt
                 // let assigned_py_version;
-                let (reqs, py_version) = if let Some(ref rrs) = rrs_o {
+                let (reqs, py_version) = if let Some(ref wd) = wd_o {
                     // `wmill script generate-metadata`
                     // should also respect annotated pyversion
                     // can be annotated in script itself
                     // or in requirements.txt if present
 
                     (
-                        rrs.content.to_owned(),
+                        wd.content.to_owned(),
                         match crate::PyV::try_parse_from_requirements(&split_requirements(
-                            &rrs.content,
+                            &wd.content,
                         )) {
                             Some(pyv) => pyv,
                             None => crate::PyV::gravitational_version(job_id, w_id, None).await,
@@ -2676,9 +2700,9 @@ async fn capture_dependency_job(
                 )
                 .await
                 .map(|res| {
-                    if let Some(rrs) = rrs_o {
+                    if let Some(rrs) = wd_o {
                         format!(
-                            "# v2-raw-requirements: {}:{}\n{}",
+                            "# requirements: {}:{}\n{}",
                             rrs.name.unwrap_or("global".to_owned()),
                             rrs.id,
                             res

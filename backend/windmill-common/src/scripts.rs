@@ -18,6 +18,7 @@ use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     worker::PythonAnnotations,
+    workspace_dependencies::{parse_annotation, WorkspaceDependenciesRefs},
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 
@@ -31,7 +32,20 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, Default)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Copy,
+    Clone,
+    Hash,
+    Eq,
+    sqlx::Type,
+    Default,
+    Ord,
+    PartialOrd,
+)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
@@ -100,21 +114,25 @@ impl ScriptLang {
                 Bun | Bunnative | Deno => "package.json",
                 Python3 => "requirements.in",
                 Go => "go.mod",
-                Php => todo!(),
+                Php => "composer.json",
                 _ => return None,
             }
             .to_owned(),
         )
     }
 
-    pub fn extract_raw_requirements_name(&self, code: &str) -> Option<String> {
+    pub fn extract_workspace_dependencies_refs(
+        &self,
+        code: &str,
+    ) -> Option<WorkspaceDependenciesRefs> {
         use ScriptLang::*;
         match self {
+            // TODO: Maybe use regex
             // TODO: Doublecheck these
-            Bun | Bunnative | Deno => todo!(),
-            Python3 => PythonAnnotations::parse(code).raw_reqs,
-            Go => todo!(),
-            Php => todo!(),
+            Bun | Bunnative | Deno => parse_annotation("//", "package_json", code),
+            Python3 => parse_annotation("#", "requirements", code),
+            Go => parse_annotation("//", "go_mod", code),
+            Php => parse_annotation("//", "composer_json", code),
             _ => return None,
         }
     }

@@ -205,12 +205,12 @@
 			aiDescription: 'Button to navigate to assets'
 		},
 		{
-			label: 'Requirements',
+			label: 'Dependencies',
 			href: `${base}/requirements`,
 			icon: FileText,
 			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-requirements',
-			aiDescription: 'Button to navigate to requirements'
+			aiId: 'sidebar-menu-link-dependencies',
+			aiDescription: 'Button to navigate to workspace dependencies'
 		}
 	])
 	let defaultExtraTriggerLinks = $derived([
