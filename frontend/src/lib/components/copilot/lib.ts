@@ -670,6 +670,12 @@ export async function getNonStreamingCompletion(
 		forceModelProvider: testOptions?.forceModelProvider
 	})
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getResponsesNonStreamingCompletion(messages, abortController, testOptions)
+	}
+
+	// Use Completions API for other providers
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -782,6 +788,257 @@ export async function getFimCompletion(
 	}
 }
 
+// Conversion utilities for Responses API
+function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
+	instructions?: string
+	input: Array<{
+		type: 'message'
+		role: 'user' | 'assistant' | 'system' | 'developer'
+		content: any
+	}>
+} {
+	const systemMessage = messages.find((m) => m.role === 'system')
+	const nonSystemMessages = messages.filter((m) => m.role !== 'system')
+
+	return {
+		instructions:
+			systemMessage && 'content' in systemMessage
+				? typeof systemMessage.content === 'string'
+					? systemMessage.content
+					: JSON.stringify(systemMessage.content)
+				: undefined,
+		input: nonSystemMessages.map((m) => ({
+			type: 'message' as const,
+			role: m.role === 'developer' ? 'developer' : m.role === 'assistant' ? 'assistant' : 'user',
+			content: 'content' in m ? m.content : undefined
+		}))
+	}
+}
+
+function convertCompletionConfigToResponsesConfig(
+	config: ChatCompletionCreateParams
+): Record<string, any> {
+	const responsesConfig: Record<string, any> = {
+		model: config.model
+	}
+
+	// Map max_tokens or max_completion_tokens to max_output_tokens
+	if ('max_completion_tokens' in config && config.max_completion_tokens) {
+		responsesConfig.max_output_tokens = config.max_completion_tokens
+	} else if ('max_tokens' in config && config.max_tokens) {
+		responsesConfig.max_output_tokens = config.max_tokens
+	}
+
+	// Keep other relevant fields
+	if (config.temperature !== undefined) {
+		responsesConfig.temperature = config.temperature
+	}
+	if ('tools' in config && config.tools && config.tools.length > 0) {
+		responsesConfig.tools = config.tools.map((tool) => {
+			if (tool.type === 'function' && 'function' in tool) {
+				// Convert from Completions format to Responses format
+				return {
+					type: 'function',
+					name: tool.function.name,
+					description: tool.function.description,
+					parameters: tool.function.parameters,
+					strict: tool.function.strict ?? null
+				}
+			}
+			// Pass through other tool types unchanged
+			return tool
+		})
+	}
+
+	return responsesConfig
+}
+
+// Wrapper for streaming Responses API that converts events to Completions format
+async function* getResponsesStreamingCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+): AsyncGenerator<ChatCompletionChunk> {
+	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+
+	const openaiClient = workspaceAIClients.getOpenaiClient()
+
+	const stream = await openaiClient.responses.create(
+		{
+			...responsesConfig,
+			input,
+			...(instructions ? { instructions } : {}),
+			stream: true
+		},
+		{
+			signal: abortController.signal,
+			headers: {
+				'X-Provider': provider
+			}
+		}
+	)
+
+	// Track tool calls being built up
+	const toolCallsMap: Record<
+		string,
+		{ index: number; id: string; type: 'function'; function: { name: string; arguments: string } }
+	> = {}
+	let toolCallIndex = 0
+
+	for await (const event of stream) {
+		// Handle text delta events
+		if (event.type === 'response.output_text.delta') {
+			const chunk: ChatCompletionChunk = {
+				id: 'chatcmpl-' + generateRandomString(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {
+							content: event.delta || ''
+						},
+						finish_reason: null
+					}
+				]
+			}
+			yield chunk
+		}
+		// Handle new output items (including function calls)
+		else if (event.type === 'response.output_item.added') {
+			const item = event.item
+			if (item.type === 'function_call') {
+				// Initialize the tool call when it's added
+				toolCallsMap[item.call_id] = {
+					index: toolCallIndex++,
+					id: item.call_id,
+					type: 'function',
+					function: {
+						name: item.name,
+						arguments: ''
+					}
+				}
+			}
+		}
+		// Handle function call argument deltas
+		else if (event.type === 'response.function_call_arguments.delta') {
+			const toolCall = toolCallsMap[event.item_id]
+			if (toolCall) {
+				toolCall.function.arguments += event.delta || ''
+
+				const chunk: ChatCompletionChunk = {
+					id: 'chatcmpl-' + generateRandomString(),
+					object: 'chat.completion.chunk',
+					created: Date.now(),
+					model: responsesConfig.model,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								tool_calls: [
+									{
+										index: toolCall.index,
+										id: toolCall.id,
+										type: 'function',
+										function: {
+											name: toolCall.function.name,
+											arguments: event.delta || ''
+										}
+									}
+								]
+							},
+							finish_reason: null
+						}
+					]
+				}
+				yield chunk
+			}
+		}
+		// Handle response completed
+		else if (event.type === 'response.completed') {
+			const chunk: ChatCompletionChunk = {
+				id: 'chatcmpl-' + generateRandomString(),
+				object: 'chat.completion.chunk',
+				created: Date.now(),
+				model: responsesConfig.model,
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: 'stop'
+					}
+				]
+			}
+			yield chunk
+		}
+	}
+}
+
+// Wrapper for non-streaming Responses API
+async function getResponsesNonStreamingCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	testOptions?: {
+		apiKey?: string
+		resourcePath?: string
+		forceModelProvider: AIProviderModel
+	}
+): Promise<string> {
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: false,
+		forceModelProvider: testOptions?.forceModelProvider
+	})
+	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
+		}
+	}
+	if (testOptions?.resourcePath) {
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-Resource-Path': testOptions.resourcePath
+		}
+	} else if (testOptions?.apiKey) {
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-API-Key': testOptions.apiKey
+		}
+	}
+
+	const openaiClient = testOptions?.apiKey
+		? new OpenAI({
+				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+				},
+				dangerouslyAllowBrowser: true
+			})
+		: workspaceAIClients.getOpenaiClient()
+
+	const response = await openaiClient.responses.create(
+		{
+			...responsesConfig,
+			input,
+			...(instructions ? { instructions } : {})
+		},
+		fetchOptions
+	)
+
+	return response.output_text || ''
+}
+
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -789,6 +1046,12 @@ export async function getCompletion(
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getResponsesStreamingCompletion(messages, abortController, tools) as any
+	}
+
+	// Use Completions API for other providers
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
