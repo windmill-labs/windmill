@@ -43,6 +43,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
@@ -407,9 +408,18 @@ class AIChatManager {
 				}
 
 				const model = getCurrentModel()
-				const completionFn = model.provider === 'anthropic' ? getAnthropicCompletion : getCompletion
+				const completionFn =
+					model.provider === 'anthropic'
+						? getAnthropicCompletion
+						: model.provider === 'openai' || model.provider === 'azure_openai'
+							? getOpenAIResponsesCompletion
+							: getCompletion
 				const parseFn =
-					model.provider === 'anthropic' ? parseAnthropicCompletion : parseOpenAICompletion
+					model.provider === 'anthropic'
+						? parseAnthropicCompletion
+						: model.provider === 'openai' || model.provider === 'azure_openai'
+							? parseOpenAIResponsesCompletion
+							: parseOpenAICompletion
 
 				const completion = await completionFn(
 					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
