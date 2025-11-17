@@ -39,7 +39,7 @@
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively, getModifierKey } from '$lib/utils'
+	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -781,6 +781,8 @@
 	export function zoomOut() {
 		viewportSynchronizer?.zoomOut()
 	}
+
+	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
 
 {#if insertable}
@@ -848,13 +850,13 @@
 				selectionOnDrag={selectionManager.mode === 'rect-select'}
 				elementsSelectable={true}
 				selectionMode={SelectionMode.Partial}
-				selectionKey={selectionManager.mode === 'rect-select' || !editMode ? null : 'Meta'}
-				panActivationKey={selectionManager.mode === 'rect-select' ? 'Meta' : null}
+				selectionKey={selectionManager.mode === 'rect-select' || !editMode ? null : modifierKey}
+				panActivationKey={selectionManager.mode === 'rect-select' ? modifierKey : null}
 				panOnDrag={selectionManager.mode === 'rect-select' ? [1] : true}
 				zoomOnDoubleClick={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
-				multiSelectionKey={'Meta'}
+				multiSelectionKey={modifierKey}
 				nodesDraggable={false}
 				--background-color={false}
 			>
