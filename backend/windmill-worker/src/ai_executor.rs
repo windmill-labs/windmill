@@ -15,7 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::mcp_client::McpClient;
 use windmill_common::{
-    ai_providers::{AIProvider, AZURE_API_VERSION},
+    ai_providers::AIProvider,
     cache,
     client::AuthedClient,
     db::DB,
@@ -621,10 +621,6 @@ pub async fn run_agent(
             // Apply custom headers from AI_HTTP_HEADERS environment variable
             for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
                 request = request.header(header_name.as_str(), header_value.as_str());
-            }
-
-            if args.provider.kind.is_azure_openai(&base_url) {
-                request = request.query(&[("api-version", AZURE_API_VERSION)])
             }
 
             let resp = request
