@@ -144,6 +144,17 @@
 			noteManager.selectNote(data.noteId)
 		}
 	}
+
+	function handleTextareaKeydown(event: KeyboardEvent) {
+		// Handle Escape key to exit edit mode
+		if (event.key === 'Escape') {
+			event.preventDefault()
+			event.stopPropagation()
+			handleTextSave() // Save changes before exiting
+			editMode = false
+			textareaElement?.blur() // Remove focus from textarea
+		}
+	}
 </script>
 
 <div
@@ -264,6 +275,7 @@
 				)}
 				placeholder="Double click to edit me"
 				onblur={handleTextSave}
+				onkeydown={handleTextareaKeydown}
 				spellcheck="false"
 				style:height={data.isGroupNote ? `${containerHeight > 0 ? containerHeight : 60}px` : '100%'}
 			></textarea>
