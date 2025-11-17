@@ -27,7 +27,7 @@
 			onClick: () => {
 				if (selectedNodeIds.length > 0 && noteEditorContext?.noteEditor && graphContext) {
 					// Create the group note first
-					noteEditorContext.noteEditor.createGroupNote(selectedNodeIds, 'Group Note')
+					noteEditorContext.noteEditor.createGroupNote(selectedNodeIds)
 
 					// Wait for next tick to ensure DOM updates
 					tick().then(() => {

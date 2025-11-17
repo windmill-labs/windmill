@@ -102,7 +102,10 @@ export class NoteEditor {
 	/**
 	 * Create a group note containing the specified node IDs
 	 */
-	createGroupNote(nodeIds: string[], text: string = 'Group'): string {
+	createGroupNote(
+		nodeIds: string[],
+		text: string = '### Group note\nDouble click to edit me'
+	): string {
 		// Position and size will be calculated dynamically by layout
 
 		const groupNote: Omit<FlowNote, 'id'> = {

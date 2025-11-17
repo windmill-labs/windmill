@@ -78,7 +78,7 @@
 		// Create the actual note using NoteEditor context
 		if (noteEditorContext?.noteEditor) {
 			noteEditorContext.noteEditor.addNote({
-				text: '',
+				text: '### Free note\nDouble click to edit me',
 				position,
 				size,
 				color: DEFAULT_NOTE_COLOR,

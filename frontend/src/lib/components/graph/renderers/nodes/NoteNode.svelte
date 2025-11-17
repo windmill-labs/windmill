@@ -262,7 +262,7 @@
 					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4 nodrag',
 					colorConfig.text
 				)}
-				placeholder="Add your note here... (Markdown supported)"
+				placeholder="Double click to edit me"
 				onblur={handleTextSave}
 				spellcheck="false"
 				style:height={data.isGroupNote ? `${containerHeight > 0 ? containerHeight : 60}px` : '100%'}
@@ -286,7 +286,7 @@
 					</div>
 				{:else}
 					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>
-						Double-click to add a note
+						Double click to edit me
 					</div>
 				{/if}
 			</div>

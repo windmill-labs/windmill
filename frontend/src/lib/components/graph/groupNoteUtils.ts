@@ -264,7 +264,7 @@ export function addGroupNoteContextMenuItem(
 		disabled: !noteEditorContext?.noteEditor,
 		onClick: () => {
 			if (noteEditorContext?.noteEditor) {
-				noteEditorContext.noteEditor.createGroupNote([nodeId], 'Group Note')
+				noteEditorContext.noteEditor.createGroupNote([nodeId])
 			}
 		}
 	}

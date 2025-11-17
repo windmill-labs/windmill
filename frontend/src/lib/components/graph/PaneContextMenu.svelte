@@ -50,7 +50,7 @@
 	function handleAddStickyNote() {
 		if (noteEditorContext?.noteEditor && pendingFlowPosition) {
 			noteEditorContext.noteEditor.addNote({
-				text: '',
+				text: '### Free note\nDouble click to edit me',
 				position: pendingFlowPosition,
 				size: { width: 300, height: 200 },
 				color: DEFAULT_NOTE_COLOR,
