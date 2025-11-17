@@ -107,7 +107,7 @@
 					}
 				} else if (newMcpScope === 'folder') {
 					const folderPath = `f/${selectedFolder}/*`
-					tokenScopes = [`mcp:all:${folderPath}`]
+					tokenScopes = [`mcp:scripts:${folderPath}`, `mcp:flows:${folderPath}`]
 				} else {
 					tokenScopes = [`mcp:${newMcpScope}`]
 				}

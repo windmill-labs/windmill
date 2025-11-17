@@ -46,6 +46,20 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> 
             continue;
         }
 
+        // Legacy folder scope: mcp:all:f/folder/*
+        if scope.starts_with("mcp:all:") {
+            if let Some(folder_pattern) = scope.strip_prefix("mcp:all:") {
+                // Parse as folder pattern - add to both scripts and flows
+                config.scripts.push(folder_pattern.to_string());
+                config.flows.push(folder_pattern.to_string());
+                tracing::info!(
+                    "Legacy folder scope detected: {} - migrating to granular format",
+                    scope
+                );
+            }
+            continue;
+        }
+
         if scope.starts_with("mcp:hub:") {
             // Legacy hub scope
             if let Some(apps) = scope.strip_prefix("mcp:hub:") {
@@ -171,10 +185,7 @@ mod tests {
         ];
         let config = parse_mcp_scopes(&scopes).unwrap();
 
-        assert_eq!(
-            config.scripts,
-            vec!["u/admin/script1", "u/admin/script2"]
-        );
+        assert_eq!(config.scripts, vec!["u/admin/script1", "u/admin/script2"]);
         assert_eq!(config.flows, vec!["f/automation/*"]);
         assert_eq!(config.endpoints, vec!["list_jobs", "get_job"]);
     }
@@ -182,17 +193,14 @@ mod tests {
     #[test]
     fn test_resource_matching() {
         // Exact match
-        assert!(resource_matches_pattern(
-            "u/admin/script",
-            "u/admin/script"
-        ));
+        assert!(resource_matches_pattern("u/admin/script", "u/admin/script"));
 
         // Wildcard folder match
+        assert!(resource_matches_pattern("f/folder/script", "f/folder/*"));
         assert!(resource_matches_pattern(
-            "f/folder/script",
+            "f/folder/sub/script",
             "f/folder/*"
         ));
-        assert!(resource_matches_pattern("f/folder/sub/script", "f/folder/*"));
 
         // Should NOT match - prefix is not complete
         assert!(!resource_matches_pattern("u/username", "u/user/*"));
@@ -203,10 +211,7 @@ mod tests {
 
     #[test]
     fn test_is_resource_allowed() {
-        let patterns = vec![
-            "u/admin/script1".to_string(),
-            "f/folder/*".to_string(),
-        ];
+        let patterns = vec!["u/admin/script1".to_string(), "f/folder/*".to_string()];
 
         assert!(is_resource_allowed("u/admin/script1", &patterns));
         assert!(is_resource_allowed("f/folder/anything", &patterns));
