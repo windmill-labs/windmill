@@ -738,6 +738,31 @@ async fn create_resource(
     let res_value = resource.value.unwrap_or_default();
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
+    if resource.path.starts_with("f/app_themes/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    } else if resource.path.starts_with("f/app_custom/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    } else if resource.path.starts_with("f/app_groups/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    }
     sqlx::query!(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type, created_by, edited_at)

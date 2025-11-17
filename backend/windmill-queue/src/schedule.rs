@@ -17,8 +17,8 @@ use std::str::FromStr;
 use windmill_common::db::Authed;
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
+use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
-use windmill_common::get_latest_flow_version_info_for_path_from_version;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
@@ -63,7 +63,7 @@ async fn get_schedule_metadata<'c>(
         .await?;
 
         let FlowVersionInfo { tag, on_behalf_of_email, edited_by, .. } =
-            get_latest_flow_version_info_for_path_from_version(
+            get_flow_version_info_from_version(
                 &mut **tx,
                 version,
                 &schedule.workspace_id,
@@ -291,16 +291,13 @@ pub async fn push_scheduled_job<'c>(
 
         let FlowVersionInfo {
             version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
-        } = get_latest_flow_version_info_for_path_from_version(
+        } = get_flow_version_info_from_version(
             &mut *tx,
             version,
             &schedule.workspace_id,
             &schedule.script_path,
         )
-        .warn_after_seconds_with_sql(
-            1,
-            "get_latest_flow_version_info_for_path_from_version".to_string(),
-        )
+        .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
 
         (
@@ -503,6 +500,7 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
         None,
+        Some(windmill_common::jobs::JobTriggerKind::Schedule),
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;

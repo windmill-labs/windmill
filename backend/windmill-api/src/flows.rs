@@ -562,6 +562,7 @@ async fn create_flow(
         false,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1025,6 +1026,7 @@ async fn update_flow(
         false,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1118,24 +1120,25 @@ async fn get_flow_by_path(
     let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
             r#"
-        SELECT
-            flow.workspace_id,
-            flow.path,
-            flow.lock_error_logs,
-            flow.summary,
-            flow.description,
-            flow.archived,
-            flow.extra_perms,
-            flow.draft_only,
-            flow.dedicated_worker,
-            flow.tag,
-            flow.ws_error_handler_muted,
-            flow.timeout,
-            flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
-            flow_version.schema,
-            flow_version.value,
-            flow_version.created_at AS edited_at,
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
+            flow_version.schema, 
+            flow_version.value, 
+            flow_version.created_at AS edited_at, 
             flow_version.created_by AS edited_by,
             favorite.path IS NOT NULL AS starred
         FROM flow
@@ -1157,25 +1160,26 @@ async fn get_flow_by_path(
     } else {
         sqlx::query_as::<_, FlowWithStarred>(
             r#"
-        SELECT
-            flow.workspace_id,
-            flow.path,
-            flow.lock_error_logs,
-            flow.summary,
-            flow.description,
-            flow.archived,
-            flow.extra_perms,
-            flow.draft_only,
-            flow.dedicated_worker,
-            flow.tag,
-            flow.ws_error_handler_muted,
-            flow.timeout,
-            flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
-            flow_version.schema,
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
+            flow_version.schema, 
             flow_version.value,
-            flow_version.created_at AS edited_at,
-            flow_version.created_by AS edited_by,
+            flow_version.created_at AS edited_at, 
+            flow_version.created_by AS edited_by, 
             NULL AS starred
         FROM flow
         LEFT JOIN flow_version
