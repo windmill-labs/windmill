@@ -69,6 +69,7 @@ struct AIStandardResource {
     #[serde(alias = "apiKey")]
     api_key: Option<String>,
     organization_id: Option<String>,
+    region: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -101,7 +102,9 @@ impl AIRequestConfig {
     ) -> Result<Self> {
         let (api_key, access_token, organization_id, base_url, user) = match resource {
             AIResource::Standard(resource) => {
-                let base_url = provider.get_base_url(resource.base_url, db).await?;
+                let base_url = provider
+                    .get_base_url(resource.base_url, resource.region, db)
+                    .await?;
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
                 } else {
@@ -122,7 +125,7 @@ impl AIRequestConfig {
                     None
                 };
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
-                let base_url = provider.get_base_url(None, db).await?;
+                let base_url = provider.get_base_url(None, None, db).await?;
 
                 (None, Some(token), None, base_url, user)
             }
@@ -179,6 +182,7 @@ impl AIRequestConfig {
         };
 
         let base_url = self.base_url.trim_end_matches('/');
+        println!("HERE base_url: {}", base_url);
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
@@ -941,7 +945,7 @@ async fn global_proxy(
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url(None, &db).await?;
+    let base_url = provider.get_base_url(None, None, &db).await?;
 
     let url = format!("{}/{}", base_url, ai_path);
 

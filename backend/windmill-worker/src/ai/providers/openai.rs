@@ -11,7 +11,6 @@ use crate::ai::{
     utils::should_use_structured_output_tool,
 };
 
-// OpenAI-specific types
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct OpenAIFunction {
     pub name: String,

@@ -33,7 +33,12 @@ pub enum AIProvider {
 
 impl AIProvider {
     /// Get the base URL for the AI provider
-    pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
+    pub async fn get_base_url(
+        &self,
+        resource_base_url: Option<String>,
+        region: Option<String>,
+        db: &DB,
+    ) -> Result<String> {
         match self {
             AIProvider::OpenAI => {
                 // Check for Azure base path override
@@ -66,7 +71,7 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AWSBedrock) => {
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
                 if let Some(base_url) = resource_base_url {
                     Ok(base_url)
                 } else {
@@ -76,6 +81,10 @@ impl AIProvider {
                     )))
                 }
             }
+            AIProvider::AWSBedrock => Ok(format!(
+                "https://bedrock-runtime.{}.amazonaws.com",
+                region.unwrap_or_else(|| "us-east-1".to_string())
+            )),
         }
     }
 

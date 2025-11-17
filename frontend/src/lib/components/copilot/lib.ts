@@ -161,28 +161,15 @@ export async function fetchAvailableModels(
 			(m) => m.inputModalities?.includes('TEXT') && m.outputModalities?.includes('TEXT')
 		)
 
-		// Map models to their invocable IDs
-		const modelIds = textModels.map((model) => {
-			const supportsOnDemand = model.inferenceTypesSupported?.includes('ON_DEMAND')
-
-			// If model supports ON_DEMAND, use the model ID directly
-			if (supportsOnDemand) {
-				return model.modelId
-			}
-
-			// Otherwise, find matching inference profile
-			const matchingProfile = inferenceProfiles.find((profile) =>
-				profile.models.some((m) => m.modelArn === model.modelArn)
+		const onDemandModels = textModels
+			.filter(
+				(model) =>
+					model.inferenceTypesSupported?.includes('ON_DEMAND') &&
+					!model.inferenceTypesSupported?.includes('INFERENCE_PROFILE')
 			)
-
-			if (matchingProfile) {
-				return matchingProfile.inferenceProfileId
-			}
-
-			// Fallback to model ID if no matching profile found (may fail at runtime)
-			console.warn(`No inference profile found for ${model.modelId}, using direct ID`)
-			return model.modelId
-		})
+			.map((model) => model.modelId)
+		const inferenceModels = inferenceProfiles.map((profile) => profile.inferenceProfileId)
+		const modelIds = [...onDemandModels, ...inferenceModels]
 
 		// Sort by default models
 		const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
