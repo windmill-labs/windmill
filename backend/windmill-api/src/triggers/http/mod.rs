@@ -261,7 +261,8 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                     FROM
                         http_trigger
                     WHERE
-                        http_method = $1
+                        http_method = $1 AND
+                        enabled is TRUE
                     "#,
                 &http_method as &HttpMethod
             )

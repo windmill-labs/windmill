@@ -241,7 +241,7 @@ pub async fn do_postgresql(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = encode(&database.user.unwrap_or("postgres".to_string())),
         password = encode(&database.password.unwrap_or("".to_string())),
-        host = encode(&database.host),
+        host = database.host,
         port = database.port.unwrap_or(5432),
         dbname = database.dbname,
         sslmode = sslmode

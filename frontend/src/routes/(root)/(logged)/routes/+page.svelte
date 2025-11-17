@@ -196,6 +196,23 @@
 		}
 	}
 
+	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+		try {
+			await HttpTriggerService.setHttpTriggerEnabled({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { enabled }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` http trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
@@ -297,7 +314,7 @@
 				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, enabled, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -341,6 +358,14 @@
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
+
+								<Toggle
+									checked={enabled}
+									disabled={!canWrite}
+									on:change={(e) => {
+										setTriggerEnabled(path, e.detail)
+									}}
+								/>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
