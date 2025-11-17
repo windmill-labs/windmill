@@ -8,6 +8,8 @@ import type { ResponseErrorEvent } from 'openai/resources/responses/responses.mj
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
+import { OpenAPI } from '$lib/gen'
+import type { AIProviderModel } from '$lib/gen'
 
 // Conversion utilities for Responses API
 function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
@@ -249,4 +251,67 @@ export async function parseOpenAIResponsesCompletion(
 	}
 
 	return false // End the conversation
+}
+
+export async function getNonStreamingOpenAIResponsesCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	testOptions?: {
+		apiKey?: string
+		resourcePath?: string
+		forceModelProvider: AIProviderModel
+	}
+): Promise<string> {
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: false,
+		forceModelProvider: testOptions?.forceModelProvider
+	})
+
+	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
+		}
+	}
+
+	if (testOptions?.resourcePath) {
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-Resource-Path': testOptions.resourcePath
+		}
+	} else if (testOptions?.apiKey) {
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-API-Key': testOptions.apiKey
+		}
+	}
+
+	const openaiClient = testOptions?.apiKey
+		? new OpenAI({
+				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+				},
+				dangerouslyAllowBrowser: true
+			})
+		: workspaceAIClients.getOpenaiClient()
+
+	const response = await openaiClient.responses.create(
+		{
+			...responsesConfig,
+			input,
+			...(instructions ? { instructions } : {})
+		},
+		fetchOptions
+	)
+
+	return response.output_text || ''
 }

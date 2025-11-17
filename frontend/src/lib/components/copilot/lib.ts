@@ -17,6 +17,10 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	getNonStreamingOpenAIResponsesCompletion,
+	getOpenAIResponsesCompletion
+} from './chat/openai-responses'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
@@ -670,6 +674,11 @@ export async function getNonStreamingCompletion(
 		forceModelProvider: testOptions?.forceModelProvider
 	})
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getNonStreamingOpenAIResponsesCompletion(messages, abortController, testOptions)
+	}
+
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -789,6 +798,12 @@ export async function getCompletion(
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getOpenAIResponsesCompletion(messages, abortController, tools) as any
+	}
+
+	// Use Completions API for other providers
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
