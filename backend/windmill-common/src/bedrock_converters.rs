@@ -5,11 +5,11 @@
 //! This module provides bidirectional conversion between OpenAI-compatible
 //! message formats (used throughout Windmill) and AWS Bedrock Converse API formats.
 
-use crate::ai_types::{OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
+use crate::ai_types::{ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
 use crate::error::{Error, Result};
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, InferenceConfiguration, Message, SystemContentBlock, Tool,
-    ToolInputSchema, ToolSpecification,
+    ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration,
+    Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
 
 /// Convert AWS Smithy Document to serde_json::Value
@@ -108,22 +108,75 @@ pub fn openai_messages_to_bedrock(
 }
 
 /// Helper to extract text from OpenAIContent
-fn content_to_text(content: &OpenAIContent) -> String {
-    match content {
-        OpenAIContent::Text(text) => text.clone(),
-        OpenAIContent::Parts(parts) => {
-            // Extract text from parts and join them
-            parts
-                .iter()
-                .filter_map(|part| {
-                    if let crate::ai_types::ContentPart::Text { text } = part {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
+/// Parse image data URL and extract format and base64 data
+fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>)> {
+    if !url.starts_with("data:") {
+        return Err(Error::internal_err("Image URL must be a data URL"));
+    }
+
+    // Parse data:image/png;base64,<data>
+    let base64_start = url
+        .find("base64,")
+        .ok_or_else(|| Error::internal_err("Invalid data URL format"))?;
+
+    let base64_data = &url[base64_start + 7..];
+    let mime_type = url
+        .split(';')
+        .next()
+        .and_then(|s| s.strip_prefix("data:"))
+        .unwrap_or("image/png");
+
+    // Extract format from MIME type (e.g., "image/png" -> "png")
+    let format_str = mime_type
+        .rsplit_once('/')
+        .map(|(_, format)| format)
+        .unwrap_or("png");
+
+    // Map to ImageFormat enum
+    let format = match format_str {
+        "png" => ImageFormat::Png,
+        "jpeg" | "jpg" => ImageFormat::Jpeg,
+        "gif" => ImageFormat::Gif,
+        "webp" => ImageFormat::Webp,
+        _ => ImageFormat::Png, // Default to PNG
+    };
+
+    // Decode base64
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        base64_data,
+    )
+    .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
+
+    Ok((format, bytes))
+}
+
+/// Convert a ContentPart to Bedrock ContentBlock
+fn content_part_to_block(part: &ContentPart) -> Result<Option<ContentBlock>> {
+    match part {
+        ContentPart::Text { text } => {
+            if text.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(ContentBlock::Text(text.clone())))
+            }
+        }
+        ContentPart::ImageUrl { image_url } => {
+            let (format, bytes) = parse_image_data_url(&image_url.url)?;
+
+            let image_source = ImageSource::Bytes(bytes.into());
+            let image_block = ImageBlock::builder()
+                .format(format)
+                .source(image_source)
+                .build()
+                .map_err(|e| Error::internal_err(format!("Failed to build image block: {}", e)))?;
+
+            Ok(Some(ContentBlock::Image(image_block)))
+        }
+        ContentPart::S3Object { .. } => {
+            // S3Objects are already converted to ImageUrl by prepare_messages_for_api
+            // If we somehow get here, skip it
+            Ok(None)
         }
     }
 }
@@ -140,11 +193,21 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message> {
 
     let mut content_blocks = Vec::new();
 
-    // Handle text content
+    // Handle content (text and/or images)
     if let Some(ref content) = msg.content {
-        let text = content_to_text(content);
-        if !text.is_empty() {
-            content_blocks.push(ContentBlock::Text(text));
+        match content {
+            OpenAIContent::Text(text) => {
+                if !text.is_empty() {
+                    content_blocks.push(ContentBlock::Text(text.clone()));
+                }
+            }
+            OpenAIContent::Parts(parts) => {
+                for part in parts {
+                    if let Some(block) = content_part_to_block(part)? {
+                        content_blocks.push(block);
+                    }
+                }
+            }
         }
     }
 
@@ -332,6 +395,79 @@ pub fn bedrock_stream_event_to_text(
         }
         _ => None,
     }
+}
+
+/// Represents a streaming tool call being accumulated
+#[derive(Debug, Clone)]
+pub struct StreamingToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+/// Extract tool use start event from stream
+pub fn bedrock_stream_event_to_tool_start(
+    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
+) -> Option<StreamingToolCall> {
+    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
+
+    match event {
+        ConverseStreamOutput::ContentBlockStart(start) => {
+            if let Some(tool_use) = start.start().and_then(|s| s.as_tool_use().ok()) {
+                Some(StreamingToolCall {
+                    id: tool_use.tool_use_id().to_string(),
+                    name: tool_use.name().to_string(),
+                    arguments: String::new(),
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Extract tool use input delta from stream
+pub fn bedrock_stream_event_to_tool_delta(
+    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
+) -> Option<String> {
+    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
+
+    match event {
+        ConverseStreamOutput::ContentBlockDelta(delta) => {
+            delta.delta().and_then(|d| d.as_tool_use().ok()).map(|tool_use| {
+                tool_use.input().to_string()
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Check if stream event indicates content block stop
+pub fn bedrock_stream_event_is_block_stop(
+    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
+) -> bool {
+    use aws_sdk_bedrockruntime::types::ConverseStreamOutput;
+    matches!(event, ConverseStreamOutput::ContentBlockStop(_))
+}
+
+/// Convert accumulated streaming tool calls to OpenAI format
+pub fn streaming_tool_calls_to_openai(
+    tool_calls: Vec<StreamingToolCall>,
+) -> Vec<OpenAIToolCall> {
+    use crate::ai_types::OpenAIFunction;
+
+    tool_calls
+        .into_iter()
+        .map(|tc| OpenAIToolCall {
+            id: tc.id,
+            function: OpenAIFunction {
+                name: tc.name,
+                arguments: tc.arguments,
+            },
+            r#type: "function".to_string(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

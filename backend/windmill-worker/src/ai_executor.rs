@@ -606,7 +606,12 @@ pub async fn run_agent(
             };
 
             if should_stream {
-                use windmill_common::bedrock_converters::bedrock_stream_event_to_text;
+                use std::collections::HashMap;
+                use windmill_common::bedrock_converters::{
+                    bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
+                    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start,
+                    streaming_tool_calls_to_openai, StreamingToolCall,
+                };
 
                 // Build streaming request
                 let mut request_builder = bedrock_client
@@ -636,42 +641,68 @@ pub async fn run_agent(
 
                 let mut accumulated_text = String::new();
                 let mut events_str = String::new();
+                let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
+                let mut current_tool_use_id: Option<String> = None;
 
                 // Process stream events
-                if let Some(processor) = stream_event_processor.as_ref() {
-                    loop {
-                        match stream.recv().await {
-                            Ok(Some(event)) => {
-                                if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
-                                    accumulated_text.push_str(&text_delta);
+                loop {
+                    match stream.recv().await {
+                        Ok(Some(event)) => {
+                            // Handle tool use start
+                            if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
+                                current_tool_use_id = Some(tool_call.id.clone());
+                                accumulated_tool_calls.insert(tool_call.id.clone(), tool_call);
+                            }
+
+                            // Handle text delta
+                            if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
+                                accumulated_text.push_str(&text_delta);
+                                if let Some(processor) = stream_event_processor.as_ref() {
                                     processor
                                         .send(
-                                            crate::ai::types::StreamingEvent::TokenDelta { content: text_delta },
+                                            crate::ai::types::StreamingEvent::TokenDelta {
+                                                content: text_delta,
+                                            },
                                             &mut events_str,
                                         )
                                         .await?;
                                 }
                             }
-                            Ok(None) => break, // Stream ended
-                            Err(e) => {
-                                return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
-                            }
-                        }
-                    }
-                } else {
-                    // No stream processor, just accumulate text
-                    loop {
-                        match stream.recv().await {
-                            Ok(Some(event)) => {
-                                if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
-                                    accumulated_text.push_str(&text_delta);
+
+                            // Handle tool use input delta
+                            if let Some(input_delta) = bedrock_stream_event_to_tool_delta(&event) {
+                                if let Some(tool_id) = &current_tool_use_id {
+                                    if let Some(tool_call) = accumulated_tool_calls.get_mut(tool_id) {
+                                        tool_call.arguments.push_str(&input_delta);
+                                    }
                                 }
                             }
-                            Ok(None) => break, // Stream ended
-                            Err(e) => {
-                                return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
+
+                            // Handle content block stop
+                            if bedrock_stream_event_is_block_stop(&event) {
+                                current_tool_use_id = None;
                             }
                         }
+                        Ok(None) => break, // Stream ended
+                        Err(e) => {
+                            return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
+                        }
+                    }
+                }
+
+                // Send tool call events to stream processor
+                if let Some(processor) = stream_event_processor.as_ref() {
+                    for tool_call in accumulated_tool_calls.values() {
+                        processor
+                            .send(
+                                crate::ai::types::StreamingEvent::ToolCallArguments {
+                                    call_id: tool_call.id.clone(),
+                                    function_name: tool_call.name.clone(),
+                                    arguments: tool_call.arguments.clone(),
+                                },
+                                &mut events_str,
+                            )
+                            .await?;
                     }
                 }
 
@@ -681,9 +712,13 @@ pub async fn run_agent(
                     Some(accumulated_text)
                 };
 
+                let tool_calls = streaming_tool_calls_to_openai(
+                    accumulated_tool_calls.into_values().collect(),
+                );
+
                 ParsedResponse::Text {
                     content,
-                    tool_calls: vec![], // Streaming doesn't support tool calls yet
+                    tool_calls,
                     events_str: if events_str.is_empty() { None } else { Some(events_str) },
                 }
             } else {
