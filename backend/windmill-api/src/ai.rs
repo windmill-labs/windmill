@@ -182,7 +182,6 @@ impl AIRequestConfig {
         };
 
         let base_url = self.base_url.trim_end_matches('/');
-        println!("HERE base_url: {}", base_url);
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
