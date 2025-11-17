@@ -509,10 +509,7 @@ async fn proxy(
     }
 
     // Transform Bedrock responses back to OpenAI format
-    if matches!(provider, AIProvider::AWSBedrock) {
-        let Some(model) = model else {
-            return Err(Error::BadRequest("Model is required".to_string()));
-        };
+    if matches!(provider, AIProvider::AWSBedrock) && model.is_some() {
         if is_streaming {
             // Transform streaming response
             use http::StatusCode;
@@ -523,7 +520,8 @@ async fn proxy(
             response_headers.insert("connection", "keep-alive".parse().unwrap());
 
             let stream = response.bytes_stream();
-            let transformed_stream = bedrock::transform_bedrock_stream_to_openai(stream, model);
+            let transformed_stream =
+                bedrock::transform_bedrock_stream_to_openai(stream, model.unwrap());
 
             Ok((
                 StatusCode::OK,
@@ -532,7 +530,8 @@ async fn proxy(
             ))
         } else {
             // Transform non-streaming response
-            let transformed_body = bedrock::transform_bedrock_to_openai(response, model).await?;
+            let transformed_body =
+                bedrock::transform_bedrock_to_openai(response, model.unwrap()).await?;
 
             let mut response_headers = HeaderMap::new();
             response_headers.insert("content-type", "application/json".parse().unwrap());
