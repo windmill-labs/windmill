@@ -270,7 +270,7 @@
 				bind:this={textareaElement}
 				bind:value={textContent}
 				class={twMerge(
-					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4 nodrag',
+					'windmillapp w-full shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4 nodrag nowheel',
 					colorConfig.text
 				)}
 				placeholder="Double click to edit me"
