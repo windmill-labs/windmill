@@ -19,7 +19,7 @@ import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
-	getOpenAIResponsesCompletion
+	getOpenAIResponsesCompletionStream
 } from './chat/openai-responses'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
@@ -800,7 +800,7 @@ export async function getCompletion(
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if (provider === 'openai' || provider === 'azure_openai') {
-		return getOpenAIResponsesCompletion(messages, abortController, tools) as any
+		return getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
 	}
 
 	// Use Completions API for other providers
