@@ -18,6 +18,8 @@ pub struct McpScopeConfig {
     pub all: bool,
     /// Whether this is a "favorites" scope
     pub favorites: bool,
+    /// Whether a granular scope is detected
+    pub granular: bool,
     /// Hub app filter (if any)
     pub hub_apps: Option<String>,
 }
@@ -49,13 +51,10 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> 
         // Legacy folder scope: mcp:all:f/folder/*
         if scope.starts_with("mcp:all:") {
             if let Some(folder_pattern) = scope.strip_prefix("mcp:all:") {
-                // Parse as folder pattern - add to both scripts and flows
+                // Parse as folder pattern - add to both scripts and flows. Also add all endpoints.
                 config.scripts.push(folder_pattern.to_string());
                 config.flows.push(folder_pattern.to_string());
-                tracing::info!(
-                    "Legacy folder scope detected: {} - migrating to granular format",
-                    scope
-                );
+                config.endpoints.push("*".to_string());
             }
             continue;
         }
@@ -88,6 +87,8 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> 
 
         tracing::warn!("Unrecognized MCP scope format: {}", scope);
     }
+
+    config.granular = !config.all && !config.favorites;
 
     Ok(config)
 }

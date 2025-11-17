@@ -422,9 +422,7 @@ impl ServerHandler for Runner {
         // Filter and add scripts based on scope
         for script in scripts {
             // For granular scopes, filter by path
-            if !scope_config.scripts.is_empty()
-                && !is_resource_allowed(&script.path, &scope_config.scripts)
-            {
+            if scope_config.granular && !is_resource_allowed(&script.path, &scope_config.scripts) {
                 continue;
             }
 
@@ -444,9 +442,7 @@ impl ServerHandler for Runner {
         // Filter and add flows based on scope
         for flow in flows {
             // For granular scopes, filter by path
-            if !scope_config.flows.is_empty()
-                && !is_resource_allowed(&flow.path, &scope_config.flows)
-            {
+            if scope_config.granular && !is_resource_allowed(&flow.path, &scope_config.flows) {
                 continue;
             }
 
@@ -481,13 +477,18 @@ impl ServerHandler for Runner {
         let endpoint_tools = all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             // For granular scopes, filter by endpoint name
-            if !scope_config.endpoints.is_empty()
+            if scope_config.granular
                 && !is_resource_allowed(&endpoint_tool.name, &scope_config.endpoints)
             {
                 continue;
             }
 
-            tools.push(endpoint_tools_to_mcp_tools(vec![endpoint_tool]).into_iter().next().unwrap());
+            tools.push(
+                endpoint_tools_to_mcp_tools(vec![endpoint_tool])
+                    .into_iter()
+                    .next()
+                    .unwrap(),
+            );
         }
 
         Ok(ListToolsResult { tools, next_cursor: None })
