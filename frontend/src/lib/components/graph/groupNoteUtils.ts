@@ -218,7 +218,7 @@ export function addGroupNoteContextMenuItem(
 ) {
 	return {
 		id: 'add-group-note',
-		label: 'Add group note',
+		label: 'Add note',
 		icon: StickyNote,
 		disabled: !noteEditorContext?.noteEditor,
 		onClick: () => {
