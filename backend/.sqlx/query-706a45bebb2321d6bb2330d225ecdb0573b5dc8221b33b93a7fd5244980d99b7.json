@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH \n            batch_completed_jobs AS (\n                SELECT id FROM v2_job_completed\n                WHERE workspace_id = $1\n                LIMIT $2\n            ),\n            batch_jobs AS (\n                SELECT id FROM v2_job\n                WHERE workspace_id = $1\n                LIMIT $2\n            ),\n            updated_completed AS (\n                UPDATE v2_job_completed\n                SET workspace_id = $3\n                WHERE id IN (SELECT id FROM batch_completed_jobs)\n                RETURNING 1\n            ),\n            updated_jobs AS (\n                UPDATE v2_job\n                SET workspace_id = $3\n                WHERE id IN (SELECT id FROM batch_jobs)\n                RETURNING 1\n            )\n            SELECT \n                (SELECT COUNT(*) FROM updated_completed) + \n                (SELECT COUNT(*) FROM updated_jobs) as total_count",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "706a45bebb2321d6bb2330d225ecdb0573b5dc8221b33b93a7fd5244980d99b7"
+}

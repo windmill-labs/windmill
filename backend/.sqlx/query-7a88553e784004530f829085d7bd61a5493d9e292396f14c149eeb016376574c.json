@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            w.id \n        FROM \n            workspace w \n        LEFT JOIN usr u ON u.workspace_id = w.id\n        WHERE \n            w.parent_workspace_id = $1 \n        AND u.workspace_id IS NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a88553e784004530f829085d7bd61a5493d9e292396f14c149eeb016376574c"
+}
