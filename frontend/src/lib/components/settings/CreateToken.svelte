@@ -285,39 +285,33 @@
 			])
 			allScripts = scripts
 			allFlows = flows
-			// Initialize selections to all if empty
-			if (selectedScripts.length === 0 && selectedFlows.length === 0) {
-				selectedScripts = [...scripts]
-				selectedFlows = [...flows]
-				selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
-			}
 		} finally {
 			loadingRunnables = false
 		}
 	}
 
-	function toggleScript(path: string) {
-		if (selectedScripts.includes(path)) {
-			selectedScripts = selectedScripts.filter((p) => p !== path)
-		} else {
-			selectedScripts = [...selectedScripts, path]
-		}
+	function selectAllScripts() {
+		selectedScripts = [...allScripts]
 	}
 
-	function toggleFlow(path: string) {
-		if (selectedFlows.includes(path)) {
-			selectedFlows = selectedFlows.filter((p) => p !== path)
-		} else {
-			selectedFlows = [...selectedFlows, path]
-		}
+	function clearAllScripts() {
+		selectedScripts = []
 	}
 
-	function toggleEndpoint(name: string) {
-		if (selectedEndpoints.includes(name)) {
-			selectedEndpoints = selectedEndpoints.filter((n) => n !== name)
-		} else {
-			selectedEndpoints = [...selectedEndpoints, name]
-		}
+	function selectAllFlows() {
+		selectedFlows = [...allFlows]
+	}
+
+	function clearAllFlows() {
+		selectedFlows = []
+	}
+
+	function selectAllEndpoints() {
+		selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+	}
+
+	function clearAllEndpoints() {
+		selectedEndpoints = []
 	}
 </script>
 
@@ -491,80 +485,50 @@
 						</div>
 					</div>
 				{:else}
+					{#snippet sectionHeader(label: string, selectAll: () => void, clearAll: () => void)}
+						<div class="flex items-center justify-between">
+							<span class="block text-xs font-semibold">{label}</span>
+							<div class="flex gap-2">
+								<Button size="xs2" on:click={selectAll}>Select All</Button>
+								<Button size="xs2" on:click={clearAll}>Clear All</Button>
+							</div>
+						</div>
+					{/snippet}
+
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						<span class="block text-xs font-semibold">Scripts (click to toggle)</span>
-						<div class="flex flex-wrap gap-1">
+						<div class="flex flex-col gap-2">
+							{@render sectionHeader('Scripts', selectAllScripts, clearAllScripts)}
 							{#if allScripts.length > 0}
-								{#each allScripts as script}
-									<button
-										type="button"
-										onclick={() => toggleScript(script)}
-										class="transition-all"
-									>
-										<Badge
-											rounded
-											small
-											color={selectedScripts.includes(script) ? 'blue' : 'gray'}
-											class={selectedScripts.includes(script) ? '' : 'opacity-50'}
-										>
-											{script}
-										</Badge>
-									</button>
-								{/each}
+								<MultiSelect
+									items={safeSelectItems(allScripts)}
+									placeholder="Select scripts"
+									bind:value={selectedScripts}
+								/>
 							{:else}
 								<p class="text-xs text-primary">No scripts available</p>
 							{/if}
 						</div>
 
-						<span class="block text-xs font-semibold mt-2">Flows (click to toggle)</span>
-						<div class="flex flex-wrap gap-1">
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('Flows', selectAllFlows, clearAllFlows)}
 							{#if allFlows.length > 0}
-								{#each allFlows as flow}
-									<button type="button" onclick={() => toggleFlow(flow)} class="transition-all">
-										<Badge
-											rounded
-											small
-											color={selectedFlows.includes(flow) ? 'blue' : 'gray'}
-											class={selectedFlows.includes(flow) ? '' : 'opacity-50'}
-										>
-											{flow}
-										</Badge>
-									</button>
-								{/each}
+								<MultiSelect
+									items={safeSelectItems(allFlows)}
+									placeholder="Select flows"
+									bind:value={selectedFlows}
+								/>
 							{:else}
 								<p class="text-xs text-primary">No flows available</p>
 							{/if}
 						</div>
 
-						<span class="block text-xs font-semibold mt-2">API Endpoints (click to toggle)</span>
-						<div class="flex flex-wrap gap-1">
-							{#each mcpEndpointTools as endpoint}
-								<button
-									type="button"
-									onclick={() => toggleEndpoint(endpoint.name)}
-									class="transition-all"
-								>
-									<Popover notClickable>
-										{#snippet text()}
-											<div class="flex flex-col gap-1">
-												<div class="text-xs">{endpoint.description}</div>
-												<div class="text-xs">
-													{endpoint.method}
-													{endpoint.path}
-												</div>
-											</div>
-										{/snippet}
-										<Badge
-											rounded
-											small
-											color={selectedEndpoints.includes(endpoint.name) ? 'green' : 'gray'}
-											class={selectedEndpoints.includes(endpoint.name) ? '' : 'opacity-50'}
-										>
-											{endpoint.name}
-										</Badge>
-									</Popover>
-								</button>
-							{/each}
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
+							<MultiSelect
+								items={safeSelectItems(mcpEndpointTools.map((e) => e.name))}
+								placeholder="Select endpoints"
+								bind:value={selectedEndpoints}
+							/>
 						</div>
 
 						<div class="text-xs text-primary mt-2">
