@@ -5,7 +5,7 @@
 //! This module provides bidirectional conversion between OpenAI-compatible
 //! message formats (used throughout Windmill) and AWS Bedrock Converse API formats.
 
-use crate::ai_types::{ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
+use crate::ai_types::{ContentPart, OpenAIContent, OpenAIMessage, OpenAIToolCall, ToolDef};
 use crate::error::{Error, Result};
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration,
@@ -107,7 +107,27 @@ pub fn openai_messages_to_bedrock(
     Ok((bedrock_messages, system_prompts))
 }
 
-/// Helper to extract text from OpenAIContent
+/// Helper to extract text from OpenAIContent (ignoring images)
+fn content_to_text(content: &OpenAIContent) -> String {
+    match content {
+        OpenAIContent::Text(text) => text.clone(),
+        OpenAIContent::Parts(parts) => {
+            // Extract only text parts and join them
+            parts
+                .iter()
+                .filter_map(|part| {
+                    if let ContentPart::Text { text } = part {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    }
+}
+
 /// Parse image data URL and extract format and base64 data
 fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>)> {
     if !url.starts_with("data:") {
