@@ -1,9 +1,7 @@
-import type { Node } from '@xyflow/svelte'
 import type { FlowNote } from '../../gen'
 import type { NoteManager } from './noteManager.svelte'
 import type { NoteEditorContext } from './noteEditor.svelte'
 import { StickyNote } from 'lucide-svelte'
-import { calculateNodesBoundsWithOffset } from './util'
 
 type NodeDep = { id: string; parentIds?: string[]; offset?: number }
 
