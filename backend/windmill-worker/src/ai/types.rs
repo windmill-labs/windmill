@@ -147,7 +147,11 @@ impl ProviderWithResource {
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
         self.kind
-            .get_base_url(self.resource.base_url.clone(), db)
+            .get_base_url(
+                self.resource.base_url.clone(),
+                self.resource.region.clone(),
+                db,
+            )
             .await
     }
 
