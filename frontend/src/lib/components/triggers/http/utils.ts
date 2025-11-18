@@ -77,7 +77,7 @@ export async function saveHttpRouteFromCfg(
 		} else {
 			await HttpTriggerService.createHttpTrigger({
 				workspace: workspace,
-				requestBody: requestBody
+				requestBody: { ...requestBody, enabled: true }
 			})
 			sendUserToast(`Route ${routeCfg.path} created`)
 		}
