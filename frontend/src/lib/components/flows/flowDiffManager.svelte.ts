@@ -78,6 +78,10 @@ export function createFlowDiffManager() {
 	// Auto-compute diff when beforeFlow or afterFlow changes
 	$effect(() => {
 		if (beforeFlow && afterFlow) {
+			if (hasPendingChanges) {
+				console.log('HERE: [flowDiffManager $effect] hasPendingChanges', hasPendingChanges)
+				return
+			}
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: true
@@ -107,13 +111,6 @@ export function createFlowDiffManager() {
 			updateModuleActions({})
 		}
 	})
-
-	/**
-	 * Register a callback to be notified when moduleActions change
-	 */
-	function setOnChange(callback: (actions: Record<string, ModuleActionInfo>) => void) {
-		onChangeCallback = callback
-	}
 
 	/**
 	 * Helper to update moduleActions and notify listeners
@@ -182,31 +179,6 @@ export function createFlowDiffManager() {
 	}
 
 	/**
-	 * Compute diff between before flow and after flow, updating module actions
-	 */
-	function computeDiff(
-		afterFlow: FlowValue,
-		options: ComputeDiffOptions = {}
-	): FlowTimeline | null {
-		console.log('computeDiff', beforeFlow, afterFlow)
-		if (!beforeFlow) {
-			return null
-		}
-
-		const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
-			markRemovedAsShadowed: options.markRemovedAsShadowed ?? false,
-			markAsPending: options.markAsPending ?? true
-		})
-
-		// Update module actions with the computed diff
-
-		console.log('timeline.afterActions', timeline.afterActions)
-		updateModuleActions(timeline.afterActions)
-
-		return timeline
-	}
-
-	/**
 	 * Set module actions directly (useful when actions are computed elsewhere)
 	 */
 	function setModuleActions(actions: Record<string, ModuleActionInfo>) {
@@ -248,7 +220,7 @@ export function createFlowDiffManager() {
 		} else if (id === 'failure') {
 			flowStore.val.value.failure_module = undefined
 		} else {
-			console.log('CACA deleteModuleFromFlow', id, flowStore.val)
+			console.log('HERE deleteModuleFromFlow', id, flowStore.val)
 			const { modules } = getIndexInNestedModules(flowStore.val, id)
 			const index = modules.findIndex((m) => m.id === id)
 			if (index >= 0) {
@@ -356,6 +328,15 @@ export function createFlowDiffManager() {
 			} else if (action === 'added') {
 				// Remove the added module
 				deleteModuleFromFlow(actualId, options.flowStore)
+
+				// ALSO remove from merged flow for immediate visual update
+				if (mergedFlow) {
+					const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
+					const index = modules.findIndex((m) => m.id === actualId)
+					if (index >= 0) {
+						modules.splice(index, 1)
+					}
+				}
 			} else if (action === 'removed') {
 				// For removed modules, we would need to restore from snapshot
 				// This is complex and might require full flow revert
@@ -498,13 +479,9 @@ export function createFlowDiffManager() {
 		clearSnapshot,
 		getSnapshot,
 
-		// Diff computation
-		computeDiff,
-
 		// Module actions management
 		setModuleActions,
 		getModuleActions,
-		setOnChange,
 
 		// Accept/reject operations
 		acceptModule,
