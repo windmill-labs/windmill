@@ -5,3 +5,5 @@ CREATE TABLE IF NOT EXISTS unique_ext_jwt_token (
     last_used_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_unique_ext_jwt_token_last_used_at ON unique_ext_jwt_token(last_used_at);
+
