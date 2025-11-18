@@ -447,7 +447,7 @@
 	)
 
 	// Initialize moduleTracker with effectiveModules
-	let moduleTracker = new ChangeTracker($state.snapshot(effectiveModules))
+	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
 
 	$inspect('HERE', effectiveModules)
 	$inspect('HERE', effectiveModuleActions)

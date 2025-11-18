@@ -9,7 +9,7 @@
 import type { ExtendedOpenFlow } from './types'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
-import { buildFlowTimeline, type FlowTimeline } from './flowDiff'
+import { buildFlowTimeline } from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
