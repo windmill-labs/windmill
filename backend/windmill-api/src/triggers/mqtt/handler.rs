@@ -26,7 +26,6 @@ impl TriggerCrud for MqttTrigger {
 
     const TABLE_NAME: &'static str = "mqtt_trigger";
     const TRIGGER_TYPE: &'static str = "mqtt";
-    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/mqtt_triggers";
