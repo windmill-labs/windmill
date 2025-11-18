@@ -413,6 +413,27 @@ export function createFlowDiffManager() {
 	}
 
 	/**
+	 * Check if all module actions are decided, and if so, apply mergedFlow to flowStore
+	 */
+	function checkAndApplyChanges(flowStore?: StateStore<ExtendedOpenFlow>) {
+		if (Object.keys(moduleActions).length === 0) {
+			// All changes decided, apply mergedFlow to flowStore
+			if (flowStore && mergedFlow) {
+				// Use snapshot to break references
+				flowStore.val.value = $state.snapshot(mergedFlow)
+				
+				// Also apply input schema if it changed
+				if (afterInputSchema) {
+					flowStore.val.schema = $state.snapshot(afterInputSchema)
+				}
+				
+				refreshStateStore(flowStore)
+			}
+			clearSnapshot()
+		}
+	}
+
+	/**
 	 * Set the DiffDrawer instance for showing module diffs
 	 */
 	function setDiffDrawer(drawer: DiffDrawer | undefined) {
