@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.579.1](https://github.com/windmill-labs/windmill/compare/v1.579.0...v1.579.1) (2025-11-18)
+
+
+### Bug Fixes
+
+* fix s3 object download frontend freezes ([09a6e1f](https://github.com/windmill-labs/windmill/commit/09a6e1feaa79ce3f8548f8090fddbf46abb08b18))
+
+## [1.579.0](https://github.com/windmill-labs/windmill/compare/v1.578.0...v1.579.0) (2025-11-17)
+
+
+### Features
+
+* **ai:** handle aws bedrock as provider ([#7155](https://github.com/windmill-labs/windmill/issues/7155)) ([79ac631](https://github.com/windmill-labs/windmill/commit/79ac6312e87afa3646bddc0f7e66fc4367dbff7c))
+* **mcp:** granular token scopes for scripts, flows, and endpoints ([#7130](https://github.com/windmill-labs/windmill/issues/7130)) ([88d04b9](https://github.com/windmill-labs/windmill/commit/88d04b9cbeee98f3256b78e9d34beb930cd729ec))
+* rhel8 + fix rhel9 ([#7165](https://github.com/windmill-labs/windmill/issues/7165)) ([499d7d4](https://github.com/windmill-labs/windmill/commit/499d7d4098758726a8cb2bf3e4837927b8fd70a4))
+
+
+### Bug Fixes
+
+* **backend:** worker count in latest worker usage ([#7160](https://github.com/windmill-labs/windmill/issues/7160)) ([b87d2cc](https://github.com/windmill-labs/windmill/commit/b87d2cc64cb54b602ee599fcde7f0fd3c8931550))
+* fix custom email triggers enabled ([#7164](https://github.com/windmill-labs/windmill/issues/7164)) ([90b5569](https://github.com/windmill-labs/windmill/commit/90b5569c911f9025b0e6b5318f57705efbd9bd17))
+
 ## [1.578.0](https://github.com/windmill-labs/windmill/compare/v1.577.0...v1.578.0) (2025-11-17)
 
 

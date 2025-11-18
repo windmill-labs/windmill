@@ -255,7 +255,13 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             .await
     }
 
-    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
+    fn get_endpoint(
+        &self,
+        base_url: &str,
+        model: &str,
+        output_type: &OutputType,
+        _stream: bool,
+    ) -> String {
         match output_type {
             OutputType::Text => format!("{}/chat/completions", base_url), // Use OpenAI-compatible endpoint
             OutputType::Image => {
