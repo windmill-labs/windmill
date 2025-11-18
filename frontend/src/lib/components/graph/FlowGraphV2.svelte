@@ -282,7 +282,7 @@
 		)
 	}
 
-	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
+	type NodeDep = { id: string; parentIds?: string[]; offset?: number; data?: { assets?: AssetWithAltAccessType[] } }
 	type NodePos = { position: { x: number; y: number } }
 	type LayoutCacheKey = {
 		nodes: NodeDep[]
@@ -526,7 +526,8 @@
 			Object.values(graph.nodes).map((n) => ({
 				id: n.id,
 				parentIds: n.parentIds,
-				offset: n.data.offset ?? 0
+				offset: n.data.offset ?? 0,
+				data: { assets: (n.data as any).assets }
 			})),
 			showNotes ? (notes?.filter((note) => note.type === 'group') ?? []) : [],
 			showNotes ? noteTextHeights : {}
@@ -570,7 +571,8 @@
 							id: n.id,
 							parentIds: n.parentIds,
 							offset: n.data.offset ?? 0
-						}))
+						})),
+						$showAssets
 					)
 				: [])
 		]

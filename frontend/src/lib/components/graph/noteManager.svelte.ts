@@ -4,14 +4,54 @@ import { calculateNodesBoundsWithOffset } from './util'
 import {
 	getLayoutSignature,
 	getPropertySignature,
-	calculateAllNoteZIndexes
+	calculateAllNoteZIndexes,
+	findTopmostNodeInGroup,
+	INPUT_ASSET_ROW_HEIGHT
 } from './groupNoteUtils'
 import { deepEqual } from 'fast-equals'
 import { MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
+import { assetDisplaysAsInputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
+import type { AssetWithAltAccessType } from '../assets/lib'
 
 export type TextHeightCacheEntry = {
 	content: string
 	height: number
+}
+
+/**
+ * Calculate extra spacing needed for multiple input assets on topmost node
+ */
+function calculateExtraAssetSpacing(
+	groupNote: FlowNote,
+	nodes: { id: string; data?: { assets?: AssetWithAltAccessType[] } }[]
+): number {
+	if (groupNote.type !== 'group' || !groupNote.contained_node_ids?.length) {
+		return 0
+	}
+
+	// Find the topmost node in the group
+	const nodesForGrouping = nodes.map((n) => ({
+		id: n.id,
+		parentIds: [], // We don't have parentIds in this context, but findTopmostNodeInGroup will find the first node
+		data: n.data
+	}))
+
+	const topmostNode = findTopmostNodeInGroup(groupNote, nodesForGrouping)
+
+	if (!topmostNode) {
+		return 0
+	}
+
+	// Check for multiple input assets on topmost node
+	const assets = topmostNode.data?.assets ?? []
+	const inputAssets = assets.filter(assetDisplaysAsInputInFlowGraph)
+
+	// If there are multiple input assets, add extra space for the asset row
+	if (inputAssets.length > 0) {
+		return INPUT_ASSET_ROW_HEIGHT
+	}
+
+	return 0
 }
 
 /**
@@ -131,7 +171,8 @@ export class NoteManager {
 	calculateGroupNoteLayout(
 		note: FlowNote,
 		nodes: Node[],
-		textHeight: number = 60
+		textHeight: number = 60,
+		showAssets: boolean = true
 	): { position: { x: number; y: number }; size: { width: number; height: number } } {
 		if (note.type !== 'group' || !note.contained_node_ids?.length) {
 			return {
@@ -154,14 +195,24 @@ export class NoteManager {
 
 		const padding = 16
 
+		// Calculate extra spacing for multiple input assets on topmost node
+		const extraAssetSpacing = showAssets ? calculateExtraAssetSpacing(
+			note,
+			nodes.map((n) => ({
+				id: n.id,
+				data: { assets: (n.data as any)?.assets }
+			}))
+		) : 0
+		const totalTextHeight = textHeight + extraAssetSpacing
+
 		return {
 			position: {
 				x: bounds.minX - padding,
-				y: bounds.minY - textHeight - padding
+				y: bounds.minY - totalTextHeight - padding
 			},
 			size: {
 				width: bounds.maxX - bounds.minX + 2 * padding,
-				height: bounds.maxY - bounds.minY + textHeight + 2 * padding
+				height: bounds.maxY - bounds.minY + totalTextHeight + 2 * padding
 			}
 		}
 	}
@@ -201,13 +252,14 @@ export class NoteManager {
 		textHeights: Record<string, number>,
 		onTextHeightChange: (noteId: string, height: number) => void,
 		editMode: boolean = false,
-		zIndex?: number
+		zIndex?: number,
+		showAssets: boolean = true
 	): Node {
 		const isGroupNote = note.type === 'group'
 
 		// Calculate position and size based on note type
 		const { position, size } = isGroupNote
-			? this.calculateGroupNoteLayout(note, currentNodes, textHeights[note.id] || 60)
+			? this.calculateGroupNoteLayout(note, currentNodes, textHeights[note.id] || 60, showAssets)
 			: {
 					position: note.position ?? { x: 0, y: 0 },
 					size: note.size ?? { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
@@ -235,7 +287,8 @@ export class NoteManager {
 		textHeights: Record<string, number>,
 		onTextHeightChange: (noteId: string, height: number) => void,
 		editMode: boolean = false,
-		flowNodes?: { id: string; parentIds?: string[]; offset?: number }[]
+		flowNodes?: { id: string; parentIds?: string[]; offset?: number }[],
+		showAssets: boolean = true
 	): Node[] {
 		// Calculate z-indexes for all notes in a single traversal
 		const zIndexMap = flowNodes ? calculateAllNoteZIndexes(notes, flowNodes) : {}
@@ -247,7 +300,8 @@ export class NoteManager {
 				textHeights,
 				onTextHeightChange,
 				editMode,
-				zIndexMap[note.id]
+				zIndexMap[note.id],
+				showAssets
 			)
 		)
 	}

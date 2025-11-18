@@ -2,10 +2,17 @@ import type { FlowNote } from '../../gen'
 import type { NoteManager } from './noteManager.svelte'
 import type { NoteEditorContext } from './noteEditor.svelte'
 import { StickyNote } from 'lucide-svelte'
+import type { AssetWithAltAccessType } from '../assets/lib'
 
-type NodeDep = { id: string; parentIds?: string[]; offset?: number }
+type NodeDep = {
+	id: string
+	parentIds?: string[]
+	offset?: number
+	data?: { assets?: AssetWithAltAccessType[] }
+}
 
-const GROUP_NOTE_PADDING = 20
+export const GROUP_NOTE_PADDING = 20
+export const INPUT_ASSET_ROW_HEIGHT = 45 // Height needed for input asset row above node
 
 export interface GroupNoteBounds {
 	x: number
@@ -18,7 +25,7 @@ export interface GroupNoteBounds {
  * Finds the topmost node in a group based on topological ordering
  * Uses parent-child relationships to determine hierarchy
  */
-function findTopmostNodeInGroup(groupNote: FlowNote, nodes: NodeDep[]): NodeDep | undefined {
+export function findTopmostNodeInGroup(groupNote: FlowNote, nodes: NodeDep[]): NodeDep | undefined {
 	if (!groupNote.contained_node_ids?.length) {
 		return undefined
 	}
@@ -72,6 +79,7 @@ export function getNodeGroupNoteSpacing(
 					noteTextHeights,
 					60
 				)
+
 				return textHeight + GROUP_NOTE_PADDING
 			}
 		}
