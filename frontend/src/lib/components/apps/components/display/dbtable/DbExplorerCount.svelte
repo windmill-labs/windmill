@@ -7,7 +7,7 @@
 	import { initOutput } from '../../../editor/appUtils'
 	import { type ColumnDef } from './utils'
 	import { getCountInput } from './queries/count'
-	import type { DbInput } from '$lib/components/dbOps'
+	import type { DbInput } from '$lib/components/dbTypes'
 
 	interface Props {
 		id: string

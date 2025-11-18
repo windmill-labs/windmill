@@ -1,6 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbInput, DbType } from '$lib/components/dbTypes'
+import { getLanguageByResourceType, type ColumnDef, buildParameters } from '../utils'
 
 export function makeUpdateQuery(
 	table: string,

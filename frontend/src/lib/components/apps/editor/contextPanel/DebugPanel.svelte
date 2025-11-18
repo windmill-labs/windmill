@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { allItems } from '../../utils'
 	import type { AppViewerContext } from '../../types'
 	import Section from '$lib/components/Section.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { deleteGridItem, findGridItem, findGridItemParentGrid } from '../appUtils'
+	import { deleteGridItem, findGridItemParentGrid } from '../appUtils'
 	import { pluralize } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Trash } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { allItems, findGridItem } from '../appUtilsCore'
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 

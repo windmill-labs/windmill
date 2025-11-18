@@ -12,8 +12,7 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
-
-export const BG_PREFIX = 'bg_'
+import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
 export function migrateApp(app: App) {
 	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
@@ -62,16 +61,6 @@ export function processSubcomponents(data: AppComponent, fn: (data: AppComponent
 			fn(c)
 		}
 	}
-}
-
-export function allItems(
-	grid: GridItem[],
-	subgrids: Record<string, GridItem[]> | undefined
-): GridItem[] {
-	if (subgrids == undefined) {
-		return grid ?? []
-	}
-	return [...(grid ?? []), ...Object.values(subgrids).flat()]
 }
 
 export function schemaToInputsSpec(

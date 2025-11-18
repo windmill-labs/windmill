@@ -7,9 +7,9 @@
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import TableActionsOutput from './components/TableActionsOutput.svelte'
-	import { BG_PREFIX } from '../../utils'
 	// @ts-ignore
 	import MenuItemsOutput from './components/MenuItemsOutput.svelte'
+	import { BG_PREFIX } from '../appUtilsCore'
 
 	interface Props {
 		gridItem: GridItem

@@ -1,7 +1,8 @@
 import type { FlowModule, OpenFlow } from '$lib/gen'
 import { deepEqual } from 'fast-equals'
-import { emptyApp, findGridItem } from '../apps/editor/appUtils'
+import { emptyApp } from '../apps/editor/appUtils'
 import type { App } from '../apps/types'
+import { findGridItem } from '../apps/editor/appUtilsCore'
 
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement

@@ -55,7 +55,9 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { getDbType, wrapDucklakeQuery, type DbInput } from './dbOps'
+	import { getDbType } from './dbOps'
+	import type { DbInput } from './dbTypes'
+	import { wrapDucklakeQuery } from './ducklake'
 
 	type Props = {
 		input: DbInput

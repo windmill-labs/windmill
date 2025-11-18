@@ -1,4 +1,5 @@
-import { dbSupportsSchemas, type DbType } from '../utils'
+import { dbSupportsSchemas } from '../utils'
+import type { DbType } from '$lib/components/dbTypes'
 
 export type CreateTableValues = {
 	name: string

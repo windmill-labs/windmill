@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import { ColumnIdentity, type ColumnMetadata, type DbType, type ColumnDef } from './utils'
+	import { ColumnIdentity, type ColumnMetadata, type ColumnDef } from './utils'
 
 	import init, {
 		parse_sql,
@@ -19,6 +19,7 @@
 	import { untrack } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import type { DbType } from '$lib/components/dbTypes'
 
 	type FieldMetadata = {
 		type: string

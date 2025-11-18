@@ -3,7 +3,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
-	import { dfs, findGridItem } from '../appUtils'
+	import { dfs } from '../appUtils'
+	import { findGridItem } from '../appUtilsCore'
 
 	interface Props {
 		type: string

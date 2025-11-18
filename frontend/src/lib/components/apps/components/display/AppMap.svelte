@@ -11,12 +11,13 @@
 	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
-	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
+	import { findGridItem } from '../../editor/appUtilsCore'
 	interface Marker {
 		lon: number
 		lat: number

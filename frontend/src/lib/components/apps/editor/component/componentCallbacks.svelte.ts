@@ -1,7 +1,6 @@
 // import { getContext } from 'svelte'
 import {
 	copyComponent,
-	findGridItem,
 	findGridItemParentGrid,
 	getAllSubgridsAndComponentIds,
 	insertNewGridItem
@@ -13,6 +12,7 @@ import { gridColumns } from '../../gridUtils'
 import { copyToClipboard } from '$lib/utils'
 import { get } from 'svelte/store'
 import { processSubcomponents } from '../../utils'
+import { findGridItem } from '../appUtilsCore'
 
 // const { app, selectedComponent, focusedGrid, componentControl } =
 // 	getContext<AppViewerContext>('AppViewerContext')
@@ -308,7 +308,7 @@ export async function handlePaste(
 			} else {
 				copiedGridItems = undefined
 			}
-		} catch { }
+		} catch {}
 	}
 
 	if (tempGridItems != undefined) {

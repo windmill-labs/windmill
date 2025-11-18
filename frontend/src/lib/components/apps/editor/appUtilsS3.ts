@@ -1,7 +1,6 @@
 import type { AppInput, EvalInputV2 } from '../inputType'
 import type { App, RichConfigurations } from '../types'
-import { collectOneOfFields } from './appUtils'
-import { z } from 'zod'
+import { collectOneOfFields } from './appUtilsCore'
 function filenameExprToRegex(template: string) {
 	const filenameEscaped = template.replaceAll('${file.name}', '<file_name>') // replace filename with placeholder
 	const escapedTemplate = filenameEscaped
@@ -81,14 +80,10 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 	}
 }
 
-const partialS3ObjectSchema = z.object({
-	s3: z.string(),
-	storage: z.string().optional(),
-	presigned: z.string().optional()
-})
-
-export function isPartialS3Object(input: unknown): input is z.infer<typeof partialS3ObjectSchema> {
-	return partialS3ObjectSchema.safeParse(input).success
+export function isPartialS3Object(
+	input: unknown
+): input is { s3: string; storage?: string; presigned?: string } {
+	return input != undefined && typeof input === 'object' && typeof input['s3'] === 'string'
 }
 
 export function computeS3ImageViewerPolicy(config: RichConfigurations) {
