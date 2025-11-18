@@ -5,7 +5,6 @@ import { calculateNodesBoundsWithOffset } from './util'
 import { MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
 import type { NodeLayout } from './graphBuilder.svelte'
 import { topologicalSort } from './graphBuilder.svelte'
-import { assetDisplaysAsInputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { AssetWithAltAccessType } from '../assets/lib'
 import type { NoteEditorContext } from './noteEditor.svelte'
 import { StickyNote } from 'lucide-svelte'
@@ -16,10 +15,17 @@ export type NodeDep = {
 	data?: { assets?: AssetWithAltAccessType[] }
 	parentIds?: string[]
 	offset?: number
+	type?: string
 }
 
 export type NoteComputeResult = {
 	noteNodes: (Node & NodeLayout)[]
+	newNodePositions: Record<string, { x: number; y: number }>
+}
+
+export type AIToolSpacingInfo = {
+	toolNodes: (Node & NodeLayout)[]
+	toolEdges: any[]
 	newNodePositions: Record<string, { x: number; y: number }>
 }
 
@@ -31,10 +37,8 @@ export interface GroupNoteBounds {
 }
 
 let computeNoteNodesCache:
-	| [NodeDep[], FlowNote[], Record<string, number>, boolean, NoteComputeResult]
+	| [NodeDep[], FlowNote[], Record<string, number>, NoteComputeResult]
 	| undefined
-
-const INPUT_ASSET_ROW_HEIGHT = 45 // Height needed for input asset row above node
 
 /**
  * Finds the topmost node in a group based on topological ordering
@@ -142,30 +146,60 @@ export function calculateAllNoteZIndexes(
 }
 
 /**
- * Calculate extra spacing needed for multiple input assets on topmost node
+ * Calculate extra spacing needed for asset nodes of the topmost node
  */
-function calculateExtraAssetSpacing(groupNote: FlowNote, nodes: NodeDep[]): number {
-	if (groupNote.type !== 'group' || !groupNote.contained_node_ids?.length) {
-		return 0
-	}
-
-	// Find the topmost node in the group
-	const topmostNode = findTopmostNodeInGroup(groupNote, nodes)
-
+function calculateExtraAssetSpacing(topmostNodeId: string, nodes: NodeDep[]): number {
+	// Find the topmost node position
+	const topmostNode = nodes.find((n) => n.id === topmostNodeId)
 	if (!topmostNode) {
 		return 0
 	}
 
-	// Check for multiple input assets on topmost node
-	const assets = topmostNode.data?.assets ?? []
-	const inputAssets = assets.filter(assetDisplaysAsInputInFlowGraph)
+	// Find actual asset nodes for the topmost node: {topmostNodeId}-asset-in, type 'asset'
+	const assetNodes = nodes.filter((n) => n.id.startsWith(`${topmostNodeId}-asset-in-`))
+	console.log('dbg assetNodes', assetNodes, topmostNodeId, nodes, `${topmostNodeId}-asset-in`)
 
-	// If there are input assets, add extra space for the asset row
-	if (inputAssets.length > 0) {
-		return INPUT_ASSET_ROW_HEIGHT
+	if (assetNodes.length === 0) {
+		return 0
 	}
 
-	return 0
+	// Calculate the spacing based on actual asset node positions
+	const assetSpacing = Math.max(
+		...assetNodes.map((assetNode) => {
+			// Calculate how much space the asset node takes above the main node
+			return Math.max(0, -assetNode.position.y)
+		})
+	)
+
+	return assetSpacing
+}
+
+/**
+ * Calculate extra spacing needed for AI tool nodes of the topmost node
+ */
+function calculateExtraAIToolSpacing(topmostNodeId: string, nodes: NodeDep[]): number {
+	// Find the topmost node position
+	const topmostNode = nodes.find((n) => n.id === topmostNodeId)
+	if (!topmostNode) {
+		return 0
+	}
+
+	// Find actual AI tool nodes for the topmost node: {topmostNodeId}-tool-, type 'aiTool'
+	const toolNodes = nodes.filter((n) => n.id.startsWith(`${topmostNodeId}-tool-`))
+
+	if (toolNodes.length === 0) {
+		return 0
+	}
+
+	// Calculate the spacing based on actual AI tool node positions
+	const toolSpacing = Math.max(
+		...toolNodes.map((toolNode) => {
+			// Calculate how much space the tool node takes above/below the main node
+			return Math.max(0, -toolNode.position.y)
+		})
+	)
+
+	return toolSpacing
 }
 
 /**
@@ -175,7 +209,7 @@ function calculateGroupNoteLayout(
 	note: FlowNote,
 	nodes: NodeDep[],
 	textHeight: number = 60,
-	showAssets: boolean = true
+	topMostNodeId: string
 ): { position: { x: number; y: number }; size: { width: number; height: number } } {
 	if (note.type !== 'group' || !note.contained_node_ids?.length) {
 		return {
@@ -204,9 +238,13 @@ function calculateGroupNoteLayout(
 
 	const padding = 16
 
-	// Calculate extra spacing for multiple input assets on topmost node
-	const extraAssetSpacing = showAssets ? calculateExtraAssetSpacing(note, nodes) : 0
-	const totalTextHeight = textHeight + extraAssetSpacing
+	// Calculate extra spacing for asset nodes and AI tool nodes of the topmost node
+	const extraAssetSpacing = topMostNodeId ? calculateExtraAssetSpacing(topMostNodeId, nodes) : 0
+	console.log('dbg extraAssetSpacing', extraAssetSpacing)
+
+	const extraAIToolSpacing = topMostNodeId ? calculateExtraAIToolSpacing(topMostNodeId, nodes) : 0
+	console.log('dbg extraAIToolSpacing', extraAIToolSpacing)
+	const totalTextHeight = textHeight + extraAssetSpacing + extraAIToolSpacing
 
 	return {
 		position: {
@@ -251,42 +289,42 @@ export function computeNoteNodes(
 	notes: FlowNote[],
 	noteTextHeights: Record<string, number>,
 	onTextHeightChange: (noteId: string, height: number) => void,
-	editMode: boolean = false,
-	showAssets: boolean = true
+	editMode: boolean = false
 ): NoteComputeResult {
 	// Check cache first
 	if (
 		computeNoteNodesCache &&
 		deepEqual(nodes, computeNoteNodesCache[0]) &&
 		deepEqual(notes, computeNoteNodesCache[1]) &&
-		deepEqual(noteTextHeights, computeNoteNodesCache[2]) &&
-		showAssets === computeNoteNodesCache[3]
+		deepEqual(noteTextHeights, computeNoteNodesCache[2])
 	) {
-		return computeNoteNodesCache[4]
+		return computeNoteNodesCache[3]
 	}
 
 	const allNoteNodes: (Node & NodeLayout)[] = []
 
-	// Build a map of Y positions that need extra spacing for group notes (similar to assets yPosMap)
+	// Build a map of Y positions that need extra spacing for group notes
 	const yPosMap: Record<number, number> = {} // Y position -> spacing needed
 
 	// Group notes that need spacing
 	const groupNotes = notes.filter((n) => n.type === 'group')
+
+	const topMostNodesMap: Record<string, string> = {}
 
 	for (const groupNote of groupNotes) {
 		if (groupNote.contained_node_ids?.length) {
 			const topmostNode = findTopmostNodeInGroup(groupNote, nodes)
 			if (topmostNode) {
 				const textHeight = noteTextHeights[groupNote.id] || 60
-				const spacing = textHeight + 20 // padding
+				const spacing = textHeight + 16 // padding
 				// Mark this Y position as needing spacing
 				yPosMap[topmostNode.position.y] = Math.max(yPosMap[topmostNode.position.y] || 0, spacing)
+				topMostNodesMap[groupNote.id] = topmostNode.id
 			}
 		}
 	}
 
-	// Calculate new positions for original nodes (offset by group notes)
-	// This follows the exact same pattern as assets
+	// Calculate new positions for nodes (offset by group notes)
 	const sortedNewNodes = nodes
 		.map((n) => ({ position: { ...n.position }, id: n.id }))
 		.sort((a, b) => a.position.y - b.position.y)
@@ -325,7 +363,12 @@ export function computeNoteNodes(
 
 		// Calculate position and size using adjusted node positions for group notes
 		const { position, size } = isGroupNote
-			? calculateGroupNoteLayout(note, adjustedNodes, noteTextHeights[note.id] || 60, showAssets)
+			? calculateGroupNoteLayout(
+					note,
+					adjustedNodes,
+					noteTextHeights[note.id] || 60,
+					topMostNodesMap[note.id]
+				)
 			: {
 					position: note.position ?? { x: 0, y: 0 },
 					size: note.size ?? { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
@@ -361,18 +404,10 @@ export function computeNoteNodes(
 		JSON.parse(JSON.stringify(nodes)),
 		JSON.parse(JSON.stringify(notes)),
 		JSON.parse(JSON.stringify(noteTextHeights)),
-		showAssets,
 		result
 	]
 
 	return result
-}
-
-/**
- * Clear the cache (useful for testing or when needed)
- */
-export function clearNoteNodesCache(): void {
-	computeNoteNodesCache = undefined
 }
 
 export function addGroupNoteContextMenuItem(

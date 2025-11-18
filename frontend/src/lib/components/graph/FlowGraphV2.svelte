@@ -527,15 +527,22 @@
 			position: aiToolNodesResult.newNodePositions[n.id]
 		}))
 
+		let finalNodes = [
+			...nodesAfterAITools,
+			...(assetNodesResult?.newAssetNodes ?? []),
+			...aiToolNodesResult.toolNodes
+		]
+
 		// Compute note nodes and positions
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
-					nodesAfterAITools.map((n) => ({
+					finalNodes.map((n) => ({
 						id: n.id,
 						position: n.position,
 						parentIds: n.parentIds,
-						offset: n.data.offset ?? 0,
-						data: { assets: (n.data as any).assets }
+						offset: n.data?.offset ?? 0,
+						data: { assets: (n.data as any)?.assets },
+						type: n.type
 					})),
 					notes ?? [],
 					noteTextHeights,
@@ -543,27 +550,20 @@
 						noteTextHeights[noteId] = height
 						noteManager.render()
 					},
-					editMode,
-					$showAssets
+					editMode
 				)
 			: undefined
 
 		// Apply note positioning to nodes if notes are enabled
-		let nodesAfterNotes: (Node & NodeLayout)[] = nodesAfterAITools
 		if (noteNodesResult) {
-			nodesAfterNotes = nodesAfterAITools.map((n) => ({
+			finalNodes = finalNodes.map((n) => ({
 				...n,
 				position: noteNodesResult.newNodePositions[n.id] || n.position
 			}))
 		}
 
 		// update nodes
-		nodes = [
-			...nodesAfterNotes,
-			...(assetNodesResult?.newAssetNodes ?? []),
-			...aiToolNodesResult.toolNodes,
-			...(noteNodesResult?.noteNodes ?? [])
-		]
+		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -785,9 +785,8 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
-</script>
 
-<svelte:window on:keydown={handleKeyDown} />
+</script>
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
