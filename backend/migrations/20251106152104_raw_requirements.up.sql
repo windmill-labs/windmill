@@ -5,8 +5,12 @@ CREATE TABLE IF NOT EXISTS workspace_dependencies(
     name         VARCHAR(255), -- If NULL - it's global
     content      TEXT NOT NULL,
     language     SCRIPT_LANG NOT NULL,
+    description  text,
     archived     BOOLEAN NOT NULL DEFAULT false,
     workspace_id character varying(50) NOT NULL,
     created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 
+-- Make any query that tries to create non-linear history fail
+CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_name_language_constraint ON workspace_dependencies(name, language) WHERE archived = false;
+CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_null_name_language_constraint ON workspace_dependencies(language) WHERE archived = false AND name IS NULL;

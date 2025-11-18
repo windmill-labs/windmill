@@ -364,9 +364,18 @@ def main():
         // Changing branches SHOULD change dependency map
         // Though it should only change branch item in dmap when it is importer.
         // All entries when branch is imported should not change.
-        let mut corrected_dmap = CORRECT_DMAP.clone();
-        // Corresponds to importer path of branch entry
-        corrected_dmap[0].0 = "f/rel/branch_renamed";
+        let corrected_dmap = CORRECT_DMAP
+            .clone()
+            .iter_mut()
+            .map(|el| {
+                dbg!(&el);
+                if el.0 == "f/rel/branch" {
+                    el.0 = "f/rel/branch_renamed";
+                }
+                dbg!(&el);
+                *el
+            })
+            .collect::<Vec<_>>();
         assert_dmap(&db, None, corrected_dmap).await;
         Ok(())
     }

@@ -1,21 +1,53 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
-use windmill_common::{error, scripts::ScriptLang};
+use windmill_common::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies};
 
 use crate::{
     scoped_dependency_map::DependencyDependent, trigger_dependents_to_recompute_dependencies,
 };
 
-#[derive(sqlx::FromRow, Debug, Clone, Serialize)]
-pub struct WorkspaceDependencies {
-    pub id: i64,
-    pub name: Option<String>,
-    pub workspace_id: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub language: ScriptLang,
-    pub archived: bool,
-    pub content: String,
+pub struct WorkspaceDependenciesInput {
+    pub resolver_input: String,
+    pub lock_header: String,
+}
+
+impl WorkspaceDependenciesInput {
+    pub async fn from(
+        l: ScriptLang,
+        code: &str,
+        w_id: &str,
+        // TODO: Maybe use tx?
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> error::Result<Option<Self>> {
+        let (mut wk_deps, mut lock_pins) = (vec![], vec![]);
+        if let Some(refs) = l
+            .extract_workspace_dependencies_annotated_refs(code)
+            .map(|wdf| wdf.external)
+        {
+            for name in refs {
+                let Some(WorkspaceDependencies { content, id, .. }) =
+                    WorkspaceDependencies::get_latest(Some(name.clone()), l, w_id, db).await?
+                else {
+                    continue;
+                };
+
+                lock_pins.push(format!("{name}:{id}"));
+                wk_deps.push(content);
+            }
+
+            Ok(Some(Self {
+                resolver_input: wk_deps.join("\n"),
+                lock_header: format!(
+                    "{} dependencies: {}",
+                    l.as_comment_lit(),
+                    lock_pins.join(", ")
+                ),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
@@ -101,154 +133,6 @@ impl NewWorkspaceDependencies {
         // TODO: Check what's up with db and tx
         tx.commit().await?;
         Ok(new_id)
-    }
-}
-
-impl WorkspaceDependencies {
-    pub fn to_path(name: &Option<String>, language: ScriptLang) -> error::Result<String> {
-        let requirements_filename =
-            language
-                .as_requirements_filename()
-                .ok_or(error::Error::BadConfig(format!(
-                    "raw requirements are not supported for: {}",
-                    language.as_str()
-                )))?;
-
-        Ok(if let Some(name) = name {
-            format!("dependencies/{name}.{requirements_filename}")
-        } else {
-            format!("dependencies/{requirements_filename}")
-        })
-    }
-    // TODO(claude): add docs
-    pub async fn archive<'c>(
-        name: Option<String>,
-        language: ScriptLang,
-        workspace_id: &str,
-        e: impl PgExecutor<'c>,
-    ) -> error::Result<()> {
-        sqlx::query!(
-            "
-            UPDATE workspace_dependencies
-            SET archived = true
-            WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
-            ",
-            name,
-            workspace_id,
-            language as ScriptLang
-        )
-        .execute(e)
-        .await?;
-        Ok(())
-    }
-
-    // TODO(claude): add docs
-    pub async fn delete<'c>(
-        name: Option<String>,
-        language: ScriptLang,
-        workspace_id: &str,
-        e: impl PgExecutor<'c>,
-    ) -> error::Result<()> {
-        sqlx::query!(
-            "
-            DELETE
-            FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND language = $3
-            ",
-            name,
-            workspace_id,
-            language as ScriptLang
-        )
-        .execute(e)
-        .await?;
-        Ok(())
-    }
-
-    // TODO(claude): add docs
-    pub async fn list<'c>(workspace_id: &str, e: impl PgExecutor<'c>) -> error::Result<Vec<Self>> {
-        sqlx::query_as!(
-            Self,
-            r##"
-            SELECT id, created_at, archived, name, workspace_id, content, language AS "language: ScriptLang"
-                FROM workspace_dependencies
-                WHERE archived = false AND workspace_id = $1
-            "##,
-            workspace_id,
-        )
-        .fetch_all(e)
-        .await
-        .map_err(error::Error::from)
-    }
-
-    // TODO(claude): add docs
-    pub async fn get_latest<'c>(
-        name: Option<String>,
-        language: ScriptLang,
-        workspace_id: &str,
-        e: impl PgExecutor<'c>,
-    ) -> error::Result<Option<Self>> {
-        if name == Some("none".to_owned()) {
-            return Ok(None);
-        }
-
-        sqlx::query_as!(
-            Self,
-            r#"
-            SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
-            FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
-            LIMIT 1
-            "#,
-            name,
-            workspace_id,
-            language as ScriptLang
-        )
-        .fetch_optional(e)
-        .await
-        .map_err(error::Error::from)
-    }
-
-    // TODO(claude): add docs
-    pub async fn get<'c>(
-        id: i64,
-        workspace_id: &str,
-        e: impl PgExecutor<'c>,
-    ) -> error::Result<Option<Self>> {
-        sqlx::query_as!(
-            Self,
-            r#"
-            SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
-            FROM workspace_dependencies
-            WHERE id = $1 AND workspace_id = $2
-            LIMIT 1
-            "#,
-            id,
-            workspace_id
-        )
-        .fetch_optional(e)
-        .await
-        .map_err(error::Error::from)
-    }
-
-    // TODO(claude): add docs
-    pub async fn get_history<'c>(
-        name: Option<String>,
-        language: ScriptLang,
-        workspace_id: &str,
-        e: impl PgExecutor<'c>,
-    ) -> error::Result<Vec<i64>> {
-        sqlx::query_scalar!(
-            r#"
-            SELECT id FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND language = $3
-            "#,
-            name,
-            workspace_id,
-            language as ScriptLang
-        )
-        .fetch_all(e)
-        .await
-        .map_err(error::Error::from)
     }
 }
 
@@ -365,6 +249,40 @@ mod workspace_dependencies_tests {
                 .unwrap(),
                 // It will just increment id
                 3
+            );
+            Ok(())
+        }
+
+        #[sqlx::test(
+            fixtures("../../tests/fixtures/base.sql",),
+            migrations = "../migrations"
+        )]
+        async fn violate_constraints(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            let db = &db;
+            let create = |name| {
+                sqlx::query_scalar!(
+                    "
+                    INSERT INTO workspace_dependencies(name, workspace_id, content, language)
+                    VALUES ($1, 'test-workspace', 'test', 'python3') 
+                    RETURNING id
+                    ",
+                    name
+                )
+                .fetch_one(db)
+            };
+
+            assert_eq!(create(Some("test".to_owned())).await.unwrap(), 1);
+            assert_eq!(create(None).await.unwrap(), 2);
+
+            assert!(create(Some("test".to_owned())).await.is_err());
+            assert!(create(None).await.is_err());
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_dependencies",)
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                2
             );
             Ok(())
         }

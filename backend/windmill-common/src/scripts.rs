@@ -18,7 +18,7 @@ use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     worker::PythonAnnotations,
-    workspace_dependencies::{parse_annotation, WorkspaceDependenciesRefs},
+    workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 
@@ -106,7 +106,7 @@ impl ScriptLang {
         }
     }
 
-    pub fn as_requirements_filename(&self) -> Option<String> {
+    pub fn as_dependencies_filename(&self) -> Option<String> {
         use ScriptLang::*;
         Some(
             match self {
@@ -121,18 +121,32 @@ impl ScriptLang {
         )
     }
 
-    pub fn extract_workspace_dependencies_refs(
+    pub fn as_comment_lit(&self) -> String {
+        use ScriptLang::*;
+        match self {
+            Nativets | Bun | Bunnative | Deno | Php | CSharp | Java => "//",
+            Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
+            Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
+            Rust => "//!",
+            // for related places search: ADD_NEW_LANG
+        }
+        .to_owned()
+    }
+
+    pub fn extract_workspace_dependencies_annotated_refs(
         &self,
         code: &str,
-    ) -> Option<WorkspaceDependenciesRefs> {
+    ) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
         use ScriptLang::*;
         match self {
             // TODO: Maybe use regex
             // TODO: Doublecheck these
-            Bun | Bunnative | Deno => parse_annotation("//", "package_json", code),
-            Python3 => parse_annotation("#", "requirements", code),
-            Go => parse_annotation("//", "go_mod", code),
-            Php => parse_annotation("//", "composer_json", code),
+            Bun | Bunnative | Deno => {
+                WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code)
+            }
+            Python3 => WorkspaceDependenciesAnnotatedRefs::parse("#", "requirements", code),
+            Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code),
+            Php => WorkspaceDependenciesAnnotatedRefs::parse("//", "composer_json", code),
             _ => return None,
         }
     }

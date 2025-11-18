@@ -347,10 +347,10 @@ SELECT importer_node_id, imported_path
                             FlowModuleValue::RawScript { content, language, lock ,.. } => {
                                 if !is_generated_from_raw_requirements(Some(*language), lock) {
                                     to_process.push((
-                                        extract_relative_imports(
+                                        extract_referenced_paths(
                                             content,
                                             &(r.path.clone() + "/flow"),
-                                            &Some(language.clone()),
+                                            Some(*language),
                                         ),
                                         id.clone(),
                                     ));
@@ -398,10 +398,10 @@ SELECT importer_node_id, imported_path
                     let mut to_process = vec![];
                     traverse_app_inline_scripts(&value, None, &mut |ais, id| {
                         to_process.push((
-                            extract_relative_imports(
+                            extract_referenced_paths(
                                 &ais.content,
                                 &(r.path.clone() + "/app"),
-                                &ais.language,
+                                ais.language,
                             ),
                             id,
                         ));

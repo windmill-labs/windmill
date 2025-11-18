@@ -1,2 +1,4 @@
 DROP TABLE IF EXISTS workspace_dependencies;
 DROP SEQUENCE IF EXISTS workspace_dependencies_id_seq CASCADE;
+DROP INDEX IF EXISTS one_non_archived_per_name_language_constraint;
+DROP INDEX IF EXISTS one_non_archived_per_null_name_language_constraint;
