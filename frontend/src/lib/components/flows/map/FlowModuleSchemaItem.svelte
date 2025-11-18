@@ -127,9 +127,7 @@
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
 
 	// Disable delete/move operations when there are pending changes
-	const effectiveDeletable = $derived(
-		deletable && !diffManager?.hasPendingChanges
-	)
+	const effectiveDeletable = $derived(deletable && !diffManager?.hasPendingChanges)
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
