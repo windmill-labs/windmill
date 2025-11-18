@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.579.2](https://github.com/windmill-labs/windmill/compare/v1.579.1...v1.579.2) (2025-11-18)
+
+
+### Bug Fixes
+
+* ducklake manager table explorer issue ([d08c091](https://github.com/windmill-labs/windmill/commit/d08c0916f72a67f01e0c4475f03f9d1d33c10905))
+
 ## [1.579.1](https://github.com/windmill-labs/windmill/compare/v1.579.0...v1.579.1) (2025-11-18)
 
 
