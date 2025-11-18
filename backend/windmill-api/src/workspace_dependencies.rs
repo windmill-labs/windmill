@@ -31,10 +31,10 @@ async fn create(
     // authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Json(nwr): Json<NewWorkspaceDependencies>,
+    Json(nwd): Json<NewWorkspaceDependencies>,
 ) -> error::Result<(StatusCode, String)> {
     // TODO: Check that it is an admin
-    Ok((StatusCode::CREATED, format!("{}", nwr.create(&db).await?)))
+    Ok((StatusCode::CREATED, format!("{}", nwd.create(&db).await?)))
 }
 
 #[axum::debug_handler]
@@ -54,7 +54,7 @@ async fn get_latest(
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, language, name)): Path<(String, ScriptLang, Option<String>)>,
-) -> JsonResult<WorkspaceDependencies> {
+) -> JsonResult<Option<WorkspaceDependencies>> {
     // TODO: Check that it is an admin
     Ok(Json(
         WorkspaceDependencies::get_latest(name, language, &w_id, db.into()).await?,

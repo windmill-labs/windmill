@@ -233,7 +233,7 @@ impl WorkspaceDependenciesPrefetched {
                 for WorkspaceDependencies { id, name, .. } in
                     &workspace_dependencies_annotated_refs.external
                 {
-                    insert_line(id, name.clone());
+                    header.push(insert_line(id, name.clone()));
                 }
             }
             Implicit { workspace_dependencies: WorkspaceDependencies { id, name, .. }, mode } => {
@@ -303,18 +303,16 @@ impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         };
         for name in self.external {
             let name = name.into();
-            res.external.push(
-                WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
-                    .await?
-                    // TODO: unsafe unwrap
-                    .unwrap(),
-            );
+            WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
+                .await?
+                // TODO(claude): warning if not found
+                .inspect(|wd| res.external.push(wd.clone()));
         }
         Ok(res)
     }
     // TODO: manual should take precendence over extra
     // TODO: Maybe implemented by our Annotations macro
-    // TODO: Note this will include all seqsequent lines as long as they start with comment.
+    // TODO: BREAKING: Note this will include all seqsequent lines as long as they start with comment.
     // TODO: What sep should be? ':' or '='?
     pub fn parse(comment: &str, keyword: &str, code: &str) -> Option<Self> {
         let (extra_deps, manual_deps) = (format!("extra_{keyword}:"), format!("{keyword}:"));

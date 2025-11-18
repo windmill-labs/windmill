@@ -457,13 +457,6 @@ async fn gen_go_mod(
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
-pub enum DependencyJobContent {
-    /// Tells installers to parse code for imports.
-    Code(String),
-    /// Job Code represents dependencies content.
-    Dependencies(String),
-}
-
 pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,

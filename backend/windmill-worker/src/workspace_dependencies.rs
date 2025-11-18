@@ -20,16 +20,24 @@ impl NewWorkspaceDependencies {
     // TODO(claude): add docs
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
         let mut tx = db.begin().await?;
-        let new_id = sqlx::query_scalar!(
+        sqlx::query!(
             "
-            WITH _ AS (
                 UPDATE workspace_dependencies
                 SET archived = true 
                 WHERE archived = false
                     AND name = $1
                     AND workspace_id = $2
-                    AND language = $4
-            )
+                    AND language = $3
+            ",
+            self.name,
+            self.workspace_id,
+            self.language as ScriptLang
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let new_id = sqlx::query_scalar!(
+            "
             INSERT INTO workspace_dependencies(name, workspace_id, content, language)
             VALUES ($1, $2, $3, $4) 
             RETURNING id

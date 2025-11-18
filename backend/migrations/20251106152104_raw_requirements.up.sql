@@ -12,5 +12,5 @@ CREATE TABLE IF NOT EXISTS workspace_dependencies(
 );
 
 -- Make any query that tries to create non-linear history fail
-CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_name_language_constraint ON workspace_dependencies(name, language) WHERE archived = false;
-CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_null_name_language_constraint ON workspace_dependencies(language) WHERE archived = false AND name IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_name_language_constraint ON workspace_dependencies(name, language, workspace_id) WHERE archived = false AND name IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_null_name_language_constraint ON workspace_dependencies(language, workspace_id) WHERE archived = false AND name IS NULL;
