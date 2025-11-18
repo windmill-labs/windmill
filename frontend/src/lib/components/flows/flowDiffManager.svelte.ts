@@ -281,7 +281,7 @@ export function createFlowDiffManager() {
 
 		if (info.action === 'removed') {
 			// Module is shadowed (__prefix) in mergedFlow, remove it permanently
-			const shadowedId = id.startsWith('__') ? id : `__${id}`
+			const shadowedId = id
 			const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, shadowedId)
 			const index = modules.findIndex((m) => m.id === shadowedId)
 			if (index >= 0) {
@@ -333,7 +333,7 @@ export function createFlowDiffManager() {
 			}
 		} else if (action === 'removed') {
 			// Restore from beforeFlow - replace shadowed (__) module with original
-			const shadowedId = `__${actualId}`
+			const shadowedId = `${actualId}`
 			const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, shadowedId)
 			const index = modules.findIndex((m) => m.id === shadowedId)
 

@@ -5,6 +5,7 @@
 **All core phases implemented successfully!**
 
 ### Commits:
+
 1. **Phase 4**: Added `checkAndApplyChanges()` helper (af72ea9)
 2. **Phase 2**: Simplified `acceptModule()` to only modify mergedFlow (0b86336)
 3. **Phase 3**: Simplified `rejectModule()` to only modify mergedFlow (2f553b0)
@@ -14,6 +15,7 @@
 7. **Cleanup**: Fixed linter warnings (3ce9d4e)
 
 ### Next Steps:
+
 - Manual testing of accept/reject scenarios
 - Consider adding automated tests
 

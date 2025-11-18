@@ -15,6 +15,7 @@
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
 	import type { StateStore } from '$lib/utils'
+	import { createFlowDiffManager } from '../flowDiffManager.svelte'
 
 	interface Props {
 		noEditor?: boolean
@@ -35,6 +36,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
 		previewOpen?: boolean
+		diffManager?: ReturnType<typeof createFlowDiffManager>
 	}
 
 	let {
@@ -51,7 +53,8 @@
 		isOwner,
 		suspendStatus,
 		onOpenDetails,
-		previewOpen = false
+		previewOpen = false,
+		diffManager = undefined
 	}: Props = $props()
 
 	const {
@@ -68,6 +71,12 @@
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
+	
+	// Compute effective modules from mergedFlow when in diff mode, otherwise use flowStore
+	const effectiveModules = $derived(
+		diffManager?.mergedFlow?.modules ?? flowStore.val.value.modules
+	)
+
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
 		for (const m of modules) {
@@ -146,16 +155,16 @@
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
 {:else}
-	{@const dup = checkDup(flowStore.val.value.modules)}
+	{@const dup = checkDup(effectiveModules)}
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
 		{#key $selectedId}
-			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
+			{#each effectiveModules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={flowStore.val.value.modules[index]}
-					previousModule={flowStore.val.value.modules[index - 1]}
+					bind:flowModule={effectiveModules[index]}
+					previousModule={effectiveModules[index - 1]}
 					{enableAi}
 					savedModule={savedFlow?.value.modules[index]}
 					{forceTestTab}
