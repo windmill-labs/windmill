@@ -13,9 +13,11 @@ import { completeAndSplitGroup } from './groupDetectionUtils'
  */
 export class NoteEditor {
 	private flowStore: StateStore<ExtendedOpenFlow>
+	private onNoteAdded?: () => void
 
-	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
+	constructor(flowStore: StateStore<ExtendedOpenFlow>, onNoteAdded?: () => void) {
 		this.flowStore = flowStore
+		this.onNoteAdded = onNoteAdded
 	}
 
 	/**
@@ -44,6 +46,10 @@ export class NoteEditor {
 			...note
 		}
 		this.setNotes([...notes, newNote])
+
+		// Call callback to enable notes display when a note is created
+		this.onNoteAdded?.()
+
 		return newNote.id
 	}
 

@@ -102,6 +102,10 @@
 		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
 	}
 
+	export function enableNotes(): void {
+		flowModuleSchemaMap?.enableNotes?.()
+	}
+
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)

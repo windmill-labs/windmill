@@ -542,7 +542,10 @@
 	})
 
 	// Set up NoteEditor context for note editing capabilities
-	const noteEditor = new NoteEditor(flowStore)
+	const noteEditor = new NoteEditor(flowStore, () => {
+		// Enable notes display when a note is created
+		flowModuleSchemaMap?.enableNotes?.()
+	})
 	setNoteEditorContext(noteEditor)
 
 	let lastSent: OpenFlow | undefined = undefined

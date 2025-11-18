@@ -807,6 +807,12 @@
 		viewportSynchronizer?.zoomOut()
 	}
 
+	export function enableNotes() {
+		if (!showNotes) {
+			showNotes = true
+		}
+	}
+
 	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
 

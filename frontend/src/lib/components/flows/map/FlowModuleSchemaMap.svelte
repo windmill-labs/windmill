@@ -299,6 +299,10 @@
 		return graph?.isNodeVisible(nodeId) ?? false
 	}
 
+	export function enableNotes(): void {
+		graph?.enableNotes?.()
+	}
+
 	function toggleNoteMode() {
 		noteMode = !noteMode
 	}
