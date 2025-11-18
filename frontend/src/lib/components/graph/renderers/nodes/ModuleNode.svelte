@@ -6,7 +6,7 @@
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
-	import { addGroupNoteContextMenuItem } from '../../groupNoteUtils'
+	import { addGroupNoteContextMenuItem } from '../../noteUtils'
 
 	interface Props {
 		data: ModuleN['data']

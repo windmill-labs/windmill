@@ -73,7 +73,7 @@
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
-	import { buildNodeSpacingMap, getNoteStateSignature } from './groupNoteUtils'
+	import { computeNoteNodes } from './noteUtils'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 
@@ -226,14 +226,13 @@
 		multiSelectEnabled = false
 	}: Props = $props()
 
-	// Initialize note manager with notes function and nodes setter/getter
+	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
 		() => notes ?? [],
 		(newNodes) => {
 			nodes = newNodes
 		},
-		() => nodes,
-		editMode
+		() => nodes
 	)
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
@@ -282,24 +281,23 @@
 		)
 	}
 
-	type NodeDep = { id: string; parentIds?: string[]; offset?: number; data?: { assets?: AssetWithAltAccessType[] } }
+	type NodeDep = {
+		id: string
+		parentIds?: string[]
+		offset?: number
+		data?: { assets?: AssetWithAltAccessType[] }
+	}
 	type NodePos = { position: { x: number; y: number } }
 	type LayoutCacheKey = {
 		nodes: NodeDep[]
-		noteSignature: ReturnType<typeof getNoteStateSignature>
 	}
 	let lastLayoutCache: { key: LayoutCacheKey; result: (NodeDep & NodePos)[] } | undefined =
 		undefined
 
-	function layoutNodes(
-		nodes: NodeDep[],
-		groupNotes: FlowNote[] = [],
-		noteTextHeights: Record<string, number> = {}
-	): (NodeDep & NodePos)[] {
-		// Create comprehensive cache key that includes all layout dependencies
+	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
+		// Create comprehensive cache key for layout dependencies
 		const currentCacheKey: LayoutCacheKey = {
-			nodes,
-			noteSignature: getNoteStateSignature(groupNotes, noteTextHeights)
+			nodes
 		}
 
 		// Check if we can use cached result
@@ -321,8 +319,6 @@
 			return { ...n, position: { x: 0, y: 0 } }
 		})
 
-		// Build spacing map for group notes - this integrates with D3's layout algorithm
-		const nodeSpacingMap = buildNodeSpacingMap(nodes, groupNotes, noteTextHeights, noteManager)
 		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
@@ -346,10 +342,9 @@
 				.nodeSize((d) => {
 					const nodeId = d?.data?.['id'] ?? ''
 					const baseHeight = NODE.height + NODE.gap.vertical
-					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
 					return [
 						(nodeWidths[nodeId] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						baseHeight + extraSpacing
+						baseHeight
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -357,11 +352,9 @@
 			const layout = sugiyama()
 				.decross(decrossTwoLayer())
 				.coord(coordCenter())
-				.nodeSize((d) => {
-					const nodeId = d?.data?.['id'] ?? ''
+				.nodeSize(() => {
 					const baseHeight = NODE.height + NODE.gap.vertical
-					const extraSpacing = nodeSpacingMap[nodeId] ?? 0
-					return [NODE.width + NODE.gap.horizontal, baseHeight + extraSpacing]
+					return [NODE.width + NODE.gap.horizontal, baseHeight]
 				})
 			boxSize = layout(dag as any)
 		}
@@ -379,7 +372,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: (des.y || 0) + (nodeSpacingMap[des.data.id] ?? 0) / 2
+				y: des.y || 0
 			}
 		}))
 
@@ -528,9 +521,7 @@
 				parentIds: n.parentIds,
 				offset: n.data.offset ?? 0,
 				data: { assets: (n.data as any).assets }
-			})),
-			showNotes ? (notes?.filter((note) => note.type === 'group') ?? []) : [],
-			showNotes ? noteTextHeights : {}
+			}))
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
@@ -550,32 +541,49 @@
 			}))
 		}
 		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		const finalNodes = [
-			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
+		let nodesAfterAITools = newNodes.map((n) => ({
+			...n,
+			position: aiToolNodesResult.newNodePositions[n.id]
+		}))
+
+		// Compute note nodes and positions
+		let noteNodesResult = showNotes
+			? computeNoteNodes(
+					nodesAfterAITools.map((n) => ({
+						id: n.id,
+						position: n.position,
+						parentIds: n.parentIds,
+						offset: n.data.offset ?? 0,
+						data: { assets: (n.data as any).assets }
+					})),
+					notes ?? [],
+					noteTextHeights,
+					(noteId: string, height: number) => {
+						noteTextHeights[noteId] = height
+						noteManager.render()
+					},
+					editMode,
+					$showAssets
+				)
+			: undefined
+
+		// Apply note positioning to nodes if notes are enabled
+		let nodesAfterNotes: (Node & NodeLayout)[] = nodesAfterAITools
+		if (noteNodesResult) {
+			nodesAfterNotes = nodesAfterAITools.map((n) => ({
+				...n,
+				position: noteNodesResult.newNodePositions[n.id] || n.position
+			}))
+		}
+
+		// update nodes
+		nodes = [
+			...nodesAfterNotes,
 			...(assetNodesResult?.newAssetNodes ?? []),
-			...aiToolNodesResult.toolNodes
+			...aiToolNodesResult.toolNodes,
+			...(noteNodesResult?.noteNodes ?? [])
 		]
 
-		nodes = [
-			...finalNodes,
-			...(showNotes
-				? noteManager.convertToNodes(
-						notes ?? [],
-						finalNodes,
-						noteTextHeights,
-						(noteId: string, height: number) => {
-							noteTextHeights[noteId] = height
-						},
-						editMode,
-						Object.values(graph.nodes).map((n) => ({
-							id: n.id,
-							parentIds: n.parentIds,
-							offset: n.data.offset ?? 0
-						})),
-						$showAssets
-					)
-				: [])
-		]
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
 			...aiToolNodesResult.toolEdges,
@@ -800,8 +808,6 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
-
-	$inspect('dbg nodes', nodes)
 </script>
 
 {#if insertable}
