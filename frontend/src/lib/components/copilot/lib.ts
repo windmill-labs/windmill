@@ -17,6 +17,10 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	getNonStreamingOpenAIResponsesCompletion,
+	getOpenAIResponsesCompletionStream
+} from './chat/openai-responses'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
@@ -225,8 +229,7 @@ export async function fetchAvailableModels(
 					.filter(
 						(m) =>
 							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
-							m.lifecycle_status !== 'deprecated' &&
-							(m.capabilities.completion || m.capabilities.chat_completion)
+							m.lifecycle_status !== 'deprecated'
 					)
 					.map((m) => m.id)
 					.sort(sortFunc(provider))
@@ -670,6 +673,11 @@ export async function getNonStreamingCompletion(
 		forceModelProvider: testOptions?.forceModelProvider
 	})
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getNonStreamingOpenAIResponsesCompletion(messages, abortController, testOptions)
+	}
+
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -789,6 +797,12 @@ export async function getCompletion(
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		return getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+	}
+
+	// Use Completions API for other providers
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
@@ -1013,55 +1027,6 @@ export async function copilot(
 
 	// make sure we display the latest and complete code
 	generatedCode.set(code)
-
-	if (code.length === 0) {
-		throw new Error('No code block found')
-	}
-
-	return code
-}
-
-function getStringEndDelta(prev: string, now: string) {
-	return now.slice(prev.length)
-}
-
-export async function deltaCodeCompletion(
-	messages: ChatCompletionMessageParam[],
-	generatedCodeDelta: Writable<string>,
-	abortController: AbortController
-) {
-	const completion = await getCompletion(messages, abortController)
-
-	let response = ''
-	let code = ''
-	let delta = ''
-	for await (const part of completion) {
-		response += getResponseFromEvent(part)
-		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
-
-		if (match) {
-			// if we have a full code block
-			delta = getStringEndDelta(code, match[1])
-			code = match[1]
-			generatedCodeDelta.set(delta)
-
-			break
-		}
-
-		// partial code block, keep going
-		match = response.match(/```[a-zA-Z]+\n([\s\S]*)/)
-
-		if (!match) {
-			continue
-		}
-
-		if (!match[1].endsWith('`')) {
-			// skip updating if possible that part of three ticks (end of code block)s
-			delta = getStringEndDelta(code, match[1])
-			generatedCodeDelta.set(delta)
-			code = match[1]
-		}
-	}
 
 	if (code.length === 0) {
 		throw new Error('No code block found')

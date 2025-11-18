@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
+use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -202,9 +202,8 @@ impl AIRequestConfig {
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
             (bedrock_url, body)
-        } else if is_azure && method != Method::GET {
-            let model = AIProvider::extract_model_from_body(&body)?;
-            let azure_url = AIProvider::build_azure_openai_url(base_url, &model, path);
+        } else if is_azure {
+            let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
         } else if is_anthropic_sdk {
             let truncated_base_url = base_url.trim_end_matches("/v1");
@@ -228,10 +227,6 @@ impl AIRequestConfig {
         }
 
         request = request.body(body);
-
-        if is_azure {
-            request = request.query(&[("api-version", AZURE_API_VERSION)])
-        }
 
         if let Some(api_key) = self.api_key {
             if is_azure {
