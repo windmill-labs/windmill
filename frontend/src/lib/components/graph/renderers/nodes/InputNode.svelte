@@ -22,8 +22,8 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { previewArgs, flowStore } =
-		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const { previewArgs, flowStore } = flowEditorContext || {}
 
 	let topFlowInput = $derived(
 		flowStore?.val && previewArgs && flowStore?.val?.schema
@@ -35,7 +35,7 @@
 </script>
 
 {#if data.inputSchemaModified && data.diffManager}
-	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
+	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
 		<Button
 			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
 			onClick={() => {
@@ -43,6 +43,28 @@
 			}}
 			startIcon={{ icon: DiffIcon }}>Diff</Button
 		>
+		{#if data.diffManager.beforeFlow}
+			<Button
+				size="xs"
+				color="green"
+				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
+				onClick={() => {
+					data.diffManager?.acceptModule('Input', { flowStore: flowEditorContext?.flowStore })
+				}}
+			>
+				✓ Accept
+			</Button>
+			<Button
+				size="xs"
+				color="red"
+				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
+				onClick={() => {
+					data.diffManager?.rejectModule('Input', { flowStore: flowEditorContext?.flowStore })
+				}}
+			>
+				✗ Reject
+			</Button>
+		{/if}
 	</div>
 {/if}
 

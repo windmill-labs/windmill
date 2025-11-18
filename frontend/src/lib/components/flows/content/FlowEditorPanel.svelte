@@ -97,6 +97,7 @@
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
+		{diffManager}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)

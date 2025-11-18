@@ -50,15 +50,17 @@
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { randomUUID } from '../conversations/FlowChatManager.svelte'
+	import { createFlowDiffManager } from '../flowDiffManager.svelte'
 
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
 		onTestFlow?: () => Promise<string | undefined>
 		previewOpen: boolean
+		diffManager?: ReturnType<typeof createFlowDiffManager>
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
+	let { noEditor, disabled, onTestFlow, previewOpen, diffManager = undefined }: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -68,6 +70,14 @@
 		fakeInitialPath,
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+	
+	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
+	const effectiveSchema = $derived(
+		diffManager?.afterInputSchema ?? flowStore.val.schema
+	)
+	
+	// When in diff mode with pending Input changes, treat as disabled to prevent editing
+	const effectiveDisabled = $derived(disabled || (diffManager?.moduleActions['Input']?.pending ?? false))
 
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
 	let showChatModeWarning = $state(false)
@@ -469,7 +479,7 @@
 
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
-		{#if !disabled}
+		{#if !effectiveDisabled}
 			<Toggle
 				size="sm"
 				checked={chatInputEnabled}
@@ -485,7 +495,7 @@
 			/>
 		{/if}
 	{/snippet}
-	{#if !disabled}
+	{#if !effectiveDisabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex-1 min-h-0">
@@ -757,7 +767,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.val.schema} />
+			<FlowInputViewer schema={effectiveSchema} />
 		</div>
 	{/if}
 </FlowCard>
