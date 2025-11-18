@@ -109,7 +109,26 @@ export const NOTE_COLOR_SWATCHES: Record<NoteColor, string> = {
 }
 
 // Default note color
-export const DEFAULT_NOTE_COLOR = NoteColor.YELLOW
+export const DEFAULT_NOTE_COLOR = NoteColor.GREEN
+export const DEFAULT_GROUP_NOTE_COLOR = NoteColor.BLUE
+
+/**
+ * Get the next available color that's not in the used colors set
+ * Cycles through all available colors in order
+ */
+export function getNextAvailableColor(usedColors: Set<NoteColor>): NoteColor {
+	const allColors = Object.values(NoteColor)
+
+	// Find first unused color
+	for (const color of allColors) {
+		if (!usedColors.has(color)) {
+			return color
+		}
+	}
+
+	// If all colors are used, return the default
+	return DEFAULT_GROUP_NOTE_COLOR
+}
 
 // Minimum note size constraints
 export const MIN_NOTE_WIDTH = 275

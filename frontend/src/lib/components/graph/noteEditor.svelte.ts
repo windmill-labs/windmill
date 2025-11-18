@@ -2,6 +2,7 @@ import type { FlowNote } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 import type { NoteColor } from './noteColors'
+import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
 import { completeAndSplitGroup } from './groupDetectionUtils'
@@ -101,6 +102,54 @@ export class NoteEditor {
 	}
 
 	/**
+	 * Find which nodes from the given list are already in existing group notes
+	 */
+	private findNodesInExistingGroups(nodeIds: string[]): {
+		overlappingGroups: FlowNote[]
+		nodesInGroups: Set<string>
+	} {
+		const notes = this.getNotes()
+		const groupNotes = notes.filter((note) => note.type === 'group')
+		const overlappingGroups: FlowNote[] = []
+		const nodesInGroups = new Set<string>()
+
+		for (const groupNote of groupNotes) {
+			const containedNodeIds = groupNote.contained_node_ids || []
+			const hasOverlap = nodeIds.some((nodeId) => containedNodeIds.includes(nodeId))
+
+			if (hasOverlap) {
+				overlappingGroups.push(groupNote)
+				containedNodeIds.forEach((nodeId) => nodesInGroups.add(nodeId))
+			}
+		}
+
+		return { overlappingGroups, nodesInGroups }
+	}
+
+	/**
+	 * Get smart color for group note based on existing groups
+	 */
+	private getSmartGroupNoteColor(nodeIds: string[]): NoteColor {
+		const { overlappingGroups } = this.findNodesInExistingGroups(nodeIds)
+
+		// If no overlapping groups, use default color
+		if (overlappingGroups.length === 0) {
+			return DEFAULT_GROUP_NOTE_COLOR
+		}
+
+		// Get colors used by overlapping groups
+		const usedColors = new Set<NoteColor>()
+		overlappingGroups.forEach((group) => {
+			if (group.color) {
+				usedColors.add(group.color as NoteColor)
+			}
+		})
+
+		// Return next available color
+		return getNextAvailableColor(usedColors)
+	}
+
+	/**
 	 * Create a group note containing the specified node IDs
 	 */
 	createGroupNote(
@@ -108,16 +157,34 @@ export class NoteEditor {
 		text: string = '### Group note\nDouble click to edit me'
 	): string {
 		// Position and size will be calculated dynamically by layout
+		const smartColor = this.getSmartGroupNoteColor(nodeIds)
 
 		const groupNote: Omit<FlowNote, 'id'> = {
 			text,
-			color: 'blue', // Default color, can be made configurable
+			color: smartColor,
 			type: 'group',
 			contained_node_ids: nodeIds,
 			locked: false
 		}
 
 		return this.addNote(groupNote)
+	}
+
+	/**
+	 * Check if a node is the only member of an existing group note
+	 */
+	isNodeOnlyMemberOfGroupNote(nodeId: string): boolean {
+		const notes = this.getNotes()
+		const groupNotes = notes.filter((note) => note.type === 'group')
+
+		for (const groupNote of groupNotes) {
+			const containedNodeIds = groupNote.contained_node_ids || []
+			if (containedNodeIds.length === 1 && containedNodeIds.includes(nodeId)) {
+				return true
+			}
+		}
+
+		return false
 	}
 
 	/**

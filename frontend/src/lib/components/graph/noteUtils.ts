@@ -383,13 +383,17 @@ export function addGroupNoteContextMenuItem(
 	nodeId: string,
 	noteEditorContext: NoteEditorContext | undefined
 ) {
+	const isDisabled =
+		!noteEditorContext?.noteEditor ||
+		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(nodeId) ?? false)
+
 	return {
 		id: 'add-group-note',
 		label: 'Add note',
 		icon: StickyNote,
-		disabled: !noteEditorContext?.noteEditor,
+		disabled: isDisabled,
 		onClick: () => {
-			if (noteEditorContext?.noteEditor) {
+			if (noteEditorContext?.noteEditor && !isDisabled) {
 				noteEditorContext.noteEditor.createGroupNote([nodeId])
 			}
 		}
