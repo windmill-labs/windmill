@@ -76,4 +76,10 @@ COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal
+
+RUN mkdir -p /usr/src/app && \
+    cp /windmill/target/release/libwindmill_duckdb_ffi_internal.so /usr/src/app/
+
 RUN subscription-manager unregister
