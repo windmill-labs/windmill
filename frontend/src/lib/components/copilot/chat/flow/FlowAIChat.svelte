@@ -122,29 +122,31 @@
 					throw new Error('YAML must contain a "modules" array')
 				}
 
-				// Update the before flow
+				// Take snapshot of current flowStore
 				const snapshot = $state.snapshot(flowStore).val
 				flowModuleSchemaMap?.setBeforeFlow(snapshot)
 
-				// Update the flow structure
-				flowStore.val.value.modules = parsed.modules
-
-				if (parsed.preprocessor_module !== undefined) {
-					flowStore.val.value.preprocessor_module = parsed.preprocessor_module || undefined
+				// Get the diffManager
+				const diffManager = flowModuleSchemaMap?.getDiffManager()
+				if (!diffManager) {
+					throw new Error('DiffManager not available')
 				}
 
-				if (parsed.failure_module !== undefined) {
-					flowStore.val.value.failure_module = parsed.failure_module || undefined
-				}
+				// Set as afterFlow (don't modify flowStore) ✓
+				diffManager.setAfterFlow({
+					modules: parsed.modules,
+					failure_module: parsed.failure_module || undefined,
+					preprocessor_module: parsed.preprocessor_module || undefined,
+					skip_expr: parsed.skip_expr,
+					cache_ttl: parsed.cache_ttl
+				})
 
-				// Update schema if provided
+				// Update input schema tracking if provided
 				if (parsed.schema !== undefined) {
-					flowStore.val.schema = parsed.schema
+					diffManager.setInputSchemas(snapshot.schema, parsed.schema)
 				}
 
-				// Refresh the state store to update UI
-				// The timeline derived state will automatically compute the diff
-				refreshStateStore(flowStore)
+				// flowStore unchanged - changes only in mergedFlow for review
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply YAML: ${error instanceof Error ? error.message : String(error)}`
