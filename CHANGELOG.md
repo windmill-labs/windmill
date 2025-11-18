@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.579.1](https://github.com/windmill-labs/windmill/compare/v1.579.0...v1.579.1) (2025-11-18)
+
+
+### Bug Fixes
+
+* fix s3 object download frontend freezes ([09a6e1f](https://github.com/windmill-labs/windmill/commit/09a6e1feaa79ce3f8548f8090fddbf46abb08b18))
+
 ## [1.579.0](https://github.com/windmill-labs/windmill/compare/v1.578.0...v1.579.0) (2025-11-17)
 
 
