@@ -23,7 +23,7 @@
 	{#snippet trigger()}
 		<Button
 			variant="subtle"
-			unifiedSize="sm"
+			unifiedSize="xs"
 			selected={isOpen}
 			nonCaptureEvent
 			title={'Select color'}

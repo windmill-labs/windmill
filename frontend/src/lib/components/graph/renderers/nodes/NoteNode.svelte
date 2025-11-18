@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { NodeResizer } from '@xyflow/svelte'
+	import { NodeResizer, ViewportPortal, useSvelteFlow } from '@xyflow/svelte'
 	import { X, Lock, LockOpen } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -33,6 +33,9 @@
 
 	let { data, dragging = false }: Props = $props()
 
+	// Get SvelteFlow utilities for accessing node position
+	const { getNode } = useSvelteFlow()
+
 	// Get NoteEditor context for edit mode
 	const noteEditorContext = getNoteEditorContext()
 	const isEditModeAvailable = $derived(!!noteEditorContext?.noteEditor && data.editMode)
@@ -41,6 +44,9 @@
 	const graphContext = getGraphContext()
 	const noteManager = graphContext?.noteManager
 	const selected = $derived(noteManager?.isNoteSelected(data.noteId) ?? false)
+
+	// Get the current node with position data
+	const currentNode = $derived(getNode(data.noteId))
 
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
@@ -157,6 +163,50 @@
 	}
 </script>
 
+<!-- Snippet for action buttons to avoid code duplication -->
+{#snippet actionButtons()}
+	<div
+		class={twMerge(
+			'hidden group-hover:flex flex-row gap-2 h-fit',
+			hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
+		)}
+	>
+		<!-- Lock/Unlock button -->
+		<Button
+			variant="subtle"
+			unifiedSize="xs"
+			title={locked ? 'Unlock note' : 'Lock note'}
+			aria-label={locked ? 'Unlock note' : 'Lock note'}
+			startIcon={{ icon: locked ? Lock : LockOpen }}
+			onClick={handleLockToggle}
+			iconOnly
+		/>
+
+		<!-- Color picker -->
+		{#if !locked}
+			<NoteColorPicker
+				selectedColor={color}
+				onColorChange={handleColorChange}
+				bind:isOpen={colorPickerIsOpen}
+			/>
+		{/if}
+
+		<!-- Delete button -->
+		{#if !locked}
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				title="Delete note"
+				aria-label="Delete note"
+				startIcon={{ icon: X }}
+				onClick={handleDelete}
+				iconOnly
+				destructive
+			/>
+		{/if}
+	</div>
+{/snippet}
+
 <div
 	class={twMerge(
 		'relative w-full h-full rounded-md group hover:outline outline-1',
@@ -189,52 +239,6 @@
 		}
 	}}
 >
-	<!-- Action buttons - only show in edit mode -->
-	{#if isEditModeAvailable}
-		<div class="absolute -top-10 -right-2.5 p-2 w-32 h-12 group flex justify-end">
-			<div
-				class={twMerge(
-					'hidden group-hover:flex flex-row gap-2 h-fit',
-					hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
-				)}
-			>
-				<!-- Lock/Unlock button -->
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					title={locked ? 'Unlock note' : 'Lock note'}
-					aria-label={locked ? 'Unlock note' : 'Lock note'}
-					startIcon={{ icon: locked ? Lock : LockOpen }}
-					onClick={handleLockToggle}
-					iconOnly
-				/>
-
-				<!-- Color picker -->
-				{#if !locked}
-					<NoteColorPicker
-						selectedColor={color}
-						onColorChange={handleColorChange}
-						bind:isOpen={colorPickerIsOpen}
-					/>
-				{/if}
-
-				<!-- Delete button -->
-				{#if !locked}
-					<Button
-						variant="subtle"
-						unifiedSize="sm"
-						title="Delete note"
-						aria-label="Delete note"
-						startIcon={{ icon: X }}
-						onClick={handleDelete}
-						iconOnly
-						destructive
-					/>
-				{/if}
-			</div>
-		</div>
-	{/if}
-
 	<!-- Hover help text -->
 	{#if hovering || selected}
 		{#if !editMode && isEditModeAvailable}
@@ -324,6 +328,30 @@
 				}
 			}}
 		/>
+	{/if}
+
+	<!-- Action buttons - conditional rendering based on note type -->
+	{#if isEditModeAvailable}
+		{#if data.isGroupNote && currentNode?.position}
+			<!-- Group notes: Use ViewportPortal to render above graph edges -->
+			<ViewportPortal target="front">
+				<div
+					class="absolute p-1 w-24 h-8 group flex justify-end"
+					style:transform="translate({currentNode.position.x +
+						(currentNode.measured?.width ?? MIN_NOTE_WIDTH) -
+						100}px , {currentNode.position.y - 30}px)"
+					style:pointer-events="auto"
+					style:z-index="1000"
+				>
+					{@render actionButtons()}
+				</div>
+			</ViewportPortal>
+		{:else}
+			<!-- Standalone notes: Use normal absolute positioning -->
+			<div class="absolute -top-8 -right-2.5 p-2 w-32 h-12 group flex justify-end">
+				{@render actionButtons()}
+			</div>
+		{/if}
 	{/if}
 </div>
 
