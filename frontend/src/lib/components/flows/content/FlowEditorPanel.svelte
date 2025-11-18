@@ -71,11 +71,9 @@
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
-	
+
 	// Compute effective modules from mergedFlow when in diff mode, otherwise use flowStore
-	const effectiveModules = $derived(
-		diffManager?.mergedFlow?.modules ?? flowStore.val.value.modules
-	)
+	const effectiveModules = $derived(diffManager?.mergedFlow?.modules ?? flowStore.val.value.modules)
 
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
