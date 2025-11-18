@@ -282,10 +282,7 @@ export function createFlowDiffManager() {
 		if (info.action === 'removed') {
 			// Module is shadowed (__prefix) in mergedFlow, remove it permanently
 			const shadowedId = id.startsWith('__') ? id : `__${id}`
-			const { modules } = getIndexInNestedModules(
-				{ value: mergedFlow, summary: '' },
-				shadowedId
-			)
+			const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, shadowedId)
 			const index = modules.findIndex((m) => m.id === shadowedId)
 			if (index >= 0) {
 				modules.splice(index, 1) // Remove shadowed module
@@ -310,7 +307,7 @@ export function createFlowDiffManager() {
 	 * Removes the action from tracking after rejection
 	 */
 	function rejectModule(id: string, options: RejectModuleOptions = {}) {
-		if (!beforeFlow) {
+		if (!beforeFlow || !mergedFlow) {
 			throw new Error('Cannot reject module without a beforeFlow snapshot')
 		}
 
@@ -321,41 +318,51 @@ export function createFlowDiffManager() {
 
 		const action = info.action
 
-		// Only perform revert operations if flowStore is provided
-		if (options.flowStore) {
-			// Handle different action types
-			if (id === 'Input') {
-				// Revert input schema changes
-				options.flowStore.val.schema = beforeFlow.schema
-			} else if (action === 'added') {
-				// Remove the added module
-				deleteModuleFromFlow(actualId, options.flowStore)
+		// Handle different action types - only modify mergedFlow
+		if (id === 'Input') {
+			// Revert input schema changes in mergedFlow
+			if (beforeFlow.schema) {
+				afterInputSchema = $state.snapshot(beforeFlow.schema)
+			}
+		} else if (action === 'added') {
+			// Remove the added module from mergedFlow
+			const { modules } = getIndexInNestedModules(
+				{ value: mergedFlow, summary: '' },
+				actualId
+			)
+			const index = modules.findIndex((m) => m.id === actualId)
+			if (index >= 0) {
+				modules.splice(index, 1)
+			}
+		} else if (action === 'removed') {
+			// Restore from beforeFlow - replace shadowed (__) module with original
+			const shadowedId = `__${actualId}`
+			const { modules } = getIndexInNestedModules(
+				{ value: mergedFlow, summary: '' },
+				shadowedId
+			)
+			const index = modules.findIndex((m) => m.id === shadowedId)
 
-				// ALSO remove from merged flow for immediate visual update
-				if (mergedFlow) {
-					const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
-					const index = modules.findIndex((m) => m.id === actualId)
-					if (index >= 0) {
-						modules.splice(index, 1)
-					}
-				}
-			} else if (action === 'removed') {
-				// For removed modules, we would need to restore from snapshot
-				// This is complex and might require full flow revert
-				console.warn('Reverting removed module - requires full flow restore')
-			} else if (action === 'modified') {
-				// Revert to the old module state
+			if (index >= 0) {
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
-				const newModule = getModuleFromFlow(actualId, options.flowStore.val)
-
-				if (oldModule && newModule) {
-					// Restore the old module state
-					Object.keys(newModule).forEach((k) => delete (newModule as any)[k])
-					Object.assign(newModule, $state.snapshot(oldModule))
+				if (oldModule) {
+					// Replace shadowed (__) module with original in-place
+					modules.splice(index, 1, $state.snapshot(oldModule))
 				}
 			}
+		} else if (action === 'modified') {
+			// Revert to beforeFlow version in mergedFlow
+			const oldModule = getModuleFromFlow(actualId, beforeFlow)
+			const currentModule = getModuleFromFlow(actualId, {
+				value: mergedFlow,
+				summary: ''
+			} as ExtendedOpenFlow)
 
-			refreshStateStore(options.flowStore)
+			if (oldModule && currentModule) {
+				// Replace all properties with the old version
+				Object.keys(currentModule).forEach((k) => delete (currentModule as any)[k])
+				Object.assign(currentModule, $state.snapshot(oldModule))
+			}
 		}
 
 		// Remove the action from tracking (no longer needs user decision)
@@ -365,8 +372,8 @@ export function createFlowDiffManager() {
 			updateModuleActions(newActions)
 		}
 
-		// Check if all actions are decided and clear snapshot if so
-		checkAndClearSnapshot()
+		// Check if all actions are decided and apply to flowStore
+		checkAndApplyChanges(options.flowStore)
 	}
 
 	/**
@@ -423,12 +430,12 @@ export function createFlowDiffManager() {
 			if (flowStore && mergedFlow) {
 				// Use snapshot to break references
 				flowStore.val.value = $state.snapshot(mergedFlow)
-				
+
 				// Also apply input schema if it changed
 				if (afterInputSchema) {
 					flowStore.val.schema = $state.snapshot(afterInputSchema)
 				}
-				
+
 				refreshStateStore(flowStore)
 			}
 			clearSnapshot()
