@@ -7,49 +7,6 @@ use crate::{
     scoped_dependency_map::DependencyDependent, trigger_dependents_to_recompute_dependencies,
 };
 
-pub struct WorkspaceDependenciesInput {
-    pub resolver_input: String,
-    pub lock_header: String,
-}
-
-impl WorkspaceDependenciesInput {
-    pub async fn from(
-        l: ScriptLang,
-        code: &str,
-        w_id: &str,
-        // TODO: Maybe use tx?
-        db: &sqlx::Pool<sqlx::Postgres>,
-    ) -> error::Result<Option<Self>> {
-        let (mut wk_deps, mut lock_pins) = (vec![], vec![]);
-        if let Some(refs) = l
-            .extract_workspace_dependencies_annotated_refs(code)
-            .map(|wdf| wdf.external)
-        {
-            for name in refs {
-                let Some(WorkspaceDependencies { content, id, .. }) =
-                    WorkspaceDependencies::get_latest(Some(name.clone()), l, w_id, db).await?
-                else {
-                    continue;
-                };
-
-                lock_pins.push(format!("{name}:{id}"));
-                wk_deps.push(content);
-            }
-
-            Ok(Some(Self {
-                resolver_input: wk_deps.join("\n"),
-                lock_header: format!(
-                    "{} dependencies: {}",
-                    l.as_comment_lit(),
-                    lock_pins.join(", ")
-                ),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
 pub struct NewWorkspaceDependencies {
     pub workspace_id: String,

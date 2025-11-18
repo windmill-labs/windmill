@@ -9,9 +9,10 @@ use windmill_common::{
     error::{self, JsonResult},
     scripts::ScriptLang,
     utils::StripPath,
+    workspace_dependencies::WorkspaceDependencies,
     DB,
 };
-use windmill_worker::workspace_dependencies::{NewWorkspaceDependencies, WorkspaceDependencies};
+use windmill_worker::workspace_dependencies::NewWorkspaceDependencies;
 
 use crate::db::ApiAuthed;
 
@@ -20,6 +21,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create))
         .route("/list", get(list))
         .route("/archive/:language/:name", post(archive))
+        .route("/get-latest/:language/:name", get(get_latest))
         // TODO: We should really not delete it, archiving it would be better.
         .route("/delete/:language/:name", post(delete))
 }
@@ -44,6 +46,19 @@ async fn list(
 ) -> JsonResult<Vec<WorkspaceDependencies>> {
     // TODO: Check that it is an admin
     Ok(Json(WorkspaceDependencies::list(&w_id, &db).await?))
+}
+
+#[axum::debug_handler]
+async fn get_latest(
+    // authed: ApiAuthed,
+    // Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, language, name)): Path<(String, ScriptLang, Option<String>)>,
+) -> JsonResult<WorkspaceDependencies> {
+    // TODO: Check that it is an admin
+    Ok(Json(
+        WorkspaceDependencies::get_latest(name, language, &w_id, db.into()).await?,
+    ))
 }
 
 #[axum::debug_handler]

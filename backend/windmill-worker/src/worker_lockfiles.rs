@@ -6,7 +6,6 @@ use std::path::{Component, Path, PathBuf};
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
 use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
-use crate::workspace_dependencies::WorkspaceDependenciesInput;
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use itertools::Itertools;
@@ -1459,11 +1458,7 @@ async fn lock_modules<'c>(
 
         let get_imports = || {
             let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
-            extract_relative_imports(
-                &content,
-                &format!("{dep_path}/flow"),
-                &Some(language.clone()),
-            )
+            extract_referenced_paths(&content, &format!("{dep_path}/flow"), Some(language))
         };
 
         if let Some(locks_to_reload) = locks_to_reload {
@@ -1975,10 +1970,10 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
 
-                            let relative_imports = extract_relative_imports(
+                            let referenced_paths = extract_referenced_paths(
                                 &content,
                                 &format!("{job_path}/app"),
-                                &Some(language.clone()),
+                                Some(language),
                             );
 
                             if let Some((l, id)) = locks_to_reload
@@ -1996,7 +1991,7 @@ async fn lock_modules_app(
                                 if !l.contains(id) {
                                     dependency_map
                                         .patch(
-                                            relative_imports.clone(),
+                                            referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
@@ -2012,7 +2007,7 @@ async fn lock_modules_app(
                                 if skip_creating_new_lock(&language, &content) {
                                     dependency_map
                                         .patch(
-                                            relative_imports.clone(),
+                                            referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
@@ -2052,7 +2047,7 @@ async fn lock_modules_app(
 
                                     dependency_map
                                         .patch(
-                                            relative_imports.clone(),
+                                            referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
                                             db.begin().await?,
                                         )
@@ -2630,8 +2625,8 @@ async fn capture_dependency_job(
     // let workspace_dependencies_refs =
     //     job_language.extract_workspace_dependencies_annotated_refs(job_raw_code);
 
-    let wdar =
-        WorkspaceDependenciesPrefetched::extract(job_raw_code, *job_language, w_id, db).await?;
+    let wd = WorkspaceDependenciesPrefetched::extract(job_raw_code, *job_language, w_id, db.into())
+        .await?;
 
     let lock = match job_language {
         ScriptLang::Python3 => {
@@ -2647,35 +2642,37 @@ async fn capture_dependency_job(
                 // 3. in file inline
                 let annotations = PythonAnnotations::parse(job_raw_code);
 
-                // let (reqs, py_version) = if workspace_dependencies_refs
-                //     .as_ref()
-                //     .map(|wdf| wdf.mode == Mode::Manual)
-                //     .unwrap_or_default()
-                // {
-                //     // `wmill script generate-metadata`
-                //     // should also respect annotated pyversion
-                //     // can be annotated in script itself
-                //     // or in requirements.txt if present
+                let parse_pyv_from_workspace_dependencies =
+                    async |content| match crate::PyV::try_parse_from_requirements(
+                        &split_requirements(content),
+                    ) {
+                        Some(pyv) => pyv,
+                        None => crate::PyV::gravitational_version(job_id, w_id, None).await,
+                    };
 
-                //     (
-                //         wd.to_owned(),
-                //         match crate::PyV::try_parse_from_requirements(&split_requirements(wd)) {
-                //             Some(pyv) => pyv,
-                //             None => crate::PyV::gravitational_version(job_id, w_id, None).await,
-                //         },
-                //     )
-                // } else {
-                // };
-                // Manually assigned version from requirements.txt
-                // let assigned_py_version;
-                // let (reqs, py_version) = if let Some(ref wd) = workspace_dependencies {
-                // } else {
-                {
-                    let mut version_specifiers = vec![];
-                    let PythonAnnotations { py_select_latest, .. } =
-                        PythonAnnotations::parse(job_raw_code);
-                    (
-                        windmill_parser_py_imports::parse_python_imports(
+                let (pyv, reqs) = match &wd {
+                    WorkspaceDependenciesPrefetched::Explicit(
+                        WorkspaceDependenciesAnnotatedRefs { inline, external, mode: Mode::Manual },
+                    ) => {
+                        let input = format!(
+                            "{}\n{}",
+                            inline.clone().unwrap_or_default(),
+                            external.iter().map(|e| e.content.clone()).join("\n")
+                        );
+                        (parse_pyv_from_workspace_dependencies(&input).await, input)
+                    }
+                    WorkspaceDependenciesPrefetched::Implicit {
+                        workspace_dependencies: WorkspaceDependencies { content, .. },
+                        mode: Mode::Manual,
+                    } => (
+                        parse_pyv_from_workspace_dependencies(content).await,
+                        content.clone(),
+                    ),
+                    _ => {
+                        let mut version_specifiers = vec![];
+                        let PythonAnnotations { py_select_latest, .. } =
+                            PythonAnnotations::parse(job_raw_code);
+                        let reqs = windmill_parser_py_imports::parse_python_imports(
                             job_raw_code,
                             &w_id,
                             script_path,
@@ -2684,11 +2681,11 @@ async fn capture_dependency_job(
                         )
                         .await?
                         .0
-                        .join("\n"),
-                        //
+                        .join("\n");
+
                         // Resolve python version
                         // It is based on version specifiers
-                        crate::PyV::resolve(
+                        let pyv = crate::PyV::resolve(
                             version_specifiers,
                             job_id,
                             w_id,
@@ -2697,48 +2694,26 @@ async fn capture_dependency_job(
                             None,
                             None,
                         )
-                        .await?,
-                    )
+                        .await?;
+                        (pyv, reqs)
+                    }
                 };
-                todo!()
 
-                // python_dep(
-                //     reqs,
-                //     job_id,
-                //     mem_peak,
-                //     canceled_by,
-                //     job_dir,
-                //     db,
-                //     worker_name,
-                //     w_id,
-                //     worker_dir,
-                //     &mut Some(occupancy_metrics),
-                //     py_version,
-                //     annotations,
-                // )
-                // .await
-                // .map(|res| {
-                //     // TODO:
-                //     // if let Some(rrs) = wd_o {
-                //     //     format!(
-                //     //         "# requirements: {}:{}\n{}",
-                //     //         rrs.name.unwrap_or("global".to_owned()),
-                //     //         rrs.id,
-                //     //         res
-                //     //     )
-                //     // TODO: When generated locally it references hash of content
-                //     // When sync pushed it will be
-                //     // TODO: Nah? Maybe use hash for these as well?
-                //     //     format!(
-                //     //         "# requirements: {}:sha256:unsynced\n{}",
-                //     //         rrs.name.unwrap_or("global".to_owned()),
-                //     //         rrs.id,
-                //     //         res
-                //     //     )
-                //     // } else {
-                //     res
-                //     // }
-                // })
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    pyv,
+                    annotations,
+                )
+                .await?
             }
         }
         // TODO: Test workspace dependencies with ansible.
@@ -2785,7 +2760,7 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
-                false,
+                &wd,
                 worker_name,
                 w_id,
                 occupancy_metrics,
@@ -2816,48 +2791,44 @@ async fn capture_dependency_job(
             let npm_mode = npm_mode.unwrap_or_else(|| {
                 windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm
             });
-            todo!()
-            // if !raw_deps {
-            //     let _ = write_file(job_dir, "main.ts", job_raw_code)?;
+            // todo!()
+            // if wd.get_mode() != Some(Mode::Manual) {
+            write_file(job_dir, "main.ts", job_raw_code)?;
             // }
-            // let req = gen_bun_lockfile(
-            //     mem_peak,
-            //     canceled_by,
-            //     job_id,
-            //     w_id,
-            //     Some(&db.into()),
-            //     token,
-            //     script_path,
-            //     job_dir,
-            //     base_internal_url,
-            //     worker_name,
-            //     true,
-            //     if raw_deps {
-            //         Some(job_raw_code.to_string())
-            //     } else {
-            //         None
-            //     },
-            //     npm_mode,
-            //     &mut Some(occupancy_metrics),
-            // )
-            // .await?;
-            // if req.is_some() && !raw_deps {
-            //     crate::bun_executor::prebundle_bun_script(
-            //         job_raw_code,
-            //         req.as_ref(),
-            //         script_path,
-            //         job_id,
-            //         w_id,
-            //         Some(&db),
-            //         &job_dir,
-            //         base_internal_url,
-            //         worker_name,
-            //         &token,
-            //         &mut Some(occupancy_metrics),
-            //     )
-            //     .await?;
-            // }
-            // Ok(req.unwrap_or_else(String::new))
+            let req = gen_bun_lockfile(
+                mem_peak,
+                canceled_by,
+                job_id,
+                w_id,
+                Some(&db.into()),
+                token,
+                script_path,
+                job_dir,
+                base_internal_url,
+                worker_name,
+                true,
+                &wd,
+                npm_mode,
+                &mut Some(occupancy_metrics),
+            )
+            .await?;
+            if req.is_some() && wd.get_mode() != Some(Mode::Manual) {
+                crate::bun_executor::prebundle_bun_script(
+                    job_raw_code,
+                    req.as_ref(),
+                    script_path,
+                    job_id,
+                    w_id,
+                    Some(&db),
+                    &job_dir,
+                    base_internal_url,
+                    worker_name,
+                    &token,
+                    &mut Some(occupancy_metrics),
+                )
+                .await?;
+            }
+            req.unwrap_or_else(String::new)
         }
         ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
@@ -2986,7 +2957,7 @@ async fn capture_dependency_job(
     };
     {
         let mut lines = vec![];
-        add_lock_header(&mut lines, wdar, *job_language, w_id, db).await?;
+        add_lock_header(&mut lines, wd, *job_language, w_id, db).await?;
         Ok(if lines.is_empty() {
             lock
         } else {
@@ -2997,12 +2968,12 @@ async fn capture_dependency_job(
 
 async fn add_lock_header(
     lines: &mut Vec<String>,
-    wdar: WorkspaceDependenciesPrefetched,
+    wd: WorkspaceDependenciesPrefetched,
     language: ScriptLang,
     workspace_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<()> {
-    if let Some(header) = wdar.to_lock_header(language).await? {
+    if let Some(header) = wd.to_lock_header(language).await? {
         lines.push(header);
     }
 

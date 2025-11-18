@@ -2,7 +2,7 @@ use itertools::Itertools;
 use serde::Serialize;
 use sqlx::PgExecutor;
 
-use crate::{error, scripts::ScriptLang};
+use crate::{error, scripts::ScriptLang, worker::Connection};
 
 // TODO: Make sure there is only one archived
 // and only one or none unnamed for given language
@@ -95,27 +95,33 @@ impl WorkspaceDependencies {
     }
 
     // TODO(claude): add docs
-    pub async fn get_latest<'c>(
+    pub async fn get_latest(
         name: Option<String>,
         language: ScriptLang,
         workspace_id: &str,
-        e: impl PgExecutor<'c>,
+        conn: Connection,
     ) -> error::Result<Option<Self>> {
-        sqlx::query_as!(
-            Self,
-            r#"
-            SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
-            FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
-            LIMIT 1
-            "#,
-            name,
-            workspace_id,
-            language as ScriptLang
-        )
-        .fetch_optional(e)
-        .await
-        .map_err(error::Error::from)
+        match conn {
+            Connection::Sql(db) => sqlx::query_as!(
+                Self,
+                r#"
+                SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
+                FROM workspace_dependencies
+                WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
+                LIMIT 1
+                "#,
+                name,
+                workspace_id,
+                language as ScriptLang
+            )
+            .fetch_optional(&db)
+            .await
+            .map_err(error::Error::from),
+
+            // TODO: Check it works for non admin when endpoint is admin only.
+            // Connection::Http(http_client) => http_client.get(format!(), headers, body),
+            Connection::Http(http_client) => todo!(),
+        }
     }
 
     // TODO(claude): add docs
@@ -169,17 +175,29 @@ pub enum WorkspaceDependenciesPrefetched {
 }
 
 impl WorkspaceDependenciesPrefetched {
+    pub fn get_mode(&self) -> Option<Mode> {
+        match self {
+            WorkspaceDependenciesPrefetched::Explicit(WorkspaceDependenciesAnnotatedRefs {
+                mode,
+                ..
+            })
+            | WorkspaceDependenciesPrefetched::Implicit { mode, .. } => Some(*mode),
+            WorkspaceDependenciesPrefetched::None => Option::None,
+        }
+    }
+
     pub async fn extract<'c>(
         code: &str,
         language: ScriptLang,
         workspace_id: &str,
-        db: &sqlx::Pool<sqlx::Postgres>,
+        conn: Connection,
+        // db: &sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<Self> {
         Ok(
             if let Some(wdar) = language.extract_workspace_dependencies_annotated_refs(code) {
-                Self::Explicit(wdar.expand(language, workspace_id, db).await?)
+                Self::Explicit(wdar.expand(language, workspace_id, conn).await?)
             } else if let Some(workspace_dependencies) =
-                WorkspaceDependencies::get_latest(None, language, workspace_id, db).await?
+                WorkspaceDependencies::get_latest(None, language, workspace_id, conn).await?
             {
                 Self::Implicit { workspace_dependencies, mode: Mode::Manual } // Hardcode to manual for now.
             } else {
@@ -240,6 +258,12 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: FromInto> {
     /// # requirements: default, base, prod
     ///                 ^^^^^^^  ^^^^  ^^^^
     /// ```
+    ///
+    /// Can either be a [[String]] or [[WorkspaceDependencies]]
+    ///
+    /// The workflow is following:
+    /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info.
+    /// 2. You [[Self::expand]] to replace all external names with <[[WorkspaceDependencies]]>
     pub external: Vec<T>,
     pub mode: Mode,
 }
@@ -269,7 +293,8 @@ impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         self,
         language: ScriptLang,
         workspace_id: &str,
-        db: &sqlx::Pool<sqlx::Postgres>,
+        conn: Connection,
+        // db: &sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies>> {
         let mut res = WorkspaceDependenciesAnnotatedRefs {
             inline: self.inline,
@@ -279,7 +304,7 @@ impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         for name in self.external {
             let name = name.into();
             res.external.push(
-                WorkspaceDependencies::get_latest(Some(name), language, workspace_id, db)
+                WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
                     .await?
                     // TODO: unsafe unwrap
                     .unwrap(),
