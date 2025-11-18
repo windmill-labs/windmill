@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { getContext, onDestroy, tick, untrack, type Snippet } from 'svelte'
+	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -288,22 +288,13 @@
 		data?: { assets?: AssetWithAltAccessType[] }
 	}
 	type NodePos = { position: { x: number; y: number } }
-	type LayoutCacheKey = {
-		nodes: NodeDep[]
-	}
-	let lastLayoutCache: { key: LayoutCacheKey; result: (NodeDep & NodePos)[] } | undefined =
-		undefined
+	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
 
 	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
-		// Create comprehensive cache key for layout dependencies
-		const currentCacheKey: LayoutCacheKey = {
-			nodes
-		}
-
-		// Check if we can use cached result
-		if (lastLayoutCache && deepEqual(currentCacheKey, lastLayoutCache.key)) {
-			console.debug('layoutNodes', 'cache hit - same nodes and notes')
-			return lastLayoutCache.result
+		let lastResult = lastNodes?.[1]
+		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+			console.debug('layoutNodes', 'same nodes')
+			return lastResult
 		}
 		console.debug('layoutNodes', nodes.length)
 		let seenId: string[] = []
@@ -318,7 +309,6 @@
 		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
-
 		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
@@ -340,11 +330,9 @@
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
 				.nodeSize((d) => {
-					const nodeId = d?.data?.['id'] ?? ''
-					const baseHeight = NODE.height + NODE.gap.vertical
 					return [
-						(nodeWidths[nodeId] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						baseHeight
+						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						NODE.height + NODE.gap.vertical
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -352,10 +340,7 @@
 			const layout = sugiyama()
 				.decross(decrossTwoLayer())
 				.coord(coordCenter())
-				.nodeSize(() => {
-					const baseHeight = NODE.height + NODE.gap.vertical
-					return [NODE.width + NODE.gap.horizontal, baseHeight]
-				})
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
 			boxSize = layout(dag as any)
 		}
 
@@ -376,11 +361,7 @@
 			}
 		}))
 
-		// Update cache with new results
-		lastLayoutCache = {
-			key: currentCacheKey,
-			result: newNodes
-		}
+		lastNodes = [nodes, newNodes]
 		return newNodes
 	}
 
@@ -425,7 +406,7 @@
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
 		},
-		updateMock: (detail: any) => {
+		updateMock: (detail) => {
 			onUpdateMock?.(detail)
 		},
 		testUpTo: (id: string) => {
@@ -489,9 +470,9 @@
 		if (event.key === 'Escape') {
 			// Clear SvelteFlow's internal selection state
 			clearFlowSelection()
-		}
-		if (noteMode) {
-			exitNoteMode?.()
+			if (noteMode) {
+				exitNoteMode?.()
+			}
 		}
 	}
 
@@ -697,19 +678,9 @@
 	})
 
 	// Add global keyboard event listener for selection controls
-	$effect(() => {
+	onMount(() => {
 		function globalKeyDownHandler(event: KeyboardEvent) {
-			// Only handle if the graph container has focus or no input is focused
-			const activeElement = document.activeElement
-			const isInputFocused =
-				activeElement &&
-				(activeElement.tagName === 'INPUT' ||
-					activeElement.tagName === 'TEXTAREA' ||
-					(activeElement as HTMLElement).contentEditable === 'true')
-
-			if (!isInputFocused) {
-				handleKeyDown(event)
-			}
+			handleKeyDown(event)
 		}
 
 		document.addEventListener('keydown', globalKeyDownHandler)
@@ -815,6 +786,8 @@
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
+
+<svelte:window on:keydown={handleKeyDown} />
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />

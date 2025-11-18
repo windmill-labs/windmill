@@ -38,7 +38,7 @@
 		loading = true
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId()!)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -53,7 +53,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectionManager.getSelectedId()!} and is a branching step (if-else). 
+The current step is ${selectionManager.getSelectedId()} and is a branching step (if-else). 
 The user wants to generate a predicate for the branching condition.
 Here's the user's request: ${instructions}
 You can find the details of all the steps below:

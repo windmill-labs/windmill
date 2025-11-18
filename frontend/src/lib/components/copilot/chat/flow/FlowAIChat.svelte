@@ -85,7 +85,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: selectedId!
+				selectedId: selectedId
 			}
 		},
 		// flow apply/reject
@@ -383,7 +383,7 @@
 				value: match[2].trim()
 			}))
 
-			if (id === selectedId!) {
+			if (id === selectedId) {
 				exprsToSet?.set({})
 				const argsToUpdate = {}
 				for (const { input, value } of parsedInputs) {

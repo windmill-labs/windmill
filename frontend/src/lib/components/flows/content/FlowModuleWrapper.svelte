@@ -114,7 +114,7 @@
 	}
 </script>
 
-{#if flowModule.id === selectedId!}
+{#if flowModule.id === selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}

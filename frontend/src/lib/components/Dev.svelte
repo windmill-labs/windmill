@@ -477,7 +477,7 @@
 					let ids = dfs(flowStore.val.value.modules ?? [], (m) => m.id)
 					flowStateStore.val = Object.fromEntries(ids.map((k) => [k, {}]))
 				} catch (e) {}
-				inferModuleArgs(selectedId!)
+				inferModuleArgs(selectedId)
 			}
 		} catch (e) {
 			console.error('issue setting new flowstore', e)
@@ -628,7 +628,7 @@
 		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
-		selectedId && untrack(() => inferModuleArgs(selectedId!))
+		selectedId && untrack(() => inferModuleArgs(selectedId))
 	})
 
 	let localModuleStates: Record<string, GraphModuleState> = $state({})

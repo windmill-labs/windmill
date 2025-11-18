@@ -41,7 +41,7 @@
 		)
 	)
 
-	const result = flowStateStore.val[selectionManager.getSelectedId()!]?.previewResult ?? {}
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>

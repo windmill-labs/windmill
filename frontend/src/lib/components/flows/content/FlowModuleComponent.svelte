@@ -217,7 +217,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[selectedId!]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -406,7 +406,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							selectedId!,
+							selectedId,
 							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
@@ -580,7 +580,7 @@
 														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={flowStateStore.val[selectedId!]?.schema ?? {}}
+														schema={flowStateStore.val[selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -611,7 +611,7 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={flowStateStore.val[selectedId!]?.schema ?? {}}
+												schema={flowStateStore.val[selectedId]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
@@ -625,7 +625,7 @@
 													active={flowModule.retry !== undefined}
 													label="Retries"
 												/>
-												{#if !selectedId?.includes('failure')}
+												{#if !selectedId.includes('failure')}
 													<Tab value="runtime" label="Runtime" />
 													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab

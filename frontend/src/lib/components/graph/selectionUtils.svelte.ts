@@ -1,26 +1,20 @@
 import type { Node } from '@xyflow/svelte'
 
-export interface SelectionState {
-	selectedId: string | undefined
-	selectedIds: string[]
-	selectionMode: 'normal' | 'rect-select'
-}
-
 export class SelectionManager {
-	public selectedIds = $state<string[]>([])
+	#selectedIds = $state<string[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
 
 	constructor() {}
 
 	selectId(id: string) {
-		if (this.selectedIds.length === 1 && this.selectedIds[0] === id) {
+		if (this.#selectedIds.length === 1 && this.#selectedIds[0] === id) {
 			return
 		}
-		this.selectedIds = [id]
+		this.#selectedIds = [id]
 	}
 
-	getSelectedId(): string | undefined {
-		return this.selectedIds[0] || undefined
+	getSelectedId(): string {
+		return this.#selectedIds[0] || 'settings'
 	}
 
 	get mode() {
@@ -29,6 +23,13 @@ export class SelectionManager {
 
 	set mode(mode: 'normal' | 'rect-select') {
 		this.#selectionMode = mode
+	}
+
+	get selectedIds() {
+		if (this.#selectedIds.length === 0) {
+			return ['settings']
+		}
+		return [...this.#selectedIds]
 	}
 
 	// Select nodes with optional hierarchical selection
@@ -41,29 +42,29 @@ export class SelectionManager {
 			return
 		}
 
-		const newSelection = addToExisting ? [...this.selectedIds, ...nodeIds] : nodeIds
+		const newSelection = addToExisting ? [...this.#selectedIds, ...nodeIds] : nodeIds
 
 		// If the new selection is the same as the current selection, do nothing
-		if (JSON.stringify(newSelection) === JSON.stringify($state.snapshot(this.selectedIds))) {
+		if (JSON.stringify(newSelection) === JSON.stringify($state.snapshot(this.#selectedIds))) {
 			return
 		}
 
-		this.selectedIds = newSelection
+		this.#selectedIds = newSelection
 	}
 
 	// Clear all selections
 	clearSelection() {
-		this.selectedIds = ['settings']
+		this.#selectedIds = ['settings']
 	}
 
 	// Check if a node is selected
 	isNodeSelected(nodeId: string): boolean {
-		return this.selectedIds.includes(nodeId)
+		return this.#selectedIds.includes(nodeId)
 	}
 
 	// Get selected node count
 	get selectedCount(): number {
-		return this.selectedIds.length
+		return this.#selectedIds.length
 	}
 
 	// Check if multiple nodes are selected
@@ -73,7 +74,7 @@ export class SelectionManager {
 
 	// Get all selected node IDs
 	get selectedNodeIds(): string[] {
-		return [...this.selectedIds]
+		return [...this.#selectedIds]
 	}
 
 	// Handle keyboard shortcuts

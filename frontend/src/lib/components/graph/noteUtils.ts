@@ -251,8 +251,7 @@ function createNoteData(
 }
 
 /**
- * Main function to compute note nodes and positioning
- * Similar to computeAssetNodes but for notes
+ * Main function to compute note nodes and adjust nodes position based on group notes
  */
 export function computeNoteNodes(
 	nodes: NodeDep[],

@@ -49,7 +49,7 @@
 		stepInputsLoading?.set(true)
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId()!)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -65,7 +65,7 @@
 			}
 			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectionManager.getSelectedId()!}, you can find the details for the step and previous ones below:
+The current step is ${selectionManager.getSelectedId()}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(

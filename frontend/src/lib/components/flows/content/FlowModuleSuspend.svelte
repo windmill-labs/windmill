@@ -19,7 +19,7 @@
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const result = flowStateStore.val[selectionManager.getSelectedId()!]?.previewResult ?? {}
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
 	interface Props {

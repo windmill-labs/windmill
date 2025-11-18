@@ -172,7 +172,8 @@
 								(agentActions
 									? Math.floor(i / MAX_TOOLS_PER_ROW) + 1
 									: totalRows - Math.floor(i / MAX_TOOLS_PER_ROW))
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -181,7 +182,8 @@
 				source: agentActions ? (n.parentId ?? '') : (n.id ?? ''),
 				target: agentActions ? (n.id ?? '') : (n.parentId ?? ''),
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' }
+				data: { class: '!opacity-35 dark:!opacity-20' },
+				selectable: false
 			}))
 
 			allToolEdges.push(...(toolEdges ?? []))
@@ -197,7 +199,8 @@
 					position: {
 						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
 						y: baseOffset + rowOffset
-					}
+					},
+					selectable: false
 				} satisfies Node & NewAiToolN)
 			}
 		}
