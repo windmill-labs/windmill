@@ -26,6 +26,7 @@ pub async fn jwt_ext_auth(
     _w_id: Option<&String>,
     _token: &str,
     _external_jwks: Option<Arc<RwLock<ExternalJwks>>>,
+    _db: &crate::db::DB,
 ) -> anyhow::Result<(crate::db::ApiAuthed, usize)> {
     // Implementation is not open source
 

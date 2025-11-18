@@ -947,3 +947,9 @@ pub struct ExpiringCacheEntry<T> {
     pub value: T,
     pub expiry: std::time::Instant,
 }
+
+impl<T> ExpiringCacheEntry<T> {
+    pub fn is_expired(&self) -> bool {
+        self.expiry < std::time::Instant::now()
+    }
+}

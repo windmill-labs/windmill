@@ -158,6 +158,21 @@ impl JWTAuthClaims {
                 .as_ref()
                 .is_some_and(|token_w_ids| token_w_ids.iter().any(|token_w_id| w_id == token_w_id))
     }
+
+    pub fn compute_ext_jwt_hash(&self) -> i64 {
+        let mut hasher = DefaultHasher::new();
+        self.email.hash(&mut hasher);
+        self.username.hash(&mut hasher);
+        self.is_admin.hash(&mut hasher);
+        self.is_operator.hash(&mut hasher);
+        self.groups.hash(&mut hasher);
+        self.folders.hash(&mut hasher);
+        self.workspace_id.hash(&mut hasher);
+        self.workspace_ids.hash(&mut hasher);
+        self.label.hash(&mut hasher);
+        self.scopes.hash(&mut hasher);
+        hasher.finish() as i64
+    }
 }
 
 #[derive(Deserialize, Debug)]
