@@ -877,10 +877,7 @@
 								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
 						)}
 					>
-						<SelectionBoundingBox
-							selectedNodes={nodes.filter((node) => selectionManager.selectedIds.includes(node.id))}
-							allNodes={nodes}
-						/>
+						<SelectionBoundingBox selectedNodes={selectionManager.selectedIds} allNodes={nodes} />
 					</NodeContextMenu>
 				{/if}
 

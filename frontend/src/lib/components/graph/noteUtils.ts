@@ -1,7 +1,7 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import { deepEqual } from 'fast-equals'
-import { NODE } from './util'
+import { calculateNodesBoundsWithOffset } from './util'
 import { MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT } from './noteColors'
 import type { NodeLayout } from './graphBuilder.svelte'
 import { topologicalSort } from './graphBuilder.svelte'
@@ -193,21 +193,14 @@ function calculateGroupNoteLayout(
 		}
 	}
 
-	// Calculate bounds of all contained nodes
-	let minX = Infinity,
-		minY = Infinity,
-		maxX = -Infinity,
-		maxY = -Infinity
-
-	for (const node of containedNodes) {
-		const nodeWidth = NODE.width
-		const nodeHeight = NODE.height
-
-		minX = Math.min(minX, node.position.x)
-		minY = Math.min(minY, node.position.y)
-		maxX = Math.max(maxX, node.position.x + nodeWidth)
-		maxY = Math.max(maxY, node.position.y + nodeHeight)
-	}
+	const bounds = calculateNodesBoundsWithOffset(
+		note.contained_node_ids || [],
+		nodes.map((n) => ({
+			id: n.id,
+			position: n.position,
+			data: { offset: n.offset ?? 0 }
+		}))
+	)
 
 	const padding = 16
 
@@ -217,12 +210,12 @@ function calculateGroupNoteLayout(
 
 	return {
 		position: {
-			x: minX - padding,
-			y: minY - totalTextHeight - padding
+			x: bounds.minX - padding,
+			y: bounds.minY - totalTextHeight - padding
 		},
 		size: {
-			width: maxX - minX + 2 * padding,
-			height: maxY - minY + totalTextHeight + 2 * padding
+			width: bounds.maxX - bounds.minX + 2 * padding,
+			height: bounds.maxY - bounds.minY + totalTextHeight + 2 * padding
 		}
 	}
 }
@@ -314,10 +307,14 @@ export function computeNoteNodes(
 
 	// Create note nodes AFTER calculating adjusted node positions
 	// For group notes, we need to use the adjusted node positions
-	const adjustedNodes = sortedNewNodes.map((n) => ({
-		...n,
-		data: nodes.find((orig) => orig.id === n.id)?.data
-	}))
+	const adjustedNodes = sortedNewNodes.map((n) => {
+		const origNode = nodes.find((orig) => orig.id === n.id)
+		return {
+			...n,
+			data: origNode?.data,
+			offset: origNode?.offset
+		}
+	})
 
 	// Calculate all z-indexes at once using hierarchy information
 	const noteZIndexes = calculateAllNoteZIndexes(notes, nodes)

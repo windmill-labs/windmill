@@ -4,8 +4,8 @@
 	import { calculateNodesBoundsWithOffset } from './util'
 
 	interface Props {
-		selectedNodes: Node[]
-		allNodes?: Node[]
+		selectedNodes: string[]
+		allNodes: Node[]
 	}
 
 	let { selectedNodes, allNodes }: Props = $props()

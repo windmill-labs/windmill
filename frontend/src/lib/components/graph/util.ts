@@ -130,17 +130,13 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 /**
  * Calculate the bounding box for a collection of nodes, accounting for CSS offset
  * Also includes expanded subflow nodes when calculating bounds for subflow containers
- * @param nodes - Array of nodes with position and data.offset properties
- * @param allNodes - Optional array of all nodes to search for expanded subflow nodes
+ * @param containedIds - Array of node IDs to calculate bounds for
+ * @param allNodes - Array of all nodes to search for expanded subflow nodes
  * @returns The bounds { minX, minY, maxX, maxY }
  */
 export function calculateNodesBoundsWithOffset(
-	nodes: Array<{
-		id?: string
-		position: { x: number; y: number }
-		data?: { offset?: number }
-	}>,
-	allNodes?: Array<{
+	containedIds: string[],
+	allNodes: Array<{
 		id: string
 		position: { x: number; y: number }
 		data?: { offset?: number }
@@ -151,14 +147,8 @@ export function calculateNodesBoundsWithOffset(
 	maxX: number
 	maxY: number
 } {
-	let nodesToCalculate = nodes
-
-	// If we have node IDs and all nodes available, find related subflow nodes
-	if (allNodes && nodes.every((node) => node.id)) {
-		const nodeIds = nodes.map((node) => node.id!).filter(Boolean)
-		const relatedNodes = getAllRelatedSubflowNodes(nodeIds, allNodes)
-		nodesToCalculate = relatedNodes
-	}
+	// Find related subflow nodes
+	const nodesToCalculate = getAllRelatedSubflowNodes(containedIds, allNodes)
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {

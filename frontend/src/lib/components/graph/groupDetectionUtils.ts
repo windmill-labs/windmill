@@ -77,5 +77,10 @@ export function completeAndSplitGroup(groupNodes: string[], flowNodes: FlowNode[
 
 	return components
 		.filter((component) => component.size > 0)
-		.map((component) => Array.from(component).sort())
+		.map((component) =>
+			Array.from(component)
+				.filter((nodeId) => !nodeId.startsWith('subflow:'))
+				.sort()
+		)
+		.filter((component) => component.length > 0)
 }
