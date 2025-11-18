@@ -106,7 +106,7 @@ impl AIProvider {
         } else if base_url.ends_with("/deployments") {
             format!("{}/v1/{}", base_url.trim_end_matches("/deployments"), path)
         } else {
-            format!("{}/v1/{}", base_url, path)
+            format!("{}/{}", base_url, path)
         }
     }
 
