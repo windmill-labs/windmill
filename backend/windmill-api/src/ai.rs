@@ -202,7 +202,7 @@ impl AIRequestConfig {
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
             (bedrock_url, body)
-        } else if is_azure && method != Method::GET {
+        } else if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
         } else if is_anthropic_sdk {

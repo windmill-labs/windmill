@@ -229,8 +229,7 @@ export async function fetchAvailableModels(
 					.filter(
 						(m) =>
 							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
-							m.lifecycle_status !== 'deprecated' &&
-							(m.capabilities.completion || m.capabilities.chat_completion)
+							m.lifecycle_status !== 'deprecated'
 					)
 					.map((m) => m.id)
 					.sort(sortFunc(provider))
