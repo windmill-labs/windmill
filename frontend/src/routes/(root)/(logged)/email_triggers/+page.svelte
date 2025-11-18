@@ -193,6 +193,23 @@
 		}
 	}
 
+	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+		try {
+			await EmailTriggerService.setEmailTriggerEnabled({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { enabled }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` email trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
@@ -274,7 +291,7 @@
 				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, enabled } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const emailAddress = getEmailAddress(
 							local_part,
@@ -317,6 +334,13 @@
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
+								<Toggle
+									checked={enabled}
+									disabled={!canWrite}
+									on:change={(e) => {
+										setTriggerEnabled(path, e.detail)
+									}}
+								/>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button

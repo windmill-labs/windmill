@@ -358,7 +358,6 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
-    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
@@ -543,22 +542,23 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $4,
                 path = $5,
                 is_flow = $6,
-                http_method = $7,
-                static_asset_config = $8,
-                edited_by = $9,
-                email = $10,
-                request_type = $11,
-                authentication_method = $12,
-                summary = $13,
-                description = $14,
+                enabled = $7,
+                http_method = $8,
+                static_asset_config = $9,
+                edited_by = $10,
+                email = $11,
+                request_type = $12,
+                authentication_method = $13,
+                summary = $14,
+                description = $15,
                 edited_at = now(),
-                is_static_website = $15,
-                error_handler_path = $16,
-                error_handler_args = $17,
-                retry = $18
+                is_static_website = $16,
+                error_handler_path = $17,
+                error_handler_args = $18,
+                retry = $19
             WHERE
-                workspace_id = $19 AND
-                path = $20
+                workspace_id = $20 AND
+                path = $21
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
@@ -566,6 +566,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
+                trigger.base.enabled.unwrap_or(true),
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
