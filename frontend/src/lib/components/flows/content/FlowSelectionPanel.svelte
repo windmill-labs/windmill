@@ -3,6 +3,7 @@
 	import type { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { Button } from '$lib/components/common'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
+	import { StickyNote } from 'lucide-svelte'
 
 	interface Props {
 		selectionManager: SelectionManager
@@ -33,8 +34,9 @@
 		<Button
 			onClick={addGroupNote}
 			disabled={!noteEditorContext?.noteEditor || selectionManager.selectedIds.length === 0}
+			startIcon={{ icon: StickyNote }}
 		>
-			Add Group Note
+			Add group note
 		</Button>
 	</div>
 </FlowCard>
