@@ -90,6 +90,7 @@
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
+	import { createFlowDiffManager } from './flows/flowDiffManager.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -606,6 +607,9 @@
 	let outputPickerOpenFns: Record<string, () => void> = $state({})
 	let flowEditor: FlowEditor | undefined = $state(undefined)
 
+	// Create diffManager instance for flow diff tracking
+	const diffManager = createFlowDiffManager()
+
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		currentEditor: writable(undefined),
@@ -615,6 +619,7 @@
 		history,
 		flowStateStore,
 		flowStore,
+		diffManager,
 		pathStore,
 		stepsInputArgs,
 		saveDraft,

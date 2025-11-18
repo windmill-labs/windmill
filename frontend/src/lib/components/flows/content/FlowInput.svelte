@@ -57,10 +57,9 @@
 		disabled: boolean
 		onTestFlow?: () => Promise<string | undefined>
 		previewOpen: boolean
-		diffManager?: ReturnType<typeof createFlowDiffManager>
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen, diffManager = undefined }: Props = $props()
+	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -68,7 +67,8 @@
 		pathStore,
 		initialPathStore,
 		fakeInitialPath,
-		flowInputEditorState
+		flowInputEditorState,
+		diffManager
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore

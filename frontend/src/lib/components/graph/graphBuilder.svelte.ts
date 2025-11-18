@@ -129,7 +129,6 @@ export type InputN = {
 		chatInputEnabled: boolean
 		inputSchemaModified?: boolean
 		assets?: AssetWithAltAccessType[] | undefined
-		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	}
 }
 
@@ -150,7 +149,6 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
-		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	}
 }
 
@@ -386,7 +384,6 @@ export function graphBuilder(
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
-		diffManager: ReturnType<typeof import('../flows/flowDiffManager.svelte').createFlowDiffManager>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -444,8 +441,7 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id],
-					diffManager: extra.diffManager
+					moduleAction: extra.moduleActions?.[module.id]
 				},
 				type: 'module'
 			})
@@ -564,7 +560,6 @@ export function graphBuilder(
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
 				inputSchemaModified: extra.inputSchemaModified,
-				diffManager: extra.diffManager,
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}

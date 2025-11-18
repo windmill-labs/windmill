@@ -49,7 +49,6 @@
 		selected?: boolean
 		deletable?: boolean
 		moduleAction: ModuleActionInfo | undefined
-		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -92,7 +91,6 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
-		diffManager,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -126,13 +124,15 @@
 
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
 
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
+	const diffManager = flowEditorContext?.diffManager
+	const flowStore = flowEditorContext?.flowStore
+
 	// Disable delete/move operations when there are pending changes
 	const effectiveDeletable = $derived(deletable && !diffManager?.hasPendingChanges)
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
-
-	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
-	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -250,9 +250,9 @@
 	</Drawer>
 {/if}
 
-{#if effectiveDeletable && id && flowEditorContext?.flowStore && outputPickerVisible}
-	{@const flowStore = flowEditorContext?.flowStore.val}
-	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
+{#if effectiveDeletable && id && flowStore && outputPickerVisible}
+	{@const flowStoreVal = flowStore.val}
+	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -294,13 +294,13 @@
 						Diff
 					</Button>
 				{/if}
-				{#if diffManager.beforeFlow && moduleAction?.pending}
+				{#if diffManager?.beforeFlow && moduleAction?.pending}
 					<Button
 						size="xs"
 						color="green"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							if (id) diffManager.acceptModule(id, { flowStore: flowEditorContext?.flowStore })
+							if (id && flowStore) diffManager?.acceptModule(id, { flowStore })
 						}}
 					>
 						✓ Accept
@@ -310,7 +310,7 @@
 						color="red"
 						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 						onClick={() => {
-							if (id) diffManager.rejectModule(id, { flowStore: flowEditorContext?.flowStore })
+							if (id && flowStore) diffManager?.rejectModule(id, { flowStore })
 						}}
 					>
 						✗ Reject

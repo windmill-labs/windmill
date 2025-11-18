@@ -23,7 +23,6 @@
 		mod: FlowModule
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
-		diffManager: ReturnType<typeof import('../flowDiffManager.svelte').createFlowDiffManager>
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -57,7 +56,6 @@
 		mod = $bindable(),
 		insertable,
 		moduleAction = undefined,
-		diffManager,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -78,7 +76,8 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const { flowStore, diffManager } =
+		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
@@ -154,7 +153,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{diffManager}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -189,7 +187,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{diffManager}
 					on:changeId
 					on:delete
 					on:move
@@ -209,7 +206,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{diffManager}
 					on:changeId
 					on:delete
 					on:move
@@ -229,7 +225,6 @@
 					{retries}
 					{editMode}
 					{moduleAction}
-					{diffManager}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete

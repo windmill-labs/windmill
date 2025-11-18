@@ -198,7 +198,6 @@
 				{newFlow}
 				{savedFlow}
 				enableAi={!disableAi}
-				diffManager={flowModuleSchemaMap?.getDiffManager()}
 				on:applyArgs
 				on:testWithArgs
 				{onDeployTrigger}

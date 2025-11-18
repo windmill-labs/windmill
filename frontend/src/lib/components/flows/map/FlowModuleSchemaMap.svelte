@@ -295,22 +295,6 @@
 		}
 	}
 
-	export function setBeforeFlow(flow: ExtendedOpenFlow) {
-		graph?.setBeforeFlow(flow)
-	}
-
-	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
-		graph?.getDiffManager().setModuleActions(actions)
-	}
-
-	export function getModuleActions(): Record<string, ModuleActionInfo> {
-		return graph?.getDiffManager().getModuleActions() ?? {}
-	}
-
-	export function getDiffManager() {
-		return graph?.getDiffManager()
-	}
-
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 

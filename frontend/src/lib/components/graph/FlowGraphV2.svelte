@@ -2,7 +2,7 @@
 	import { FlowService, type FlowModule, type Job, type OpenFlow } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
-	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
+	import type { FlowEditorContext } from '../flows/types'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -69,6 +69,7 @@
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+	const { diffManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let fullWidth = 0
 	let width = $state(0)
@@ -213,8 +214,7 @@
 		showAssets: Writable<boolean | undefined>
 	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
 
-	// Create diffManager instance for this FlowGraphV2
-	const diffManager = createFlowDiffManager()
+	// diffManager is accessed from FlowEditorContext
 
 	// Validation: error if both diffBeforeFlow and moduleActions are provided
 	$effect(() => {
@@ -248,15 +248,6 @@
 			diffManager.clearSnapshot()
 		}
 	})
-
-	// Export methods for external access
-	export function getDiffManager() {
-		return diffManager
-	}
-
-	export function setBeforeFlow(flow: OpenFlow | undefined) {
-		diffManager.setSnapshot(flow)
-	}
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -593,7 +584,6 @@
 				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
-				diffManager: diffManager,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => effectiveFailureModule),
