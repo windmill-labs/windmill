@@ -19,7 +19,7 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -567,7 +567,7 @@ pub async fn handle_rust_job(
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let compiled_executable_name = "./main";
-        let mut run_rust = Command::new(compiled_executable_name);
+        let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)
             .env_clear()

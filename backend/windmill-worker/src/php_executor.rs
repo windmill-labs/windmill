@@ -16,11 +16,12 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
+    NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -309,25 +310,22 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let cmd = {
-            let script_path = format!("{job_dir}/wrapper.php");
+        let script_path = format!("{job_dir}/wrapper.php");
+        let args = vec![script_path.as_str()];
 
-            let mut php_cmd = Command::new(&*PHP_PATH);
-            let args = vec![&script_path];
-            php_cmd
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(envs)
-                .envs(reserved_variables)
-                .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(args)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            php_cmd
-        };
-        start_child_process(cmd, &*PHP_PATH, false).await?
+        let mut php_cmd = build_command_with_isolation(&*PHP_PATH, &args);
+        php_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(envs)
+            .envs(reserved_variables)
+            .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        start_child_process(php_cmd, &*PHP_PATH, false).await?
     };
 
     handle_child(

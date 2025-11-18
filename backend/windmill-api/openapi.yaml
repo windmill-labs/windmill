@@ -18802,6 +18802,8 @@ components:
           type: number
         wm_memory_usage:
           type: number
+        job_isolation:
+          type: string
       required:
         - worker
         - worker_instance

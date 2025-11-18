@@ -35,7 +35,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
+        build_args_map, build_command_with_isolation, get_reserved_variables, read_file, read_file_content, start_child_process,
         OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -200,7 +200,10 @@ exit $exit_status
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let mut bash_cmd = Command::new(BIN_BASH.as_str());
+        let mut bash_cmd = build_command_with_isolation(
+            BIN_BASH.as_str(),
+            &cmd_args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
+        );
         bash_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -209,7 +212,6 @@ exit $exit_status
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
