@@ -4,12 +4,16 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowGraphContext } from '$lib/components/flows/types'
 
 	interface Props {
 		data: ModuleN['data']
 	}
 
 	let { data }: Props = $props()
+
+	const { diffManager } = getContext<FlowGraphContext>('FlowGraphContext')
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -46,7 +50,7 @@
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
 			onShowModuleDiff={data.onShowModuleDiff}
-			diffManager={data.diffManager}
+			{diffManager}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +

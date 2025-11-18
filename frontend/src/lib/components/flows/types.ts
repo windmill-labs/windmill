@@ -14,6 +14,7 @@ import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
+import type { createFlowDiffManager } from './flowDiffManager.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -88,6 +89,13 @@ export type FlowEditorContext = {
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
 	outputPickerOpenFns: Record<string, () => void>
+}
+
+export type FlowGraphContext = {
+	selectedId: Writable<string | undefined>
+	useDataflow: Writable<boolean | undefined>
+	showAssets: Writable<boolean | undefined>
+	diffManager: ReturnType<typeof createFlowDiffManager>
 }
 
 export type FlowGraphAssetContext = StateStore<{

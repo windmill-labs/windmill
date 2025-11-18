@@ -20,6 +20,9 @@
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
 		if (id === 'preprocessor') {
 			return flow.value.preprocessor_module
@@ -54,10 +57,9 @@
 
 		// Snapshot management - AI sets this when making changes
 		setLastSnapshot: (snapshot) => {
-			flowModuleSchemaMap?.setBeforeFlow(snapshot)
+			diffManager?.setSnapshot(snapshot)
 		},
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
-			const diffManager = flowModuleSchemaMap?.getDiffManager()
 			if (!diffManager) return
 
 			if (snapshot) {
@@ -123,10 +125,8 @@
 
 				// Take snapshot of current flowStore
 				const snapshot = $state.snapshot(flowStore).val
-				flowModuleSchemaMap?.setBeforeFlow(snapshot)
+				diffManager?.setSnapshot(snapshot)
 
-				// Get the diffManager
-				const diffManager = flowModuleSchemaMap?.getDiffManager()
 				if (!diffManager) {
 					throw new Error('DiffManager not available')
 				}

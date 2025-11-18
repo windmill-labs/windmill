@@ -36,7 +36,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
 		previewOpen?: boolean
-		diffManager?: ReturnType<typeof createFlowDiffManager>
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
 	let {
@@ -54,7 +54,7 @@
 		suspendStatus,
 		onOpenDetails,
 		previewOpen = false,
-		diffManager = undefined
+		flowModuleSchemaMap = undefined
 	}: Props = $props()
 
 	const {
@@ -66,7 +66,8 @@
 		initialPathStore,
 		fakeInitialPath,
 		previewArgs,
-		flowInputEditorState
+		flowInputEditorState,
+		diffManager
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { showCaptureHint, triggersState, triggersCount } =
@@ -97,7 +98,6 @@
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
-		{diffManager}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
@@ -106,6 +106,7 @@
 		on:applyArgs
 		{onTestFlow}
 		{previewOpen}
+		{flowModuleSchemaMap}
 	/>
 {:else if $selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />

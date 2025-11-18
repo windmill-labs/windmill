@@ -295,28 +295,16 @@
 		}
 	}
 
-	export function setBeforeFlow(flow: ExtendedOpenFlow) {
-		graph?.setBeforeFlow(flow)
-	}
-
-	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
-		graph?.getDiffManager().setModuleActions(actions)
-	}
-
-	export function getModuleActions(): Record<string, ModuleActionInfo> {
-		return graph?.getDiffManager().getModuleActions() ?? {}
-	}
-
-	export function getDiffManager() {
-		return graph?.getDiffManager()
-	}
-
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
+	export function getDiffManager() {
+		return graph?.getDiffManager()
 	}
 
 	// Handle accept module action

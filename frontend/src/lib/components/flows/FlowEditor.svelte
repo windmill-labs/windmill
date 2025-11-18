@@ -198,7 +198,6 @@
 				{newFlow}
 				{savedFlow}
 				enableAi={!disableAi}
-				diffManager={flowModuleSchemaMap?.getDiffManager()}
 				on:applyArgs
 				on:testWithArgs
 				{onDeployTrigger}
@@ -210,6 +209,7 @@
 				{suspendStatus}
 				onOpenDetails={onOpenPreview}
 				{previewOpen}
+				{flowModuleSchemaMap}
 			/>
 			{/if}
 		</Pane>

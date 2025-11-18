@@ -57,10 +57,10 @@
 		disabled: boolean
 		onTestFlow?: () => Promise<string | undefined>
 		previewOpen: boolean
-		diffManager?: ReturnType<typeof createFlowDiffManager>
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen, diffManager = undefined }: Props = $props()
+	let { noEditor, disabled, onTestFlow, previewOpen, flowModuleSchemaMap = undefined }: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -70,12 +70,15 @@
 		fakeInitialPath,
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
-	
+
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
 	const effectiveSchema = $derived(
 		diffManager?.afterInputSchema ?? flowStore.val.schema
 	)
-	
+
 	// When in diff mode with pending Input changes, treat as disabled to prevent editing
 	const effectiveDisabled = $derived(disabled || (diffManager?.moduleActions['Input']?.pending ?? false))
 

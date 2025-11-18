@@ -8,7 +8,7 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import type { FlowEditorContext, FlowGraphContext } from '$lib/components/flows/types'
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 
@@ -18,9 +18,7 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectedId, diffManager } = getContext<FlowGraphContext>('FlowGraphContext')
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { previewArgs, flowStore } = flowEditorContext || {}
@@ -34,22 +32,22 @@
 	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
 
-{#if data.inputSchemaModified && data.diffManager}
+{#if data.inputSchemaModified && diffManager}
 	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
 		<Button
 			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
 			onClick={() => {
-				data.diffManager?.showModuleDiff('Input')
+				diffManager?.showModuleDiff('Input')
 			}}
 			startIcon={{ icon: DiffIcon }}>Diff</Button
 		>
-		{#if data.diffManager.beforeFlow}
+		{#if diffManager.beforeFlow}
 			<Button
 				size="xs"
 				color="green"
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 				onClick={() => {
-					data.diffManager?.acceptModule('Input', { flowStore: flowEditorContext?.flowStore })
+					diffManager?.acceptModule('Input', { flowStore: flowEditorContext?.flowStore })
 				}}
 			>
 				✓ Accept
@@ -59,7 +57,7 @@
 				color="red"
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 				onClick={() => {
-					data.diffManager?.rejectModule('Input', { flowStore: flowEditorContext?.flowStore })
+					diffManager?.rejectModule('Input', { flowStore: flowEditorContext?.flowStore })
 				}}
 			>
 				✗ Reject

@@ -2,6 +2,7 @@
 	import { FlowService, type FlowModule, type Job, type OpenFlow } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
+	import type { FlowGraphContext } from '../flows/types'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -69,6 +70,9 @@
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
+	// Create diffManager instance for this FlowGraphV2
+	const diffManager = createFlowDiffManager()
 
 	let fullWidth = 0
 	let width = $state(0)
@@ -207,14 +211,7 @@
 		markRemovedAsShadowed = false
 	}: Props = $props()
 
-	setContext<{
-		selectedId: Writable<string | undefined>
-		useDataflow: Writable<boolean | undefined>
-		showAssets: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
-
-	// Create diffManager instance for this FlowGraphV2
-	const diffManager = createFlowDiffManager()
+	setContext<FlowGraphContext>('FlowGraphContext', { selectedId, useDataflow, showAssets, diffManager })
 
 	// Validation: error if both diffBeforeFlow and moduleActions are provided
 	$effect(() => {
@@ -248,15 +245,6 @@
 			diffManager.clearSnapshot()
 		}
 	})
-
-	// Export methods for external access
-	export function getDiffManager() {
-		return diffManager
-	}
-
-	export function setBeforeFlow(flow: OpenFlow | undefined) {
-		diffManager.setSnapshot(flow)
-	}
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -593,7 +581,6 @@
 				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
-				diffManager: diffManager,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => effectiveFailureModule),
@@ -659,6 +646,10 @@
 
 	export function zoomOut() {
 		viewportSynchronizer?.zoomOut()
+	}
+
+	export function getDiffManager() {
+		return diffManager
 	}
 
 	$inspect('HERE effectiveModuleActions', effectiveModuleActions)
