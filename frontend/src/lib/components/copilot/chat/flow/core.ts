@@ -6,7 +6,7 @@ import type {
 import YAML from 'yaml'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
-import { emptySchema, emptyString } from '$lib/utils'
+import { emptyString } from '$lib/utils'
 import { createDbSchemaTool } from '../script/core'
 import {
 	createSearchHubScriptsTool,

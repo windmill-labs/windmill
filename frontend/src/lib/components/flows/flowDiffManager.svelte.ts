@@ -494,6 +494,9 @@ export function createFlowDiffManager() {
 		get hasPendingChanges() {
 			return hasPendingChanges
 		},
+		get afterInputSchema() {
+			return afterInputSchema
+		},
 
 		// Snapshot management
 		setSnapshot,

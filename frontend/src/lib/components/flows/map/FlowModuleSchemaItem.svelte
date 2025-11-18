@@ -126,6 +126,11 @@
 
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
 
+	// Disable delete/move operations when there are pending changes
+	const effectiveDeletable = $derived(
+		deletable && !diffManager?.hasPendingChanges
+	)
+
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
@@ -247,7 +252,7 @@
 	</Drawer>
 {/if}
 
-{#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
+{#if effectiveDeletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
@@ -270,7 +275,7 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
+			effectiveDeletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -502,7 +507,7 @@
 			{/if}
 		</div>
 
-		{#if deletable}
+		{#if effectiveDeletable}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
