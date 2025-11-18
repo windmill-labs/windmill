@@ -326,10 +326,7 @@ export function createFlowDiffManager() {
 			}
 		} else if (action === 'added') {
 			// Remove the added module from mergedFlow
-			const { modules } = getIndexInNestedModules(
-				{ value: mergedFlow, summary: '' },
-				actualId
-			)
+			const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
 			const index = modules.findIndex((m) => m.id === actualId)
 			if (index >= 0) {
 				modules.splice(index, 1)
@@ -337,10 +334,7 @@ export function createFlowDiffManager() {
 		} else if (action === 'removed') {
 			// Restore from beforeFlow - replace shadowed (__) module with original
 			const shadowedId = `__${actualId}`
-			const { modules } = getIndexInNestedModules(
-				{ value: mergedFlow, summary: '' },
-				shadowedId
-			)
+			const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, shadowedId)
 			const index = modules.findIndex((m) => m.id === shadowedId)
 
 			if (index >= 0) {
