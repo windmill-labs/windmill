@@ -1,16 +1,24 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { isFlowTainted } from './utils'
+	import { isFlowTainted, triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
 	import { initFlow } from '../flows/flowStore.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
+	import { wait } from '$lib/utils'
 
-	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
+
+	function hideOverlay() {
+		const overlay = document.querySelector('.driver-overlay') as HTMLElement
+		if (overlay) {
+			overlay.style.display = 'none'
+		}
+	}
 
 	export function runTutorial() {
 		// Clear any existing flow drafts from localStorage to ensure fresh start
@@ -115,6 +123,9 @@
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
+				onHighlighted: () => {
+					hideOverlay()
+				},
 				popover: {
 					title: 'Now let\'s create a flow together',
 					description:
@@ -155,6 +166,79 @@
 							flowStore.val = { ...flowStore.val } // Trigger reactivity
 						}
 						
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#a',
+				onHighlighted: async () => {
+					hideOverlay()
+
+					// Automatically highlight each script in sequence with visual effects
+					const highlightClass = 'tutorial-highlight-script'
+					const style = document.createElement('style')
+					style.textContent = `
+						.${highlightClass} {
+							outline: 3px solid #3b82f6 !important;
+							outline-offset: 2px !important;
+							border-radius: 4px !important;
+							transition: outline 0.3s ease !important;
+						}
+					`
+					document.head.appendChild(style)
+
+					const elements = [
+						{ selector: '#a', id: 'a' },
+						{ selector: '#b', id: 'b' },
+						{ selector: '#c', id: 'c' }
+					]
+					
+					// Highlight each element in sequence and open its drawer
+					for (let i = 0; i < elements.length; i++) {
+						const { selector, id } = elements[i]
+						const element = document.querySelector(selector) as HTMLElement
+						if (element) {
+							// Open the drawer for this script node
+							selectedId.set(id)
+							await wait(100) // Small delay to ensure drawer opens
+							
+							// Add visual highlight
+							element.classList.add(highlightClass)
+							await wait(800)
+							element.classList.remove(highlightClass)
+						}
+					}
+					
+					// Clean up
+					document.head.removeChild(style)
+				},
+				popover: {
+					title: 'To make our flow, we connected 3 scripts together',
+					description:
+						'<p>We created three steps that work together:<br/>• Step <strong>a</strong>: Validates the temperature input<br/>• Step <strong>b</strong>: Converts Celsius to Fahrenheit<br/>• Step <strong>c</strong>: Categorizes the temperature</p>',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#flow-editor-virtual-Input',
+				onHighlighted: () => {
+					hideOverlay()
+				},
+				popover: {
+					title: 'Flow inputs',
+					description: 'Here you can define the inputs for your flow. These inputs can be used throughout your flow steps.',
+					onNextClick: async () => {
+						// Small delay before opening the drawer
+						await wait(300)
+						// Trigger the input button to open the drawer
+						triggerPointerDown('#flow-editor-virtual-Input')
+						await wait(100)
+						// Set selectedId to 'Input' to ensure the drawer opens
+						selectedId.set('Input')
+						await wait(200)
 						driver.moveNext()
 					}
 				}
