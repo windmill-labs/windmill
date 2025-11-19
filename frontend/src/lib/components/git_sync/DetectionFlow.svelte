@@ -136,7 +136,7 @@
 
 			<!-- Initialize button -->
 			<div class="flex justify-start">
-				<Button size="md" onclick={handleInitialize} startIcon={{ icon: Save }}>
+				<Button color="blue" size="md" onclick={handleInitialize} startIcon={{ icon: Save }}>
 					Initialize Git repository
 				</Button>
 			</div>
