@@ -7,9 +7,10 @@
 
 	interface Props {
 		exitNoteMode?: () => void
+		yOffset: number
 	}
 
-	let { exitNoteMode }: Props = $props()
+	let { exitNoteMode, yOffset }: Props = $props()
 
 	// Get NoteEditor context for direct note creation
 	const noteEditorContext = getNoteEditorContext()
@@ -61,10 +62,14 @@
 			y: endPosition.y + rect.top
 		}
 
-		const position = screenToFlowPosition({
+		const flowPosition = screenToFlowPosition({
 			x: Math.min(absoluteStartPosition.x, absoluteEndPosition.x),
 			y: Math.min(absoluteStartPosition.y, absoluteEndPosition.y)
 		})
+		const position = {
+			x: flowPosition.x,
+			y: flowPosition.y - (yOffset || 0)
+		}
 
 		const zoom = getViewport().zoom
 		const size = {
@@ -155,10 +160,14 @@
 		onpointerup={onPointerUp}
 		oncontextmenu={(e) => {
 			// Capture the position when context menu is triggered
-			contextMenuPosition = screenToFlowPosition({
+			const flowPosition = screenToFlowPosition({
 				x: e.clientX,
 				y: e.clientY
 			})
+			contextMenuPosition = {
+				x: flowPosition.x,
+				y: flowPosition.y - yOffset
+			}
 		}}
 		role="button"
 		tabindex="0"

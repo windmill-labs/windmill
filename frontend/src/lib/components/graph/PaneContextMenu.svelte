@@ -9,6 +9,7 @@
 		CONTEXT_MENU_ITEM_BASE_CLASS,
 		CONTEXT_MENU_ITEM_HOVER_CLASS
 	} from '../common/contextmenu/contextMenuStyles'
+	import { getGraphContext } from './graphContext'
 
 	interface Props {
 		editMode?: boolean
@@ -18,6 +19,8 @@
 
 	const { screenToFlowPosition } = useSvelteFlow()
 	const noteEditorContext = getNoteEditorContext()
+
+	const graphContext = getGraphContext()
 
 	let contextMenuVisible = $state(false)
 	let contextMenuPosition = $state<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -51,7 +54,10 @@
 		if (noteEditorContext?.noteEditor && pendingFlowPosition) {
 			noteEditorContext.noteEditor.addNote({
 				text: '### Free note\nDouble click to edit me',
-				position: pendingFlowPosition,
+				position: {
+					x: pendingFlowPosition.x,
+					y: pendingFlowPosition.y - (graphContext?.yOffset || 0)
+				},
 				size: { width: 300, height: 200 },
 				color: DEFAULT_NOTE_COLOR,
 				type: 'free',

@@ -9,6 +9,7 @@ export type GraphContext = {
 	showAssets: Writable<boolean | undefined>
 	noteManager?: NoteManager
 	clearFlowSelection?: () => void
+	yOffset?: number
 }
 
 const graphContextKey = 'FlowGraphContext'

@@ -53,7 +53,6 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
-	import InitialViewportFitter from './InitialViewportFitter.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
@@ -248,12 +247,33 @@
 
 	const noteEditorContext = getNoteEditorContext()
 
+	// Function to calculate extra gap needed for notes below the lowest flow nodes
+	function calculateNoteGap(notes: FlowNote[] | undefined): number {
+		if (!notes || notes.length === 0) {
+			return 0
+		}
+		let maxNoteBelowGap = 0
+
+		notes.forEach((note) => {
+			if (note.position?.y && note.position.y < 0) {
+				maxNoteBelowGap = Math.max(maxNoteBelowGap, -note.position.y)
+			}
+		})
+
+		return maxNoteBelowGap
+	}
+
+	// Calculate note gap based on current nodes and notes
+	const topPadding = editMode ? 100 : 24
+	const yOffset = calculateNoteGap(notes) + topPadding
+
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
 		noteManager,
-		clearFlowSelection
+		clearFlowSelection,
+		yOffset
 	} as any)
 
 	if (triggerContext && allowSimplifiedPoll) {
@@ -438,8 +458,20 @@
 
 	let height = $state(0)
 
-	// Counter to trigger initial viewport fit after first flow build
-	let initialBuildTrigger = $state(0)
+	// Derived nodes with yOffset applied to all nodes uniformly
+	const nodesWithOffset = $derived.by(() => {
+		return nodes.map((node) => {
+			if (
+				node.type !== 'asset' &&
+				node.type !== 'assetsOverflowed' &&
+				node.type !== 'newAiTool' &&
+				node.type !== 'aiTool'
+			) {
+				return { ...node, position: { ...node.position, y: node.position.y + yOffset } }
+			}
+			return node
+		})
+	})
 
 	// Note feature state
 
@@ -562,7 +594,13 @@
 		]
 
 		await tick()
-		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
+		if (nodes.length === 0) {
+			height = minHeight
+		} else {
+			const minY = Math.min(...nodes.map((n) => n.position.y))
+			const maxBottom = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100))
+			height = Math.max(maxBottom - minY, minHeight)
+		}
 	}
 
 	const nodeTypes = {
@@ -660,10 +698,6 @@
 		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
 		untrack(async () => {
 			await updateStores()
-			// Trigger initial viewport fit after first build
-			if (initialBuildTrigger === 0 && nodes.length > 0) {
-				initialBuildTrigger = 1
-			}
 		})
 	})
 
@@ -809,7 +843,6 @@
 					bind:this={viewportSynchronizer}
 				/>
 			{/if}
-			<InitialViewportFitter {nodes} triggerCount={initialBuildTrigger} />
 			<PaneContextMenu {editMode} bind:this={paneContextMenu} />
 			<SvelteFlow
 				onpaneclick={() => {
@@ -822,13 +855,17 @@
 				onnodedragstop={(event) => {
 					const node = event.targetNode
 					if (node && node.type === 'note') {
-						onNotePositionUpdate?.(node.id, node.position)
+						const positionWithOffset = {
+							x: node.position.x,
+							y: node.position.y - yOffset
+						}
+						onNotePositionUpdate?.(node.id, positionWithOffset)
 					}
 				}}
 				onmove={(event, viewport) => {
 					viewportSynchronizer?.handleLocalViewportChange(event, viewport)
 				}}
-				{nodes}
+				nodes={nodesWithOffset}
 				{edges}
 				{edgeTypes}
 				{nodeTypes}
@@ -855,7 +892,7 @@
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
 
 				{#if noteMode}
-					<NoteTool {exitNoteMode} />
+					<NoteTool {exitNoteMode} {yOffset} />
 				{/if}
 
 				{#if multiSelectEnabled}
@@ -865,7 +902,10 @@
 								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
 						)}
 					>
-						<SelectionBoundingBox selectedNodes={selectionManager.selectedIds} allNodes={nodes} />
+						<SelectionBoundingBox
+							selectedNodes={selectionManager.selectedIds}
+							allNodes={nodesWithOffset}
+						/>
 					</NodeContextMenu>
 				{/if}
 
