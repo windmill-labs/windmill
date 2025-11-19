@@ -9,6 +9,13 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
+	function hideOverlay() {
+		const overlay = document.querySelector('.driver-overlay') as HTMLElement
+		if (overlay) {
+			overlay.style.display = 'none'
+		}
+	}
+
 	export function runTutorial() {
 		tutorial?.runTutorial()
 	}
@@ -124,6 +131,8 @@
 						} catch (e) {
 							console.error('Error clearing localStorage', e)
 						}
+						// Hide overlay before navigation
+						hideOverlay()
 						// Mark tutorial as complete
 						updateProgress(index)
 						driver.destroy()
