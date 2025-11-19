@@ -893,6 +893,8 @@ async fn update_flow(
     .warn_after_seconds(10)
     .await??;
 
+    // tracing::error!("Updating flow: {:?}", nf.value.get());
+
     // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
