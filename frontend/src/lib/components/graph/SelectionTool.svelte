@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { useOnSelectionChange, useStore, type Node } from '@xyflow/svelte'
+	import { useOnSelectionChange, useStore } from '@xyflow/svelte'
 	import type { SelectionManager } from './selectionUtils.svelte'
 	interface Props {
 		selectionManager: SelectionManager
@@ -12,14 +12,7 @@
 
 	// Handle selection changes from SvelteFlow
 	useOnSelectionChange(({ nodes: selectedNodes, edges: _selectedEdges }) => {
-		// Notes are already non-selectable, so no filtering needed
-		const selectedNodeIds = selectedNodes.map((node: Node) => node.id)
-
-		// Only select nodes if multiple nodes are selected
-		// To avoid conflicting with the node-level click events
-		if (selectedNodeIds.length > 1) {
-			selectionManager.selectNodes(selectedNodeIds, false)
-		}
+		selectionManager.selectedNodesInGraph = selectedNodes
 	})
 </script>
 

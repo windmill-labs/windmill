@@ -1,20 +1,69 @@
 import type { Node } from '@xyflow/svelte'
 
+const MULTIPLE_SELECTION_ID = 'multiple-selection'
+const SETTINGS_ID = 'settings'
+
+/**
+ *
+ * @param node - The node to get the module id from
+ * @returns The module id from the node
+ */
+function getModuleIdFromNode(node: Node): string | undefined {
+	if (node.type === 'branchOneEnd') {
+		return /^(.*)-end$/.exec(node.id)?.[1]
+	} else if (node.type === 'branchAllEnd') {
+		return /^(.*)-end$/.exec(node.id)?.[1]
+	} else if (node.type === 'forLoopEnd') {
+		return /^(.*)-end$/.exec(node.id)?.[1]
+	} else if (node.type === 'whileLoopEnd') {
+		return /^(.*)-end$/.exec(node.id)?.[1]
+	} else if (node.type === 'subflowBound') {
+		return /^(.*)-end$/.exec(node.id)?.[1]
+	}
+	return undefined
+}
+
 export class SelectionManager {
-	#selectedIds = $state<string[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
+	#selectedNodesInGraph = $state<Node[]>([])
+	#manualSelectedId = $state<string | undefined>(undefined)
 
 	constructor() {}
 
 	selectId(id: string) {
-		if (this.#selectedIds.length === 1 && this.#selectedIds[0] === id) {
-			return
-		}
-		this.#selectedIds = [id]
+		// If not in the graph, set the selected id outside the graph
+		this.#manualSelectedId = id
 	}
 
 	getSelectedId(): string {
-		return this.#selectedIds[0] || 'settings'
+		if (this.#manualSelectedId !== undefined) {
+			return this.#manualSelectedId
+		}
+		if (this.#selectedNodesInGraph.length === 1) {
+			const selectedNode = this.#selectedNodesInGraph[0]
+			const moduleId = getModuleIdFromNode(selectedNode)
+			if (moduleId) {
+				return moduleId
+			}
+			return selectedNode.id
+		} else if (this.#selectedNodesInGraph.length > 1) {
+			return MULTIPLE_SELECTION_ID
+		} else {
+			return SETTINGS_ID
+		}
+	}
+
+	get selectedNodesInGraph() {
+		return this.#selectedNodesInGraph
+	}
+
+	get manualSelectedId() {
+		return this.#manualSelectedId
+	}
+
+	set selectedNodesInGraph(nodes: Node[]) {
+		this.#manualSelectedId = undefined
+		this.#selectedNodesInGraph = nodes
 	}
 
 	get mode() {
@@ -25,56 +74,9 @@ export class SelectionManager {
 		this.#selectionMode = mode
 	}
 
-	get selectedIds() {
-		if (this.#selectedIds.length === 0) {
-			return ['settings']
-		}
-		return [...this.#selectedIds]
-	}
-
-	// Select nodes with optional hierarchical selection
-	selectNodes(nodeIds: string[], addToExisting = false) {
-		// Guard against empty nodeIds or uninitialized state
-		if (!nodeIds || nodeIds.length === 0) {
-			if (!addToExisting) {
-				this.clearSelection()
-			}
-			return
-		}
-
-		const newSelection = addToExisting ? [...this.#selectedIds, ...nodeIds] : nodeIds
-
-		// If the new selection is the same as the current selection, do nothing
-		if (JSON.stringify(newSelection) === JSON.stringify($state.snapshot(this.#selectedIds))) {
-			return
-		}
-
-		this.#selectedIds = newSelection
-	}
-
 	// Clear all selections
 	clearSelection() {
-		this.#selectedIds = ['settings']
-	}
-
-	// Check if a node is selected
-	isNodeSelected(nodeId: string): boolean {
-		return this.#selectedIds.includes(nodeId)
-	}
-
-	// Get selected node count
-	get selectedCount(): number {
-		return this.#selectedIds.length
-	}
-
-	// Check if multiple nodes are selected
-	get hasMultipleSelection(): boolean {
-		return this.selectedCount > 1
-	}
-
-	// Get all selected node IDs
-	get selectedNodeIds(): string[] {
-		return [...this.#selectedIds]
+		this.#manualSelectedId = undefined
 	}
 
 	// Handle keyboard shortcuts
@@ -82,13 +84,6 @@ export class SelectionManager {
 		if (event.key === 'Escape') {
 			// Escape key clears selection regardless of mode
 			this.clearSelection()
-		} else if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-			event.preventDefault()
-			// Select all visible nodes (exclude note nodes)
-			if (nodes) {
-				const allNodeIds = nodes.filter((node) => node.type !== 'note').map((node) => node.id)
-				this.selectNodes(allNodeIds)
-			}
 		}
 	}
 }

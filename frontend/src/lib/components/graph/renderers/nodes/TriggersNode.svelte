@@ -26,9 +26,10 @@
 			disableAi: boolean
 			simplifiableFlow: SimplifiableFlow
 		}
+		selected: boolean
 	}
 
-	let { data }: Props = $props()
+	let { data, selected }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
 
@@ -48,9 +49,7 @@
 					}
 	}
 
-	let colorClasses = $derived(
-		getNodeColorClasses('_VirtualItem', selectionManager?.isNodeSelected('Trigger'))
-	)
+	let colorClasses = $derived(getNodeColorClasses('_VirtualItem', selected))
 </script>
 
 <NodeWrapper>

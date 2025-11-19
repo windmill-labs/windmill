@@ -11,15 +11,13 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: InputN['data']
+		selected: boolean
 	}
 
-	let { data }: Props = $props()
-
-	const { selectionManager } = getGraphContext()
+	let { data, selected }: Props = $props()
 
 	const { previewArgs, flowStore } =
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
@@ -81,7 +79,7 @@
 			hideId={true}
 			label={inputLabel}
 			selectable
-			selected={selectionManager?.isNodeSelected('Input')}
+			{selected}
 			on:insert={(e) => {
 				setTimeout(() => data?.eventHandlers?.insert(e.detail))
 			}}

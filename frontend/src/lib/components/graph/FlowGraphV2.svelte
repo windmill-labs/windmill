@@ -397,7 +397,7 @@
 		},
 		select: (modId) => {
 			if (!notSelectable) {
-				selectionManager.selectId(modId)
+				console.log('dbg select', modId)
 				onSelect?.(modId)
 			}
 		},
@@ -809,6 +809,23 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
+
+	$inspect(
+		'dbg selectionManager',
+		selectionManager.selectedNodesInGraph,
+		selectionManager.manualSelectedId
+	)
+
+	$effect(() => {
+		if (selectionManager.manualSelectedId) {
+			untrack(() => {
+				nodes = nodes.map((node) => ({
+					...node,
+					selected: node.id === selectionManager.manualSelectedId
+				}))
+			})
+		}
+	})
 </script>
 
 {#if insertable}
@@ -885,7 +902,7 @@
 				zoomOnDoubleClick={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
-				multiSelectionKey={modifierKey}
+				multiSelectionKey={'Shift'}
 				nodesDraggable={false}
 				--background-color={false}
 			>
@@ -896,16 +913,8 @@
 				{/if}
 
 				{#if multiSelectEnabled}
-					<NodeContextMenu
-						selectedNodeIds={selectionManager.selectedIds.filter(
-							(id) =>
-								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
-						)}
-					>
-						<SelectionBoundingBox
-							selectedNodes={selectionManager.selectedIds}
-							allNodes={nodesWithOffset}
-						/>
+					<NodeContextMenu selectedNodeIds={[]}>
+						<SelectionBoundingBox allNodes={nodesWithOffset} />
 					</NodeContextMenu>
 				{/if}
 

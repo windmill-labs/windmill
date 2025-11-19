@@ -87,7 +87,7 @@
 	})
 </script>
 
-{#if selectionManager && selectionManager.selectedIds.length > 1}
+{#if selectedId === 'multiple-selection'}
 	<FlowSelectionPanel {selectionManager} {noEditor} />
 {:else if selectedId?.startsWith('settings')}
 	<FlowSettings {enableAi} {noEditor} />
