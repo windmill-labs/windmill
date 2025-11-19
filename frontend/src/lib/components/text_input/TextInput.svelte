@@ -23,6 +23,11 @@
 	import { ButtonType } from '$lib/components/common/button/model'
 
 	export const inputSizeClasses = {
+		xs: twMerge(
+			ButtonType.UnifiedSizingClasses.xs,
+			ButtonType.UnifiedMinHeightClasses.xs,
+			'px-1 !py-0.5'
+		),
 		sm: twMerge(
 			ButtonType.UnifiedSizingClasses.sm,
 			ButtonType.UnifiedMinHeightClasses.sm,
@@ -42,7 +47,7 @@
 		value?: string
 		class?: string
 		error?: string | boolean
-		size?: 'sm' | 'md' | 'lg'
+		size?: ButtonType.UnifiedSize
 		unifiedHeight?: boolean
 	}
 

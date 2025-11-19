@@ -25,8 +25,9 @@
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
 
-	const { flowStore, flowStateStore, selectedId, currentEditor } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
@@ -84,7 +85,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: $selectedId
+				selectedId: selectedId
 			}
 		},
 		// flow apply/reject
@@ -382,7 +383,7 @@
 				value: match[2].trim()
 			}))
 
-			if (id === $selectedId) {
+			if (id === selectedId) {
 				exprsToSet?.set({})
 				const argsToUpdate = {}
 				for (const { input, value } of parsedInputs) {
@@ -421,7 +422,7 @@
 			setModuleStatus('Input', 'modified')
 		},
 		selectStep: (id) => {
-			$selectedId = id
+			selectionManager.selectId(id)
 		},
 		getStepCode: (id) => {
 			const module = getModule(id)
@@ -611,7 +612,7 @@
 
 	$effect(() => {
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
-			$selectedId,
+			selectedId,
 			flowStore.val,
 			flowStateStore.val,
 			$currentEditor
@@ -628,19 +629,18 @@
 	$effect(() => {
 		if (
 			$currentEditor?.type === 'script' &&
-			$selectedId &&
-			affectedModules[$selectedId] &&
+			selectedId &&
+			affectedModules[selectedId] &&
 			$currentEditor.editor.getAiChatEditorHandler()
 		) {
-			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+			const moduleLastSnapshot = getModule(selectedId, lastSnapshot)
 			const content =
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {
 				untrack(() =>
 					$currentEditor.editor.reviewAppliedCode(content, {
 						onFinishedReview: () => {
-							const id = $selectedId
-							flowHelpers.acceptModuleAction(id)
+							flowHelpers.acceptModuleAction(selectedId)
 							$currentEditor.hideDiffMode()
 						}
 					})
