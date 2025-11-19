@@ -31,7 +31,6 @@
 				{
 					id: 'a',
 					value: {
-						lock: '{\n  "dependencies": {}\n}\n//bun.lock\n<empty>',
 						type: 'rawscript',
 						content:
 							'export async function main(celsius: number) {\n  // Validate that the temperature is within a reasonable range\n  if (celsius < -273.15) {\n    throw new Error("Temperature cannot be below absolute zero (-273.15°C)");\n  }\n  \n  if (celsius > 1000) {\n    throw new Error("Temperature seems unreasonably high. Please check your input.");\n  }\n  \n  return {\n    celsius: celsius,\n    isValid: true,\n    message: "Temperature is valid"\n  };\n}',
@@ -48,7 +47,6 @@
 				{
 					id: 'b',
 					value: {
-						lock: '{\n  "dependencies": {}\n}\n//bun.lock\n<empty>',
 						type: 'rawscript',
 						content:
 							'export async function main(celsius: number) {\n  // Convert Celsius to Fahrenheit using the formula: F = (C × 9/5) + 32\n  const fahrenheit = (celsius * 9/5) + 32;\n  \n  return {\n    celsius: celsius,\n    fahrenheit: Math.round(fahrenheit * 100) / 100 // Round to 2 decimal places\n  };\n}',
@@ -65,7 +63,6 @@
 				{
 					id: 'c',
 					value: {
-						lock: '{\n  "dependencies": {}\n}\n//bun.lock\n<empty>',
 						type: 'rawscript',
 						content:
 							'export async function main(celsius: number, fahrenheit: number) {\n  // Categorize the temperature based on Celsius value\n  let category: string;\n  let emoji: string;\n  \n  if (celsius < 0) {\n    category = "Freezing";\n    emoji = "❄️";\n  } else if (celsius < 10) {\n    category = "Cold";\n    emoji = "🥶";\n  } else if (celsius < 20) {\n    category = "Cool";\n    emoji = "😊";\n  } else if (celsius < 30) {\n    category = "Warm";\n    emoji = "☀️";\n  } else {\n    category = "Hot";\n    emoji = "🔥";\n  }\n  \n  return {\n    celsius: celsius,\n    fahrenheit: fahrenheit,\n    category: category,\n    emoji: emoji\n  };\n}',
@@ -119,7 +116,7 @@
 				popover: {
 					title: 'Now let\'s create a flow together',
 					description:
-						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Let\'s build your first flow step by step!</p>',
+						"We will create together a simple flow that validates a temperature in Celsius and converts it to Fahrenheit.",
 					onNextClick: async () => {
 						// Initialize empty flow with just the schema
 						const emptyFlow: Flow = {
