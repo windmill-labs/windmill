@@ -118,11 +118,17 @@
 					description:
 						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill</p>',
 					onNextClick: async () => {
+						// Clear any existing flow drafts from localStorage to ensure fresh start
+						try {
+							localStorage.removeItem('flow')
+						} catch (e) {
+							console.error('Error clearing localStorage', e)
+						}
 						// Mark tutorial as complete
 						updateProgress(index)
 						driver.destroy()
-						// Navigate to the flow creation page with tutorial continuation parameter
-						window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue`
+						// Navigate to the flow creation page with tutorial continuation parameter and nodraft
+						window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue&nodraft=true`
 					}
 				},
 				element: '#create-app-button',
