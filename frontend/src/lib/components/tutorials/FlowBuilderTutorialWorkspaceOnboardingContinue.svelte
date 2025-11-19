@@ -8,7 +8,6 @@
 	import type { Flow, FlowModule } from '$lib/gen'
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
 	import { wait } from '$lib/utils'
-
 	const { flowStore, flowStateStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
@@ -209,6 +208,55 @@
 					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use. For our example, we will give 25 degrees Celsius for input.',
 					onNextClick: () => {
 						driver.moveNext()
+					}
+				}
+			},
+			{
+				onHighlighted: async () => {
+					// Create countdown element
+					const popoverDescription = document.querySelector('#driver-popover-description')
+					let countdownElement: HTMLElement | null = null
+					if (popoverDescription) {
+						countdownElement = document.createElement('div')
+						countdownElement.style.cssText = 'margin-top: 8px; font-size: 12px; color: #6b7280; font-style: italic;'
+						popoverDescription.appendChild(countdownElement)
+					}
+					
+					let secondsLeft = 5
+					const updateCountdown = () => {
+						if (countdownElement) {
+							countdownElement.textContent = `Finishing in ${secondsLeft} second${secondsLeft !== 1 ? 's' : ''}...`
+						}
+					}
+					
+					updateCountdown()
+					const countdownInterval = setInterval(() => {
+						secondsLeft--
+						if (secondsLeft > 0) {
+							updateCountdown()
+						} else {
+							clearInterval(countdownInterval)
+							if (countdownElement) {
+								countdownElement.remove()
+							}
+							driver.destroy()
+						}
+					}, 1000)
+					
+					// Store interval reference to clear it if user clicks Next
+					;(window as any).__tutorialAutoFinishInterval = countdownInterval
+				},
+				popover: {
+					title: 'Your turn now',
+					description: 'Click on the Run button to execute your flow with the provided inputs.',
+					onNextClick: () => {
+						// Clear the countdown interval if it exists
+						const interval = (window as any).__tutorialAutoFinishInterval
+						if (interval) {
+							clearInterval(interval)
+							delete (window as any).__tutorialAutoFinishInterval
+						}
+						driver.destroy()
 					}
 				}
 			}
