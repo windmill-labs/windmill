@@ -25,7 +25,7 @@
 		localModuleStates = $bindable({})
 	}: Props = $props()
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
 	let preventEscape = $state(false)
@@ -70,7 +70,7 @@
 		$state('timeline')
 
 	let upToDisabled = $derived.by(() => {
-		const upToSelected = upToId ?? $selectedId
+		const upToSelected = upToId ?? selectionManager.getSelectedId()
 		return (
 			upToSelected == undefined ||
 			[
@@ -92,7 +92,7 @@
 				'constants',
 				'Result',
 				'Input',
-				'triggers'
+				'Trigger'
 			].includes(upToSelected) ||
 			upToSelected?.includes('branch') ||
 			aiChatManager.flowAiChatHelpers?.getModuleAction(upToSelected) === 'removed'
@@ -144,8 +144,8 @@
 	dropdownItems={!upToDisabled
 		? [
 				{
-					label: 'Test up to ' + $selectedId,
-					onClick: () => testUpTo($selectedId, true)
+					label: 'Test up to ' + selectionManager.getSelectedId(),
+					onClick: () => testUpTo(selectionManager.getSelectedId(), true)
 				}
 			]
 		: undefined}

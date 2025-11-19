@@ -215,7 +215,7 @@
 			const horizontalPadding = iconOnly
 				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
 				: ButtonType.UnifiedSizingClasses[unifiedSize]
-			const height = ButtonType.UnifiedMinHeightClasses[unifiedSize]
+			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
 			return `${horizontalPadding} ${height}`
 		}
 

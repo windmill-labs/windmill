@@ -8,6 +8,8 @@
 	import ClearableInput from '$lib/components/common/clearableInput/ClearableInput.svelte'
 	import DateInput from '$lib/components/DateInput.svelte'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
+	import ContextMenu from '$lib/components/common/contextmenu/ContextMenu.svelte'
+	import { StickyNote } from 'lucide-svelte'
 	import {
 		Pen,
 		GitFork,
@@ -150,6 +152,45 @@
 			icon: Trash,
 			onClick: () => console.log('Delete clicked'),
 			disabled: true
+		}
+	]
+
+	// Context menu items
+	const contextMenuItems = [
+		{
+			id: 'create-note',
+			label: 'Create sticky note',
+			icon: StickyNote,
+			onClick: () => console.log('Create sticky note clicked')
+		},
+		{
+			id: 'edit',
+			label: 'Edit item',
+			icon: Pen,
+			onClick: () => console.log('Edit item clicked')
+		},
+		{
+			id: 'divider-1',
+			label: '',
+			divider: true
+		},
+		{
+			id: 'copy',
+			label: 'Copy',
+			icon: Copy,
+			onClick: () => console.log('Copy clicked')
+		},
+		{
+			id: 'share',
+			label: 'Share',
+			icon: Share,
+			onClick: () => console.log('Share clicked')
+		},
+		{
+			id: 'delete',
+			label: 'Delete',
+			icon: Trash,
+			onClick: () => console.log('Delete clicked')
 		}
 	]
 </script>
@@ -574,6 +615,64 @@
 				<div class="flex justify-end">
 					<DropdownV2 items={disabledItems} aiId="disabled-dropdown" />
 				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- CONTEXT MENU SECTION HEADER -->
+	<header class="flex flex-col gap-2 border-b border-gray-200 dark:border-gray-700 pb-4 mt-12">
+		<h2 class="text-lg font-semibold text-emphasis">Context Menus</h2>
+		<p class="text-xs text-secondary"> Right-click triggered menus with contextual actions. </p>
+	</header>
+
+	<!-- Context Menu Examples -->
+	<div class="flex flex-col gap-6">
+		<h3 class="text-sm font-semibold text-emphasis">Context menu tests</h3>
+
+		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Basic Context Menu</h4>
+					<p class="text-xs text-secondary">Right-click the area below</p>
+				</div>
+				<ContextMenu items={contextMenuItems}>
+					<div
+						class="w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex items-center justify-center text-sm text-secondary bg-surface-tertiary cursor-pointer hover:border-accent hover:text-accent transition-colors"
+					>
+						Right-click me for context menu
+					</div>
+				</ContextMenu>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Text Context Menu</h4>
+					<p class="text-xs text-secondary">Right-click the text below</p>
+				</div>
+				<ContextMenu items={contextMenuItems}>
+					<div class="p-4 border rounded-lg bg-surface-tertiary">
+						<p class="text-sm">
+							Right-click this text to open the context menu. You can test various interactions
+							here.
+						</p>
+					</div>
+				</ContextMenu>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Button Context Menu</h4>
+					<p class="text-xs text-secondary">Right-click the button below</p>
+				</div>
+				<ContextMenu items={contextMenuItems}>
+					<Button variant="accent" size="sm">Right-click this button</Button>
+				</ContextMenu>
 			</div>
 		</div>
 	</div>

@@ -172,7 +172,8 @@
 								(agentActions
 									? Math.floor(i / MAX_TOOLS_PER_ROW) + 1
 									: totalRows - Math.floor(i / MAX_TOOLS_PER_ROW))
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -181,7 +182,8 @@
 				source: agentActions ? (n.parentId ?? '') : (n.id ?? ''),
 				target: agentActions ? (n.id ?? '') : (n.parentId ?? ''),
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' }
+				data: { class: '!opacity-35 dark:!opacity-20' },
+				selectable: false
 			}))
 
 			allToolEdges.push(...(toolEdges ?? []))
@@ -197,7 +199,8 @@
 					position: {
 						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
 						y: baseOffset + rowOffset
-					}
+					},
+					selectable: false
 				} satisfies Node & NewAiToolN)
 			}
 		}
@@ -253,13 +256,12 @@
 	} from '../../graphBuilder.svelte'
 	import { MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
-	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from '../../model'
 	import { getNodeColorClasses } from '../../util'
 	import { deepEqual } from 'fast-equals'
+	import { getGraphContext } from '../../graphContext'
 
 	let hover = $state(false)
 
@@ -269,15 +271,13 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
 	let colorClasses = $derived(
 		getNodeColorClasses(
 			!validateToolName(data.tool) ? 'Failure' : flowModuleState?.type,
-			$selectedId === data.moduleId
+			selectionManager?.getSelectedId() === data.moduleId
 		)
 	)
 </script>
@@ -322,7 +322,7 @@
 				<button
 					class={twMerge(
 						'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white !hidden',
-						$selectedId === data.moduleId || hover ? '!flex' : ''
+						selectionManager?.getSelectedId() === data.moduleId || hover ? '!flex' : ''
 					)}
 					title="Delete"
 					onclick={() => data.eventHandlers.delete({ id: data.moduleId }, '')}

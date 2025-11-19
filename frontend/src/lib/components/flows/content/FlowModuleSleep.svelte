@@ -20,7 +20,7 @@
 
 	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	const { selectedId, flowStore, flowStateStore, previewArgs } =
+	const { selectionManager, flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	let schema = $state(emptySchema())
 	schema.properties['sleep'] = {
@@ -41,7 +41,7 @@
 		)
 	)
 
-	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>

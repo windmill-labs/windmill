@@ -88,6 +88,7 @@ export type NodeLayout = {
 	data: {
 		offset?: number
 	}
+	selectable?: boolean
 } & FlowNode
 
 export type FlowNode =
@@ -447,7 +448,8 @@ export function graphBuilder(
 					moduleAction: extra.moduleActions?.[module.id],
 					onShowModuleDiff: extra.onShowModuleDiff
 				},
-				type: 'module'
+				type: 'module',
+				selectable: true
 			})
 
 			return module.id
@@ -540,7 +542,8 @@ export function graphBuilder(
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
-				}
+				},
+				selectable: false
 			})
 		}
 
@@ -596,7 +599,7 @@ export function graphBuilder(
 		}
 
 		const resultNode: NodeLayout = {
-			id: 'result',
+			id: 'Result',
 			data: {
 				eventHandlers: eventHandlers,
 				success: success,
@@ -1085,14 +1088,14 @@ export function graphBuilder(
 						let pid = x[0]
 
 						if (input?.startsWith('flow_input.iter')) {
-							const parent = dfsByModule(selectedId!, modules ?? [])?.pop()
+							const parent = dfsByModule(selectedId, modules ?? [])?.pop()
 
 							if (parent?.id) {
 								pid = parent.id
 							}
 						}
 
-						addEdge(pid, selectedId!, undefined, undefined, {
+						addEdge(pid, selectedId, undefined, undefined, {
 							customId: `dep-${pid}-${selectedId}-${input}-${index}`,
 							type: 'dataflowedge'
 						})
@@ -1102,7 +1105,7 @@ export function graphBuilder(
 				Object.entries(deps.dependents).forEach((x, i) => {
 					let pid = x[0]
 
-					addEdge(selectedId!, pid, undefined, undefined, {
+					addEdge(selectedId, pid, undefined, undefined, {
 						customId: `dep-${selectedId}-${pid}-${i}`,
 						type: 'dataflowedge'
 					})

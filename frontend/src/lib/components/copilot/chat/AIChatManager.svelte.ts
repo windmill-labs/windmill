@@ -882,7 +882,7 @@ class AIChatManager {
 	}
 
 	listenForSelectedIdChanges = (
-		selectedId: string,
+		selectedId: string | undefined,
 		flowStore: ExtendedOpenFlow,
 		flowStateStore: FlowState,
 		currentEditor: CurrentEditor
