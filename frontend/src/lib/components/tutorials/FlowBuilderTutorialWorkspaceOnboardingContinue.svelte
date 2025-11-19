@@ -123,9 +123,6 @@
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
-				onHighlighted: () => {
-					hideOverlay()
-				},
 				popover: {
 					title: 'Now let\'s create a flow together',
 					description:
@@ -172,47 +169,6 @@
 			},
 			{
 				element: '#a',
-				onHighlighted: async () => {
-					hideOverlay()
-
-					// Automatically highlight each script in sequence with visual effects
-					const highlightClass = 'tutorial-highlight-script'
-					const style = document.createElement('style')
-					style.textContent = `
-						.${highlightClass} {
-							outline: 3px solid #3b82f6 !important;
-							outline-offset: 2px !important;
-							border-radius: 4px !important;
-							transition: outline 0.3s ease !important;
-						}
-					`
-					document.head.appendChild(style)
-
-					const elements = [
-						{ selector: '#a', id: 'a' },
-						{ selector: '#b', id: 'b' },
-						{ selector: '#c', id: 'c' }
-					]
-					
-					// Highlight each element in sequence and open its drawer
-					for (let i = 0; i < elements.length; i++) {
-						const { selector, id } = elements[i]
-						const element = document.querySelector(selector) as HTMLElement
-						if (element) {
-							// Open the drawer for this script node
-							selectedId.set(id)
-							await wait(100) // Small delay to ensure drawer opens
-							
-							// Add visual highlight
-							element.classList.add(highlightClass)
-							await wait(800)
-							element.classList.remove(highlightClass)
-						}
-					}
-					
-					// Clean up
-					document.head.removeChild(style)
-				},
 				popover: {
 					title: 'To make our flow, we connected 3 scripts together',
 					description:
@@ -223,10 +179,48 @@
 				}
 			},
 			{
-				element: '#flow-editor-virtual-Input',
-				onHighlighted: () => {
+				element: '#b',
+				onHighlighted: async () => {
+					// Click on the 'b' node to open the drawer
+					selectedId.set('b')
+					await wait(300) // Wait for drawer to open
+					
+					// Hide the default driver.js overlay
 					hideOverlay()
+					
+					// Create an overlay for the LEFT half of the screen
+					let leftHalfOverlay = document.getElementById('tutorial-left-half-overlay')
+					if (!leftHalfOverlay) {
+						leftHalfOverlay = document.createElement('div')
+						leftHalfOverlay.id = 'tutorial-left-half-overlay'
+						leftHalfOverlay.style.cssText = `
+							position: fixed;
+							top: 0;
+							left: 0;
+							width: 50%;
+							height: 100%;
+							background: rgba(0, 0, 0, 0.8);
+							z-index: 9998;
+							pointer-events: none;
+						`
+						document.body.appendChild(leftHalfOverlay)
+					}
 				},
+				popover: {
+					title: 'Code editor and data connectors',
+					description: 'On the top, you have the code of your script. On the bottom, you have data connectors with the previous script.',
+					onNextClick: () => {
+						// Clean up the overlay div
+						const overlay = document.getElementById('tutorial-left-half-overlay')
+						if (overlay) {
+							overlay.remove()
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#flow-editor-virtual-Input',
 				popover: {
 					title: 'Flow inputs',
 					description: 'Here you can define the inputs for your flow. These inputs can be used throughout your flow steps.',
