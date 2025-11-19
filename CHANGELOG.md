@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.580.0](https://github.com/windmill-labs/windmill/compare/v1.579.2...v1.580.0) (2025-11-18)
+
+
+### Features
+
+* **aichat:** use responses api for openai models ([#7163](https://github.com/windmill-labs/windmill/issues/7163)) ([5c79a35](https://github.com/windmill-labs/windmill/commit/5c79a35306855143428d0725519578aea0a746fd))
+* disabling/enabling email triggers ([#7171](https://github.com/windmill-labs/windmill/issues/7171)) ([8ae266b](https://github.com/windmill-labs/windmill/commit/8ae266b6a9ced16e1b7416cfc8bea5fe7a7af042))
+* **security:** unshare pid of worker job process ([#7106](https://github.com/windmill-labs/windmill/issues/7106)) ([5aa251a](https://github.com/windmill-labs/windmill/commit/5aa251a2d276cc9d27bf104f8e4f724ea6a28231))
+* support secondary promotion repos in git sync settings ([#7173](https://github.com/windmill-labs/windmill/issues/7173)) ([5548221](https://github.com/windmill-labs/windmill/commit/55482210921fe2eb0fd158abd4f7369495f2dfd7))
+
+
+### Bug Fixes
+
+* change uv tool dir from /root to /usr/local/uv ([c3e59fe](https://github.com/windmill-labs/windmill/commit/c3e59fe064fc3b9d4c05958eea54601ff3410899))
+* improve delete to handle ai chat ([f371fbe](https://github.com/windmill-labs/windmill/commit/f371fbeb9bb0946bd29a6413ee7ede75dedda5d9))
+* support IRSA for duckdb s3 proxy ([2058f27](https://github.com/windmill-labs/windmill/commit/2058f27e03468d45813f340b8563f935ca2142f4))
+
 ## [1.579.2](https://github.com/windmill-labs/windmill/compare/v1.579.1...v1.579.2) (2025-11-18)
 
 
