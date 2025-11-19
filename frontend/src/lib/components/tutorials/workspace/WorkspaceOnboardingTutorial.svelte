@@ -33,6 +33,17 @@
 			return button
 		}
 
+		// Helper function to find the create flow button
+		const findFlowButton = (): HTMLElement | null => {
+			const button = document.querySelector('#create-flow-button') as HTMLElement | null
+			if (button) {
+				console.log('Found flow button:', button)
+			} else {
+				console.error('Could not find flow button')
+			}
+			return button
+		}
+
 		const steps: DriveStep[] = [
 			{
 				popover: {
@@ -56,14 +67,35 @@
 				popover: {
 					title: 'Create your first script',
 					description:
-						'Click to create your first script!',
+						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Click to create your first script!</p>',
 					onNextClick: async () => {
-						// Mark tutorial as complete
-						updateProgress(index)
-						driver.destroy()
+						// Move to the next step (Create Flow button)
+						setTimeout(() => {
+							const button = findFlowButton()
+							if (button) {
+								driver.moveNext()
+							} else {
+								alert('Could not find the Create Flow button. Please make sure you are on the home page.')
+							}
+						}, 100)
 					}
 				},
 				element: '#create-script-button',
+			},
+			{
+				popover: {
+					title: 'Create your first flow',
+					description:
+						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Discover together how flows work in Windmill</p>',
+					onNextClick: async () => {
+						// Mark tutorial as complete and navigate
+						updateProgress(index)
+						driver.destroy()
+						// Navigate to the flow creation page
+						window.location.href = `${base}/flows/add?nodraft=true`
+					}
+				},
+				element: '#create-flow-button',
 			}
 		]
 
