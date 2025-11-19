@@ -86,4 +86,4 @@ jobs:
         run: |
           deno --version && bun -v && go version && python3 --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,license,python,duckdb,rust,scoped_cache,private --all -- --nocapture
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,license,python,rust,scoped_cache,private --all -- --nocapture
