@@ -17,7 +17,6 @@ use sqlx::types::Json;
 use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
-use windmill_common::cache::FlowNotes;
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
