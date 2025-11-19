@@ -14,7 +14,7 @@ prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
 parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
-aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
+aws_auth = ["dep:aws-sdk-sts", "dep:aws-config", "dep:aws-sdk-rds"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
 smtp = ["dep:mail-send"]
@@ -64,6 +64,7 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+aws-sdk-rds = { workspace = true, optional = true }
 aws-credential-types.workspace = true
 aws-smithy-types.workspace = true
 base64.workspace = true
