@@ -4,10 +4,9 @@
 	import type { ForLoopEndN } from '../../graphBuilder.svelte'
 	interface Props {
 		data: ForLoopEndN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -16,7 +15,7 @@
 			<VirtualItem
 				label={'Each event is processed'}
 				selectable={false}
-				{selected}
+				selected={false}
 				id={data.id}
 				hideId
 				on:select={(e) => {
@@ -27,7 +26,7 @@
 			<VirtualItem
 				label={'Collect result of each iteration'}
 				selectable={true}
-				{selected}
+				selected={false}
 				id={data.id}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))

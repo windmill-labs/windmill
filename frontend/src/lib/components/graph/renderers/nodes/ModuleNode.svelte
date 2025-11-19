@@ -10,10 +10,9 @@
 
 	interface Props {
 		data: ModuleN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
@@ -72,7 +71,6 @@
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}
-			{selected}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}

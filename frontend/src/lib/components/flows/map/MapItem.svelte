@@ -16,6 +16,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
 	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		moduleId: string
@@ -48,7 +49,6 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		maximizeSubflow?: () => void
-		selected: boolean
 	}
 
 	let {
@@ -71,9 +71,10 @@
 		onEditInput,
 		flowJob,
 		isOwner = false,
-		maximizeSubflow,
-		selected = false
+		maximizeSubflow
 	}: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 
 	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
@@ -85,7 +86,9 @@
 	}>()
 
 	let itemProps = $derived({
-		selected,
+		selected:
+			selectionManager?.getSelectedId() === mod.id ||
+			(selectionManager && selectionManager.selectedIds.includes(mod.id)),
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		skip: Boolean(mod.skip_if),

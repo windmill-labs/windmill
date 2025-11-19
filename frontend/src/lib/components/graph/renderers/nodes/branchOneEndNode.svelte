@@ -4,10 +4,9 @@
 	import type { BranchOneEndN } from '../../graphBuilder.svelte'
 	interface Props {
 		data: BranchOneEndN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -16,7 +15,7 @@
 			label={'Collect result from chosen branch'}
 			id={data.id}
 			selectable={true}
-			{selected}
+			selected={false}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}

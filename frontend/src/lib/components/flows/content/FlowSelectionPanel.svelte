@@ -13,12 +13,10 @@
 
 	const noteEditorContext = getNoteEditorContext()
 
-	const selectedNodes = $derived(selectionManager.selectedNodesInGraph.map((node) => node.id))
-
 	function addGroupNote() {
-		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor) {
+		if (selectionManager.selectedIds.length > 0 && noteEditorContext?.noteEditor) {
 			// Create the group note
-			noteEditorContext.noteEditor.createGroupNote(selectedNodes)
+			noteEditorContext.noteEditor.createGroupNote(selectionManager.selectedIds)
 		}
 	}
 </script>
@@ -27,16 +25,16 @@
 	{#snippet action()}
 		<Button
 			onClick={addGroupNote}
-			disabled={!noteEditorContext?.noteEditor || selectedNodes.length === 0}
+			disabled={!noteEditorContext?.noteEditor || selectionManager.selectedIds.length === 0}
 			startIcon={{ icon: StickyNote }}
 		>
 			Create group note
 		</Button>
 	{/snippet}
 	<div class="px-4">
-		<p class="text-xs text-secondary mb-4">{selectedNodes.length} nodes selected</p>
+		<p class="text-xs text-secondary mb-4">{selectionManager.selectedIds.length} nodes selected</p>
 		<div class="space-y-2 mb-4">
-			{#each selectedNodes as nodeId}
+			{#each selectionManager.selectedIds as nodeId}
 				<div class="text-sm px-2 py-1 bg-surface rounded border">
 					{nodeId}
 				</div>

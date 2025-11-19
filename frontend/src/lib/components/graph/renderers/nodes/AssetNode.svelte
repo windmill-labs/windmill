@@ -133,16 +133,14 @@
 				source: n.id ?? '',
 				target: n.parentId ?? '',
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' },
-				selectable: false
+				data: { class: '!opacity-35 dark:!opacity-20' }
 			}))
 			const outputAssetEdges: Edge[] = outputAssetNodes?.map((n) => ({
 				id: `${n.id}-edge`,
 				source: n.parentId ?? '',
 				target: n.id ?? '',
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' },
-				selectable: false
+				data: { class: '!opacity-35 dark:!opacity-20' }
 			}))
 
 			allAssetEdges.push(...(outputAssetEdges ?? []), ...(inputAssetEdges ?? []))
@@ -159,16 +157,14 @@
 					position: {
 						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: READ_ASSET_Y_OFFSET
-					},
-					selectable: false
+					}
 				} satisfies Node & AssetsOverflowedN)
 			allAssetEdges.push({
 				id: `${node.id}-assets-overflowed-in-edge`,
 				source: `${node.id}-assets-overflowed-in`,
 				target: node.id,
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' },
-				selectable: false
+				data: { class: '!opacity-35 dark:!opacity-20' }
 			})
 			if (overflowedOutputAssets.length)
 				allAssetNodes.push({
@@ -180,16 +176,14 @@
 					position: {
 						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: WRITE_ASSET_Y_OFFSET
-					},
-					selectable: false
+					}
 				} satisfies Node & AssetsOverflowedN)
 			allAssetEdges.push({
 				id: `${node.id}-assets-overflowed-out-edge`,
 				source: node.id,
 				target: `${node.id}-assets-overflowed-out`,
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-25' },
-				selectable: false
+				data: { class: '!opacity-35 dark:!opacity-25' }
 			})
 		}
 

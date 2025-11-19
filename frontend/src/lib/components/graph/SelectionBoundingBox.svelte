@@ -9,10 +9,11 @@
 	import { tick } from 'svelte'
 
 	interface Props {
+		selectedNodes: string[]
 		allNodes: Node[]
 	}
 
-	let { allNodes }: Props = $props()
+	let { selectedNodes, allNodes }: Props = $props()
 
 	const { flowToScreenPosition } = useSvelteFlow()
 
@@ -20,8 +21,6 @@
 	const noteEditorContext = getNoteEditorContext()
 	// Get Graph context for clearFlowSelection function
 	const graphContext = getGraphContext()
-
-	const selectedNodes = $derived(allNodes.filter((node) => node.selected).map((node) => node.id))
 
 	function handleAddGroupNote() {
 		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
@@ -86,7 +85,7 @@
 {#if bounds() && selectedNodes.length > 1}
 	{@const currentBounds = bounds()!}
 	<div
-		class={'absolute cursor-pointer bg-surface-selected/40 rounded-md pointer-events-none'}
+		class={'absolute cursor-pointer bg-surface-selected/40 rounded-md'}
 		style="
 			left: {currentBounds.x}px;
 			top: {currentBounds.y}px;

@@ -2,13 +2,15 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ResultN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: ResultN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper enableSourceHandle={false}>
@@ -17,7 +19,7 @@
 			id={'Result'}
 			label={'Result'}
 			selectable={true}
-			{selected}
+			selected={selectionManager?.getSelectedId() === 'Result'}
 			hideId={true}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))

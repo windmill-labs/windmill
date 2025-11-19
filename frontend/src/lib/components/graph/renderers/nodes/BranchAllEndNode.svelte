@@ -4,10 +4,9 @@
 	import type { BranchAllEndN } from '../../graphBuilder.svelte'
 	interface Props {
 		data: BranchAllEndN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
 </script>
 
 <NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle>
@@ -16,7 +15,7 @@
 			label={'Collect result from all branches'}
 			id={data.id}
 			selectable={true}
-			{selected}
+			selected={false}
 			on:select={(e) => {
 				data?.eventHandlers?.select(e.detail)
 			}}

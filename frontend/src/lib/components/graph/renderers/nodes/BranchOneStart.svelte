@@ -7,10 +7,9 @@
 	import type { BranchOneStartN } from '../../graphBuilder.svelte'
 	interface Props {
 		data: BranchOneStartN['data']
-		selected: boolean
 	}
 
-	let { data, selected }: Props = $props()
+	let { data }: Props = $props()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -19,7 +18,7 @@
 			label={data.label}
 			preLabel={data.preLabel}
 			selectable
-			{selected}
+			selected={false}
 			on:select={() => {
 				setTimeout(() => data?.eventHandlers?.select(data.id))
 			}}
