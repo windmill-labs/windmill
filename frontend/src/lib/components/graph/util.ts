@@ -153,7 +153,6 @@ export function calculateNodesBoundsWithOffset(
 } {
 	// Find related subflow nodes
 	const nodesToCalculate = getAllRelatedSubflowNodes(containedIds, allNodes)
-	console.log('dbg nodesToCalculate', nodesToCalculate, containedIds, allNodes)
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {
@@ -216,8 +215,6 @@ function getAllRelatedSubflowNodes(
 		subflowNodes.forEach((node) => relatedNodeIds.add(node.id))
 		if (endNode) relatedNodeIds.add(endNode.id)
 	})
-
-	console.log('dbg relatedNodeIds', relatedNodeIds)
 
 	// Return actual node objects that exist in allNodes
 	return allNodes.filter((node) => relatedNodeIds.has(node.id))

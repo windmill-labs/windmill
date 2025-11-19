@@ -389,9 +389,9 @@ export function computeNoteNodes(
 
 	// Cache the result
 	computeNoteNodesCache = [
-		JSON.parse(JSON.stringify(nodes)),
-		JSON.parse(JSON.stringify(notes)),
-		JSON.parse(JSON.stringify(noteTextHeights)),
+		structuredClone($state.snapshot(nodes)),
+		structuredClone($state.snapshot(notes)),
+		structuredClone($state.snapshot(noteTextHeights)),
 		result
 	]
 

@@ -1,6 +1,6 @@
 import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
-import { getLayoutSignature, getPropertySignature } from './noteUtils'
+import { getLayoutSignature, getPropertySignature } from './noteUtils.svelte'
 import { deepEqual } from 'fast-equals'
 import { untrack } from 'svelte'
 

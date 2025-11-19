@@ -71,7 +71,7 @@
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
-	import { computeNoteNodes } from './noteUtils'
+	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 
@@ -501,8 +501,6 @@
 		}
 	}
 
-	$inspect('dbg nodes', nodes)
-
 	async function updateStores() {
 		if (graph.error) {
 			return
@@ -802,8 +800,6 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
-
-	$inspect('dbg selection', selectionManager.selectedIds)
 </script>
 
 {#if insertable}
