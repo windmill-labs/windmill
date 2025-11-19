@@ -234,13 +234,7 @@
 	{/if}
 	{#if !confirmingDelete}
 		<div transition:fade|local={{ duration: 100 }}>
-			<Button
-				size="xs"
-				variant="accent-secondary"
-				onclick={initiateDelete}
-				startIcon={{ icon: Trash }}
-				destructive
-			>
+			<Button size="xs" onclick={initiateDelete} startIcon={{ icon: Trash }} destructive>
 				Delete
 			</Button>
 		</div>

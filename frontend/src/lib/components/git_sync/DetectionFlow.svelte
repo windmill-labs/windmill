@@ -136,7 +136,7 @@
 
 			<!-- Initialize button -->
 			<div class="flex justify-start">
-				<Button size="lg" onclick={handleInitialize} startIcon={{ icon: Save }} variant="accent">
+				<Button size="md" onclick={handleInitialize} startIcon={{ icon: Save }} variant="accent">
 					Initialize Git repository
 				</Button>
 			</div>
@@ -164,7 +164,7 @@
 			<!-- Save connection button -->
 			<div class="flex justify-start">
 				<Button
-					size="lg"
+					size="md"
 					onclick={handleSaveConnection}
 					startIcon={{ icon: Save }}
 					variant="accent"
