@@ -341,7 +341,12 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
 
     let scheme = parsed_url.scheme().to_string();
     let username = parsed_url.username().to_string();
+    let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
     let password = parsed_url.password().map(|p| p.to_string());
+    let password = match password {
+        Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
+        None => None,
+    };
     let host = parsed_url
         .host_str()
         .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
@@ -490,9 +495,7 @@ type Tag = String;
 pub use db::DB;
 
 use crate::{
-    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE},
-    db::{AuthedRef, UserDbWithAuthed},
-    scripts::ScriptHash,
+    auth::{FLOW_PERMS_CACHE, HASH_PERMS_CACHE, PermsCache}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, scripts::ScriptHash
 };
 
 #[derive(Clone)]

@@ -50,7 +50,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
-    const SUPPORTS_ENABLED: bool;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
@@ -144,10 +143,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
+            "enabled",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
@@ -206,6 +206,10 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(deleted > 0)
     }
 
+    async fn set_enabled_extra_action(&self, _: &mut PgConnection) -> Result<()> {
+        Ok(())
+    }
+
     async fn set_enabled(
         &self,
         authed: &ApiAuthed,
@@ -214,38 +218,59 @@ pub trait TriggerCrud: Send + Sync + 'static {
         path: &str,
         enabled: bool,
     ) -> Result<bool> {
-        if !Self::SUPPORTS_SERVER_STATE {
-            return Err(anyhow::anyhow!(
-                "Enable/disable not supported for this trigger type".to_string(),
-            )
-            .into());
-        }
+        let updated = if Self::SUPPORTS_SERVER_STATE {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    enabled = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now(),
+                    server_id = NULL,
+                    error = NULL
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(enabled)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    enabled = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now()
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(enabled)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        };
 
-        let updated = sqlx::query(&format!(
-            r#"
-            UPDATE 
-                {} 
-            SET 
-                enabled = $1,
-                email = $2,
-                edited_by = $3,
-                edited_at = now(),
-                server_id = NULL,
-                error = NULL
-            WHERE 
-                workspace_id = $4 AND 
-                path = $5
-            "#,
-            Self::TABLE_NAME
-        ))
-        .bind(enabled)
-        .bind(&authed.email)
-        .bind(&authed.username)
-        .bind(workspace_id)
-        .bind(path)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        self.set_enabled_extra_action(&mut *tx).await?;
 
         Ok(updated > 0)
     }
@@ -296,10 +321,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
+            "enabled",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
@@ -333,6 +359,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .sql()
             .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
+        tracing::info!("SQL: {}", sql);
         let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
 
         Ok(triggers)
@@ -346,11 +373,8 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
         .route("/get/*path", get(get_trigger::<T>))
         .route("/update/*path", post(update_trigger::<T>))
         .route("/delete/*path", delete(delete_trigger::<T>))
-        .route("/exists/*path", get(exists_trigger::<T>));
-
-    if T::SUPPORTS_ENABLED {
-        router = router.route("/setenabled/*path", post(set_enabled_trigger::<T>));
-    }
+        .route("/exists/*path", get(exists_trigger::<T>))
+        .route("/setenabled/*path", post(set_enabled_trigger::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));

@@ -82,6 +82,37 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
+/// Extract a PowerShell param() block with its preceding attributes, handling nested parentheses.
+///
+/// # Arguments
+/// * `code` - The PowerShell code to extract from
+/// * `include_attributes` - If true, includes attributes like [CmdletBinding()] before param
+///
+/// # Returns
+/// A tuple of (param_block_with_attributes, remaining_code) or None if not found.
+/// - `param_block_with_attributes`: The param block including attributes/comments if include_attributes is true
+/// - `remaining_code`: The rest of the code after the param block
+///
+/// This function uses the existing extract_powershell_param_block validation, which already
+/// ensures that only comments, whitespace, and attributes appear before param. So we can
+/// simply return everything from the beginning to the end of the param block.
+pub fn extract_powershell_param_block_with_attributes(code: &str, include_attributes: bool) -> Option<(&str, &str)> {
+    // First, use the existing function to validate and find the param block
+    let param_block = extract_powershell_param_block(code, true)?;
+
+    // Find where the param block ends in the original code
+    let param_end_pos = code.find(param_block)? + param_block.len();
+
+    // If include_attributes is true, we start from the beginning (position 0)
+    // since we know everything before param is valid (comments/whitespace/attributes)
+    // Otherwise, start from where param begins
+    if include_attributes {
+        Some((&code[..param_end_pos], &code[param_end_pos..]))
+    } else {
+        Some((param_block, &code[param_end_pos..]))
+    }
+}
+
 /// Extract a PowerShell param() block, handling nested parentheses.
 ///
 /// # Arguments
@@ -92,57 +123,90 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 /// # Returns
 /// The extracted param block or contents, or None if not found.
 pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Option<&str> {
-    // Find "param" keyword (case-insensitive)
-    let lower_code = code.to_lowercase();
-    let param_start = lower_code.find("param")?;
-
-    // Verify that only comments, whitespace, and [CmdletBinding()] appear before "param"
-    let before_param = &code[..param_start];
-    let mut chars = before_param.chars().peekable();
+    // Scan through the code looking for "param" while validating everything before it
+    let mut chars = code.chars().enumerate().peekable();
     let mut in_block_comment = false;
     let mut in_attribute_bracket = false;
     let mut bracket_depth = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut param_start = None;
 
-    while let Some(ch) = chars.next() {
+    while let Some((idx, ch)) = chars.next() {
         if in_block_comment {
             // Check for end of block comment: #>
-            if ch == '#' && chars.peek() == Some(&'>') {
+            if ch == '#' && chars.peek().map(|(_, c)| c) == Some(&'>') {
                 chars.next(); // consume '>'
                 in_block_comment = false;
             }
         } else if in_attribute_bracket {
-            // Track bracket depth to handle nested brackets/parens in attributes
-            match ch {
-                '[' => bracket_depth += 1,
-                ']' => {
-                    bracket_depth -= 1;
-                    if bracket_depth == 0 {
-                        in_attribute_bracket = false;
-                    }
+            // Handle quotes inside attributes to avoid counting brackets/parens inside strings
+            if in_single_quote {
+                if ch == '\'' {
+                    in_single_quote = false;
                 }
-                // Allow parentheses inside attributes (e.g., [CmdletBinding()])
-                _ => {}
+            } else if in_double_quote {
+                if ch == '"' {
+                    in_double_quote = false;
+                }
+            } else {
+                // Track bracket depth to handle nested brackets/parens in attributes
+                match ch {
+                    '\'' => in_single_quote = true,
+                    '"' => in_double_quote = true,
+                    '[' => bracket_depth += 1,
+                    ']' => {
+                        bracket_depth -= 1;
+                        if bracket_depth == 0 {
+                            in_attribute_bracket = false;
+                        }
+                    }
+                    _ => {}
+                }
             }
         } else {
             match ch {
                 // Start of block comment: <#
-                '<' if chars.peek() == Some(&'#') => {
+                '<' if chars.peek().map(|(_, c)| c) == Some(&'#') => {
                     chars.next(); // consume '#'
                     in_block_comment = true;
                 }
                 // Single-line comment: consume until end of line
                 '#' => {
-                    while let Some(&next_ch) = chars.peek() {
+                    for (_, next_ch) in chars.by_ref() {
                         if next_ch == '\n' || next_ch == '\r' {
                             break;
                         }
-                        chars.next();
                     }
                 }
                 // Start of attribute bracket (e.g., [CmdletBinding()])
                 '[' => {
                     in_attribute_bracket = true;
                     bracket_depth = 1;
+                }
+                // Check if we've found "param" (case-insensitive)
+                'p' | 'P' => {
+                    // Check if this is the start of "param" keyword
+                    let remaining = &code[idx..];
+                    if remaining.len() >= 5 {
+                        let next_four = &remaining[1..5];
+                        if next_four.eq_ignore_ascii_case("aram") {
+                            // Check word boundaries
+                            let before_ok = idx == 0 || {
+                                let before = code.as_bytes()[idx - 1];
+                                !before.is_ascii_alphanumeric() && before != b'_'
+                            };
+                            let after_ok = idx + 5 >= code.len() || {
+                                let after = code.as_bytes()[idx + 5];
+                                !after.is_ascii_alphanumeric() && after != b'_'
+                            };
+
+                            if before_ok && after_ok {
+                                param_start = Some(idx);
+                                break;
+                            }
+                        }
+                    }
                 }
                 // Whitespace is allowed
                 c if c.is_whitespace() => {}
@@ -156,6 +220,8 @@ pub fn extract_powershell_param_block(code: &str, include_keyword: bool) -> Opti
     if in_block_comment || in_attribute_bracket {
         return None;
     }
+
+    let param_start = param_start?;
 
     // Skip whitespace and tabs after "param"
     let mut chars = code[param_start + 5..].char_indices();
@@ -244,6 +310,84 @@ fn parse_powershell_single_typ(typ: &str) -> Typ {
     }
 }
 
+/// Parse ValidateSet attribute to extract enum values
+/// Example: ValidateSet('Red', 'Green', 'Blue') -> Some(vec!["Red", "Green", "Blue"])
+fn parse_validate_set(bracket_content: &str) -> Option<Vec<String>> {
+    // Find the opening parenthesis
+    let start = bracket_content.find('(')?;
+    let end = bracket_content.rfind(')')?;
+
+    if start >= end {
+        return None;
+    }
+
+    let values_str = &bracket_content[start + 1..end];
+    let mut values = Vec::new();
+    let mut current_value = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+
+    for ch in values_str.chars() {
+        if escape_next {
+            current_value.push(ch);
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '`' if in_double_quote => {
+                escape_next = true;
+            }
+            '\'' if !in_double_quote => {
+                if in_single_quote {
+                    // End of single-quoted string
+                    values.push(current_value.clone());
+                    current_value.clear();
+                    in_single_quote = false;
+                } else {
+                    // Start of single-quoted string
+                    in_single_quote = true;
+                }
+            }
+            '"' if !in_single_quote => {
+                if in_double_quote {
+                    // End of double-quoted string
+                    values.push(current_value.clone());
+                    current_value.clear();
+                    in_double_quote = false;
+                } else {
+                    // Start of double-quoted string
+                    in_double_quote = true;
+                }
+            }
+            ',' if !in_single_quote && !in_double_quote => {
+                // Skip commas outside quotes
+                continue;
+            }
+            c if in_single_quote || in_double_quote => {
+                current_value.push(c);
+            }
+            c if !c.is_whitespace() => {
+                // Handle unquoted values (though PowerShell typically requires quotes)
+                current_value.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    // Handle any remaining unquoted value
+    if !current_value.is_empty() {
+        values.push(current_value.trim().to_string());
+    }
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
 /// Single-pass PowerShell parameter parser.
 /// Parses the content of a param() block and extracts all parameter information.
 ///
@@ -273,6 +417,7 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
     let mut var_name: Option<String> = None;
     let mut default_value: Option<String> = None;
     let mut is_mandatory = false;
+    let mut validate_set: Option<Vec<String>> = None;
 
     // Track position for extracting text
     let mut last_bracket_start = None;
@@ -312,6 +457,14 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                                         if !lower.contains("mandatory=$false") && !lower.contains("mandatory = $false") {
                                             is_mandatory = true;
                                         }
+                                    }
+                                }
+
+                                // Check if this is a ValidateSet attribute
+                                if lower.starts_with("validateset(") {
+                                    // Extract values from ValidateSet('val1', 'val2', ...)
+                                    if let Some(values) = parse_validate_set(bracket_content) {
+                                        validate_set = Some(values);
                                     }
                                 }
 
@@ -404,7 +557,7 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                     ',' => {
                         // End of parameter, finalize it
                         if let Some(name) = var_name.take() {
-                            args.push(finalize_parameter(name, type_annotation.take(), default_value.take(), is_mandatory)?);
+                            args.push(finalize_parameter(name, type_annotation.take(), default_value.take(), is_mandatory, validate_set.take())?);
                         }
 
                         // Reset for next parameter
@@ -412,6 +565,7 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                         var_name = None;
                         default_value = None;
                         is_mandatory = false;
+                        validate_set = None;
                         found_dollar = false;
                     }
                     _ => {}
@@ -422,7 +576,7 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
 
     // Finalize last parameter
     if let Some(name) = var_name {
-        args.push(finalize_parameter(name, type_annotation, default_value, is_mandatory)?);
+        args.push(finalize_parameter(name, type_annotation, default_value, is_mandatory, validate_set)?);
     }
 
     Ok(args)
@@ -433,11 +587,15 @@ fn finalize_parameter(
     type_annotation: Option<String>,
     default_value: Option<String>,
     is_mandatory: bool,
+    validate_set: Option<Vec<String>>,
 ) -> anyhow::Result<Arg> {
     // Store the original PowerShell type for use in the executor
     let otyp = type_annotation.clone();
 
-    let mut parsed_typ = if let Some(typ) = type_annotation {
+    // If ValidateSet is present, use it to create an enum type
+    let mut parsed_typ = if let Some(ref enum_values) = validate_set {
+        Some(Typ::Str(Some(enum_values.clone())))
+    } else if let Some(typ) = type_annotation {
         if typ.ends_with("[]") {
             Some(Typ::List(Box::new(parse_powershell_single_typ(
                 typ.strip_suffix("[]").unwrap(),
@@ -653,9 +811,9 @@ non_required="${5:-}"
                         oidx: None
                     },
                     Arg {
-                        otyp: Some("string".to_string()), // [string] (last type bracket with Mandatory)
+                        otyp: Some("string".to_string()), // [string] (last type bracket with Mandatory and ValidateSet)
                         name: "Message".to_string(),
-                        typ: Typ::Str(None),
+                        typ: Typ::Str(Some(vec!["Green".to_string(), "Blue".to_string(), "Red".to_string()])), // ValidateSet enum
                         default: None,
                         has_default: false, // Required (Mandatory attribute)
                         oidx: None
@@ -833,6 +991,33 @@ non_required="${5:-}"
             extract_powershell_param_block("[CmdletBinding(\nparam($Name)", false),
             None
         );
+
+        // Valid: CmdletBinding with DefaultParameterSetName
+        assert_eq!(
+            extract_powershell_param_block(
+                "[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)",
+                false
+            ),
+            Some("$Name, $Id")
+        );
+
+        // Valid: CmdletBinding with complex parameters
+        assert_eq!(
+            extract_powershell_param_block(
+                "[CmdletBinding(DefaultParameterSetName='ByName', SupportsShouldProcess=$true)]\nparam($Path)",
+                false
+            ),
+            Some("$Path")
+        );
+
+        // Valid: Multiple attributes with parameters
+        assert_eq!(
+            extract_powershell_param_block(
+                "[CmdletBinding(DefaultParameterSetName='Set1')]\n[OutputType([string])]\nparam($Value)",
+                false
+            ),
+            Some("$Value")
+        );
     }
 
     #[test]
@@ -855,7 +1040,7 @@ param(
         assert_eq!(result.args[1].has_default, true);
         assert_eq!(result.args[1].default, Some(json!(25)));
 
-        // Test with complex attributes
+        // Test with complex attributes including ValidateSet
         let code2 = r#"param(
     [Parameter(Mandatory=$true, Position=0)]
     [ValidateSet('Red', 'Green', 'Blue')]
@@ -866,7 +1051,14 @@ param(
         let result2 = parse_powershell_sig(code2)?;
         assert_eq!(result2.args.len(), 2);
         assert_eq!(result2.args[0].name, "Color");
-        assert_eq!(result2.args[0].typ, Typ::Str(None));
+        assert_eq!(
+            result2.args[0].typ,
+            Typ::Str(Some(vec![
+                "Red".to_string(),
+                "Green".to_string(),
+                "Blue".to_string()
+            ]))
+        );
         assert_eq!(result2.args[1].name, "Items");
         assert_eq!(result2.args[1].typ, Typ::List(Box::new(Typ::Str(None))));
 
@@ -914,9 +1106,17 @@ param(
         assert_eq!(result.args[2].typ, Typ::List(Box::new(Typ::Str(None))));
         assert_eq!(result.args[2].has_default, true); // Optional (not mandatory)
 
-        // LogLevel: string with default (ValidateSet is ignored but doesn't break parsing)
+        // LogLevel: string with default and ValidateSet (creates enum type)
         assert_eq!(result.args[3].name, "LogLevel");
-        assert_eq!(result.args[3].typ, Typ::Str(None));
+        assert_eq!(
+            result.args[3].typ,
+            Typ::Str(Some(vec![
+                "Debug".to_string(),
+                "Info".to_string(),
+                "Warning".to_string(),
+                "Error".to_string()
+            ]))
+        );
         assert_eq!(result.args[3].default, Some(json!("Info")));
         assert_eq!(result.args[3].has_default, true);
 
@@ -990,6 +1190,85 @@ param(
     }
 
     #[test]
+    fn test_extract_powershell_param_block_with_attributes() {
+        // Test without attributes
+        let code = "param($Name, $Age)";
+        let result = extract_powershell_param_block_with_attributes(code, true);
+        assert_eq!(result, Some(("param($Name, $Age)", "")));
+
+        // Test with simple CmdletBinding
+        let code2 = "[CmdletBinding()]\nparam($Name)";
+        let result2 = extract_powershell_param_block_with_attributes(code2, true);
+        assert_eq!(result2, Some(("[CmdletBinding()]\nparam($Name)", "")));
+
+        // Test with CmdletBinding with parameters
+        let code3 = "[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)";
+        let result3 = extract_powershell_param_block_with_attributes(code3, true);
+        assert_eq!(result3, Some(("[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)", "")));
+
+        // Test with multiple attributes
+        let code4 = "[CmdletBinding()]\n[OutputType([string])]\nparam($Value)";
+        let result4 = extract_powershell_param_block_with_attributes(code4, true);
+        assert_eq!(result4, Some(("[CmdletBinding()]\n[OutputType([string])]\nparam($Value)", "")));
+
+        // Test with comment before attributes
+        let code5 = "# My function\n[CmdletBinding()]\nparam($Name)";
+        let result5 = extract_powershell_param_block_with_attributes(code5, true);
+        assert_eq!(result5, Some(("# My function\n[CmdletBinding()]\nparam($Name)", "")));
+
+        // Test with include_attributes = false (should only get param block, not attributes)
+        let code6 = "[CmdletBinding()]\nparam($Name)";
+        let result6 = extract_powershell_param_block_with_attributes(code6, false);
+        assert_eq!(result6, Some(("param($Name)", "")));
+
+        // Test with code after param
+        let code7 = "[CmdletBinding()]\nparam($Name)\nWrite-Host 'Hello'";
+        let result7 = extract_powershell_param_block_with_attributes(code7, true);
+        assert_eq!(result7, Some(("[CmdletBinding()]\nparam($Name)", "\nWrite-Host 'Hello'")));
+
+        // Test with code after param (without attributes)
+        let code8 = "[CmdletBinding()]\nparam($Name)\nWrite-Host 'Hello'";
+        let result8 = extract_powershell_param_block_with_attributes(code8, false);
+        assert_eq!(result8, Some(("param($Name)", "\nWrite-Host 'Hello'")));
+    }
+
+    #[test]
+    fn test_powershell_sig_with_cmdletbinding_paramsetname() -> anyhow::Result<()> {
+        // Test with [CmdletBinding(DefaultParameterSetName='ByName')]
+        let code = r#"[CmdletBinding(DefaultParameterSetName='ByName')]
+param(
+    [Parameter(Mandatory=$true, ParameterSetName='ByName')]
+    [string]$Name,
+
+    [Parameter(Mandatory=$true, ParameterSetName='ById')]
+    [int]$Id,
+
+    [string]$Description = "default description"
+)"#;
+        let result = parse_powershell_sig(code)?;
+
+        assert_eq!(result.args.len(), 3);
+
+        // Name: mandatory string
+        assert_eq!(result.args[0].name, "Name");
+        assert_eq!(result.args[0].typ, Typ::Str(None));
+        assert_eq!(result.args[0].has_default, false);
+
+        // Id: mandatory int
+        assert_eq!(result.args[1].name, "Id");
+        assert_eq!(result.args[1].typ, Typ::Int);
+        assert_eq!(result.args[1].has_default, false);
+
+        // Description: optional with default
+        assert_eq!(result.args[2].name, "Description");
+        assert_eq!(result.args[2].typ, Typ::Str(None));
+        assert_eq!(result.args[2].default, Some(json!("default description")));
+        assert_eq!(result.args[2].has_default, true);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_powershell_case_insensitive_parameter() -> anyhow::Result<()> {
         // Test that [parameter(...)] is case-insensitive
         let code = r#"param(
@@ -1015,6 +1294,48 @@ param(
 
         assert_eq!(result.args[2].name, "MixedCase");
         assert_eq!(result.args[2].has_default, false);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_powershell_validateset_enum() -> anyhow::Result<()> {
+        // Test with ValidateSet creating an enum type
+        let code = r#"param(
+    [ValidateSet('Red', 'Green', 'Blue')]
+    [string]$Color,
+
+    [Parameter(Mandatory=$true)]
+    [ValidateSet("Small", "Medium", "Large")]
+    [string]$Size
+)"#;
+        let result = parse_powershell_sig(code)?;
+
+        assert_eq!(result.args.len(), 2);
+
+        // Color: optional with ValidateSet (enum)
+        assert_eq!(result.args[0].name, "Color");
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Str(Some(vec![
+                "Red".to_string(),
+                "Green".to_string(),
+                "Blue".to_string()
+            ]))
+        );
+        assert_eq!(result.args[0].has_default, true); // Optional (not mandatory)
+
+        // Size: mandatory with ValidateSet (enum)
+        assert_eq!(result.args[1].name, "Size");
+        assert_eq!(
+            result.args[1].typ,
+            Typ::Str(Some(vec![
+                "Small".to_string(),
+                "Medium".to_string(),
+                "Large".to_string()
+            ]))
+        );
+        assert_eq!(result.args[1].has_default, false); // Required (mandatory)
 
         Ok(())
     }

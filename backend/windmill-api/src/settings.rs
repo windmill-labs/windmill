@@ -695,7 +695,7 @@ async fn setup_ducklake_catalog_db_inner(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
         password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
-        host = urlencoding::encode(&pg_creds.host),
+        host = &pg_creds.host,
         port = pg_creds.port.unwrap_or(5432),
         dbname = dbname,
         sslmode = ssl_mode
