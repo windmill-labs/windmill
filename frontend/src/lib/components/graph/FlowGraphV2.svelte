@@ -457,13 +457,20 @@
 
 	let height = $state(0)
 
-	// Derived nodes with yOffset applied to all nodes uniformly
+	// Derived nodes with yOffset applied to all nodes uniformly and selectable flag set to false if notSelectable is true
 	const nodesWithOffset = $derived.by(() => {
 		return nodes.map((node) => {
 			if (node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)) {
-				return { ...node, position: { ...node.position, y: node.position.y + yOffset } }
+				return {
+					...node,
+					position: { ...node.position, y: node.position.y + yOffset },
+					selectable: notSelectable ? false : node.selectable
+				}
 			}
-			return node
+			return {
+				...node,
+				selectable: notSelectable ? false : node.selectable
+			}
 		})
 	})
 
