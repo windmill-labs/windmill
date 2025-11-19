@@ -8,7 +8,8 @@
 	import type { Flow, FlowModule } from '$lib/gen'
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
 	import { wait } from '$lib/utils'
-	const { flowStore, flowStateStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	import { get } from 'svelte/store'
+	const { flowStore, flowStateStore, selectedId, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
 
@@ -175,7 +176,7 @@
 				onHighlighted: async () => {
 					// Click on the 'b' node to open the drawer
 					selectedId.set('b')
-					await wait(300) // Wait for drawer to open
+					await wait(500) // Wait for drawer to open and editor to load
 					
 					// Modify the driver.js overlay to only cover the left half
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
@@ -183,6 +184,54 @@
 						overlay.style.width = '50%'
 						overlay.style.right = 'auto'
 						overlay.style.left = '0'
+					}
+					
+					// Wait for the editor to be available
+					let editorAvailable = false
+					let attempts = 0
+					while (!editorAvailable && attempts < 20) {
+						await wait(100)
+						const editorState = get(currentEditor)
+						if (editorState && editorState.type === 'script' && editorState.stepId === 'b') {
+							editorAvailable = true
+						}
+						attempts++
+					}
+					
+					const editorState = get(currentEditor)
+					if (editorAvailable && editorState && editorState.type === 'script') {
+						const editor = editorState.editor
+						const moduleB = flowJson.value.modules.find(m => m.id === 'b')
+						const codeToType = (moduleB?.value && 'content' in moduleB.value) ? moduleB.value.content : ''
+						
+						if (codeToType) {
+							// Clear the editor first
+							editor.setCode('', true)
+							await wait(200)
+							
+							// Get Monaco editor model to access the underlying editor
+							const model = editor.getModel()
+							if (!model) {
+								return
+							}
+							
+							// Access the Monaco editor instance through the model
+							// We'll use executeEdits for more reliable character insertion
+							let currentText = ''
+							
+							// Type the code character by character
+							for (let i = 0; i < codeToType.length; i++) {
+								const char = codeToType[i]
+								currentText += char
+								
+								// Use setCode with noHistory to update the editor
+								editor.setCode(currentText, true)
+								
+								// Small delay between characters (slightly longer to ensure editor processes)
+								const delay = char === '\n' ? 10 : 5
+								await wait(delay)
+							}
+						}
 					}
 				},
 				popover: {
@@ -205,7 +254,7 @@
 				},
 				popover: {
 					title: 'Flow inputs',
-					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use. For our example, we will give 25 degrees Celsius for input.',
+					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use.',
 					onNextClick: () => {
 						driver.moveNext()
 					}
@@ -248,7 +297,7 @@
 				},
 				popover: {
 					title: 'Your turn now',
-					description: 'Click on the Run button to execute your flow with the provided inputs.',
+					description: 'Insert a temperature in Celsius and click on the Run button to execute your flow.',
 					onNextClick: () => {
 						// Clear the countdown interval if it exists
 						const interval = (window as any).__tutorialAutoFinishInterval
