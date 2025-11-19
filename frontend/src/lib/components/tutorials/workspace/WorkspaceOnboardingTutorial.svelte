@@ -44,6 +44,17 @@
 			return button
 		}
 
+		// Helper function to find the create app button
+		const findAppButton = (): HTMLElement | null => {
+			const button = document.querySelector('#create-app-button') as HTMLElement | null
+			if (button) {
+				console.log('Found app button:', button)
+			} else {
+				console.error('Could not find app button')
+			}
+			return button
+		}
+
 		const steps: DriveStep[] = [
 			{
 				popover: {
@@ -88,14 +99,33 @@
 					description:
 						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Discover together how flows work in Windmill</p>',
 					onNextClick: async () => {
-						// Mark tutorial as complete and navigate
-						updateProgress(index)
-						driver.destroy()
-						// Navigate to the flow creation page
-						window.location.href = `${base}/flows/add?nodraft=true`
+						// Move to the next step (Create App button)
+						setTimeout(() => {
+							const button = findAppButton()
+							if (button) {
+								driver.moveNext()
+							} else {
+								alert('Could not find the Create App button. Please make sure you are on the home page.')
+							}
+						}, 100)
 					}
 				},
 				element: '#create-flow-button',
+			},
+			{
+				popover: {
+					title: 'Create your first app',
+					description:
+						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill</p>',
+					onNextClick: async () => {
+						// Mark tutorial as complete
+						updateProgress(index)
+						driver.destroy()
+						// Navigate to the flow creation page
+						window.location.href = `${base}/flows/add`
+					}
+				},
+				element: '#create-app-button',
 			}
 		]
 

@@ -25,6 +25,7 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		id="create-app-button"
 		aiId="apps-create-actions-app"
 		aiDescription="Create a new low-code app"
 		unifiedSize="lg"
