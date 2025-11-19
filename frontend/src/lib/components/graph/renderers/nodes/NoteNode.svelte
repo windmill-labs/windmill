@@ -16,6 +16,7 @@
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { clickOutside } from '$lib/utils'
+	import { tick } from 'svelte'
 
 	interface Props {
 		data: {
@@ -102,9 +103,9 @@
 
 		editMode = true
 		// Focus the textarea after a short delay to ensure it's rendered
-		setTimeout(() => {
+		tick().then(() => {
 			textareaElement?.focus()
-		}, 0)
+		})
 	}
 
 	function handleMouseEnter() {
@@ -118,17 +119,7 @@
 	// Exit edit mode when note is deselected
 	$effect(() => {
 		if (!selected && editMode) {
-			handleTextSave() // Save changes before exiting
 			editMode = false
-		}
-	})
-
-	// Track content height and notify parent
-	let previousContainerHeight = $state(0)
-	$effect(() => {
-		if (containerHeight > 0 && containerHeight !== previousContainerHeight) {
-			previousContainerHeight = containerHeight
-			data.onTextHeightChange?.(containerHeight)
 		}
 	})
 
@@ -289,7 +280,15 @@
 				class={twMerge(
 					'w-full h-fit overflow-auto cursor-pointer flex items-start justify-start rounded-md p-4'
 				)}
-				bind:clientHeight={containerHeight}
+				bind:clientHeight={
+					() => containerHeight,
+					(v) => {
+						if (v > 0 && v !== containerHeight) {
+							data.onTextHeightChange?.(v)
+						}
+						containerHeight = v
+					}
+				}
 			>
 				{#if textForDisplay}
 					<div
