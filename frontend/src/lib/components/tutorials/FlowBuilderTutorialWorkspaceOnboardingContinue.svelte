@@ -13,13 +13,6 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
-	function hideOverlay() {
-		const overlay = document.querySelector('.driver-overlay') as HTMLElement
-		if (overlay) {
-			overlay.style.display = 'none'
-		}
-	}
-
 	export function runTutorial() {
 		// Clear any existing flow drafts from localStorage to ensure fresh start
 		try {
@@ -170,9 +163,9 @@
 			{
 				element: '#a',
 				popover: {
-					title: 'To make our flow, we connected 3 scripts together',
+					title: 'This is a script',
 					description:
-						'<p>We created three steps that work together:<br/>• Step <strong>a</strong>: Validates the temperature input<br/>• Step <strong>b</strong>: Converts Celsius to Fahrenheit<br/>• Step <strong>c</strong>: Categorizes the temperature</p>',
+						"To make our flow, we connected 3 scripts together : 'a', 'b' and 'c'. Each script executes a specific task.",
 					onNextClick: () => {
 						driver.moveNext()
 					}
@@ -185,54 +178,36 @@
 					selectedId.set('b')
 					await wait(300) // Wait for drawer to open
 					
-					// Hide the default driver.js overlay
-					hideOverlay()
-					
-					// Create an overlay for the LEFT half of the screen
-					let leftHalfOverlay = document.getElementById('tutorial-left-half-overlay')
-					if (!leftHalfOverlay) {
-						leftHalfOverlay = document.createElement('div')
-						leftHalfOverlay.id = 'tutorial-left-half-overlay'
-						leftHalfOverlay.style.cssText = `
-							position: fixed;
-							top: 0;
-							left: 0;
-							width: 50%;
-							height: 100%;
-							background: rgba(0, 0, 0, 0.8);
-							z-index: 9998;
-							pointer-events: none;
-						`
-						document.body.appendChild(leftHalfOverlay)
+					// Modify the driver.js overlay to only cover the left half
+					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					if (overlay) {
+						overlay.style.width = '50%'
+						overlay.style.right = 'auto'
+						overlay.style.left = '0'
 					}
 				},
 				popover: {
-					title: 'Code editor and data connectors',
-					description: 'On the top, you have the code of your script. On the bottom, you have data connectors with the previous script.',
+					title: 'When you click on a script, it opens the code editor',
+					description: 'On the top, you have the code of the script. On the bottom, you have data connectors with previous scripts. We use scripts ids to refer previous scripts data outputs.',
 					onNextClick: () => {
-						// Clean up the overlay div
-						const overlay = document.getElementById('tutorial-left-half-overlay')
-						if (overlay) {
-							overlay.remove()
-						}
 						driver.moveNext()
 					}
 				}
 			},
 			{
 				element: '#flow-editor-virtual-Input',
+				onHighlighted: async () => {
+					// Click on the input button to open the drawer
+					await wait(300)
+					triggerPointerDown('#flow-editor-virtual-Input')
+					await wait(100)
+					selectedId.set('Input')
+					await wait(200)
+				},
 				popover: {
 					title: 'Flow inputs',
-					description: 'Here you can define the inputs for your flow. These inputs can be used throughout your flow steps.',
-					onNextClick: async () => {
-						// Small delay before opening the drawer
-						await wait(300)
-						// Trigger the input button to open the drawer
-						triggerPointerDown('#flow-editor-virtual-Input')
-						await wait(100)
-						// Set selectedId to 'Input' to ensure the drawer opens
-						selectedId.set('Input')
-						await wait(200)
+					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use. For our example, we will give 25 degrees Celsius for input.',
+					onNextClick: () => {
 						driver.moveNext()
 					}
 				}
