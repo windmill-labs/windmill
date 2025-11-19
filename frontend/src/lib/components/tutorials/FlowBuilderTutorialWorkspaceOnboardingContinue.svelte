@@ -27,7 +27,8 @@
 			{
 				popover: {
 					title: 'Now let\'s create a flow together',
-					description: 'Let\'s build your first flow step by step!'
+					description:
+						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Let\'s build your first flow step by step!</p>'
 				}
 			}
 		]
