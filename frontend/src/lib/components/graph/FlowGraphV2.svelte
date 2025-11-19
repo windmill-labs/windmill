@@ -246,6 +246,8 @@
 	let selectionManager = selectionManagerProp || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
+	const noteEditorContext = getNoteEditorContext()
+
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
@@ -481,19 +483,6 @@
 			return
 		}
 
-		// Clean up group notes if we're in edit mode and have a note editor
-		if (editMode) {
-			const noteEditorContext = getNoteEditorContext()
-			if (noteEditorContext?.noteEditor?.isAvailable()) {
-				const flowNodes = Object.values(graph.nodes).map((n) => ({
-					id: n.id,
-					parentIds: n.parentIds,
-					offset: n.data.offset ?? 0
-				}))
-				noteEditorContext.noteEditor.cleanupGroupNotes(flowNodes)
-			}
-		}
-
 		// console.log('compute')
 
 		let layoutedNodes = layoutNodes(
@@ -550,7 +539,8 @@
 						noteTextHeights[noteId] = height
 						noteManager.render()
 					},
-					editMode
+					editMode,
+					noteEditorContext
 				)
 			: undefined
 
@@ -785,7 +775,6 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
-
 </script>
 
 {#if insertable}

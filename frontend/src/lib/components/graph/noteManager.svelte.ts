@@ -2,6 +2,7 @@ import type { FlowNote } from '$lib/gen'
 import type { Node } from '@xyflow/svelte'
 import { getLayoutSignature, getPropertySignature } from './noteUtils'
 import { deepEqual } from 'fast-equals'
+import { untrack } from 'svelte'
 
 /**
  * Utility class for managing flow note text height caching, selection, and fine-grained reactivity
@@ -37,22 +38,24 @@ export class NoteManager {
 			const currentLayoutSignature = getLayoutSignature(currentNotes)
 			const currentPropertySignature = getPropertySignature(currentNotes)
 
-			const hasLayoutChanges = !deepEqual(currentLayoutSignature, this.#previousLayoutSignature)
-			const hasPropertyChanges = !deepEqual(
-				currentPropertySignature,
-				this.#previousPropertySignature
-			)
+			untrack(() => {
+				const hasLayoutChanges = !deepEqual(currentLayoutSignature, this.#previousLayoutSignature)
+				const hasPropertyChanges = !deepEqual(
+					currentPropertySignature,
+					this.#previousPropertySignature
+				)
 
-			if (hasLayoutChanges) {
-				// Structural changes require full re-render
-				this.#previousLayoutSignature = currentLayoutSignature
-				this.#previousPropertySignature = currentPropertySignature
-				this.render()
-			} else if (hasPropertyChanges) {
-				// Property changes can be handled with fast updates
-				this.#updateNodesProperties(currentNotes)
-				this.#previousPropertySignature = currentPropertySignature
-			}
+				if (hasLayoutChanges) {
+					// Structural changes require full re-render
+					this.#previousLayoutSignature = currentLayoutSignature
+					this.#previousPropertySignature = currentPropertySignature
+					this.render()
+				} else if (hasPropertyChanges) {
+					// Property changes can be handled with fast updates
+					this.#updateNodesProperties(currentNotes)
+					this.#previousPropertySignature = currentPropertySignature
+				}
+			})
 		})
 	}
 

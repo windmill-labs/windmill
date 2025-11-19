@@ -41,30 +41,6 @@ let computeNoteNodesCache:
 	| undefined
 
 /**
- * Finds the topmost node in a group based on topological ordering
- * Uses parent-child relationships to determine hierarchy
- */
-export function findTopmostNodeInGroup(groupNote: FlowNote, nodes: NodeDep[]): NodeDep | undefined {
-	if (!groupNote.contained_node_ids?.length) {
-		return undefined
-	}
-
-	const containedNodes = nodes.filter((node) => groupNote.contained_node_ids?.includes(node.id))
-
-	if (containedNodes.length === 0) {
-		return undefined
-	}
-
-	const sortedNodes = topologicalSort(nodes).reverse()
-	const topmostNode = sortedNodes.find((node) => groupNote.contained_node_ids?.includes(node.id))
-	if (topmostNode) {
-		return nodes.find((node) => node.id === topmostNode.id)
-	}
-
-	return containedNodes[0]
-}
-
-/**
  * Extracts layout-affecting signature for change detection
  * Only includes properties that affect graph layout (structure, grouping)
  */
@@ -157,7 +133,6 @@ function calculateExtraAssetSpacing(topmostNodeId: string, nodes: NodeDep[]): nu
 
 	// Find actual asset nodes for the topmost node: {topmostNodeId}-asset-in, type 'asset'
 	const assetNodes = nodes.filter((n) => n.id.startsWith(`${topmostNodeId}-asset-in-`))
-	console.log('dbg assetNodes', assetNodes, topmostNodeId, nodes, `${topmostNodeId}-asset-in`)
 
 	if (assetNodes.length === 0) {
 		return 0
@@ -240,10 +215,9 @@ function calculateGroupNoteLayout(
 
 	// Calculate extra spacing for asset nodes and AI tool nodes of the topmost node
 	const extraAssetSpacing = topMostNodeId ? calculateExtraAssetSpacing(topMostNodeId, nodes) : 0
-	console.log('dbg extraAssetSpacing', extraAssetSpacing)
 
 	const extraAIToolSpacing = topMostNodeId ? calculateExtraAIToolSpacing(topMostNodeId, nodes) : 0
-	console.log('dbg extraAIToolSpacing', extraAIToolSpacing)
+
 	const totalTextHeight = textHeight + extraAssetSpacing + extraAIToolSpacing
 
 	return {
@@ -289,7 +263,8 @@ export function computeNoteNodes(
 	notes: FlowNote[],
 	noteTextHeights: Record<string, number>,
 	onTextHeightChange: (noteId: string, height: number) => void,
-	editMode: boolean = false
+	editMode: boolean = false,
+	noteEditorContext: NoteEditorContext | undefined
 ): NoteComputeResult {
 	// Check cache first
 	if (
@@ -299,6 +274,12 @@ export function computeNoteNodes(
 		deepEqual(noteTextHeights, computeNoteNodesCache[2])
 	) {
 		return computeNoteNodesCache[3]
+	}
+
+	if (editMode) {
+		if (noteEditorContext?.noteEditor?.isAvailable()) {
+			noteEditorContext.noteEditor.cleanupGroupNotes(nodes)
+		}
 	}
 
 	const allNoteNodes: (Node & NodeLayout)[] = []
@@ -311,9 +292,14 @@ export function computeNoteNodes(
 
 	const topMostNodesMap: Record<string, string> = {}
 
+	const sortedNodes = topologicalSort(nodes).reverse()
+
 	for (const groupNote of groupNotes) {
 		if (groupNote.contained_node_ids?.length) {
-			const topmostNode = findTopmostNodeInGroup(groupNote, nodes)
+			const topmostNodeId = sortedNodes.find((node) =>
+				groupNote.contained_node_ids?.includes(node.id)
+			)?.id
+			const topmostNode = nodes.find((node) => node.id === topmostNodeId)
 			if (topmostNode) {
 				const textHeight = noteTextHeights[groupNote.id] || 60
 				const spacing = textHeight + 16 // padding
