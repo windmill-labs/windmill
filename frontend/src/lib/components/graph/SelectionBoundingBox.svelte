@@ -2,6 +2,11 @@
 	import type { Node } from '@xyflow/svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
+	import { StickyNote } from 'lucide-svelte'
+	import Button from '../common/button/Button.svelte'
+	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { getGraphContext } from './graphContext'
+	import { tick } from 'svelte'
 
 	interface Props {
 		selectedNodes: string[]
@@ -11,6 +16,24 @@
 	let { selectedNodes, allNodes }: Props = $props()
 
 	const { flowToScreenPosition } = useSvelteFlow()
+
+	// Get NoteEditor context for group note creation
+	const noteEditorContext = getNoteEditorContext()
+	// Get Graph context for clearFlowSelection function
+	const graphContext = getGraphContext()
+
+	function handleAddGroupNote() {
+		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
+			// Create the group note first
+			noteEditorContext.noteEditor.createGroupNote(selectedNodes)
+
+			// Wait for next tick to ensure DOM updates
+			tick().then(() => {
+				graphContext?.clearFlowSelection?.()
+				graphContext?.selectionManager.clearSelection()
+			})
+		}
+	}
 
 	let bounds = $derived(() => {
 		if (selectedNodes.length === 0) {
@@ -71,5 +94,19 @@
 			z-index: 10;
 		"
 	>
+		<!-- Add Group Note Button positioned in top-right corner -->
+		{#if noteEditorContext?.noteEditor}
+			<div class="absolute -top-4 -right-1 z-20" style="pointer-events: auto;">
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					title="Create group note ({selectedNodes.length} nodes)"
+					onclick={handleAddGroupNote}
+					startIcon={{ icon: StickyNote }}
+				>
+					Create group note ({selectedNodes.length} nodes)
+				</Button>
+			</div>
+		{/if}
 	</div>
 {/if}

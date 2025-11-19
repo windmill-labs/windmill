@@ -22,6 +22,15 @@
 </script>
 
 <FlowCard {noEditor} title="Multiple Selection">
+	{#snippet action()}
+		<Button
+			onClick={addGroupNote}
+			disabled={!noteEditorContext?.noteEditor || selectionManager.selectedIds.length === 0}
+			startIcon={{ icon: StickyNote }}
+		>
+			Create group note
+		</Button>
+	{/snippet}
 	<div class="px-4">
 		<p class="text-xs text-secondary mb-4">{selectionManager.selectedIds.length} nodes selected</p>
 		<div class="space-y-2 mb-4">
@@ -31,12 +40,5 @@
 				</div>
 			{/each}
 		</div>
-		<Button
-			onClick={addGroupNote}
-			disabled={!noteEditorContext?.noteEditor || selectionManager.selectedIds.length === 0}
-			startIcon={{ icon: StickyNote }}
-		>
-			Add group note
-		</Button>
 	</div>
 </FlowCard>
