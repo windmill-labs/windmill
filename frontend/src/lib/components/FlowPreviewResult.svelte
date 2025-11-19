@@ -32,6 +32,15 @@
 		extra,
 		result_streams
 	}: Props = $props()
+
+	// Sometimes the approval form is duplicated but I can't reproduce the issue
+	// This is a temporary debug log to try to catch it when it happens
+
+	// (See the #each below)
+	$inspect(
+		'suspendStatusVal',
+		Object.entries(suspendStatus.val || {}).map(([k, v]) => [k, v.job.id])
+	)
 </script>
 
 <FlowPreviewStatus {job} {hideJobId} {extra} />
