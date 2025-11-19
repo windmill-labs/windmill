@@ -34,6 +34,10 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
+	import { onMount } from 'svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -88,6 +92,18 @@
 		})
 		appViewer.openDrawer?.()
 	}
+
+	let workspaceTutorials: WorkspaceTutorials | undefined = undefined
+
+	onMount(() => {
+		// Check if user hasn't completed or ignored the workspace onboarding tutorial
+		if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding')
+			}, 500)
+		}
+	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -240,6 +256,15 @@
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+				<!-- Temporary tutorial trigger button -->
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => workspaceTutorials?.runTutorialById('workspace-onboarding')}
+				>
+					🎓 Start Tutorial
+				</Button>
 			{/if}
 		</div>
 	</PageHeader>
@@ -320,3 +345,5 @@
 {#if tab == 'workspace'}
 	<ItemsList bind:filter bind:subtab />
 {/if}
+
+<WorkspaceTutorials bind:this={workspaceTutorials} />
