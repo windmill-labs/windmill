@@ -143,15 +143,24 @@
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
-			} else {
-				tick().then(() => {
-					flowBuilder?.triggerTutorial()
-				})
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
 		flowBuilder?.loadFlowState()
 		loading = false
+		
+		// Trigger tutorial after everything is initialized
+		const tutorialParam = $page.url.searchParams.get('tutorial')
+		if (tutorialParam) {
+			// Wait a bit to ensure FlowBuilder and FlowTutorials are fully initialized
+			setTimeout(() => {
+				flowBuilder?.triggerTutorial()
+			}, 500)
+		} else if (!templatePath && !hubId && !state && !$importFlowStore) {
+			tick().then(() => {
+				flowBuilder?.triggerTutorial()
+			})
+		}
 	}
 
 	loadFlow()

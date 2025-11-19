@@ -121,8 +121,8 @@
 						// Mark tutorial as complete
 						updateProgress(index)
 						driver.destroy()
-						// Navigate to the flow creation page
-						window.location.href = `${base}/flows/add`
+						// Navigate to the flow creation page with tutorial continuation parameter
+						window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue`
 					}
 				},
 				element: '#create-app-button',
