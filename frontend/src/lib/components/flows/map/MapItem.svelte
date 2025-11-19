@@ -86,9 +86,7 @@
 	}>()
 
 	let itemProps = $derived({
-		selected:
-			selectionManager?.getSelectedId() === mod.id ||
-			(selectionManager && selectionManager.selectedIds.includes(mod.id)),
+		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		skip: Boolean(mod.skip_if),

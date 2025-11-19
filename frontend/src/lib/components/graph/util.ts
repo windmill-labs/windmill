@@ -15,6 +15,9 @@ export type FlowNodeColorClasses = {
 	outline: string
 	badge: string
 }
+
+export const AI_OR_ASSET_NODE_TYPES = ['asset', 'assetsOverflowed', 'newAiTool', 'aiTool']
+
 export type FlowNodeState = FlowStatusModule['type'] | '_VirtualItem' | '_Skipped' | undefined
 
 export function getNodeColorClasses(state: FlowNodeState, selected: boolean): FlowNodeColorClasses {
@@ -140,6 +143,7 @@ export function calculateNodesBoundsWithOffset(
 		id: string
 		position: { x: number; y: number }
 		data?: { offset?: number }
+		type: string
 	}>
 ): {
 	minX: number
@@ -149,6 +153,7 @@ export function calculateNodesBoundsWithOffset(
 } {
 	// Find related subflow nodes
 	const nodesToCalculate = getAllRelatedSubflowNodes(containedIds, allNodes)
+	console.log('dbg nodesToCalculate', nodesToCalculate, containedIds, allNodes)
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {
@@ -184,6 +189,7 @@ function getAllRelatedSubflowNodes(
 		id: string
 		position: { x: number; y: number }
 		data?: { offset?: number }
+		type: string
 	}>
 ): Array<{
 	id: string
@@ -198,7 +204,10 @@ function getAllRelatedSubflowNodes(
 	// For each target node, check if it's a subflow and find expanded nodes
 	targetNodeIds.forEach((nodeId) => {
 		// Find nodes like "subflow:{nodeId}:*"
-		const subflowNodes = allNodes.filter((node) => node.id.startsWith(`subflow:${nodeId}:`))
+		const subflowNodes = allNodes.filter(
+			(node) =>
+				node.id.startsWith(`subflow:${nodeId}:`) && !AI_OR_ASSET_NODE_TYPES.includes(node.type)
+		)
 
 		// Find end node like "{nodeId}-subflow-end"
 		const endNode = allNodes.find((node) => node.id === `${nodeId}-subflow-end`)
@@ -207,6 +216,8 @@ function getAllRelatedSubflowNodes(
 		subflowNodes.forEach((node) => relatedNodeIds.add(node.id))
 		if (endNode) relatedNodeIds.add(endNode.id)
 	})
+
+	console.log('dbg relatedNodeIds', relatedNodeIds)
 
 	// Return actual node objects that exist in allNodes
 	return allNodes.filter((node) => relatedNodeIds.has(node.id))

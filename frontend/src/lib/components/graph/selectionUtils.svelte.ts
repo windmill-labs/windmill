@@ -1,20 +1,57 @@
 import type { Node } from '@xyflow/svelte'
 
 export class SelectionManager {
-	#selectedIds = $state<string[]>([])
+	#selectedNodes = $state<Node[] | { id: string }[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
+	#clearGraphSelection: () => void = () => {}
 
 	constructor() {}
 
+	setClearGraphSelection(clearGraphSelection: () => void) {
+		this.#clearGraphSelection = clearGraphSelection
+	}
+
 	selectId(id: string) {
-		if (this.#selectedIds.length === 1 && this.#selectedIds[0] === id) {
+		if (this.#selectedNodes.length === 1 && this.#selectedNodes[0].id === id) {
 			return
 		}
-		this.#selectedIds = [id]
+		this.#clearGraphSelection()
+		this.#selectedNodes = [{ id }]
 	}
 
 	getSelectedId(): string {
-		return this.#selectedIds[0] || 'settings'
+		if (this.#selectedNodes.length === 0) {
+			return 'settings'
+		}
+		const selectedNode = this.#selectedNodes[0]
+
+		if (selectedNode['type'] === 'branchOneEnd') {
+			const id = selectedNode.id.replace(/-end$/, '')
+			if (id !== '') {
+				return id
+			}
+		} else if (selectedNode['type'] === 'branchAllEnd') {
+			const id = selectedNode.id.replace(/-end$/, '')
+			if (id !== '') {
+				return id
+			}
+		} else if (selectedNode['type'] === 'forLoopStart') {
+			const id = selectedNode.id.replace(/-start$/, '')
+			if (id !== '') {
+				return id
+			}
+		} else if (selectedNode['type'] === 'forLoopEnd') {
+			const id = selectedNode.id.replace(/-end$/, '')
+			if (id !== '') {
+				return id
+			}
+		} else if (selectedNode['type'] === 'subflowBound') {
+			const id = selectedNode.id.replace(/-subflow-end$/, '')
+			if (id !== '') {
+				return id
+			}
+		}
+		return selectedNode.id
 	}
 
 	get mode() {
@@ -26,69 +63,44 @@ export class SelectionManager {
 	}
 
 	get selectedIds() {
-		if (this.#selectedIds.length === 0) {
+		if (this.#selectedNodes.length === 0) {
 			return ['settings']
 		}
-		return [...this.#selectedIds]
+		return [...this.#selectedNodes.map((node) => node.id)]
 	}
 
 	// Select nodes with optional hierarchical selection
-	selectNodes(nodeIds: string[], addToExisting = false) {
+	selectNodes(nodes: Node[]) {
 		// Guard against empty nodeIds or uninitialized state
-		if (!nodeIds || nodeIds.length === 0) {
-			if (!addToExisting) {
-				this.clearSelection()
-			}
+		if (!nodes || nodes.length === 0) {
+			this.clearSelection()
 			return
 		}
-
-		const newSelection = addToExisting ? [...this.#selectedIds, ...nodeIds] : nodeIds
 
 		// If the new selection is the same as the current selection, do nothing
-		if (JSON.stringify(newSelection) === JSON.stringify($state.snapshot(this.#selectedIds))) {
+		if (JSON.stringify(nodes) === JSON.stringify($state.snapshot(this.#selectedNodes))) {
 			return
 		}
 
-		this.#selectedIds = newSelection
+		this.#selectedNodes = nodes
 	}
 
 	// Clear all selections
 	clearSelection() {
-		this.#selectedIds = ['settings']
+		this.#selectedNodes = [{ id: 'settings' }]
 	}
 
 	// Check if a node is selected
 	isNodeSelected(nodeId: string): boolean {
-		return this.#selectedIds.includes(nodeId)
-	}
-
-	// Get selected node count
-	get selectedCount(): number {
-		return this.#selectedIds.length
-	}
-
-	// Check if multiple nodes are selected
-	get hasMultipleSelection(): boolean {
-		return this.selectedCount > 1
-	}
-
-	// Get all selected node IDs
-	get selectedNodeIds(): string[] {
-		return [...this.#selectedIds]
+		return this.#selectedNodes.some((node) => node.id === nodeId)
 	}
 
 	// Handle keyboard shortcuts
-	handleKeyDown(event: KeyboardEvent, nodes?: Node[]) {
+	handleKeyDown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			// Escape key clears selection regardless of mode
 			this.clearSelection()
-		} else if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-			event.preventDefault()
-			// Select all visible nodes (exclude note nodes)
-			if (nodes) {
-				const allNodeIds = nodes.filter((node) => node.type !== 'note').map((node) => node.id)
-				this.selectNodes(allNodeIds)
-			}
+			this.#clearGraphSelection()
 		}
 	}
 }

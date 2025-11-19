@@ -5,11 +5,14 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import type { BranchOneStartN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 	interface Props {
 		data: BranchOneStartN['data']
+		id: string
 	}
+	const { selectionManager } = getGraphContext()
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -18,7 +21,7 @@
 			label={data.label}
 			preLabel={data.preLabel}
 			selectable
-			selected={false}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			on:select={() => {
 				setTimeout(() => data?.eventHandlers?.select(data.id))
 			}}

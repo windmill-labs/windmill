@@ -3,9 +3,12 @@
 	import type { SelectionManager } from './selectionUtils.svelte'
 	interface Props {
 		selectionManager: SelectionManager
+		clearGraphSelection: () => void
 	}
 
-	let { selectionManager }: Props = $props()
+	let { selectionManager, clearGraphSelection }: Props = $props()
+
+	selectionManager.setClearGraphSelection(clearGraphSelection)
 
 	// Get store to access selectionRect
 	const store = useStore()
@@ -17,8 +20,8 @@
 
 		// Only select nodes if multiple nodes are selected
 		// To avoid conflicting with the node-level click events
-		if (selectedNodeIds.length > 1) {
-			selectionManager.selectNodes(selectedNodeIds, false)
+		if (selectedNodeIds.length > 0) {
+			selectionManager.selectNodes(selectedNodes)
 		}
 	})
 </script>

@@ -207,7 +207,8 @@ function calculateGroupNoteLayout(
 		nodes.map((n) => ({
 			id: n.id,
 			position: n.position,
-			data: { offset: n.offset ?? 0 }
+			data: { offset: n.offset ?? 0 },
+			type: n.type ?? ''
 		}))
 	)
 
@@ -336,7 +337,8 @@ export function computeNoteNodes(
 		return {
 			...n,
 			data: origNode?.data,
-			offset: origNode?.offset
+			offset: origNode?.offset,
+			type: origNode?.type
 		}
 	})
 

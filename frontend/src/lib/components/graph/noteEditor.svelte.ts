@@ -162,14 +162,30 @@ export class NoteEditor {
 		nodeIds: string[],
 		text: string = '### Group note\nDouble click to edit me'
 	): string {
+		// Filter ids in case they contain subflow nodes
+		let filteredNodeIds: string[] = nodeIds
+		let subflowIds: string[] = []
+		for (const id of nodeIds) {
+			if (id.startsWith('subflow:')) {
+				const match = id.match(/^subflow:([^:]+)/)
+				if (match) {
+					subflowIds.push(match[1])
+				}
+			}
+		}
+		if (subflowIds.length > 0) {
+			filteredNodeIds = filteredNodeIds.filter((id) => !subflowIds.includes(id))
+			filteredNodeIds = [...filteredNodeIds, ...subflowIds]
+		}
+
 		// Position and size will be calculated dynamically by layout
-		const smartColor = this.getSmartGroupNoteColor(nodeIds)
+		const smartColor = this.getSmartGroupNoteColor(filteredNodeIds)
 
 		const groupNote: Omit<FlowNote, 'id'> = {
 			text,
 			color: smartColor,
 			type: 'group',
-			contained_node_ids: nodeIds,
+			contained_node_ids: filteredNodeIds,
 			locked: false
 		}
 

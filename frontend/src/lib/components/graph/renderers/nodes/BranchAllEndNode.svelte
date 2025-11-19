@@ -2,11 +2,15 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { BranchAllEndN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 	interface Props {
 		data: BranchAllEndN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle>
@@ -15,7 +19,7 @@
 			label={'Collect result from all branches'}
 			id={data.id}
 			selectable={true}
-			selected={false}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			on:select={(e) => {
 				data?.eventHandlers?.select(e.detail)
 			}}

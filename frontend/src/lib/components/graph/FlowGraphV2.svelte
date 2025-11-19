@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
-	import { NODE, type GraphModuleState } from '.'
+	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -396,7 +396,6 @@
 		},
 		select: (modId) => {
 			if (!notSelectable) {
-				selectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
 		},
@@ -460,12 +459,7 @@
 	// Derived nodes with yOffset applied to all nodes uniformly
 	const nodesWithOffset = $derived.by(() => {
 		return nodes.map((node) => {
-			if (
-				node.type !== 'asset' &&
-				node.type !== 'assetsOverflowed' &&
-				node.type !== 'newAiTool' &&
-				node.type !== 'aiTool'
-			) {
+			if (node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)) {
 				return { ...node, position: { ...node.position, y: node.position.y + yOffset } }
 			}
 			return node
@@ -498,16 +492,16 @@
 
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
-		selectionManager.handleKeyDown(event, nodes)
+		selectionManager.handleKeyDown(event)
 		noteManager.handleKeyDown(event)
 		if (event.key === 'Escape') {
-			// Clear SvelteFlow's internal selection state
-			clearFlowSelection()
 			if (noteMode) {
 				exitNoteMode?.()
 			}
 		}
 	}
+
+	$inspect('dbg nodes', nodes)
 
 	async function updateStores() {
 		if (graph.error) {
@@ -808,6 +802,8 @@
 	}
 
 	const modifierKey = isMac() ? 'Meta' : 'Control'
+
+	$inspect('dbg selection', selectionManager.selectedIds)
 </script>
 
 {#if insertable}
@@ -897,12 +893,12 @@
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
 						selectedNodes={selectionManager.selectedIds}
-						allNodes={nodesWithOffset}
+						allNodes={nodesWithOffset as (Node & { type: string })[]}
 					/>
 				{/if}
 
 				<!-- SelectionTool for handling selection changes and filtering -->
-				<SelectionTool {selectionManager} />
+				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">

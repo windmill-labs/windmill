@@ -9,7 +9,7 @@
 
 	interface Props {
 		selectedNodes: string[]
-		allNodes: Node[]
+		allNodes: (Node & { type: string })[]
 	}
 
 	let { selectedNodes, allNodes }: Props = $props()

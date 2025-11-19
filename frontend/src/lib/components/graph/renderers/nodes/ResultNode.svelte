@@ -6,9 +6,10 @@
 
 	interface Props {
 		data: ResultN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
 </script>
@@ -19,7 +20,7 @@
 			id={'Result'}
 			label={'Result'}
 			selectable={true}
-			selected={selectionManager?.getSelectedId() === 'Result'}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			hideId={true}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
