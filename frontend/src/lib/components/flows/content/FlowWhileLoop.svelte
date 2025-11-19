@@ -108,7 +108,7 @@
 							>Squash
 
 							<Badge
-								>Beta <Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+								>Beta <Tooltip documentationLink="https://www.windmill.dev/docs/flows/while_loops">
 									<span class="font-semibold"
 										>This can result in unexpected behavior, use at your own risk for now.</span
 									><br />
