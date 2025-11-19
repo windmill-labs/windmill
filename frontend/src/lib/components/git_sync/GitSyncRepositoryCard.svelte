@@ -236,7 +236,7 @@
 		<div transition:fade|local={{ duration: 100 }}>
 			<Button
 				size="xs"
-				variant="default"
+				variant="accent-secondary"
 				onclick={initiateDelete}
 				startIcon={{ icon: Trash }}
 				destructive
@@ -278,12 +278,7 @@
 				/>
 			</div>
 			{#if !emptyString(repo.git_repo_resource_path)}
-				<Button
-					disabled={emptyString(repo.script_path)}
-					variant="accent"
-					onclick={runGitSyncTestJob}
-					size="xs"
-				>
+				<Button disabled={emptyString(repo.script_path)} onclick={runGitSyncTestJob} size="xs">
 					Test connection
 				</Button>
 			{/if}
@@ -360,10 +355,7 @@
 
 			<!-- Configuration -->
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
-				<DetectionFlow
-					{idx}
-					mode={repoMode}
-				/>
+				<DetectionFlow {idx} mode={repoMode} />
 			{:else}
 				<GitSyncFilterSettings
 					bind:git_repo_resource_path={repo.git_repo_resource_path}
@@ -388,11 +380,7 @@
 					<div class="flex justify-between items-start">
 						<!-- Display mode settings as prominent text -->
 						<div class="flex-1 mr-4">
-							<GitSyncModeDisplay
-								mode={repoMode}
-								{targetBranch}
-								repository={repo}
-							/>
+							<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
 						</div>
 
 						<!-- Manual sync section for existing repos -->
@@ -402,7 +390,7 @@
 								<div class="flex gap-2">
 									<Button
 										size="xs"
-										variant="default"
+										variant="accent"
 										onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
 										startIcon={{ icon: Download }}
 									>
@@ -410,7 +398,7 @@
 									</Button>
 									<Button
 										size="xs"
-										variant="default"
+										variant="accent"
 										onclick={() => idx !== null && gitSyncContext.showPushModal(idx)}
 										startIcon={{ icon: Upload }}
 									>
