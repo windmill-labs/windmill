@@ -195,44 +195,6 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub notes: Option<Vec<FlowNote>>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum FlowNoteType {
-    Free,
-    Group,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct FlowNote {
-    pub id: String,
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<FlowNotePosition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<FlowNoteSize>,
-    pub color: String,
-    #[serde(rename = "type")]
-    pub note_type: FlowNoteType,
-    #[serde(default)]
-    pub locked: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contained_node_ids: Option<Vec<String>>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct FlowNotePosition {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct FlowNoteSize {
-    pub width: f64,
-    pub height: f64,
 }
 
 impl FlowValue {

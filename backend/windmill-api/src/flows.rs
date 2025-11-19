@@ -1641,7 +1641,6 @@ mod tests {
             flow_env: None,
             debounce_key: None,
             debounce_delay_s: None,
-            notes: None,
         };
         let expect = serde_json::json!({
           "modules": [
