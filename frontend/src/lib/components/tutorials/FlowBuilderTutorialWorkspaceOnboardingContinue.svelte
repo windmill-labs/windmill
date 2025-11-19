@@ -5,7 +5,8 @@
 	import Tutorial from './Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
 	import { initFlow } from '../flows/flowStore.svelte'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, FlowModule } from '$lib/gen'
+	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -119,8 +120,41 @@
 					description:
 						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Let\'s build your first flow step by step!</p>',
 					onNextClick: async () => {
-						// Import the flow JSON
-						await initFlow(flowJson, flowStore as any, flowStateStore)
+						// Initialize empty flow with just the schema
+						const emptyFlow: Flow = {
+							summary: '',
+							description: '',
+							value: { modules: [] },
+							schema: flowJson.schema,
+							path: '',
+							edited_at: '',
+							edited_by: '',
+							archived: false,
+							extra_perms: {}
+						}
+						await initFlow(emptyFlow, flowStore as any, flowStateStore)
+
+						// Add modules one by one with animation delays
+						const modules = flowJson.value.modules
+						for (let i = 0; i < modules.length; i++) {
+							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
+							
+							const moduleData = modules[i]
+							const module: FlowModule = {
+								id: moduleData.id,
+								summary: moduleData.summary,
+								value: moduleData.value
+							}
+							
+							// Load module state
+							const state = await loadFlowModuleState(module)
+							flowStateStore.val[module.id] = state
+							
+							// Add module to flow
+							flowStore.val.value.modules.push(module)
+							flowStore.val = { ...flowStore.val } // Trigger reactivity
+						}
+						
 						driver.moveNext()
 					}
 				}
