@@ -62,7 +62,6 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import SelectionTool from './SelectionTool.svelte'
-	import NodeContextMenu from './NodeContextMenu.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
@@ -885,7 +884,7 @@
 				zoomOnDoubleClick={false}
 				elevateNodesOnSelect={false}
 				{proOptions}
-				multiSelectionKey={modifierKey}
+				multiSelectionKey={'Shift'}
 				nodesDraggable={false}
 				--background-color={false}
 			>
@@ -896,17 +895,10 @@
 				{/if}
 
 				{#if multiSelectEnabled}
-					<NodeContextMenu
-						selectedNodeIds={selectionManager.selectedIds.filter(
-							(id) =>
-								!id.startsWith('Settings') && !id.startsWith('Trigger') && !id.startsWith('Result')
-						)}
-					>
-						<SelectionBoundingBox
-							selectedNodes={selectionManager.selectedIds}
-							allNodes={nodesWithOffset}
-						/>
-					</NodeContextMenu>
+					<SelectionBoundingBox
+						selectedNodes={selectionManager.selectedIds}
+						allNodes={nodesWithOffset}
+					/>
 				{/if}
 
 				<!-- SelectionTool for handling selection changes and filtering -->
@@ -1018,5 +1010,6 @@
 
 	:global(.svelte-flow__selection) {
 		display: none;
+		pointer-events: none;
 	}
 </style>
