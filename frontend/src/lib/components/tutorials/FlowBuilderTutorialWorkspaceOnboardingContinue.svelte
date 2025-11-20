@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { isFlowTainted, triggerPointerDown } from './utils'
+	import { isFlowTainted, triggerPointerDown, clickButtonBySelector } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
 	import { initFlow } from '../flows/flowStore.svelte'
@@ -9,7 +9,7 @@
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
 	import { wait } from '$lib/utils'
 	import { get } from 'svelte/store'
-	const { flowStore, flowStateStore, selectedId, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
 
@@ -172,7 +172,7 @@
 				element: '#b',
 				onHighlighted: async () => {
 					// Click on the 'b' node to open the drawer
-					selectedId.set('b')
+					selectionManager.selectId('b')
 					await wait(500) // Wait for drawer to open and editor to load
 					
 					// Modify the driver.js overlay to only cover the left half
@@ -240,13 +240,79 @@
 				}
 			},
 			{
+				element: '#flow-editor-plug',
+				onHighlighted: async () => {
+					// Make the button visible by removing the opacity-0 class from its parent
+					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
+					// Click the button to open the connections panel
+					await wait(100)
+					clickButtonBySelector('#flow-editor-plug')
+
+					// Wait for the connections panel to open
+					await wait(800)
+
+					// Find the target button with title="results.a"
+					const targetButton = document.querySelector('button[title="results.a"]') as HTMLElement
+					if (targetButton) {
+						// Create a fake cursor element
+						const fakeCursor = document.createElement('div')
+						fakeCursor.style.cssText = `
+							position: fixed;
+							width: 20px;
+							height: 20px;
+							border-radius: 50%;
+							background-color: rgba(59, 130, 246, 0.8);
+							border: 2px solid white;
+							pointer-events: none;
+							z-index: 10000;
+							transition: all 2.5s ease-in-out;
+						`
+						document.body.appendChild(fakeCursor)
+
+						// Get the plug button position (starting point)
+						const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
+						const startRect = plugButton?.getBoundingClientRect()
+
+						// Get the target button position (ending point)
+						const targetRect = targetButton.getBoundingClientRect()
+
+						if (startRect && targetRect) {
+							// Start cursor at plug button
+							fakeCursor.style.left = `${startRect.left + startRect.width / 2}px`
+							fakeCursor.style.top = `${startRect.top + startRect.height / 2}px`
+
+							// Wait a frame for the initial position to be set
+							await wait(100)
+
+							// Move cursor to target
+							fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
+							fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
+
+							// Wait for animation to complete
+							await wait(2500)
+
+							// Remove fake cursor (no click on target)
+							await wait(500)
+							fakeCursor.remove()
+						}
+					}
+				},
+				popover: {
+					title: 'Connect to previous steps',
+					description: 'Use this button to connect your script to outputs from previous steps in the flow. Click on results.a, then add .celsius to access the nested property.',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
 				element: '#flow-editor-virtual-Input',
 				onHighlighted: async () => {
 					// Click on the input button to open the drawer
 					await wait(300)
 					triggerPointerDown('#flow-editor-virtual-Input')
 					await wait(100)
-					selectedId.set('Input')
+					selectionManager.selectId('Input')
 					await wait(200)
 				},
 				popover: {
