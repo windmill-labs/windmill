@@ -213,6 +213,30 @@ prompts:
       No need to require autoload, it is already done.
       <contextual_information>
       My instructions: {description}
+  csharp:
+    prompt: |-
+      Here's my C# code:
+      ```csharp
+      {code}
+      ```
+      <contextual_information>
+      You have to write C# code with a public static Main method inside a class. Specify the parameter types. Do not call the main function. You should generally return the result.
+      NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.
+      The Main method signature should be: public static ReturnType Main(parameter types...)
+      </contextual_information>
+      My instructions: {description}
+  java:
+    prompt: |-
+      Here's my Java code:
+      ```java
+      {code}
+      ```
+      <contextual_information>
+      You have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.
+      Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.
+      The method signature should be: public static Object main(parameter types...)
+      </contextual_information>
+      My instructions: {description}
   frontend:
     prompt: |-
       Here's my client-side javascript code: 
@@ -260,5 +284,15 @@ prompts:
       You can validate all fields of a form: validateAll(id: string, key: string)
       You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
       </helpers>
+      </contextual_information>
+      My instructions: {description}
+  duckdb:
+    prompt: |-
+      Here's my DuckDB code:
+      ```sql
+      {code}
+      ```
+      <contextual_information>
+      Arguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.
       </contextual_information>
       My instructions: {description}
