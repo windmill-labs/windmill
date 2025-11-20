@@ -57,13 +57,13 @@ prompts:
       pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
       ```
       but do not call it. Favor idiomatic Rust patterns, ensuring safe handling of ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading). 
-      
+
       Follow these guidelines:
       - Include necessary imports and modules only when needed.
       - Add comments explaining important operations and any unsafe usage (if absolutely required).
       - The generated code should be easily executable and testable in an integrated terminal.
       </contextual_information>
-      My instructions: {description}  
+      My instructions: {description}
   go:
     prompt: |-
       Here's my go code: 
@@ -220,9 +220,10 @@ prompts:
       {code}
       ```
       <contextual_information>
-      You have to write C# code with a public static Main method inside a class. Specify the parameter types. Do not call the main function. You should generally return the result.
+      You have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.
       NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.
       The Main method signature should be: public static ReturnType Main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
       </contextual_information>
       My instructions: {description}
   java:
@@ -235,6 +236,7 @@ prompts:
       You have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.
       Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.
       The method signature should be: public static Object main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
       </contextual_information>
       My instructions: {description}
   frontend:
