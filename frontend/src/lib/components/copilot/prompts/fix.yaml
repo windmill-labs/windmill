@@ -61,7 +61,7 @@ prompts:
       pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
       ```
       but do not call it. Favor idiomatic Rust patterns, ensuring safe handling of ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading). 
-      
+
       - Include necessary imports and modules only when needed.
       - Add comments explaining important operations and any unsafe usage (if absolutely required).
       - The generated code should be easily executable and testable in an integrated terminal.
@@ -227,5 +227,44 @@ prompts:
       ```
       No need to require autoload, it is already done.
       <contextual_information>
+      I get the following error: {error}
+      Fix my code.
+  csharp:
+    prompt: |-
+      Here's my C# code:
+      ```csharp
+      {code}
+      ```
+      <contextual_information>
+      You have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.
+      NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.
+      The Main method signature should be: public static ReturnType Main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      I get the following error: {error}
+      Fix my code.
+  java:
+    prompt: |-
+      Here's my Java code:
+      ```java
+      {code}
+      ```
+      <contextual_information>
+      You have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.
+      Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.
+      The method signature should be: public static Object main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      I get the following error: {error}
+      Fix my code.
+  duckdb:
+    prompt: |-
+      Here's my DuckDB code:
+      ```sql
+      {code}
+      ```
+      <contextual_information>
+      Arguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
