@@ -262,3 +262,13 @@ prompts:
       </helpers>
       </contextual_information>
       My instructions: {description}
+  duckdb:
+    prompt: |-
+      Here's my DuckDB code:
+      ```sql
+      {code}
+      ```
+      <contextual_information>
+      Arguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.
+      </contextual_information>
+      My instructions: {description}

@@ -176,7 +176,7 @@ prompts:
       At the end of the code, the processed result has to be returned.
 
       <contextual_information>
-      You can access the context object with the ctx global variable. 
+      You can access the context object with the ctx global variable.
       The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
       You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
       You can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)
@@ -189,3 +189,9 @@ prompts:
       You can validate all fields of a form: validateAll(id: string, key: string)
       You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
       </contextual_information>
+  duckdb:
+    prompt: |-
+      <contextual_information>
+      You have to write a statement for DuckDB. Arguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.
+      </contextual_information>
+      My instructions: {description}
