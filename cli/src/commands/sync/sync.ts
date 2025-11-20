@@ -957,7 +957,7 @@ async function compareDynFSElement(
     } else {
       if (m2[k] == v) {
         continue;
-      } else if (k.endsWith(".json")) {
+      } else if (k.endsWith(".json") && !isWorkspaceDependencies(k)) {
         let parsedV, parsedM2;
         try {
           parsedV = JSON.parse(v);

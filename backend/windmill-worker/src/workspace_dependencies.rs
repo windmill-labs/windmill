@@ -96,23 +96,27 @@ impl NewWorkspaceDependencies {
 // -[] Fork workspaces
 // -[] git sync
 // -[] handle renames
-// -[] rebuild dependency map correctly
+// -[x] rebuild dependency map correctly
 // -[] deployment of many at the same time has proper ordering
 // -[] cli on generate-metadata will only send diffs
 // -[] raw requirements are on by default for flows (cli)
 // -[] if default rrs it has no entries in dmap, but they are always used unless told otherwise
 // -[] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)
 // -[] docs
-// -[] add description
+// -[] Manual/Extra -> manual/extra
+// -[x] add description
 // -[] do we need min_version?
 // -[] delete should also trigger redeploy
 // -[] warning
-// -[] store mode in lock, so when viewed one can tell difference.
 //   - [] amount is displayed correctly (even for apps and flows.)
-// -[] if relative import has raw requirements, should importer inherit those?
+// -[x] store mode in lock, so when viewed one can tell difference.
+// -[] if relative import has raw requirements, should importer inherit those? - yes
+//   - [x] python
+//   - [] bun
 // -[] on deploy depenencies should be verified if they are resolvable or not.
 // -[] ignore hub_sync for default bun scripts
 // -[] deleting or archiving dependencies should also trigger dependents
+// -[] maybe no dmap rebuild on creation?
 //
 // TODO(frontend):
 // - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
@@ -131,6 +135,7 @@ impl NewWorkspaceDependencies {
 // - what if redeployed older script version that has either outdated syntax or other rrs id/name?
 // - how are python version are treated? From lock or from content?
 // - benchmark bunch of stuff
+// - for other languages
 // - [] leaf's wk deps should be used for inputs to top level runnable
 //    - [] ts
 //    - [] php

@@ -179,8 +179,10 @@ pub enum WorkspaceDependenciesPrefetched {
 impl WorkspaceDependenciesPrefetched {
     pub fn get_one_external_only_manual(
         &self,
+        // just for logging
         workspace_id: &str,
-        script_path: &str,
+        // just for logging
+        script_path: Option<String>,
     ) -> Option<String> {
         use WorkspaceDependenciesPrefetched::*;
 
@@ -226,14 +228,26 @@ impl WorkspaceDependenciesPrefetched {
         conn: Connection,
         // db: &sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<Self> {
+        tracing::debug!(workspace_id, ?language, "extracting workspace dependencies");
         Ok(
             if let Some(wdar) = language.extract_workspace_dependencies_annotated_refs(code) {
+                tracing::debug!(workspace_id, ?language, "found explicit annotations");
+
                 Self::Explicit(wdar.expand(language, workspace_id, conn).await?)
             } else if let Some(workspace_dependencies) =
                 WorkspaceDependencies::get_latest(None, language, workspace_id, conn).await?
             {
+                tracing::debug!(
+                    workspace_id,
+                    ?language,
+                    dep_id = workspace_dependencies.id,
+                    "using implicit default"
+                );
+
                 Self::Implicit { workspace_dependencies, mode: Mode::Manual } // Hardcode to manual for now.
             } else {
+                tracing::debug!(workspace_id, ?language, "no dependencies found");
+
                 Self::None
             },
         )
@@ -515,7 +529,7 @@ def main():
     #[test]
     fn test_parse_annotation_go_style() {
         let code = r#"
-// requirements:   base,
+// go_mod:   base,
 //github.com/gin-gonic/gin v1.9.1
 
 package main
@@ -523,8 +537,7 @@ func main() {}
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code)
-                .unwrap();
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "go_mod", code).unwrap();
         assert!(matches!(result.mode, Mode::Manual));
         assert_eq!(result.external, vec!["base".to_owned()]);
         assert_eq!(

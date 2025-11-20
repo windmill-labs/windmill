@@ -2839,17 +2839,16 @@ async fn capture_dependency_job(
 
             #[cfg(feature = "php")]
             {
-                let composer_content =
-                    if let Some(c) = wd.get_one_external_only_manual(w_id, script_path) {
-                        c
-                    } else {
-                        match parse_php_imports(job_raw_code)? {
-                            Some(reqs) => reqs,
-                            None => {
-                                return Ok("".to_string());
-                            }
-                        }
-                    };
+                let composer_content = if let Some(c) =
+                    wd.get_one_external_only_manual(w_id, Some(script_path.to_owned()))
+                {
+                    c
+                } else {
+                    match parse_php_imports(job_raw_code)? {
+                        Some(reqs) => reqs,
+                        None => return Ok("".to_string()),
+                    }
+                };
 
                 composer_install(
                     mem_peak,

@@ -64,7 +64,7 @@
 			
 			// Check for workspace defaults (where name is null) for each language
 			workspaceDeps.forEach((dep) => {
-				if (dep.name === undefined) {
+				if (dep.name === null) {
 					existingWorkspaceDefaults[dep.language] = true
 					workspaceDefaultIds[dep.language] = dep.id
 				}
@@ -123,7 +123,7 @@ numpy>=1.24.0
 
 		bun: `{
 	"dependencies": {
-	    "number-to-words@1": "*",
+	    "number-to-words": "1",
 	    "windmill-client": "*",
 	    "date-fns": "^2.30.0",
 	    "uuid": "^9.0.0"

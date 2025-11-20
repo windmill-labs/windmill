@@ -11,6 +11,7 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
+    scripts::ScriptLang,
     utils::calculate_hash,
     worker::{save_cache, write_file, Connection, GoAnnotations},
     workspace_dependencies::{
@@ -143,7 +144,13 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
-            &WorkspaceDependenciesPrefetched::None,
+            &WorkspaceDependenciesPrefetched::extract(
+                inner_content,
+                ScriptLang::Go,
+                &job.workspace_id,
+                conn.clone(),
+            )
+            .await?,
             worker_name,
             &job.workspace_id,
             occupation_metrics,
@@ -473,23 +480,9 @@ pub async fn install_go_dependencies(
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    let (hash, go_mod_provided) = if let Some(go_mod_content) = match workspace_dependencies {
-        WorkspaceDependenciesPrefetched::Explicit(WorkspaceDependenciesAnnotatedRefs {
-            inline,
-            external,
-            mode,
-        }) => {
-            // TODO(claude): inline is not yet supported error
-            // TODO(claude): mode == extra is not yet supported error
-            // TODO(claude): external > 1 is not yet supported error
-            external.get(0).map(|wd| wd.content.clone())
-        }
-        WorkspaceDependenciesPrefetched::Implicit { workspace_dependencies, mode } => {
-            // TODO(claude): mode == extra is not yet supported error
-            Some(workspace_dependencies.content.clone())
-        }
-        WorkspaceDependenciesPrefetched::None => None,
-    } {
+    let (hash, go_mod_provided) = if let Some(go_mod_content) =
+        workspace_dependencies.get_one_external_only_manual(w_id, None)
+    {
         let go_mod = if let Some(module) = go_mod_content
             .lines()
             .find(|l| l.trim_start().starts_with("module "))
