@@ -477,42 +477,12 @@
 					title: 'Let\'s connect our script to the user input data',
 					description: 'We use data connector to get the user input, and pass it to our script.',
 					onNextClick: async () => {
-						// Clean up overlays before moving to next step
-						if ((window as any).__tutorialCleanupOverlays) {
-							;(window as any).__tutorialCleanupOverlays()
-							delete (window as any).__tutorialCleanupOverlays
-						}
-
 						driver.moveNext()
 					}
 				}
 			},
 			{
 				onHighlighted: async () => {
-					// Hide the default driver.js overlay
-					const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
-					if (driverOverlay) {
-						driverOverlay.style.display = 'none'
-					}
-
-					// Create a single custom overlay with clip-path to reveal only bottom-right corner
-					const customOverlay = document.createElement('div')
-					customOverlay.className = 'tutorial-custom-overlay-test'
-					customOverlay.style.cssText = `
-						position: fixed;
-						top: 0;
-						left: 0;
-						width: 100%;
-						height: 100%;
-						background-color: rgba(0, 0, 0, 0.5);
-						z-index: 9999;
-						pointer-events: none;
-						clip-path: polygon(
-							0 0, 100% 0, 100% 50%, 50% 50%, 50% 100%, 0 100%
-						);
-					`
-					document.body.appendChild(customOverlay)
-
 					// Find and click the "Test this step" tab button
 					await wait(500)
 					const buttons = Array.from(document.querySelectorAll('button'))
@@ -583,12 +553,10 @@
 					title: 'Test your step',
 					description: 'You can test individual steps to verify they work correctly before running the entire flow.',
 					onNextClick: async () => {
-						// Clean up custom overlay
-						document.querySelector('.tutorial-custom-overlay-test')?.remove()
-						// Restore the driver.js overlay
-						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
-						if (driverOverlay) {
-							driverOverlay.style.display = ''
+						// Clean up overlays from previous step
+						if ((window as any).__tutorialCleanupOverlays) {
+							;(window as any).__tutorialCleanupOverlays()
+							delete (window as any).__tutorialCleanupOverlays
 						}
 
 						// Add modules 'b' and 'c' with animation delays
@@ -619,40 +587,10 @@
 				}
 			},
 			{
-				onHighlighted: async () => {
-					// Hide the overlay completely for this step
-					const overlay = document.querySelector('.driver-overlay') as HTMLElement
-					if (overlay) {
-						overlay.style.display = 'none'
-					}
-				},
-				popover: {
-					title: 'Convert to Fahrenheit',
-					description: 'This script converts the celsius temperature into fahrenheit.',
-					onNextClick: () => {
-						// Restore the overlay for next step
-						const overlay = document.querySelector('.driver-overlay') as HTMLElement
-						if (overlay) {
-							overlay.style.display = ''
-						}
-						driver.moveNext()
-					}
-				}
-			},
-			{
 				element: '#flow-editor-test-flow',
-				onHighlighted: async () => {
-					// Restore the overlay to full width
-					const overlay = document.querySelector('.driver-overlay') as HTMLElement
-					if (overlay) {
-						overlay.style.width = ''
-						overlay.style.right = ''
-						overlay.style.left = ''
-					}
-				},
 				popover: {
 					title: 'Test your flow',
-					description: 'This is the test button. It will execute your flow and show the results.',
+					description: 'We can now test our flow',
 					onNextClick: () => {
 						driver.moveNext()
 					}
