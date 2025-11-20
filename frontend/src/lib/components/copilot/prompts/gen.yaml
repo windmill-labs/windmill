@@ -151,6 +151,24 @@ prompts:
       No need to require autoload, it is already done.
       <contextual_information>
       My instructions: {description}
+  csharp:
+    prompt: |-
+      <contextual_information>
+      You have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.
+      NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.
+      The Main method signature should be: public static ReturnType Main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      My instructions: {description}
+  java:
+    prompt: |-
+      <contextual_information>
+      You have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.
+      Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.
+      The method signature should be: public static Object main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      My instructions: {description}
   frontend:
     prompt: |-
       Write client-side javascript code that should {description}. 
