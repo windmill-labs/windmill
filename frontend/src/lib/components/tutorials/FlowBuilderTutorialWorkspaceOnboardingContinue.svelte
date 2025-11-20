@@ -133,27 +133,6 @@
 						}
 						await initFlow(emptyFlow, flowStore as any, flowStateStore)
 
-						// Add modules one by one with animation delays
-						const modules = flowJson.value.modules
-						for (let i = 0; i < modules.length; i++) {
-							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
-							
-							const moduleData = modules[i]
-							const module: FlowModule = {
-								id: moduleData.id,
-								summary: moduleData.summary,
-								value: moduleData.value
-							}
-							
-							// Load module state
-							const state = await loadFlowModuleState(module)
-							flowStateStore.val[module.id] = state
-							
-							// Add module to flow
-							flowStore.val.value.modules.push(module)
-							flowStore.val = { ...flowStore.val } // Trigger reactivity
-						}
-
 						driver.moveNext()
 					}
 				}
@@ -219,6 +198,55 @@
 					side: 'bottom',
 					align: 'start',
 					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#flow-editor-add-step-0',
+				onHighlighted: async () => {
+					// Hide the overlay for this step
+					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					if (overlay) {
+						overlay.style.display = 'none'
+					}
+
+					// Click on the add step button
+					await wait(500)
+					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
+					if (button) {
+						button.click()
+					}
+				},
+				popover: {
+					title: 'Add more steps',
+					description: 'Click here to add more steps to your flow. This is how you build complex workflows.',
+					side: 'top',
+					onNextClick: async () => {
+						// Restore the overlay
+						const overlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (overlay) {
+							overlay.style.display = ''
+						}
+
+						// Add only module 'a' (first script)
+						const moduleData = flowJson.value.modules[0]
+						const module: FlowModule = {
+							id: moduleData.id,
+							summary: moduleData.summary,
+							value: moduleData.value
+						}
+
+						// Load module state
+						const state = await loadFlowModuleState(module)
+						flowStateStore.val[module.id] = state
+
+						// Add module to flow
+						flowStore.val.value.modules.push(module)
+						flowStore.val = { ...flowStore.val } // Trigger reactivity
+
+						await wait(700)
+
 						driver.moveNext()
 					}
 				}
@@ -399,14 +427,112 @@
 					;(window as any).__tutorialCleanupOverlays = cleanupOverlays
 				},
 				popover: {
-					title: 'Let\'s connect our script to the user input',
+					title: 'Let\'s connect our script to the user input data',
 					description: 'We use data connector to get the user input, and pass it to our script.',
-					onNextClick: () => {
+					onNextClick: async () => {
 						// Clean up overlays before moving to next step
 						if ((window as any).__tutorialCleanupOverlays) {
 							;(window as any).__tutorialCleanupOverlays()
 							delete (window as any).__tutorialCleanupOverlays
 						}
+
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				onHighlighted: async () => {
+					// Find and click the "Test this step" tab button
+					await wait(500)
+					const buttons = Array.from(document.querySelectorAll('button'))
+					const testTabButton = buttons.find(btn => {
+						return btn.textContent?.includes('Test this step') &&
+							btn.classList.contains('border-b-2') &&
+							btn.classList.contains('cursor-pointer')
+					})
+
+					if (testTabButton) {
+						testTabButton.click()
+					}
+
+					// Wait for the test tab content to load
+					await wait(800)
+
+					// Find the "Run" button (the primary action button)
+					const testActionButton = Array.from(document.querySelectorAll('button')).find(btn => {
+						return btn.textContent?.includes('Run') &&
+							btn.classList.contains('bg-surface-accent-primary') &&
+							btn.classList.contains('w-full')
+					}) as HTMLElement
+
+					if (testActionButton) {
+						// Create a fake cursor element
+						const fakeCursor = document.createElement('div')
+						fakeCursor.style.cssText = `
+							position: fixed;
+							width: 20px;
+							height: 20px;
+							border-radius: 50%;
+							background-color: rgba(59, 130, 246, 0.8);
+							border: 2px solid white;
+							pointer-events: none;
+							z-index: 10000;
+							transition: all 1.5s ease-in-out;
+						`
+						document.body.appendChild(fakeCursor)
+
+						// Get the button position
+						const buttonRect = testActionButton.getBoundingClientRect()
+
+						// Start cursor at top of screen (above the button)
+						fakeCursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
+						fakeCursor.style.top = `${buttonRect.top - 100}px`
+
+						// Wait a frame for the initial position to be set
+						await wait(100)
+
+						// Move cursor to button
+						fakeCursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
+						fakeCursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
+
+						// Wait for animation to complete
+						await wait(1500)
+
+						// Click on the button
+						testActionButton.click()
+
+						// Remove fake cursor after clicking
+						await wait(300)
+						fakeCursor.remove()
+					}
+				},
+				popover: {
+					title: 'Test your step',
+					description: 'You can test individual steps to verify they work correctly before running the entire flow.',
+					onNextClick: async () => {
+						// Add modules 'b' and 'c' with animation delays
+						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
+						for (let i = 0; i < modulesToAdd.length; i++) {
+							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
+
+							const moduleData = modulesToAdd[i]
+							const module: FlowModule = {
+								id: moduleData.id,
+								summary: moduleData.summary,
+								value: moduleData.value
+							}
+
+							// Load module state
+							const state = await loadFlowModuleState(module)
+							flowStateStore.val[module.id] = state
+
+							// Add module to flow
+							flowStore.val.value.modules.push(module)
+							flowStore.val = { ...flowStore.val } // Trigger reactivity
+						}
+
+						await wait(700)
+
 						driver.moveNext()
 					}
 				}
