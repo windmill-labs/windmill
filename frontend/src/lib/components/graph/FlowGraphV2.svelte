@@ -396,6 +396,10 @@
 			onInsert?.(detail)
 		},
 		select: (modId) => {
+			// AI tools are not selectable by the flow. Selection has to be refactored to be simplier.
+			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool') {
+				selectionManager.selectId(modId)
+			}
 			if (!notSelectable) {
 				onSelect?.(modId)
 			}
