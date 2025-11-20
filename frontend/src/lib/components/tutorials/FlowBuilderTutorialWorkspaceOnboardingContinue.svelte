@@ -412,6 +412,81 @@
 				}
 			},
 			{
+				element: '#b',
+				onHighlighted: async () => {
+					// Click on the 'b' node to open the drawer
+					selectionManager.selectId('b')
+					await wait(500)
+
+					// Make the plug button visible and click it to open the connections panel
+					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
+					await wait(100)
+					clickButtonBySelector('#flow-editor-plug')
+
+					// Wait for the connections panel to open
+					await wait(800)
+
+					// Find the target button with title="results.a"
+					const targetButton = document.querySelector('button[title="results.a"]') as HTMLElement
+					if (targetButton) {
+						// Create a fake cursor element
+						const fakeCursor = document.createElement('div')
+						fakeCursor.style.cssText = `
+							position: fixed;
+							width: 20px;
+							height: 20px;
+							border-radius: 50%;
+							background-color: rgba(59, 130, 246, 0.8);
+							border: 2px solid white;
+							pointer-events: none;
+							z-index: 10000;
+							transition: all 2.5s ease-in-out;
+						`
+						document.body.appendChild(fakeCursor)
+
+						// Get the plug button position (starting point)
+						const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
+						const startRect = plugButton?.getBoundingClientRect()
+
+						// Get the target button position (ending point)
+						const targetRect = targetButton.getBoundingClientRect()
+
+						if (startRect && targetRect) {
+							// Start cursor at plug button
+							fakeCursor.style.left = `${startRect.left + startRect.width / 2}px`
+							fakeCursor.style.top = `${startRect.top + startRect.height / 2}px`
+
+							// Wait a frame for the initial position to be set
+							await wait(100)
+
+							// Move cursor to target
+							fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
+							fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
+
+							// Wait for animation to complete (but don't click)
+							await wait(2500)
+
+							// Remove fake cursor without clicking
+							await wait(500)
+							fakeCursor.remove()
+						}
+					}
+				},
+				popover: {
+					title: 'Convert to Fahrenheit',
+					description: 'This script converts the celsius temperature into fahrenheit.',
+					side: 'bottom',
+					onNextClick: () => {
+						// Clean up overlays before moving to next step
+						if ((window as any).__tutorialCleanupOverlays) {
+							;(window as any).__tutorialCleanupOverlays()
+							delete (window as any).__tutorialCleanupOverlays
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
 				element: '#flow-editor-test-flow',
 				onHighlighted: async () => {
 					// Restore the overlay to full width
