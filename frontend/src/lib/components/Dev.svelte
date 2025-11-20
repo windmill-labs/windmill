@@ -650,7 +650,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowModuleSchemaMap?.isNodeVisible('result') && selectedId !== 'Result') {
+				if (flowModuleSchemaMap?.isNodeVisible('Result') && selectedId !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
