@@ -204,7 +204,8 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'graphql',
 	'powershell',
 	'csharp',
-	'java'
+	'java',
+	'duckdb'
 ]
 
 export function getLangContext(
@@ -310,6 +311,8 @@ export function getLangContext(
 			return 'The user is coding in C#. On Windmill, it is expected the script contains a public static Main method inside a class. The class name is irrelevant. NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script. The Main method signature should be: public static ReturnType Main(parameter types...)'
 		case 'java':
 			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
+		case 'duckdb':
+			return "The user is coding in DuckDB. On Windmill, arguments can be obtained directly in the statement with $1, $2, etc.. Name the parameters by adding comments before the statement like that: `-- $1 name1 ({type})` or `-- $2 name2 ({type}) = default` (one per row). To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. You can then perform all CRUD operations. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);` and query with `SELECT * FROM db.schema.table;`"
 		default:
 			return ''
 	}
