@@ -211,6 +211,7 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() -> anyhow::Result<()> {
+
     // On Windows with enterprise feature, check if running as a service
     #[cfg(all(windows, feature = "enterprise", feature = "private"))]
     {
@@ -317,6 +318,10 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
+    // windmill_common::db_iam::main().await?;
+
+    // return Ok(());
+    
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -511,7 +516,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         conn
     } else {
         // This time we use a pool of connections
-        let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+        let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode, 
+            #[cfg(feature = "private")]
+            killpill_rx.resubscribe()).await?;
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
@@ -832,10 +839,10 @@ Windmill Community Edition {GIT_VERSION}
             match conn {
                 Connection::Sql(ref db) => {
                     let base_internal_url = base_internal_url.to_string();
-                    let db_url: String = get_database_url().await?;
+                    let db_url = get_database_url().await?;
                     let db = db.clone();
                     let h = tokio::spawn(async move {
-                        let mut listener = retry_listen_pg(&db_url).await;
+                        let mut listener = retry_listen_pg(&db_url.as_str().await).await;
                         let mut last_listener_refresh = Instant::now();
                         let mut monitor_iteration: u64 = 0;
                         let rd_shift: u8 = rand::rng().random_range(0..200);
@@ -1169,13 +1176,14 @@ Windmill Community Edition {GIT_VERSION}
                                         },
                                         Err(e) => {
                                             tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
+                                            let db_url = db_url.clone();
                                             tokio::select! {
                                                 biased;
                                                 _ = monitor_killpill_rx.recv() => {
                                                     tracing::info!("received killpill for monitor job");
                                                     break;
                                                 },
-                                                new_listener = retry_listen_pg(&db_url) => {
+                                                new_listener = async move { retry_listen_pg(&db_url.as_str().await).await } => {
                                                     listener = new_listener;
                                                     continue;
                                                 }
@@ -1189,7 +1197,7 @@ Windmill Community Edition {GIT_VERSION}
                                         if let Err(e) = listener.unlisten_all().await {
                                             tracing::error!(error = %e, "Could not unlisten to database");
                                         }
-                                        listener = retry_listen_pg(&db_url).await;
+                                        listener = retry_listen_pg(&db_url.as_str().await).await;
                                         initial_load(
                                             &conn,
                                             tx.clone(),

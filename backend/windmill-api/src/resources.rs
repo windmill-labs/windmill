@@ -472,7 +472,7 @@ pub async fn get_resource_value_interpolated_internal(
     // This is a special syntax to help debugging ducklake catalogs stored in the instance
     if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
         require_super_admin(db, &authed.email).await?;
-        let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+        let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
         return Ok(Some(serde_json::json!({
             "dbname": dbname,
             "host": pg_creds.host,
