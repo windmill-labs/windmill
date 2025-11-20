@@ -292,6 +292,30 @@
 						"A script is a code snippet that can be executed. For this example, we connect 3 scripts together to create a flow.",
 					side: 'bottom',
 					onNextClick: () => {
+						// Hide the default driver.js overlay
+						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (driverOverlay) {
+							driverOverlay.style.display = 'none'
+						}
+
+						// Create a single custom overlay with clip-path to reveal only bottom-right corner
+						const customOverlay = document.createElement('div')
+						customOverlay.className = 'tutorial-custom-overlay'
+						customOverlay.style.cssText = `
+							position: fixed;
+							top: 0;
+							left: 0;
+							width: 100%;
+							height: 100%;
+							background-color: rgba(0, 0, 0, 0.5);
+							z-index: 9999;
+							pointer-events: none;
+							clip-path: polygon(
+								0 0, 100% 0, 100% 50%, 50% 50%, 50% 100%, 0 100%
+							);
+						`
+						document.body.appendChild(customOverlay)
+
 						driver.moveNext()
 					}
 				}
@@ -360,11 +384,29 @@
 							fakeCursor.remove()
 						}
 					}
+
+					// Clean up custom overlay when moving to next step
+					const cleanupOverlays = () => {
+						document.querySelector('.tutorial-custom-overlay')?.remove()
+						// Restore the driver.js overlay
+						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (driverOverlay) {
+							driverOverlay.style.display = ''
+						}
+					}
+
+					// Store cleanup function for next step
+					;(window as any).__tutorialCleanupOverlays = cleanupOverlays
 				},
 				popover: {
 					title: 'Let\'s connect our scripts',
 					description: 'In our example, we use the output of our first script as input for our second script.',
 					onNextClick: () => {
+						// Clean up overlays before moving to next step
+						if ((window as any).__tutorialCleanupOverlays) {
+							;(window as any).__tutorialCleanupOverlays()
+							delete (window as any).__tutorialCleanupOverlays
+						}
 						driver.moveNext()
 					}
 				}
