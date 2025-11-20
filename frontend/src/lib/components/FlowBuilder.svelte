@@ -949,7 +949,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowEditor?.isNodeVisible('result') && selectedIdStore !== 'Result') {
+				if (flowEditor?.isNodeVisible('Result') && selectedIdStore !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
