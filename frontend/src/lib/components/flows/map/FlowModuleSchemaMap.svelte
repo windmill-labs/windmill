@@ -484,7 +484,7 @@
 					let targetModules
 					if (
 						detail.sourceId == 'Input' ||
-						detail.targetId == 'result' ||
+						detail.targetId == 'Result' ||
 						detail.kind == 'trigger'
 					) {
 						targetModules = flowStore.val.value.modules
