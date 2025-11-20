@@ -1,62 +1,82 @@
 export const GEN_PROMPT = {
-  "system": "You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.\nOnly output code. Wrap the code in a code block.\nPut explanations directly in the code as comments.\n\nHere's how interactions have to look like:\nuser: {sample_question}\nassistant: ```language\n{code}\n```",
-  "prompts": {
-    "python3": {
-      "prompt": "<contextual_information>\nYou have to write a function in Python called \"main\". Specify the parameter types. Do not call the main function. You should generally return the result.\nThe \"main\" function cannot be async. If you need to use async code, you can use the asyncio library.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (has to be IN LOWERCASE). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n<contextual_information>\nMy instructions: {description}"
-    },
-    "deno": {
-      "prompt": "<contextual_information>\nYou have to write TypeScript code and export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nYou can import deno libraries or you can also import npm libraries like that: \"import ... from \"npm:{package}\";\". The fetch standard method is available globally.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "rust": {
-      "prompt": "<contextual_information>\nYou have to write Rust code and define a `main` function like this (without calling it):\n```rust\npub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>\n```\nFavor idiomatic Rust patterns, ensuring safe ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading).\n\nInclude only necessary imports and modules, and add comments explaining important operations. Provide at least one unit test using Rust's built-in test framework (`#[cfg(test)] mod tests { ... }`) to demonstrate correctness. Make the code well-formatted (similar to `cargo fmt` style). The generated code should be easily executable and testable in an integrated terminal.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "go": {
-      "prompt": "Here's my go code: \n```go\n{code}\n```\n<contextual_information>\nYou have to write go code and export a \"main\" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be \"inner\"\n</contextual_information>\nMy instructions: {description}"
-    },
-    "bash": {
-      "prompt": "<contextual_information>\nYou have to write bash code. Do not include \"#!/bin/bash\". Arguments are always string and can only be obtained with \"var1=\"$1\"\", \"var2=\"$2\"\", etc... You do not need to check if the arguments are present.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "postgresql": {
-      "prompt": "<contextual_information>\nYou have to write a statement for PostgreSQL. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters (without specifying the type) by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
-    },
-    "mysql": {
-      "prompt": "<contextual_information>\nYou have to write a statement for MySQL. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
-    },
-    "bigquery": {
-      "prompt": "<contextual_information>\nYou have to write a statement for BigQuery. You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\n</contextual_information>\nMy instructions: {description}"
-    },
-    "snowflake": {
-      "prompt": "<contextual_information>\nYou have to write a statement for Snowflake. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
-    },
-    "mssql": {
-      "prompt": "<contextual_information>\nYou have to write a statement for Microsoft SQL Server. Arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
-    },
-    "graphql": {
-      "prompt": "<contextual_information>\nYou have to write a query for GraphQL. Add the needed arguments as query parameters.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "powershell": {
-      "prompt": "<contextual_information>\nYou have to write Powershell code. Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = \"default value\", [{type}]$ParamName3, ...)`\n</contextual_information>\nMy instructions: {description}"
-    },
-    "nativets": {
-      "prompt": "<contextual_information>\nYou have to write TypeScript code and export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nYou should use fetch and are not allowed to import any libraries. \nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix).\n</contextual_information>\nMy instructions: {description}"
-    },
-    "bun": {
-      "prompt": "<contextual_information>\nYou have to write TypeScript code and export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it. You should generally return the result.\nThe fetch standard method is available globally.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "php": {
-      "prompt": "<contextual_information>\nYou have to write a function in php called \"main\". Specify the parameter types. Do not call the main function. You should generally return the result. The script must start with `<?php`.\nYou can take as parameters resources which are classes containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nBefore defining each type, check if the class already exists using class_exists.\nThe resource type name has to be exactly as specified.\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:\n```\n// require:\n// mylibrary/mylibrary\n// myotherlibrary/myotherlibrary@optionalversion\n```\nNo need to require autoload, it is already done.\n<contextual_information>\nMy instructions: {description}"
-    },
-    "frontend": {
-      "prompt": "Write client-side javascript code that should {description}. \n\n<contextual_information>\nYou can access the context object with the ctx global variable. \nThe app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'\nYou can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)\nYou can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)\nYou can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)\nYou can use the recompute function to recompute a component: recompute(id: string)\nYou can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)\nYou can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)\nThe setValue function is meant to set or force the value of a component: setValue(id: string, value: any)\nYou can validate a specific field of a form: validate(id: string, key: string)\nYou can validate all fields of a form: validateAll(id: string, key: string)\nYou can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)\n</contextual_information>"
-    },
-    "transformer": {
-      "prompt": "Write client-side javascript code that should process the variable `result` according to the following instructions: {description}.\nThe variable `result` is available globally.\nAt the end of the code, the processed result has to be returned.\n\n<contextual_information>\nYou can access the context object with the ctx global variable. \nThe app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'\nYou can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)\nYou can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)\nYou can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)\nYou can use the recompute function to recompute a component: recompute(id: string)\nYou can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)\nYou can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)\nThe setValue function is meant to set or force the value of a component: setValue(id: string, value: any)\nYou can validate a specific field of a form: validate(id: string, key: string)\nYou can validate all fields of a form: validateAll(id: string, key: string)\nYou can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)\n</contextual_information>"
-    },
-    "csharp": {
-      "prompt": "<contextual_information>\nYou have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.\nNuGet packages can be added using the format: #r \"nuget: PackageName, Version\" at the top of the script.\nThe Main method signature should be: public static ReturnType Main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nMy instructions: {description}"
-    },
-    "java": {
-      "prompt": "<contextual_information>\nYou have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.\nDependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.\nThe method signature should be: public static Object main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nMy instructions: {description}"
-    }
-  }
-};
+	system:
+		"You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.\nOnly output code. Wrap the code in a code block.\nPut explanations directly in the code as comments.\n\nHere's how interactions have to look like:\nuser: {sample_question}\nassistant: ```language\n{code}\n```",
+	prompts: {
+		python3: {
+			prompt:
+				'<contextual_information>\nYou have to write a function in Python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.\nThe "main" function cannot be async. If you need to use async code, you can use the asyncio library.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (has to be IN LOWERCASE). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n<contextual_information>\nMy instructions: {description}'
+		},
+		deno: {
+			prompt:
+				'<contextual_information>\nYou have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nYou can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". The fetch standard method is available globally.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n</contextual_information>\nMy instructions: {description}'
+		},
+		rust: {
+			prompt:
+				"<contextual_information>\nYou have to write Rust code and define a `main` function like this (without calling it):\n```rust\npub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>\n```\nFavor idiomatic Rust patterns, ensuring safe ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading).\n\nInclude only necessary imports and modules, and add comments explaining important operations. Provide at least one unit test using Rust's built-in test framework (`#[cfg(test)] mod tests { ... }`) to demonstrate correctness. Make the code well-formatted (similar to `cargo fmt` style). The generated code should be easily executable and testable in an integrated terminal.\n</contextual_information>\nMy instructions: {description}"
+		},
+		go: {
+			prompt:
+				'Here\'s my go code: \n```go\n{code}\n```\n<contextual_information>\nYou have to write go code and export a "main" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner"\n</contextual_information>\nMy instructions: {description}'
+		},
+		bash: {
+			prompt:
+				'<contextual_information>\nYou have to write bash code. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.\n</contextual_information>\nMy instructions: {description}'
+		},
+		postgresql: {
+			prompt:
+				'<contextual_information>\nYou have to write a statement for PostgreSQL. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters (without specifying the type) by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row)\n</contextual_information>\nMy instructions: {description}'
+		},
+		mysql: {
+			prompt:
+				'<contextual_information>\nYou have to write a statement for MySQL. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}'
+		},
+		bigquery: {
+			prompt:
+				'<contextual_information>\nYou have to write a statement for BigQuery. You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\n</contextual_information>\nMy instructions: {description}'
+		},
+		snowflake: {
+			prompt:
+				'<contextual_information>\nYou have to write a statement for Snowflake. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}'
+		},
+		mssql: {
+			prompt:
+				'<contextual_information>\nYou have to write a statement for Microsoft SQL Server. Arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}'
+		},
+		graphql: {
+			prompt:
+				'<contextual_information>\nYou have to write a query for GraphQL. Add the needed arguments as query parameters.\n</contextual_information>\nMy instructions: {description}'
+		},
+		powershell: {
+			prompt:
+				'<contextual_information>\nYou have to write Powershell code. Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`\n</contextual_information>\nMy instructions: {description}'
+		},
+		nativets: {
+			prompt:
+				'<contextual_information>\nYou have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nYou should use fetch and are not allowed to import any libraries. \nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix).\n</contextual_information>\nMy instructions: {description}'
+		},
+		bun: {
+			prompt:
+				'<contextual_information>\nYou have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.\nThe fetch standard method is available globally.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nThe resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.\n</contextual_information>\nMy instructions: {description}'
+		},
+		php: {
+			prompt:
+				'<contextual_information>\nYou have to write a function in php called "main". Specify the parameter types. Do not call the main function. You should generally return the result. The script must start with `<?php`.\nYou can take as parameters resources which are classes containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nYou need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.\nBefore defining each type, check if the class already exists using class_exists.\nThe resource type name has to be exactly as specified.\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:\n```\n// require:\n// mylibrary/mylibrary\n// myotherlibrary/myotherlibrary@optionalversion\n```\nNo need to require autoload, it is already done.\n<contextual_information>\nMy instructions: {description}'
+		},
+		frontend: {
+			prompt:
+				"Write client-side javascript code that should {description}. \n\n<contextual_information>\nYou can access the context object with the ctx global variable. \nThe app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'\nYou can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)\nYou can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)\nYou can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)\nYou can use the recompute function to recompute a component: recompute(id: string)\nYou can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)\nYou can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)\nThe setValue function is meant to set or force the value of a component: setValue(id: string, value: any)\nYou can validate a specific field of a form: validate(id: string, key: string)\nYou can validate all fields of a form: validateAll(id: string, key: string)\nYou can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)\n</contextual_information>"
+		},
+		transformer: {
+			prompt:
+				"Write client-side javascript code that should process the variable `result` according to the following instructions: {description}.\nThe variable `result` is available globally.\nAt the end of the code, the processed result has to be returned.\n\n<contextual_information>\nYou can access the context object with the ctx global variable. \nThe app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'\nYou can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)\nYou can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)\nYou can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)\nYou can use the recompute function to recompute a component: recompute(id: string)\nYou can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)\nYou can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)\nThe setValue function is meant to set or force the value of a component: setValue(id: string, value: any)\nYou can validate a specific field of a form: validate(id: string, key: string)\nYou can validate all fields of a form: validateAll(id: string, key: string)\nYou can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)\n</contextual_information>"
+		},
+		csharp: {
+			prompt:
+				'<contextual_information>\nYou have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.\nNuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.\nThe Main method signature should be: public static ReturnType Main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nMy instructions: {description}'
+		},
+		java: {
+			prompt:
+				'<contextual_information>\nYou have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.\nDependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.\nThe method signature should be: public static Object main(parameter types...)\nArguments are used to generate the input specification and create the frontend UI for the script.\n</contextual_information>\nMy instructions: {description}'
+		}
+	}
+}

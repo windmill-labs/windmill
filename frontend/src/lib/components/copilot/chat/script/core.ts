@@ -312,7 +312,7 @@ export function getLangContext(
 		case 'java':
 			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
 		case 'duckdb':
-			return "The user is coding in DuckDB. On Windmill, arguments can be obtained directly in the statement with $1, $2, etc.. Name the parameters by adding comments before the statement like that: `-- $1 name1 ({type})` or `-- $2 name2 ({type}) = default` (one per row). To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. You can then perform all CRUD operations. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);` and query with `SELECT * FROM db.schema.table;`"
+			return "The user is coding in DuckDB. On Windmill, arguments are defined with comments like `-- $name (text) = default` or `-- $name (text)` (one per line) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes, then perform CRUD operations. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);` and query with `SELECT * FROM db.schema.table;`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage"
 		default:
 			return ''
 	}
