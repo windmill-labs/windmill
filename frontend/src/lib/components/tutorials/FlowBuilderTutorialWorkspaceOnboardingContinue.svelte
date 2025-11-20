@@ -287,9 +287,9 @@
 					}
 				},
 				popover: {
-					title: 'This is a script',
+					title: 'Let\'s write the code for our first script',
 					description:
-						"A script is a code snippet that can be executed. For this example, we connect 3 scripts together to create a flow.",
+						"Our first check if the input temperature is valid.",
 					side: 'bottom',
 					onNextClick: () => {
 						// Hide the default driver.js overlay
@@ -399,8 +399,8 @@
 					;(window as any).__tutorialCleanupOverlays = cleanupOverlays
 				},
 				popover: {
-					title: 'Let\'s connect our scripts',
-					description: 'In our example, we use the output of our first script as input for our second script.',
+					title: 'Let\'s connect our script to the user input',
+					description: 'We use data connector to get the user input, and pass it to our script.',
 					onNextClick: () => {
 						// Clean up overlays before moving to next step
 						if ((window as any).__tutorialCleanupOverlays) {
