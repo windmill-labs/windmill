@@ -346,11 +346,6 @@
 			},
 			{
 				onHighlighted: async () => {
-					const customOverlay = document.querySelector('.tutorial-custom-overlay')
-					if (customOverlay) {
-						customOverlay.remove()
-					}
-
 					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
 					await wait(100)
 					clickButtonBySelector('#flow-editor-plug')
@@ -422,6 +417,18 @@
 					title: 'Test the script',
 					description: 'We test the script to ensure the validation logic is working correctly. Once validated, we to complete our flow with scripts b and c.',
 					onNextClick: async () => {
+						// Clean up custom overlay before moving to next step
+						const customOverlay = document.querySelector('.tutorial-custom-overlay')
+						if (customOverlay) {
+							customOverlay.remove()
+						}
+
+						// Restore the driver.js overlay
+						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (driverOverlay) {
+							driverOverlay.style.display = ''
+						}
+
 						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
 						for (let i = 0; i < modulesToAdd.length; i++) {
 							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
