@@ -89,7 +89,12 @@
 				celsius: {
 					type: 'number',
 					description: 'Temperature in Celsius',
-					default: 25
+					default: ""
+				},
+				city: {
+					type: 'string',
+					description: 'City',
+					default: ""
 				}
 			},
 			required: ['celsius'],
@@ -174,7 +179,7 @@
 					// Click on the 'b' node to open the drawer
 					selectionManager.selectId('b')
 					await wait(500) // Wait for drawer to open and editor to load
-					
+
 					// Modify the driver.js overlay to only cover the left half
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
 					if (overlay) {
@@ -182,7 +187,7 @@
 						overlay.style.right = 'auto'
 						overlay.style.left = '0'
 					}
-					
+
 					// Wait for the editor to be available
 					let editorAvailable = false
 					let attempts = 0
@@ -314,10 +319,68 @@
 					await wait(100)
 					selectionManager.selectId('Input')
 					await wait(200)
+
+					// Simulate typing "35" slowly in celsius input
+					const celsiusInput = document.querySelector('input[type="number"][placeholder=""]') as HTMLInputElement
+					if (celsiusInput) {
+						// Clear existing value first
+						celsiusInput.value = ''
+						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
+						await wait(300)
+
+						// Type "3"
+						celsiusInput.value = '3'
+						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
+						await wait(400)
+
+						// Type "5"
+						celsiusInput.value = '35'
+						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
+					}
+
+					// Wait a bit then type "New York" in the city textarea
+					await wait(500)
+					const cityTextarea = document.querySelector('textarea[placeholder=""]') as HTMLTextAreaElement
+					if (cityTextarea) {
+						const text = 'New York'
+						cityTextarea.value = ''
+						cityTextarea.dispatchEvent(new Event('input', { bubbles: true }))
+						cityTextarea.dispatchEvent(new Event('change', { bubbles: true }))
+						await wait(200)
+
+						// Type each character
+						for (let i = 0; i < text.length; i++) {
+							cityTextarea.value = text.substring(0, i + 1)
+							cityTextarea.dispatchEvent(new Event('input', { bubbles: true }))
+							cityTextarea.dispatchEvent(new Event('change', { bubbles: true }))
+							await wait(150)
+						}
+					}
 				},
 				popover: {
 					title: 'Flow inputs',
 					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use.',
+					side: 'bottom',
+					align: 'start',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#flow-editor-test-flow',
+				onHighlighted: async () => {
+					// Restore the overlay to full width
+					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					if (overlay) {
+						overlay.style.width = ''
+						overlay.style.right = ''
+						overlay.style.left = ''
+					}
+				},
+				popover: {
+					title: 'Test your flow',
+					description: 'This is the test button. It will execute your flow and show the results.',
 					onNextClick: () => {
 						driver.moveNext()
 					}
@@ -333,14 +396,14 @@
 						countdownElement.style.cssText = 'margin-top: 8px; font-size: 12px; color: #6b7280; font-style: italic;'
 						popoverDescription.appendChild(countdownElement)
 					}
-					
+
 					let secondsLeft = 5
 					const updateCountdown = () => {
 						if (countdownElement) {
 							countdownElement.textContent = `Finishing in ${secondsLeft} second${secondsLeft !== 1 ? 's' : ''}...`
 						}
 					}
-					
+
 					updateCountdown()
 					const countdownInterval = setInterval(() => {
 						secondsLeft--
@@ -354,13 +417,13 @@
 							driver.destroy()
 						}
 					}, 1000)
-					
+
 					// Store interval reference to clear it if user clicks Next
 					;(window as any).__tutorialAutoFinishInterval = countdownInterval
 				},
 				popover: {
 					title: 'Your turn now',
-					description: 'Insert a temperature in Celsius and click on the Run button to execute your flow.',
+					description: 'Insert a temperature in Celsius and click test your flow to see the results.',
 					onNextClick: () => {
 						// Clear the countdown interval if it exists
 						const interval = (window as any).__tutorialAutoFinishInterval
