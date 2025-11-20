@@ -209,7 +209,7 @@
 							cityTextarea.value = text.substring(0, i + 1)
 							cityTextarea.dispatchEvent(new Event('input', { bubbles: true }))
 							cityTextarea.dispatchEvent(new Event('change', { bubbles: true }))
-							await wait(150)
+							await wait(5)
 						}
 					}
 				},
@@ -280,7 +280,7 @@
 								editor.setCode(currentText, true)
 
 								// Small delay between characters (slightly longer to ensure editor processes)
-								const delay = char === '\n' ? 10 : 5
+								const delay = char === '\n' ? 5 : 2
 								await wait(delay)
 							}
 						}
@@ -290,13 +290,13 @@
 					title: 'This is a script',
 					description:
 						"A script is a code snippet that can be executed. For this example, we connect 3 scripts together to create a flow.",
+					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
 					}
 				}
 			},
 			{
-				element: '#flow-editor-plug',
 				onHighlighted: async () => {
 					// Make the button visible by removing the opacity-0 class from its parent
 					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
@@ -347,8 +347,13 @@
 							// Wait for animation to complete
 							await wait(2500)
 
-							// Click on the target button
-							targetButton.click()
+							// Simulate click on the target button using dispatchEvent to avoid focus issues
+							const clickEvent = new MouseEvent('click', {
+								bubbles: true,
+								cancelable: true,
+								view: window
+							})
+							targetButton.dispatchEvent(clickEvent)
 
 							// Remove fake cursor after clicking
 							await wait(500)
