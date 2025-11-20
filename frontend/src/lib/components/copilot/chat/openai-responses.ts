@@ -129,7 +129,6 @@ export async function getOpenAIResponsesCompletion(
 
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 
-	throw new Error('Testing error')
 	const runner = openaiClient.responses.stream(
 		{
 			...responsesConfig,
@@ -159,7 +158,6 @@ export async function* getOpenAIResponsesCompletionStream(
 
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 
-	throw new Error('Testing error')
 	const runner = openaiClient.responses.stream(
 		{
 			...responsesConfig,
@@ -355,7 +353,6 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 			})
 		: workspaceAIClients.getOpenaiClient()
 
-	throw new Error('Testing error')
 	const response = await openaiClient.responses.create(
 		{
 			...responsesConfig,
