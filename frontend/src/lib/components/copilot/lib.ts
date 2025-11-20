@@ -675,7 +675,16 @@ export async function getNonStreamingCompletion(
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if (provider === 'openai' || provider === 'azure_openai') {
-		return getNonStreamingOpenAIResponsesCompletion(messages, abortController, testOptions)
+		try {
+			const response = await getNonStreamingOpenAIResponsesCompletion(
+				messages,
+				abortController,
+				testOptions
+			)
+			return response
+		} catch (error) {
+			console.error('Error using Responses API:', error)
+		}
 	}
 
 	const fetchOptions: {
@@ -793,13 +802,21 @@ export async function getFimCompletion(
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceCompletions?: boolean
+	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
 	// Use Responses API for OpenAI and Azure OpenAI
-	if (provider === 'openai' || provider === 'azure_openai') {
-		return getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
+		try {
+			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			return stream
+		} catch (error) {
+			console.error('Error using Responses API:', error)
+		}
 	}
 
 	// Use Completions API for other providers
