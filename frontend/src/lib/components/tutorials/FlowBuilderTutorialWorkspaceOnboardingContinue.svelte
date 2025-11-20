@@ -7,14 +7,58 @@
 	import { initFlow } from '../flows/flowStore.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
-	import { wait } from '$lib/utils'
+	import { wait, type StateStore } from '$lib/utils'
 	import { get } from 'svelte/store'
 	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
 
+	// Helper function to create and animate a fake cursor
+	async function createFakeCursor(
+		startElement: HTMLElement | null,
+		endElement: HTMLElement,
+		transitionDuration: number = 1.5
+	): Promise<HTMLElement> {
+		const fakeCursor = document.createElement('div')
+		fakeCursor.style.cssText = `
+			position: fixed;
+			width: 20px;
+			height: 20px;
+			border-radius: 50%;
+			background-color: rgba(59, 130, 246, 0.8);
+			border: 2px solid white;
+			pointer-events: none;
+			z-index: 10000;
+			transition: all ${transitionDuration}s ease-in-out;
+		`
+		document.body.appendChild(fakeCursor)
+
+		const endRect = endElement.getBoundingClientRect()
+		let startX: number, startY: number
+
+		if (startElement) {
+			const startRect = startElement.getBoundingClientRect()
+			startX = startRect.left + startRect.width / 2
+			startY = startRect.top + startRect.height / 2
+		} else {
+			startX = endRect.left - 100
+			startY = endRect.top + endRect.height / 2
+		}
+
+		fakeCursor.style.left = `${startX}px`
+		fakeCursor.style.top = `${startY}px`
+
+		await wait(100)
+
+		fakeCursor.style.left = `${endRect.left + endRect.width / 2}px`
+		fakeCursor.style.top = `${endRect.top + endRect.height / 2}px`
+
+		await wait(transitionDuration * 1000)
+
+		return fakeCursor
+	}
+
 	export function runTutorial() {
-		// Clear any existing flow drafts from localStorage to ensure fresh start
 		try {
 			localStorage.removeItem('flow')
 		} catch (e) {
@@ -35,8 +79,7 @@
 						content:
 							'export async function main(celsius: number) {\n  // Validate that the temperature is within a reasonable range\n  if (celsius < -273.15) {\n    throw new Error("Temperature cannot be below absolute zero (-273.15°C)");\n  }\n  \n  if (celsius > 1000) {\n    throw new Error("Temperature seems unreasonably high. Please check your input.");\n  }\n  \n  return {\n    celsius: celsius,\n    isValid: true,\n    message: "Temperature is valid"\n  };\n}',
 						language: 'bun',
-						input_transforms: {
-						}
+						input_transforms: {}
 					},
 					summary: 'Validate temperature input'
 				},
@@ -86,11 +129,6 @@
 					type: 'number',
 					description: 'Temperature in Celsius',
 					default: ""
-				},
-				city: {
-					type: 'string',
-					description: 'City you are now in',
-					default: ""
 				}
 			},
 			required: ['celsius'],
@@ -115,11 +153,10 @@
 		const steps: DriveStep[] = [
 			{
 				popover: {
-					title: 'Welcome to this flow builder tutorial',
+					title: 'Welcome to this flow tutorial',
 					description:
 						"In this tutorial, we will create a simple flow that validates a temperature in Celsius and converts it to Fahrenheit.",
 					onNextClick: async () => {
-						// Initialize empty flow with just the schema
 						const emptyFlow: Flow = {
 							summary: '',
 							description: '',
@@ -131,7 +168,7 @@
 							archived: false,
 							extra_perms: {}
 						}
-						await initFlow(emptyFlow, flowStore as any, flowStateStore)
+						await initFlow(emptyFlow, flowStore as StateStore<Flow>, flowStateStore)
 
 						driver.moveNext()
 					}
@@ -140,14 +177,12 @@
 			{
 				element: '#flow-editor-virtual-Input',
 				onHighlighted: async () => {
-					// Click on the input button to open the drawer
 					await wait(300)
 					triggerPointerDown('#flow-editor-virtual-Input')
 					await wait(100)
 					selectionManager.selectId('Input')
 					await wait(200)
 
-					// Modify the driver.js overlay to only cover the left half
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
 					if (overlay) {
 						overlay.style.width = '50%'
@@ -155,46 +190,23 @@
 						overlay.style.left = '0'
 					}
 
-					// Simulate typing "25" slowly in celsius input
 					const celsiusInput = document.querySelector('input[type="number"][placeholder=""]') as HTMLInputElement
 					if (celsiusInput) {
-						// Clear existing value first
 						celsiusInput.value = ''
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
 						await wait(300)
 
-						// Type "2"
 						celsiusInput.value = '2'
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
 						await wait(400)
 
-						// Type "5"
 						celsiusInput.value = '25'
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
 					}
-
-					// Wait a bit then type "New York" in the city textarea
-					await wait(500)
-					const cityTextarea = document.querySelector('textarea[placeholder=""]') as HTMLTextAreaElement
-					if (cityTextarea) {
-						const text = 'New York'
-						cityTextarea.value = ''
-						cityTextarea.dispatchEvent(new Event('input', { bubbles: true }))
-						cityTextarea.dispatchEvent(new Event('change', { bubbles: true }))
-						await wait(200)
-
-						// Type each character
-						for (let i = 0; i < text.length; i++) {
-							cityTextarea.value = text.substring(0, i + 1)
-							cityTextarea.dispatchEvent(new Event('input', { bubbles: true }))
-							cityTextarea.dispatchEvent(new Event('change', { bubbles: true }))
-							await wait(5)
-						}
-					}
 				},
 				popover: {
-					title: 'Flow inputs',
-					description: 'Here, you give the input of your flow. It can be a strings, numbers, booleans, objects,.. Any data type that want your flow to use.',
+					title: 'Define the User Input',
+					description: 'First, define the data the flow will receive. For this example, we\'ll configure the input to accept a temperature in Celsius.',
 					side: 'bottom',
 					align: 'start',
 					onNextClick: () => {
@@ -205,78 +217,38 @@
 			{
 				element: '#flow-editor-add-step-0',
 				onHighlighted: async () => {
-					// Hide the overlay for this step
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
 					if (overlay) {
 						overlay.style.display = 'none'
 					}
 
-					// Click on the add step button
 					await wait(500)
 					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
 					if (button) {
 						button.click()
 					}
 
-					// Wait for the menu to open
 					await wait(800)
 
-					// Find the "TypeScript (Bun)" span
 					const spans = Array.from(document.querySelectorAll('span'))
 					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
 
 					if (bunSpan) {
-						// Create a fake cursor element
-						const fakeCursor = document.createElement('div')
-						fakeCursor.style.cssText = `
-							position: fixed;
-							width: 20px;
-							height: 20px;
-							border-radius: 50%;
-							background-color: rgba(59, 130, 246, 0.8);
-							border: 2px solid white;
-							pointer-events: none;
-							z-index: 10000;
-							transition: all 1.5s ease-in-out;
-						`
-						document.body.appendChild(fakeCursor)
-
-						// Get the span position
-						const spanRect = bunSpan.getBoundingClientRect()
-
-						// Start cursor at left side of screen
-						fakeCursor.style.left = `${spanRect.left - 100}px`
-						fakeCursor.style.top = `${spanRect.top + spanRect.height / 2}px`
-
-						// Wait a frame for the initial position to be set
-						await wait(100)
-
-						// Move cursor to hover over the span
-						fakeCursor.style.left = `${spanRect.left + spanRect.width / 2}px`
-						fakeCursor.style.top = `${spanRect.top + spanRect.height / 2}px`
-
-						// Wait for animation to complete and keep hovering
-						await wait(1500)
-
-						// Keep cursor there for a moment
+						const fakeCursor = await createFakeCursor(null, bunSpan, 1.5)
 						await wait(1000)
-
-						// Remove fake cursor
 						fakeCursor.remove()
 					}
 				},
 				popover: {
-					title: 'Add more steps',
-					description: 'Click here to add more steps to your flow. This is how you build complex workflows.',
+					title: 'Select a language',
+					description: 'Now we need to create our first script. We\'ll use TypeScript for this example.',
 					side: 'top',
 					onNextClick: async () => {
-						// Restore the overlay
 						const overlay = document.querySelector('.driver-overlay') as HTMLElement
 						if (overlay) {
 							overlay.style.display = ''
 						}
 
-						// Add only module 'a' (first script)
 						const moduleData = flowJson.value.modules[0]
 						const module: FlowModule = {
 							id: moduleData.id,
@@ -284,13 +256,11 @@
 							value: moduleData.value
 						}
 
-						// Load module state
 						const state = await loadFlowModuleState(module)
 						flowStateStore.val[module.id] = state
 
-						// Add module to flow
 						flowStore.val.value.modules.push(module)
-						flowStore.val = { ...flowStore.val } // Trigger reactivity
+						flowStore.val = { ...flowStore.val }
 
 						await wait(700)
 
@@ -301,11 +271,9 @@
 			{
 				element: '#a',
 				onHighlighted: async () => {
-					// Click on the 'a' node to open the drawer
 					selectionManager.selectId('a')
-					await wait(500) // Wait for drawer to open and editor to load
+					await wait(500)
 
-					// Modify the driver.js overlay to only cover the left half
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
 					if (overlay) {
 						overlay.style.width = '50%'
@@ -313,48 +281,31 @@
 						overlay.style.left = '0'
 					}
 
-					// Wait for the editor to be available
-					let editorAvailable = false
+					let editorState = get(currentEditor)
 					let attempts = 0
-					while (!editorAvailable && attempts < 20) {
-						await wait(100)
-						const editorState = get(currentEditor)
+					while (attempts < 20) {
 						if (editorState && editorState.type === 'script' && editorState.stepId === 'a') {
-							editorAvailable = true
+							break
 						}
+						await wait(100)
+						editorState = get(currentEditor)
 						attempts++
 					}
 
-					const editorState = get(currentEditor)
-					if (editorAvailable && editorState && editorState.type === 'script') {
+					if (editorState && editorState.type === 'script') {
 						const editor = editorState.editor
 						const moduleA = flowJson.value.modules.find(m => m.id === 'a')
 						const codeToType = (moduleA?.value && 'content' in moduleA.value) ? moduleA.value.content : ''
 
 						if (codeToType) {
-							// Clear the editor first
 							editor.setCode('', true)
 							await wait(200)
 
-							// Get Monaco editor model to access the underlying editor
-							const model = editor.getModel()
-							if (!model) {
-								return
-							}
-
-							// Access the Monaco editor instance through the model
-							// We'll use executeEdits for more reliable character insertion
 							let currentText = ''
-
-							// Type the code character by character
 							for (let i = 0; i < codeToType.length; i++) {
 								const char = codeToType[i]
 								currentText += char
-
-								// Use setCode with noHistory to update the editor
 								editor.setCode(currentText, true)
-
-								// Small delay between characters (slightly longer to ensure editor processes)
 								const delay = char === '\n' ? 5 : 2
 								await wait(delay)
 							}
@@ -362,18 +313,16 @@
 					}
 				},
 				popover: {
-					title: 'Let\'s write the code for our first script',
+					title: 'Write our script',
 					description:
-						"Our first check if the input temperature is valid.",
+						"Then, we write the code for this script. Its purpose is to collect the temperature input and determine if it is a valid value.",
 					side: 'bottom',
 					onNextClick: () => {
-						// Hide the default driver.js overlay
 						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
 						if (driverOverlay) {
 							driverOverlay.style.display = 'none'
 						}
 
-						// Create a single custom overlay with clip-path to reveal only bottom-right corner
 						const customOverlay = document.createElement('div')
 						customOverlay.className = 'tutorial-custom-overlay'
 						customOverlay.style.cssText = `
@@ -397,85 +346,36 @@
 			},
 			{
 				onHighlighted: async () => {
-					// Make the button visible by removing the opacity-0 class from its parent
+					const customOverlay = document.querySelector('.tutorial-custom-overlay')
+					if (customOverlay) {
+						customOverlay.remove()
+					}
+
 					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
-					// Click the button to open the connections panel
 					await wait(100)
 					clickButtonBySelector('#flow-editor-plug')
 
-					// Wait for the connections panel to open
 					await wait(800)
 
-					// Find the target button with title="flow_input.celsius"
 					const targetButton = document.querySelector('button[title="flow_input.celsius"]') as HTMLElement
 					if (targetButton) {
-						// Create a fake cursor element
-						const fakeCursor = document.createElement('div')
-						fakeCursor.style.cssText = `
-							position: fixed;
-							width: 20px;
-							height: 20px;
-							border-radius: 50%;
-							background-color: rgba(59, 130, 246, 0.8);
-							border: 2px solid white;
-							pointer-events: none;
-							z-index: 10000;
-							transition: all 2.5s ease-in-out;
-						`
-						document.body.appendChild(fakeCursor)
-
-						// Get the plug button position (starting point)
 						const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
-						const startRect = plugButton?.getBoundingClientRect()
-
-						// Get the target button position (ending point)
-						const targetRect = targetButton.getBoundingClientRect()
-
-						if (startRect && targetRect) {
-							// Start cursor at plug button
-							fakeCursor.style.left = `${startRect.left + startRect.width / 2}px`
-							fakeCursor.style.top = `${startRect.top + startRect.height / 2}px`
-
-							// Wait a frame for the initial position to be set
-							await wait(100)
-
-							// Move cursor to target
-							fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
-							fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
-
-							// Wait for animation to complete
-							await wait(2500)
-
-							// Simulate click on the target button using dispatchEvent to avoid focus issues
+						if (plugButton) {
+							const fakeCursor = await createFakeCursor(plugButton, targetButton, 2.5)
 							const clickEvent = new MouseEvent('click', {
 								bubbles: true,
 								cancelable: true,
 								view: window
 							})
 							targetButton.dispatchEvent(clickEvent)
-
-							// Remove fake cursor after clicking
 							await wait(500)
 							fakeCursor.remove()
 						}
 					}
-
-					// Clean up custom overlay when moving to next step
-					const cleanupOverlays = () => {
-						document.querySelector('.tutorial-custom-overlay')?.remove()
-						// Restore the driver.js overlay
-						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
-						if (driverOverlay) {
-							driverOverlay.style.display = ''
-						}
-					}
-
-					// Store cleanup function for next step
-					;(window as any).__tutorialCleanupOverlays = cleanupOverlays
 				},
 				popover: {
-					title: 'Let\'s connect our script to the user input data',
-					description: 'We use data connector to get the user input, and pass it to our script.',
+					title: 'Connect input data to the script',
+					description: 'Now we need to connect the input data to our script. We use data connectors to pass data between our flow steps.',
 					onNextClick: async () => {
 						driver.moveNext()
 					}
@@ -483,7 +383,6 @@
 			},
 			{
 				onHighlighted: async () => {
-					// Find and click the "Test this step" tab button
 					await wait(500)
 					const buttons = Array.from(document.querySelectorAll('button'))
 					const testTabButton = buttons.find(btn => {
@@ -493,15 +392,11 @@
 					}) as HTMLElement
 
 					if (testTabButton) {
-						// Store the button element for the popover to target
-						;(window as any).__tutorialTestTabButton = testTabButton
 						testTabButton.click()
 					}
 
-					// Wait for the test tab content to load
 					await wait(800)
 
-					// Find the "Run" button (the primary action button)
 					const testActionButton = Array.from(document.querySelectorAll('button')).find(btn => {
 						return btn.textContent?.includes('Run') &&
 							btn.classList.contains('bg-surface-accent-primary') &&
@@ -509,57 +404,24 @@
 					}) as HTMLElement
 
 					if (testActionButton) {
-						// Create a fake cursor element
-						const fakeCursor = document.createElement('div')
-						fakeCursor.style.cssText = `
-							position: fixed;
-							width: 20px;
-							height: 20px;
-							border-radius: 50%;
-							background-color: rgba(59, 130, 246, 0.8);
-							border: 2px solid white;
-							pointer-events: none;
-							z-index: 10000;
-							transition: all 1.5s ease-in-out;
-						`
-						document.body.appendChild(fakeCursor)
-
-						// Get the button position
 						const buttonRect = testActionButton.getBoundingClientRect()
+						const startElement = document.createElement('div')
+						startElement.style.position = 'fixed'
+						startElement.style.left = `${buttonRect.left + buttonRect.width / 2}px`
+						startElement.style.top = `${buttonRect.top - 100}px`
+						document.body.appendChild(startElement)
 
-						// Start cursor at top of screen (above the button)
-						fakeCursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
-						fakeCursor.style.top = `${buttonRect.top - 100}px`
-
-						// Wait a frame for the initial position to be set
-						await wait(100)
-
-						// Move cursor to button
-						fakeCursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
-						fakeCursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
-
-						// Wait for animation to complete
-						await wait(1500)
-
-						// Click on the button
+						const fakeCursor = await createFakeCursor(startElement, testActionButton, 1.5)
 						testActionButton.click()
-
-						// Remove fake cursor after clicking
 						await wait(300)
 						fakeCursor.remove()
+						startElement.remove()
 					}
 				},
 				popover: {
-					title: 'Test your step',
-					description: 'You can test individual steps to verify they work correctly before running the entire flow.',
+					title: 'Test the script',
+					description: 'We test the script to ensure the validation logic is working correctly. Once validated, we to complete our flow with scripts b and c.',
 					onNextClick: async () => {
-						// Clean up overlays from previous step
-						if ((window as any).__tutorialCleanupOverlays) {
-							;(window as any).__tutorialCleanupOverlays()
-							delete (window as any).__tutorialCleanupOverlays
-						}
-
-						// Add modules 'b' and 'c' with animation delays
 						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
 						for (let i = 0; i < modulesToAdd.length; i++) {
 							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
@@ -571,13 +433,11 @@
 								value: moduleData.value
 							}
 
-							// Load module state
 							const state = await loadFlowModuleState(module)
 							flowStateStore.val[module.id] = state
 
-							// Add module to flow
 							flowStore.val.value.modules.push(module)
-							flowStore.val = { ...flowStore.val } // Trigger reactivity
+							flowStore.val = { ...flowStore.val }
 						}
 
 						await wait(700)
@@ -589,62 +449,13 @@
 			{
 				element: '#flow-editor-test-flow',
 				popover: {
-					title: 'Test your flow',
-					description: 'We can now test our flow',
+					title: 'The flow is now complete!',
+					description: 'Click the Test Flow button to execute the entire process and view the final results.',
 					onNextClick: () => {
 						driver.moveNext()
 					}
 				}
 			},
-			{
-				onHighlighted: async () => {
-					// Create countdown element
-					const popoverDescription = document.querySelector('#driver-popover-description')
-					let countdownElement: HTMLElement | null = null
-					if (popoverDescription) {
-						countdownElement = document.createElement('div')
-						countdownElement.style.cssText = 'margin-top: 8px; font-size: 12px; color: #6b7280; font-style: italic;'
-						popoverDescription.appendChild(countdownElement)
-					}
-
-					let secondsLeft = 5
-					const updateCountdown = () => {
-						if (countdownElement) {
-							countdownElement.textContent = `Finishing in ${secondsLeft} second${secondsLeft !== 1 ? 's' : ''}...`
-						}
-					}
-
-					updateCountdown()
-					const countdownInterval = setInterval(() => {
-						secondsLeft--
-						if (secondsLeft > 0) {
-							updateCountdown()
-						} else {
-							clearInterval(countdownInterval)
-							if (countdownElement) {
-								countdownElement.remove()
-							}
-							driver.destroy()
-						}
-					}, 1000)
-
-					// Store interval reference to clear it if user clicks Next
-					;(window as any).__tutorialAutoFinishInterval = countdownInterval
-				},
-				popover: {
-					title: 'Your turn now',
-					description: 'Insert a temperature in Celsius and click test your flow to see the results.',
-					onNextClick: () => {
-						// Clear the countdown interval if it exists
-						const interval = (window as any).__tutorialAutoFinishInterval
-						if (interval) {
-							clearInterval(interval)
-							delete (window as any).__tutorialAutoFinishInterval
-						}
-						driver.destroy()
-					}
-				}
-			}
 		]
 
 		return steps
