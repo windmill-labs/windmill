@@ -465,7 +465,7 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
         .await?;
 
     // Check if we need to refresh and do so if necessary
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "enterprise", feature = "private"))]
     if let DatabaseUrl::IamRds(ref rds_url_lock) = database_url {
         // Check if refresh is needed
         let needs_refresh = {
