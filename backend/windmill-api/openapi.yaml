@@ -19726,6 +19726,8 @@ components:
       type: object
       required:
         - total_diffs
+        - total_ahead
+        - total_behind
         - scripts_changed
         - flows_changed
         - apps_changed
@@ -19736,6 +19738,12 @@ components:
         total_diffs:
           type: integer
           description: Total number of items with differences
+        total_ahead:
+          type: integer
+          description: Total number of ahead changes
+        total_behind:
+          type: integer
+          description: Total number of behind changes
         scripts_changed:
           type: integer
           description: Number of scripts with differences

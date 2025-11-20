@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
@@ -164,8 +164,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
         .route("/operator_settings", post(update_operator_settings))
-        .route("/create_workspace_fork_branch", post(create_workspace_fork_branch))
-        .route("/compare/:target_workspace_id", get(compare_workspaces_mock));
+        .route(
+            "/create_workspace_fork_branch",
+            post(create_workspace_fork_branch),
+        )
+        .route("/compare/:target_workspace_id", get(compare_workspaces));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -707,7 +710,9 @@ async fn get_slack_oauth_config(
     .await?;
 
     // Mask the secret if it exists
-    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+    let masked_secret = settings
+        .slack_oauth_client_secret
+        .map(|_| "***".to_string());
 
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
@@ -3824,7 +3829,7 @@ async fn update_operator_settings(
     Ok("Operator settings updated successfully".to_string())
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct WorkspaceItemDiff {
     pub kind: String,
     pub path: String,
@@ -3850,6 +3855,8 @@ pub struct WorkspaceComparison {
 #[derive(Serialize)]
 pub struct CompareSummary {
     pub total_diffs: usize,
+    pub total_ahead: usize,
+    pub total_behind: usize,
     pub scripts_changed: usize,
     pub flows_changed: usize,
     pub apps_changed: usize,
@@ -3866,7 +3873,7 @@ async fn compare_workspaces_mock(
 ) -> JsonResult<WorkspaceComparison> {
     // Check permissions for source workspace
     require_admin(authed.is_admin, &authed.username)?;
-    
+
     // Return empty comparison for now
     // TODO: Replace with actual implementation once sqlx prepare is run
     Ok(Json(WorkspaceComparison {
@@ -3876,6 +3883,8 @@ async fn compare_workspaces_mock(
         diffs: Vec::new(),
         summary: CompareSummary {
             total_diffs: 0,
+            total_ahead: 0,
+            total_behind: 0,
             scripts_changed: 0,
             flows_changed: 0,
             apps_changed: 0,
@@ -3891,7 +3900,6 @@ async fn compare_workspaces_mock(
 // because they use sqlx compile-time checked queries that require `cargo sqlx prepare`
 // to be run with a database connection.
 
-/*
 async fn compare_workspaces(
     authed: ApiAuthed,
     Path((w_id, target_workspace_id)): Path<(String, String)>,
@@ -3900,18 +3908,60 @@ async fn compare_workspaces(
     // Check permissions for source workspace
     require_admin(authed.is_admin, &authed.username)?;
 
-    // Check if workspaces have parent-child relationship
+    let diff_items: Vec<WorkspaceItemDiff> = sqlx::query!(
+        "SELECT path, kind, ahead, behind, has_changes FROM workspace_diff
+        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        target_workspace_id,
+        w_id,
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|r| WorkspaceItemDiff {
+        kind: r.kind,
+        path: r.path,
+        versions_ahead: r.ahead,
+        versions_behind: r.behind,
+        has_changes: r.has_changes.unwrap_or(true),
+        ..Default::default()
+    })
+    .collect();
+
+    tracing::error!("diff items: {diff_items:#?}");
+
     let is_fork: bool = sqlx::query_scalar(
         "SELECT EXISTS(
-            SELECT 1 FROM workspace 
-            WHERE (id = $1 AND parent_workspace_id = $2) 
+            SELECT 1 FROM workspace
+            WHERE (id = $1 AND parent_workspace_id = $2)
                OR (id = $2 AND parent_workspace_id = $1)
-        )"
+        )",
     )
     .bind(&w_id)
     .bind(&target_workspace_id)
     .fetch_one(&db)
     .await?;
+
+    let summary = CompareSummary {
+        total_diffs: diff_items.len(),
+        total_ahead: diff_items.iter().map(|s| s.versions_ahead).fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        total_behind: diff_items.iter().map(|s| s.versions_behind).fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        scripts_changed: diff_items.iter().filter(|s| s.kind == "script").count(),
+        flows_changed: diff_items.iter().filter(|s| s.kind == "flow").count(),
+        apps_changed: diff_items.iter().filter(|s| s.kind == "app").count(),
+        resources_changed: diff_items.iter().filter(|s| s.kind == "resource").count(),
+        variables_changed: diff_items.iter().filter(|s| s.kind == "variable").count(),
+        conflicts: diff_items.iter().filter(|s| s.versions_ahead > 0 && s.versions_behind > 0).count(),
+    };
+
+    return Ok(Json(WorkspaceComparison {
+        source_workspace_id: w_id.to_string(),
+        target_workspace_id,
+        is_fork,
+        diffs: diff_items,
+        summary,
+    }));
+
+    // Check if workspaces have parent-child relationship
 
     let mut diffs = Vec::new();
 
@@ -3938,12 +3988,17 @@ async fn compare_workspaces(
     // Calculate summary
     let summary = CompareSummary {
         total_diffs: diffs.len(),
+        total_ahead: diffs.len(),
+        total_behind: diffs.len(),
         scripts_changed: diffs.iter().filter(|d| d.kind == "script").count(),
         flows_changed: diffs.iter().filter(|d| d.kind == "flow").count(),
         apps_changed: diffs.iter().filter(|d| d.kind == "app").count(),
         resources_changed: diffs.iter().filter(|d| d.kind == "resource").count(),
         variables_changed: diffs.iter().filter(|d| d.kind == "variable").count(),
-        conflicts: diffs.iter().filter(|d| d.versions_ahead > 0 && d.versions_behind > 0).count(),
+        conflicts: diffs
+            .iter()
+            .filter(|d| d.versions_ahead > 0 && d.versions_behind > 0)
+            .count(),
     };
 
     Ok(Json(WorkspaceComparison {
@@ -3976,7 +4031,10 @@ async fn compare_scripts(
     .fetch_all(db)
     .await?;
 
-    for (path,) in all_paths {
+    for path in all_paths {
+        let Some(path) = path.path else {
+            continue;
+        };
 
         // Get latest script from each workspace
         let source_script = sqlx::query!(
@@ -4097,7 +4155,10 @@ async fn compare_flows(
     .fetch_all(db)
     .await?;
 
-    for (path,) in all_paths {
+    for path in all_paths {
+        let Some(path) = path.path else {
+            continue;
+        };
 
         // Get latest flow version from each workspace
         let source_flow = sqlx::query!(
@@ -4153,10 +4214,12 @@ async fn compare_flows(
 
         if has_changes {
             // Count versions
-            let source_version_count = source_flow.as_ref()
+            let source_version_count = source_flow
+                .as_ref()
                 .and_then(|f| f.latest_version)
                 .unwrap_or(0);
-            let target_version_count = target_flow.as_ref()
+            let target_version_count = target_flow
+                .as_ref()
                 .and_then(|f| f.latest_version)
                 .unwrap_or(0);
 
@@ -4199,8 +4262,10 @@ async fn compare_apps(
     .fetch_all(db)
     .await?;
 
-    for (path,) in all_paths {
-
+    for path in all_paths {
+        let Some(path) = path.path else {
+            continue;
+        };
         // Get latest app version from each workspace
         let source_app = sqlx::query!(
             "SELECT a.versions[array_length(a.versions, 1)] as latest_version,
@@ -4227,12 +4292,9 @@ async fn compare_apps(
         // Get actual app version content for comparison
         let source_version_data = if let Some(app) = &source_app {
             if let Some(version_id) = app.latest_version {
-                sqlx::query!(
-                    "SELECT value FROM app_version WHERE id = $1",
-                    version_id
-                )
-                .fetch_optional(db)
-                .await?
+                sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
+                    .fetch_optional(db)
+                    .await?
             } else {
                 None
             }
@@ -4242,12 +4304,9 @@ async fn compare_apps(
 
         let target_version_data = if let Some(app) = &target_app {
             if let Some(version_id) = app.latest_version {
-                sqlx::query!(
-                    "SELECT value FROM app_version WHERE id = $1",
-                    version_id
-                )
-                .fetch_optional(db)
-                .await?
+                sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
+                    .fetch_optional(db)
+                    .await?
             } else {
                 None
             }
@@ -4269,7 +4328,9 @@ async fn compare_apps(
             }
 
             // Compare actual app content
-            if let (Some(source_data), Some(target_data)) = (&source_version_data, &target_version_data) {
+            if let (Some(source_data), Some(target_data)) =
+                (&source_version_data, &target_version_data)
+            {
                 if source_data.value != target_data.value {
                     metadata_changes.push("content".to_string());
                     has_changes = true;
@@ -4285,10 +4346,12 @@ async fn compare_apps(
         }
 
         if has_changes {
-            let source_version_count = source_app.as_ref()
+            let source_version_count = source_app
+                .as_ref()
                 .and_then(|a| a.latest_version)
                 .unwrap_or(0);
-            let target_version_count = target_app.as_ref()
+            let target_version_count = target_app
+                .as_ref()
                 .and_then(|a| a.latest_version)
                 .unwrap_or(0);
 
@@ -4331,7 +4394,10 @@ async fn compare_resources(
     .fetch_all(db)
     .await?;
 
-    for (path,) in all_paths {
+    for path in all_paths {
+        let Some(path) = path.path else {
+            continue;
+        };
 
         let source_resource = sqlx::query!(
             "SELECT value, description, resource_type, edited_at
@@ -4382,8 +4448,16 @@ async fn compare_resources(
             diffs.push(WorkspaceItemDiff {
                 kind: "resource".to_string(),
                 path: path.clone(),
-                versions_ahead: if source_resource.is_some() && target_resource.is_none() { 1 } else { 0 },
-                versions_behind: if target_resource.is_some() && source_resource.is_none() { 1 } else { 0 },
+                versions_ahead: if source_resource.is_some() && target_resource.is_none() {
+                    1
+                } else {
+                    0
+                },
+                versions_behind: if target_resource.is_some() && source_resource.is_none() {
+                    1
+                } else {
+                    0
+                },
                 has_changes,
                 source_hash: None,
                 target_hash: None,
@@ -4418,7 +4492,10 @@ async fn compare_variables(
     .fetch_all(db)
     .await?;
 
-    for (path,) in all_paths {
+    for path in all_paths {
+        let Some(path) = path.path else {
+            continue;
+        };
 
         let source_variable = sqlx::query!(
             "SELECT value, is_secret, description
@@ -4456,7 +4533,7 @@ async fn compare_variables(
                 metadata_changes.push("secret_value".to_string());
                 has_changes = true;
             }
-            
+
             if source.description != target.description {
                 metadata_changes.push("description".to_string());
                 has_changes = true;
@@ -4474,8 +4551,16 @@ async fn compare_variables(
             diffs.push(WorkspaceItemDiff {
                 kind: "variable".to_string(),
                 path: path.clone(),
-                versions_ahead: if source_variable.is_some() && target_variable.is_none() { 1 } else { 0 },
-                versions_behind: if target_variable.is_some() && source_variable.is_none() { 1 } else { 0 },
+                versions_ahead: if source_variable.is_some() && target_variable.is_none() {
+                    1
+                } else {
+                    0
+                },
+                versions_behind: if target_variable.is_some() && source_variable.is_none() {
+                    1
+                } else {
+                    0
+                },
                 has_changes,
                 source_hash: None,
                 target_hash: None,
@@ -4488,4 +4573,3 @@ async fn compare_variables(
 
     Ok(diffs)
 }
-*/

@@ -3,44 +3,58 @@
 	import { WorkspaceService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { Button } from './common'
-	import { Alert } from './common'
-	import { InfoIcon, GitBranch, ArrowUpRight, ArrowDownRight, AlertTriangle } from 'lucide-svelte'
-	import WorkspaceComparisonDrawer from './WorkspaceComparisonDrawer.svelte'
+	import { GitBranch, AlertTriangle } from 'lucide-svelte'
+	import { goto } from '$app/navigation'
+	import { onMount, untrack } from 'svelte'
+	import { switchWorkspace } from '$lib/storeUtils'
 
-	let comparisonDrawer: WorkspaceComparisonDrawer | undefined = undefined
-	let loading = false
-	let comparison: WorkspaceComparison | undefined = undefined
-	let error: string | undefined = undefined
-	let isVisible = false
+	let loading = $state(false)
+	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	let error: string | undefined = $state(undefined)
+	let isVisible = $state(false)
 
-	$: currentWorkspace = $workspaceStore
-	$: currentWorkspaceData = $userWorkspaces.find(w => w.id === currentWorkspace)
-	$: isFork = currentWorkspace?.startsWith('wm-fork-') ?? false
-	$: parentWorkspaceId = currentWorkspaceData?.parent_workspace_id
-	
-	// Determine if we should show the banner
-	$: if (isFork && currentWorkspace) {
-		checkForChanges()
-	} else {
-		isVisible = false
-		comparison = undefined
-	}
+	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
+	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
+
+	$effect(() => {
+		;[$workspaceStore, parentWorkspaceId]
+		untrack(() => {
+			if (isFork && $workspaceStore) {
+				checkForChanges()
+			} else {
+				isVisible = false
+				comparison = undefined
+			}
+		})
+	})
+
+	onMount(() => {
+		console.log('heyay')
+		if (isFork && $workspaceStore) {
+			checkForChanges()
+		} else {
+			isVisible = false
+			comparison = undefined
+		}
+	})
 
 	async function checkForChanges() {
-		if (!currentWorkspace || !parentWorkspaceId) {
+		if (!$workspaceStore || !parentWorkspaceId) {
 			return
 		}
 
+		console.log('checking for changes')
 		loading = true
 		error = undefined
-		
+
 		try {
 			// Compare with parent workspace
 			const result = await WorkspaceService.compareWorkspaces({
-				workspace: currentWorkspace,
+				workspace: $workspaceStore,
 				targetWorkspaceId: parentWorkspaceId
 			})
-			
+
 			comparison = result
 			isVisible = result.summary.total_diffs > 0
 		} catch (e) {
@@ -54,10 +68,36 @@
 	}
 
 	function openComparisonDrawer() {
-		comparisonDrawer?.open()
+		if (parentWorkspaceId) {
+			goto('/forks/compare?parent_workspace_id=' + encodeURIComponent(parentWorkspaceId), {
+				replaceState: true
+			})
+		}
+	}
+
+	function forkAheadBehindMessage(
+		changesAhead: number,
+		changesBehind: number,
+		itemsChanged: number
+	) {
+		let msg: string[] = []
+		if (changesAhead > 0 || changesBehind > 0) {
+			msg.push('This fork is ')
+			if (changesAhead > 0)
+				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
+			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
+			if (changesBehind > 0)
+				msg.push(`${changesBehind} change${changesBehind > 1 ? 's' : ''} behind `)
+		}
+		return msg.join('')
 	}
 </script>
 
+{#if loading}
+	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+		<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
+	</div>
+{/if}
 {#if isVisible && isFork}
 	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
 		<div class="px-4 py-2">
@@ -66,77 +106,96 @@
 					<GitBranch class="w-4 h-4 text-blue-600 dark:text-blue-400" />
 					<div class="text-sm">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
-							Fork Workspace
+							Fork of {parentWorkspaceId}
 						</span>
-						{#if parentWorkspaceId}
-							<span class="text-blue-700 dark:text-blue-300 ml-1">
-								(parent: {parentWorkspaceId})
-							</span>
-						{/if}
 					</div>
-					
+
 					{#if loading}
-						<span class="text-xs text-blue-600 dark:text-blue-400">
-							Checking for changes...
-						</span>
+						<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
 					{:else if error}
 						<span class="text-xs text-red-600 dark:text-red-400">
 							{error}
 						</span>
 					{:else if comparison}
 						<div class="flex items-center gap-4 text-xs">
+							{console.log(comparison)}
 							{#if comparison.summary.total_diffs > 0}
+								<span>
+									{forkAheadBehindMessage(
+										comparison.summary.total_ahead,
+										comparison.summary.total_behind,
+										comparison.summary.total_diffs
+									)}
+									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison.summary
+										.total_diffs} items:
+								</span>
 								<div class="flex items-center gap-2">
 									{#if comparison.summary.scripts_changed > 0}
 										<span class="text-blue-700 dark:text-blue-300">
-											{comparison.summary.scripts_changed} script{comparison.summary.scripts_changed !== 1 ? 's' : ''}
+											{comparison.summary.scripts_changed} script{comparison.summary
+												.scripts_changed !== 1
+												? 's'
+												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.flows_changed > 0}
 										<span class="text-blue-700 dark:text-blue-300">
-											{comparison.summary.flows_changed} flow{comparison.summary.flows_changed !== 1 ? 's' : ''}
+											{comparison.summary.flows_changed} flow{comparison.summary.flows_changed !== 1
+												? 's'
+												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.apps_changed > 0}
 										<span class="text-blue-700 dark:text-blue-300">
-											{comparison.summary.apps_changed} app{comparison.summary.apps_changed !== 1 ? 's' : ''}
+											{comparison.summary.apps_changed} app{comparison.summary.apps_changed !== 1
+												? 's'
+												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.resources_changed > 0}
 										<span class="text-blue-700 dark:text-blue-300">
-											{comparison.summary.resources_changed} resource{comparison.summary.resources_changed !== 1 ? 's' : ''}
+											{comparison.summary.resources_changed} resource{comparison.summary
+												.resources_changed !== 1
+												? 's'
+												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.variables_changed > 0}
 										<span class="text-blue-700 dark:text-blue-300">
-											{comparison.summary.variables_changed} variable{comparison.summary.variables_changed !== 1 ? 's' : ''}
+											{comparison.summary.variables_changed} variable{comparison.summary
+												.variables_changed !== 1
+												? 's'
+												: ''}
 										</span>
 									{/if}
 								</div>
-								
+
 								{#if comparison.summary.conflicts > 0}
+									-
 									<div class="flex items-center gap-1 text-orange-600 dark:text-orange-400">
 										<AlertTriangle class="w-3 h-3" />
-										<span>{comparison.summary.conflicts} conflict{comparison.summary.conflicts !== 1 ? 's' : ''}</span>
+										<span
+											>{comparison.summary.conflicts} conflict{comparison.summary.conflicts !== 1
+												? 's'
+												: ''}</span
+										>
 									</div>
 								{/if}
 							{:else}
-								<span class="text-blue-600 dark:text-blue-400">
-									No changes to deploy
-								</span>
+								<span class="text-blue-600 dark:text-blue-400"> No changes to deploy </span>
 							{/if}
 						</div>
 					{/if}
 				</div>
-				
+
 				<div class="flex items-center gap-2">
 					{#if comparison && comparison.summary.total_diffs > 0}
-						<Button
-							size="xs"
-							color="blue"
-							on:click={openComparisonDrawer}
-						>
-							Review & Deploy Changes
+						<Button size="xs" color="blue" on:click={openComparisonDrawer}>
+							{#if comparison.summary.total_ahead > 0}
+								Review & Deploy Changes
+							{:else}
+								Review & Update fork
+							{/if}
 						</Button>
 					{/if}
 				</div>
@@ -144,11 +203,3 @@
 		</div>
 	</div>
 {/if}
-
-<WorkspaceComparisonDrawer
-	bind:this={comparisonDrawer}
-	{comparison}
-	sourceWorkspace={currentWorkspace}
-	targetWorkspace={parentWorkspaceId ?? undefined}
-	on:deployed={() => checkForChanges()}
-/>

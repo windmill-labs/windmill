@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { Drawer, DrawerContent, Button, Toggle, Badge, Alert, Tabs, Tab } from './common'
+	import { Button, Badge, Alert, Tabs, Tab } from './common'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import type { WorkspaceComparison, WorkspaceItemDiff } from '$lib/gen'
 	import { WorkspaceService, ScriptService, FlowService, AppService, ResourceService, VariableService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import { 
-		ArrowUpRight, 
-		ArrowDownRight, 
-		AlertTriangle, 
-		CheckCircle2, 
+	import {
+		ArrowUpRight,
+		ArrowDownRight,
+		AlertTriangle,
+		CheckCircle2,
 		XCircle,
 		FileCode,
 		Workflow,
@@ -28,7 +29,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	let drawer: Drawer | undefined = undefined
 	let deploymentDirection: 'deploy' | 'update' = 'deploy'
 	let selectedItems: Set<string> = new Set()
 	let expandedItems: Set<string> = new Set()
@@ -44,7 +44,7 @@
 	}) ?? []
 
 	$: groupedDiffs = groupDiffsByKind(filteredDiffs)
-	
+
 	$: selectableDiffs = filteredDiffs.filter(diff => {
 		if (deploymentDirection === 'deploy') {
 			return diff.versions_ahead > 0
@@ -53,7 +53,7 @@
 		}
 	})
 
-	$: conflictingDiffs = filteredDiffs.filter(diff => 
+	$: conflictingDiffs = filteredDiffs.filter(diff =>
 		diff.versions_ahead > 0 && diff.versions_behind > 0
 	)
 
@@ -69,7 +69,6 @@
 	}
 
 	export function open() {
-		drawer?.openDrawer()
 		// Auto-select all eligible items initially
 		selectedItems = new Set(selectableDiffs.map(d => `${d.kind}:${d.path}`))
 	}
@@ -112,7 +111,7 @@
 
 	async function loadDiffDetails(diff: WorkspaceItemDiff) {
 		if (!sourceWorkspace || !targetWorkspace) return
-		
+
 		try {
 			let sourceData: any = null
 			let targetData: any = null
@@ -192,7 +191,7 @@
 
 	async function deployChanges() {
 		if (!sourceWorkspace || !targetWorkspace) return
-		
+
 		deploying = true
 		try {
 			const itemsToDeploy = Array.from(selectedItems).map(key => {
@@ -203,10 +202,9 @@
 			// TODO: Implement actual deployment logic
 			// This would involve calling appropriate APIs to copy/update items
 			// between workspaces based on the deployment direction
-			
+
 			sendUserToast(`Successfully deployed ${itemsToDeploy.length} items`, false)
 			dispatch('deployed')
-			drawer?.closeDrawer()
 		} catch (error) {
 			console.error('Deployment failed:', error)
 			sendUserToast('Deployment failed', true)
@@ -217,7 +215,7 @@
 
 	async function deleteWorkspace() {
 		if (!sourceWorkspace || comparison?.summary.total_diffs !== 0) return
-		
+
 		if (confirm(`Are you sure you want to delete the forked workspace "${sourceWorkspace}"? This action cannot be undone.`)) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: sourceWorkspace })
@@ -232,8 +230,6 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="90%">
-	<DrawerContent title="Workspace Comparison & Deployment" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col h-full">
 			{#if comparison}
 				<!-- Header with deployment direction toggle -->
@@ -250,11 +246,11 @@
 								</div>
 							</div>
 						</div>
-						
+
 						<div class="flex items-center gap-2">
 							<Toggle
 								bind:checked={deploymentDirection}
-								options={{ 
+								options={{
 									left: { label: 'Deploy', value: 'deploy' },
 									right: { label: 'Update Fork', value: 'update' }
 								}}
@@ -287,7 +283,7 @@
 					<Alert type="warning" class="m-4">
 						<AlertTriangle class="w-4 h-4" />
 						<span>
-							{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's are' : ' is'} both ahead and behind. 
+							{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's are' : ' is'} both ahead and behind.
 							Deploying will overwrite changes in the target workspace.
 						</span>
 					</Alert>
@@ -339,7 +335,7 @@
 								{@const isExpanded = expandedItems.has(key)}
 								{@const isConflict = diff.versions_ahead > 0 && diff.versions_behind > 0}
 								{@const Icon = getItemIcon(diff.kind)}
-								
+
 								<div class="border-b last:border-b-0">
 									<div class="px-4 py-2 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-900">
 										<!-- Expand/collapse button -->
@@ -407,8 +403,8 @@
 											<div class="text-xs text-gray-600 dark:text-gray-400 mb-2">
 												Changes: {diff.metadata_changes.join(', ')}
 											</div>
-											<Button 
-												size="xs" 
+											<Button
+												size="xs"
 												variant="secondary"
 												on:click={() => showDiffViewer = true}
 											>
@@ -436,9 +432,9 @@
 								</Button>
 							{/if}
 						</div>
-						
+
 						<div class="flex items-center gap-2">
-							<Button variant="secondary" on:click={() => drawer?.closeDrawer()}>
+							<Button variant="secondary" on:click={() => console.log("canceled")}>
 								Cancel
 							</Button>
 							<Button
@@ -458,8 +454,6 @@
 				</div>
 			{/if}
 		</div>
-	</DrawerContent>
-</Drawer>
 
 <!-- Diff viewer modal -->
 {#if showDiffViewer && selectedDiffItem && diffViewerData}

@@ -48,7 +48,6 @@
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
-	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -709,7 +708,6 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
-			<ForkWorkspaceBanner />
 			<AiChatLayout
 				{children}
 				noPadding={devOnly}
