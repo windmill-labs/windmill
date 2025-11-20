@@ -793,12 +793,15 @@ export async function getFimCompletion(
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceCompletions?: boolean
+	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
 	// Use Responses API for OpenAI and Azure OpenAI
-	if (provider === 'openai' || provider === 'azure_openai') {
+	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
 		return getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
 	}
 
