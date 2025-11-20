@@ -417,16 +417,19 @@
 					title: 'Test the script',
 					description: 'We test the script to ensure the validation logic is working correctly. Once validated, we to complete our flow with scripts b and c.',
 					onNextClick: async () => {
-						// Clean up custom overlay before moving to next step
+						// Clean up custom overlay immediately
 						const customOverlay = document.querySelector('.tutorial-custom-overlay')
 						if (customOverlay) {
 							customOverlay.remove()
 						}
 
-						// Restore the driver.js overlay
+						// Reset the driver.js overlay to full screen
 						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
 						if (driverOverlay) {
 							driverOverlay.style.display = ''
+							driverOverlay.style.width = ''
+							driverOverlay.style.right = ''
+							driverOverlay.style.left = ''
 						}
 
 						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
@@ -447,7 +450,7 @@
 							flowStore.val = { ...flowStore.val }
 						}
 
-						await wait(700)
+						await wait(300)
 
 						driver.moveNext()
 					}
