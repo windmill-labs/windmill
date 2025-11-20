@@ -237,9 +237,9 @@
 	<div style="margin-left: {level * 1}rem;">
 		<div class="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
 			<!-- Expand/collapse button -->
-			{#if node.childrenCount > 0}
+			{#if node?.childrenCount > 0}
 				<button
-					on:click={() => toggleExpand(node)}
+					onclick={() => toggleExpand(node)}
 					class="flex-shrink-0 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
 					disabled={node.loading}
 				>

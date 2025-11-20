@@ -143,7 +143,7 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
-            todo!(),
+            &WorkspaceDependenciesPrefetched::None,
             worker_name,
             &job.workspace_id,
             occupation_metrics,

@@ -6,12 +6,13 @@ use crate::{error, scripts::ScriptLang, worker::Connection};
 
 // TODO: Make sure there is only one archived
 // and only one or none unnamed for given language
-#[derive(sqlx::FromRow, Debug, Clone, Serialize)]
+#[derive(sqlx::FromRow, Debug, Clone, Serialize, Default)]
 pub struct WorkspaceDependencies {
     /// Global id (accross all workspaces)
     pub id: i64,
     /// If not set becomes default for given language
     pub name: Option<String>,
+    pub description: Option<String>,
     pub workspace_id: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub language: ScriptLang,
@@ -19,21 +20,6 @@ pub struct WorkspaceDependencies {
     pub content: String,
 }
 impl WorkspaceDependencies {
-    pub fn to_path(name: &Option<String>, language: ScriptLang) -> error::Result<String> {
-        let requirements_filename =
-            language
-                .as_dependencies_filename()
-                .ok_or(error::Error::BadConfig(format!(
-                    "raw requirements are not supported for: {}",
-                    language.as_str()
-                )))?;
-
-        Ok(if let Some(name) = name {
-            format!("dependencies/{name}.{requirements_filename}")
-        } else {
-            format!("dependencies/{requirements_filename}")
-        })
-    }
     // TODO(claude): add docs
     pub async fn archive<'c>(
         name: Option<String>,
@@ -45,7 +31,7 @@ impl WorkspaceDependencies {
             "
             UPDATE workspace_dependencies
             SET archived = true
-            WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
+            WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
             ",
             name,
             workspace_id,
@@ -67,7 +53,7 @@ impl WorkspaceDependencies {
             "
             DELETE
             FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND language = $3
+            WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND language = $3
             ",
             name,
             workspace_id,
@@ -83,7 +69,7 @@ impl WorkspaceDependencies {
         sqlx::query_as!(
             Self,
             r##"
-            SELECT id, created_at, archived, name, workspace_id, content, language AS "language: ScriptLang"
+            SELECT id, created_at, archived, name, description, workspace_id, content, language AS "language: ScriptLang"
                 FROM workspace_dependencies
                 WHERE archived = false AND workspace_id = $1
             "##,
@@ -105,9 +91,9 @@ impl WorkspaceDependencies {
             Connection::Sql(db) => sqlx::query_as!(
                 Self,
                 r#"
-                SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
+                SELECT id, content, language AS "language: ScriptLang", name, description, archived, workspace_id, created_at
                 FROM workspace_dependencies
-                WHERE name = $1 AND workspace_id = $2 AND archived = false AND language = $3
+                WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
                 LIMIT 1
                 "#,
                 name,
@@ -133,7 +119,7 @@ impl WorkspaceDependencies {
         sqlx::query_as!(
             Self,
             r#"
-            SELECT id, content, language AS "language: ScriptLang", name, archived, workspace_id, created_at
+            SELECT id, content, language AS "language: ScriptLang", name, archived, description, workspace_id, created_at
             FROM workspace_dependencies
             WHERE id = $1 AND workspace_id = $2
             LIMIT 1
@@ -156,7 +142,7 @@ impl WorkspaceDependencies {
         sqlx::query_scalar!(
             r#"
             SELECT id FROM workspace_dependencies
-            WHERE name = $1 AND workspace_id = $2 AND language = $3
+            WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND language = $3
             "#,
             name,
             workspace_id,
@@ -165,6 +151,22 @@ impl WorkspaceDependencies {
         .fetch_all(e)
         .await
         .map_err(error::Error::from)
+    }
+
+    pub fn to_path(name: &Option<String>, language: ScriptLang) -> error::Result<String> {
+        let requirements_filename =
+            language
+                .as_dependencies_filename()
+                .ok_or(error::Error::BadConfig(format!(
+                    "raw requirements are not supported for: {}",
+                    language.as_str()
+                )))?;
+
+        Ok(if let Some(name) = name {
+            format!("dependencies/{name}.{requirements_filename}")
+        } else {
+            format!("dependencies/{requirements_filename}")
+        })
     }
 }
 
@@ -175,6 +177,37 @@ pub enum WorkspaceDependenciesPrefetched {
 }
 
 impl WorkspaceDependenciesPrefetched {
+    pub fn get_one_external_only_manual(
+        &self,
+        workspace_id: &str,
+        script_path: &str,
+    ) -> Option<String> {
+        use WorkspaceDependenciesPrefetched::*;
+
+        if self.get_mode() == Some(Mode::Extra) {
+            tracing::warn!(
+                workspace_id,
+                script_path,
+                "extra mode is not supported yet, this may change in future"
+            );
+            return Option::None;
+        }
+
+        match &self {
+            Explicit(WorkspaceDependenciesAnnotatedRefs { inline, external, .. }) => {
+                if inline.is_some() {
+                    tracing::warn!(workspace_id, script_path, "inline workspace dependencies are ignored, this could be implemented later");
+                }
+                if external.len() > 1 {
+                    tracing::warn!(workspace_id, script_path, "multiple external workspace dependencies found, all except first are ignored, this might be supported eventually");
+                }
+
+                external.get(0).map(|wd| wd.content.clone())
+            }
+            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+            None => Option::None,
+        }
+    }
     pub fn get_mode(&self) -> Option<Mode> {
         match self {
             WorkspaceDependenciesPrefetched::Explicit(WorkspaceDependenciesAnnotatedRefs {
@@ -221,8 +254,7 @@ impl WorkspaceDependenciesPrefetched {
             format!(
                 "{} workspace-dependencies: {}:{}",
                 language.as_comment_lit(),
-                // TODO: unsafe unwrap
-                name.unwrap(),
+                name.unwrap_or("default".to_owned()),
                 id
             )
         };
@@ -236,10 +268,10 @@ impl WorkspaceDependenciesPrefetched {
                     header.push(insert_line(id, name.clone()));
                 }
             }
-            Implicit { workspace_dependencies: WorkspaceDependencies { id, name, .. }, mode } => {
+            Implicit { workspace_dependencies: WorkspaceDependencies { id, .. }, mode } => {
                 // TODO: error on extra for now
                 header.push(prepend_mode(*mode));
-                header.push(insert_line(id, name.clone()));
+                header.push(insert_line(id, Option::None));
             }
             None => return Ok(Option::None),
         }
@@ -247,7 +279,7 @@ impl WorkspaceDependenciesPrefetched {
     }
 }
 
-pub struct WorkspaceDependenciesAnnotatedRefs<T: FromInto> {
+pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// ```python
     /// # requirements:
     /// # rich==x.y.z    <<
@@ -264,20 +296,20 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: FromInto> {
     /// The workflow is following:
     /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info.
     /// 2. You [[Self::expand]] to replace all external names with <[[WorkspaceDependencies]]>
-    pub external: Vec<T>,
+    pub external: Vec<T::Ty>,
     pub mode: Mode,
 }
 
 // TODO(claude): describe what I do here and why
-pub trait FromInto: From<Self::Ty> + Into<Self::Ty> {
+pub trait Container {
     // TODO(#29661): Use default associated type
     type Ty;
 }
-impl FromInto for String {
-    type Ty = String;
+impl Container for String {
+    type Ty = Self;
 }
-impl FromInto for WorkspaceDependencies {
-    type Ty = WorkspaceDependencies;
+impl Container for WorkspaceDependencies {
+    type Ty = Self;
 }
 
 /// `# extra_requirements:` - Extra
@@ -288,7 +320,7 @@ pub enum Mode {
     Extra,
 }
 
-impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
+impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
     pub async fn expand(
         self,
         language: ScriptLang,
@@ -302,7 +334,6 @@ impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
             mode: self.mode,
         };
         for name in self.external {
-            let name = name.into();
             WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
                 .await?
                 // TODO(claude): warning if not found
@@ -348,7 +379,6 @@ impl<T: FromInto<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
                     .filter(|s| !s.is_empty())
                     // .map(FromName::from_name)
                     .map(str::to_owned)
-                    .map(T::from)
                     .collect_vec()
             })
             .unwrap_or_default();

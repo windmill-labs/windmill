@@ -287,13 +287,14 @@ SELECT importer_node_id, imported_path
         tx
     }
 
-    /// Run if you want to rebuild maps on specific workspace.
-    /// Potentially takes much time
-    pub async fn rebuild_map(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
-        async fn inner<'c>(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
-            // Scripts
-            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
-            for r in sqlx::query!(
+    pub(crate) async fn rebuild_map_unchecked<'c>(
+        w_id: &str,
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> Result<String> {
+        // TODO: triplecheck logic and stuff
+        // Scripts
+        tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
+        for r in sqlx::query!(
                 r#"SELECT path, hash, language AS "language: ScriptLang" FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false"#,
                 w_id
             )
@@ -318,10 +319,10 @@ SELECT importer_node_id, imported_path
                 tracing::info!(workspace_id = w_id, "Rebuilt for script {}", &r.path);
             }
 
-            // Fetch only top level versions and paths
-            // It is not fetching value
-            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
-            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false", w_id).fetch_all(db).await? {
+        // Fetch only top level versions and paths
+        // It is not fetching value
+        tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
+        for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // To reduce stress on db try to fetch from cache
                     // Since our flow versions are immutable it is safe to assume if we have cache for specific version/id it is up to date.
@@ -381,9 +382,9 @@ SELECT importer_node_id, imported_path
                 }
             }
 
-            // Apps
-            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for apps");
-            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM app WHERE workspace_id = $1", w_id).fetch_all(db).await? {
+        // Apps
+        tracing::info!(workspace_id = w_id, "Rebuilding dependency map for apps");
+        for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM app WHERE workspace_id = $1", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // TODO: Use cache when implemented.
                     let value = sqlx::query_scalar!(
@@ -424,9 +425,11 @@ SELECT importer_node_id, imported_path
                 }
             }
 
-            Ok("Success".into())
-        }
-
+        Ok("Success".into())
+    }
+    /// Run if you want to rebuild maps on specific workspace.
+    /// Potentially takes much time
+    pub async fn rebuild_map(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
         lazy_static::lazy_static! {
             pub static ref LOCKED: RwLock<bool> = RwLock::new(false);
         }
@@ -445,7 +448,7 @@ SELECT importer_node_id, imported_path
             }
 
             *LOCKED.write().await = true;
-            let r = inner(w_id, db).await;
+            let r = Self::rebuild_map_unchecked(w_id, db).await;
             *LOCKED.write().await = false;
             r
         }

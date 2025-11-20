@@ -149,16 +149,17 @@ pub fn extract_referenced_paths(
         .and_then(|l| l.extract_workspace_dependencies_annotated_refs(raw_code))
         .map(|r| r.external)
     {
+        let l = language.expect("should be some");
         for wk_deps_ref in wk_deps_refs {
-            if let Some(path) = WorkspaceDependencies::to_path(
-                &Some(wk_deps_ref),
-                language.expect("should be some"),
-            )
-            .ok()
-            {
+            if let Some(path) = WorkspaceDependencies::to_path(&Some(wk_deps_ref), l).ok() {
                 referenced_paths.push(path);
             };
         }
+    } else if let Some(l) = language {
+        // we assume all runnables without annotated dependencies reference default dependencies file.
+        WorkspaceDependencies::to_path(&None, l)
+            .ok()
+            .inspect(|p| referenced_paths.push(p.to_owned()));
     }
 
     if let Some(relative_imports) = extract_relative_imports(raw_code, script_path, &language) {
@@ -2838,19 +2839,18 @@ async fn capture_dependency_job(
 
             #[cfg(feature = "php")]
             {
-                let reqs = if raw_deps {
-                    if job_raw_code.is_empty() {
-                        return Ok("".to_string());
-                    }
-                    job_raw_code.to_string()
-                } else {
-                    match parse_php_imports(job_raw_code)? {
-                        Some(reqs) => reqs,
-                        None => {
-                            return Ok("".to_string());
+                let composer_content =
+                    if let Some(c) = wd.get_one_external_only_manual(w_id, script_path) {
+                        c
+                    } else {
+                        match parse_php_imports(job_raw_code)? {
+                            Some(reqs) => reqs,
+                            None => {
+                                return Ok("".to_string());
+                            }
                         }
-                    }
-                };
+                    };
+
                 composer_install(
                     mem_peak,
                     canceled_by,
@@ -2859,7 +2859,7 @@ async fn capture_dependency_job(
                     &Connection::Sql(db.clone()),
                     job_dir,
                     worker_name,
-                    reqs,
+                    composer_content,
                     None,
                     occupancy_metrics,
                 )

@@ -9,30 +9,17 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import WorkspaceDependenciesEditor from '$lib/components/WorkspaceDependenciesEditor.svelte'
-	import DependencyWarning from '$lib/components/DependencyWarning.svelte'
+	import DependenciesDeploymentWarning from '$lib/components/DependenciesDeploymentWarning.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { Plus, FileText, Search, Code2, Edit, Eye } from 'lucide-svelte'
 	import { WorkspaceDependenciesService, WorkspaceService } from '$lib/gen'
+	import type { WorkspaceDependencies, ScriptLang } from '$lib/gen'
 	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import type uFuzzy from '@leeoniya/ufuzzy'
-
-	// RFC #7105: Global workspace dependencies structure
-	interface WorkspaceDependencies {
-		id?: number
-		name: string | null // null means unnamed/workspace default
-		content?: string
-		language?: string
-		workspace_id?: string
-		created_at: string
-		archived?: boolean
-		description?: string // Added description field
-		canWrite: boolean
-		marked?: string
-	}
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 
 	let filter = $state('')
 	let workspaceDependencies: WorkspaceDependencies[] | undefined = $state()
@@ -42,7 +29,7 @@
 	// View modal state
 	let viewDrawer: Drawer | undefined = $state()
 	let viewContent: string = $state('')
-	let viewLanguage: string = $state('python')
+	let viewLanguage: ScriptLang = $state('python3')
 	let viewPath: string = $state('')
 
 	// Dependency warning state
@@ -52,50 +39,8 @@
 	let warningTitle = $state('')
 	let warningConfirmText = $state('')
 
-	// Mock search options similar to Home page
-	const opts: uFuzzy.Options = {
-		sort: (info, haystack, needle) => {
-			let {
-				idx,
-				chars,
-				terms,
-				interLft2,
-				interLft1,
-				start,
-				intraIns,
-				interIns
-			} = info
-
-			const cmp = new Intl.Collator('en').compare
-
-			const sortResult = idx
-				.map((v, i) => i)
-				.sort(
-					(ia, ib) =>
-						// most contig chars matched
-						chars[ib] - chars[ia] ||
-						// least char intra-fuzz (most contiguous)
-						intraIns[ia] - intraIns[ib] ||
-						// most prefix bounds, boosted by full term matches
-						terms[ib] +
-							interLft2[ib] +
-							0.5 * interLft1[ib] -
-							(terms[ia] + interLft2[ia] + 0.5 * interLft1[ia]) ||
-						// highest density of match (least term inter-fuzz)
-						interIns[ia] - interIns[ib] ||
-						// earliest start of match
-						start[ia] - start[ib] ||
-						// alphabetic
-						cmp(haystack[idx[ia]], haystack[idx[ib]])
-				)
-			return sortResult
-		}
-	}
-
 	let languages = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.language || 'python3') ?? [])
-		).sort()
+		Array.from(new Set(filteredItems?.map((x) => x.language).filter(Boolean) ?? [])).sort()
 	)
 
 	let languageFilter: string | undefined = $state(undefined)
@@ -109,60 +54,20 @@
 	let preFilteredItems = $derived(
 		languageFilter == undefined
 			? workspaceDependencies
-			: workspaceDependencies?.filter((x) => (x.language || 'python3') === languageFilter)
+			: workspaceDependencies?.filter((x) => x.language === languageFilter)
 	)
 
 	// Load workspace dependencies using actual API
 	async function loadWorkspaceDependencies(): Promise<void> {
+		if (!$workspaceStore) return
+		
 		try {
-			const apiRequirements = await WorkspaceDependenciesService.listWorkspaceDependencies({ 
-				workspace: $workspaceStore! 
+			workspaceDependencies = await WorkspaceDependenciesService.listWorkspaceDependencies({ 
+				workspace: $workspaceStore 
 			})
-			
-			// Map API response to our interface and add canWrite property
-			workspaceDependencies = apiRequirements.map((req: any) => ({
-				...req,
-				description: req.description || `${req.name || 'Default'} requirements for ${req.language}`,
-				canWrite: true // TODO: Implement proper permissions check
-			}))
 		} catch (error) {
 			console.error('Failed to load workspace dependencies:', error)
-			// Fallback to mock data on error
-			workspaceDependencies = [
-				{
-					id: 2,
-					name: 'typescript-common',
-					content: '{\n  "dependencies": {\n    "axios": "^1.6.0",\n    "lodash": "^4.17.21"\n  }\n}',
-					language: 'typescript',
-					description: 'Common TypeScript dependencies for web APIs',
-					workspace_id: $workspaceStore,
-					created_at: new Date().toISOString(),
-					archived: false,
-					canWrite: true
-				},
-				{
-					id: 3,
-					name: 'go-admin',
-					content: 'module windmill-admin-script\n\ngo 1.21\n\nrequire (\n\tgithub.com/gorilla/mux v1.8.1\n)',
-					language: 'go',
-					description: 'Go dependencies for admin operations',
-					workspace_id: $workspaceStore,
-					created_at: new Date().toISOString(),
-					archived: false,
-					canWrite: true
-				},
-				{
-					id: 1,
-					name: null, // Workspace default
-					content: 'requests>=2.31.0\npandas>=2.0.0\nnumpy>=1.24.0',
-					language: 'python3',
-					description: 'Default Python requirements for all scripts',
-					workspace_id: $workspaceStore,
-					created_at: new Date().toISOString(),
-					archived: false,
-					canWrite: true
-				}
-			]
+			sendUserToast('Failed to load workspace dependencies', true)
 		}
 	}
 
@@ -174,68 +79,34 @@
 		}
 	})
 
-	function createNewWorkspaceDependencies() {
-		workspaceDependenciesEditor?.initNew()
+	async function createNewWorkspaceDependencies() {
+		await workspaceDependenciesEditor?.initNew()
 	}
 
 	function editWorkspaceDependencies(deps: WorkspaceDependencies) {
-		workspaceDependenciesEditor?.editWorkspaceDependencies(deps.id!, deps.name, deps.language!)
+		workspaceDependenciesEditor?.editWorkspaceDependencies(deps.id, deps.name, deps.language)
 	}
 
 	function viewWorkspaceDependencies(deps: WorkspaceDependencies) {
 		viewPath = deps.name || `Workspace Default (${deps.language})`
-		viewContent = deps.content || ''
-		viewLanguage = deps.language || 'python3'
+		viewContent = deps.content
+		viewLanguage = deps.language
 		viewDrawer?.openDrawer()
 	}
 
-	function getDisplayName(deps: WorkspaceDependencies): string {
-		return deps.name || `Default (${deps.language})`
-	}
-
-	function getFullFilename(deps: WorkspaceDependencies): string {
-		const extension = getFileExtension(deps.language || 'python3')
-		return deps.name ? `${deps.name}.${extension}` : extension
-	}
-
-	function getFileExtension(language: string): string {
-		switch (language) {
-			case 'python':
-			case 'python3':
-				return 'requirements.in'
-			case 'typescript':
-				return 'package.json'
-			case 'go':
-				return 'go.mod'
-			case 'php':
-				return 'composer.json'
-			default:
-				return 'requirements.txt'
-		}
-	}
-
-	// Archive workspace dependencies with dependency check
+	// Archive workspace dependencies
 	async function archiveWorkspaceDependencies(deps: WorkspaceDependencies): Promise<void> {
-		const importedPath = getWorkspaceDependenciesPath(deps.name, deps.language || 'python3')
-		
-		try {
-			// Check if there are any dependents
-			const dependents = await WorkspaceService.getDependents({
-				workspace: $workspaceStore!,
-				importedPath
-			})
-
-			// Always show warning for archive
-			currentImportedPath = importedPath
-			warningTitle = `Archive Warning`
-			warningConfirmText = 'Archive Anyway'
-			pendingAction = () => executeArchive(deps)
-			showDependencyWarning = true
-		} catch (error) {
-			console.error('Error checking dependents:', error)
-			// On error, proceed without warning
-			await executeArchive(deps)
+		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+		if (!importedPath) {
+			sendUserToast('Unable to determine workspace dependencies path', true)
+			return
 		}
+		
+		currentImportedPath = importedPath
+		warningTitle = `Archive Warning`
+		warningConfirmText = 'Archive Anyway'
+		pendingAction = () => executeArchive(deps)
+		showDependencyWarning = true
 	}
 
 	async function executeArchive(deps: WorkspaceDependencies): Promise<void> {
@@ -243,9 +114,9 @@
 			await WorkspaceDependenciesService.archiveWorkspaceDependencies({
 				workspace: $workspaceStore!,
 				language: deps.language as any,
-				name: deps.name || ''
+				name: deps.name
 			})
-			sendUserToast(`Archived workspace dependencies: ${getDisplayName(deps)}`)
+			sendUserToast(`Archived workspace dependencies: ${workspaceDependenciesEditor?.getDisplayName(deps)}`)
 			loadWorkspaceDependencies() // Reload the list
 		} catch (error) {
 			console.error('Error archiving workspace dependencies:', error)
@@ -253,28 +124,19 @@
 		}
 	}
 
-	// Delete workspace dependencies with dependency check
+	// Delete workspace dependencies
 	async function deleteWorkspaceDependencies(deps: WorkspaceDependencies): Promise<void> {
-		const importedPath = getWorkspaceDependenciesPath(deps.name, deps.language || 'python3')
-		
-		try {
-			// Check if there are any dependents
-			const dependents = await WorkspaceService.getDependents({
-				workspace: $workspaceStore!,
-				importedPath
-			})
-
-			// Always show warning for delete
-			currentImportedPath = importedPath
-			warningTitle = `Delete Warning`
-			warningConfirmText = 'Delete Anyway'
-			pendingAction = () => executeDelete(deps)
-			showDependencyWarning = true
-		} catch (error) {
-			console.error('Error checking dependents:', error)
-			// On error, proceed without warning
-			await executeDelete(deps)
+		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+		if (!importedPath) {
+			sendUserToast('Unable to determine workspace dependencies path', true)
+			return
 		}
+		
+		currentImportedPath = importedPath
+		warningTitle = `Delete Warning`
+		warningConfirmText = 'Delete Anyway'
+		pendingAction = () => executeDelete(deps)
+		showDependencyWarning = true
 	}
 
 	async function executeDelete(deps: WorkspaceDependencies): Promise<void> {
@@ -282,9 +144,9 @@
 			await WorkspaceDependenciesService.deleteWorkspaceDependencies({
 				workspace: $workspaceStore!,
 				language: deps.language as any,
-				name: deps.name || ''
+				name: deps.name
 			})
-			sendUserToast(`Deleted workspace dependencies: ${getDisplayName(deps)}`)
+			sendUserToast(`Deleted workspace dependencies: ${workspaceDependenciesEditor?.getDisplayName(deps)}`)
 			loadWorkspaceDependencies() // Reload the list
 		} catch (error) {
 			console.error('Error deleting workspace dependencies:', error)
@@ -299,7 +161,12 @@
 
 	async function viewReferencedFrom(deps: WorkspaceDependencies): Promise<void> {
 		try {
-			const path = getWorkspaceDependenciesPath(deps.name, deps.language || 'python3')
+			const path = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+			if (!path) {
+				sendUserToast('Unable to determine workspace dependencies path', true)
+				return
+			}
+			
 			const dependents = await WorkspaceService.getDependents({
 				workspace: $workspaceStore!,
 				importedPath: path
@@ -318,10 +185,6 @@
 		}
 	}
 
-	function getWorkspaceDependenciesPath(name: string | null, language: string): string {
-		const extension = getFileExtension(language)
-		return name ? `workspace_dependencies/${name}.${extension}` : `workspace_dependencies/${extension}`
-	}
 
 	async function handleWarningConfirm(): Promise<void> {
 		if (pendingAction) {
@@ -339,19 +202,17 @@
 	}
 
 
-	function getLanguageForHighlighting(lang: string): 'python3' | 'nativets' | 'go' | 'php' | undefined {
+	function getLanguageForHighlighting(language: ScriptLang): ScriptLang | 'json' | undefined{
 		// Map our requirement languages to syntax highlighting languages
-		switch (lang) {
-			case 'python':
+		switch (language) {
+			case 'python3':
 				return 'python3'
-			case 'typescript':
-				return 'nativets'
+			case 'bun':
+				return 'json'
 			case 'go':
 				return 'go'
 			case 'php':
-				return 'php'
-			default:
-				return undefined
+				return 'json'
 		}
 	}
 </script>
@@ -363,7 +224,6 @@
 	items={preFilteredItems}
 	bind:filteredItems
 	f={(x) => (x.name || 'Default') + ' ' + (x.language || '') + ' ' + (x.content || '')}
-	{opts}
 />
 
 <CenteredPage>
@@ -421,14 +281,12 @@
 						<Cell head>Language</Cell>
 						<Cell head>Description</Cell>
 						<Cell head>Type</Cell>
-						<Cell head>Created</Cell>
+						<Cell head>Edited</Cell>
 						<Cell head last>Actions</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y">
 					{#each filteredItems as deps}
-						{@const displayName = getDisplayName(deps)}
-						{@const fullFilename = getFullFilename(deps)}
 						<Row>
 							<Cell first>
 								<div class="flex items-center gap-2">
@@ -437,15 +295,16 @@
 										<a
 											class="break-all hover:text-primary cursor-pointer font-medium"
 											onclick={() => editWorkspaceDependencies(deps)}
-											title={fullFilename}
 										>
 											{#if deps.marked}
 												{@html deps.marked}
 											{:else}
-												{displayName}
+												{workspaceDependenciesEditor?.getDisplayName(deps) || (deps.name || `Default (${deps.language})`)}
 											{/if}
 										</a>
-										<span class="text-xs text-tertiary font-mono">{fullFilename}</span>
+										<span class="text-xs text-tertiary font-mono">
+											{deps.name || 'workspace default'} • {deps.language}
+										</span>
 									</div>
 								</div>
 							</Cell>
@@ -473,8 +332,8 @@
 								</span>
 							</Cell>
 							<Cell>
-								<span class="text-xs text-tertiary">
-									{new Date(deps.created_at).toLocaleDateString()}
+								<span class="text-2xs text-secondary">
+									<TimeAgo date={deps.created_at || ''} />
 								</span>
 							</Cell>
 							<Cell last>
@@ -482,25 +341,23 @@
 									<Button size="xs" variant="border" color="light" startIcon={{ icon: Eye }} on:click={() => viewWorkspaceDependencies(deps)}>
 										View
 									</Button>
-									{#if deps.canWrite}
-										<Button size="xs" variant="border" color="light" startIcon={{ icon: Edit }} on:click={() => editWorkspaceDependencies(deps)}>
-											Edit
-										</Button>
-										<!-- Placeholder buttons -->
-										<Button size="xs" variant="ghost" color="gray" on:click={() => archiveWorkspaceDependencies(deps)} title="Archive">
-											Archive
-										</Button>
-										<Button size="xs" variant="ghost" color="red" on:click={() => deleteWorkspaceDependencies(deps)} title="Delete">
-											Delete
-										</Button>
-										<Button size="xs" variant="ghost" color="gray" on:click={() => viewWorkspaceDependenciesHistory(deps)} title="View History">
-											History
-										</Button>
-										<Button size="xs" variant="ghost" color="gray" on:click={() => viewReferencedFrom(deps)} title="Referenced From">
-											Refs
-										</Button>
-									{/if}
-								</div>
+									<Button size="xs" variant="border" color="light" startIcon={{ icon: Edit }} on:click={() => editWorkspaceDependencies(deps)}>
+										Edit
+									</Button>
+									<!-- Placeholder buttons -->
+									<Button size="xs" variant="border" color="gray" on:click={() => archiveWorkspaceDependencies(deps)} title="Archive">
+										Archive
+									</Button>
+									<Button size="xs" variant="border" color="red" on:click={() => deleteWorkspaceDependencies(deps)} title="Delete">
+										Delete
+									</Button>
+									<Button size="xs" variant="border" color="gray" on:click={() => viewWorkspaceDependenciesHistory(deps)} title="View History">
+										History
+									</Button>
+									<Button size="xs" variant="border" color="gray" on:click={() => viewReferencedFrom(deps)} title="Referenced From">
+										Refs
+									</Button>
+							</div>
 							</Cell>
 						</Row>
 					{/each}
@@ -533,7 +390,7 @@
 </Drawer>
 
 {#if showDependencyWarning && currentImportedPath}
-	<DependencyWarning
+	<DependenciesDeploymentWarning
 		importedPath={currentImportedPath}
 		title={warningTitle}
 		confirmText={warningConfirmText}

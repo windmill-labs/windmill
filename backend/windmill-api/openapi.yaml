@@ -5403,7 +5403,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspace_dependencies/archive/{language}/{name}:
+  /w/{workspace}/workspace_dependencies/archive/{language}:
     post:
       summary: archive workspace dependencies (require admin)
       operationId: archiveWorkspaceDependencies
@@ -5417,8 +5417,8 @@ paths:
           schema:
             $ref: "#/components/schemas/ScriptLang"
         - name: name
-          in: path
-          required: true
+          in: query
+          required: false
           schema:
             type: string
 
@@ -5429,7 +5429,7 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/workspace_dependencies/delete/{language}/{name}:
+  /w/{workspace}/workspace_dependencies/delete/{language}:
     post:
       summary: delete workspace dependencies (require admin)
       operationId: deleteWorkspaceDependencies
@@ -5443,8 +5443,8 @@ paths:
           schema:
             $ref: "#/components/schemas/ScriptLang"
         - name: name
-          in: path
-          required: true
+          in: query
+          required: false
           schema:
             type: string
 
@@ -5472,6 +5472,32 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WorkspaceDependencies"
+
+  /w/{workspace}/workspace_dependencies/get_latest/{language}:
+    get:
+      summary: get latest workspace dependencies by language and name
+      operationId: getLatestWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest workspace dependencies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDependencies"
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
@@ -15520,15 +15546,21 @@ components:
           type: boolean
         name:
           type: string
+        description:
+          type: string
         content:
           type: string
         language:
           $ref: "#/components/schemas/ScriptLang"
         workspace_id:
           type: string
+        created_at:
+          type: string
+          format: date-time
       required:
         - workspace_id
         - language
+        - created_at
         - content
         - id
         - archived
@@ -15536,13 +15568,15 @@ components:
     NewWorkspaceDependencies:
       type: object
       properties:
-        name:
-          type: string
-        content:
+        workspace_id:
           type: string
         language:
           $ref: "#/components/schemas/ScriptLang"
-        workspace_id:
+        name:
+          type: string
+        description:
+          type: string
+        content:
           type: string
       required:
         - workspace_id

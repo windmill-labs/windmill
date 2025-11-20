@@ -4,7 +4,8 @@ use sqlx::PgExecutor;
 use windmill_common::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies};
 
 use crate::{
-    scoped_dependency_map::DependencyDependent, trigger_dependents_to_recompute_dependencies,
+    scoped_dependency_map::{DependencyDependent, ScopedDependencyMap},
+    trigger_dependents_to_recompute_dependencies,
 };
 
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
@@ -12,6 +13,9 @@ pub struct NewWorkspaceDependencies {
     pub workspace_id: String,
     pub language: ScriptLang,
     pub name: Option<String>,
+    /// If None, will use description of previous version
+    /// If there is no older versions, will set to default
+    pub description: Option<String>,
     // TODO: Make Option, or optimize it in any other way.
     pub content: String,
 }
@@ -20,67 +24,54 @@ impl NewWorkspaceDependencies {
     // TODO(claude): add docs
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
         let mut tx = db.begin().await?;
-        sqlx::query!(
+
+        let prev_description = sqlx::query_scalar!(
             "
                 UPDATE workspace_dependencies
                 SET archived = true 
                 WHERE archived = false
-                    AND name = $1
+                    AND name IS NOT DISTINCT FROM $1
                     AND workspace_id = $2
                     AND language = $3
+                RETURNING description
             ",
             self.name,
             self.workspace_id,
             self.language as ScriptLang
         )
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         let new_id = sqlx::query_scalar!(
             "
-            INSERT INTO workspace_dependencies(name, workspace_id, content, language)
-            VALUES ($1, $2, $3, $4) 
+            INSERT INTO workspace_dependencies(name, workspace_id, content, language, description)
+            VALUES ($1, $2, $3, $4, $5) 
             RETURNING id
             ",
             self.name,
             self.workspace_id,
             self.content,
-            self.language as ScriptLang
+            self.language as ScriptLang,
+            self.description
+                .or(prev_description.clone())
+                .unwrap_or_default()
         )
         .fetch_one(&mut *tx)
         .await?;
 
-        let importers = if let Some(name) = self.name {
-            let path = WorkspaceDependencies::to_path(&Some(name), self.language)?;
-            crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
-                path.as_str(),
-                &self.workspace_id,
-                db,
-            )
-            .await?
-        } else {
-            // If it is default, we want to redeploy all scripts.
-            // TODO: big warning when deploying default one:
-            //
-            // (Re)Deployment of this default workspace dependencies file, will trigger 50+ scripts/flows/apps to redeploy.
-            // This might load your instance and if you are using git sync it will take some time and might load your cluster.
-            //
-            // type: "confirm and redeploy 79 runnables" to continue.
-            sqlx::query_scalar!(
-                "SELECT path FROM script WHERE language = $1 AND workspace_id = $2 AND archived = false",
-                self.language as ScriptLang,
-                &self.workspace_id
-            )
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|importer_path| DependencyDependent {
-                importer_path,
-                importer_kind: "script".into(),
-                importer_node_ids: None,
-            })
-            .collect_vec()
+        // If it is none, then it is first time we create this workspace dependencies file
+        // If it is unnamed then we want to rebuild dependency map. Otherwise trigger dependents to recompute locks will not work
+        if self.name.is_none() && prev_description.is_none() {
+            ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
         };
+
+        let path = WorkspaceDependencies::to_path(&self.name, self.language)?;
+        let importers = crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
+            path.as_str(),
+            &self.workspace_id,
+            db,
+        )
+        .await?;
 
         trigger_dependents_to_recompute_dependencies(
             &self.workspace_id,
@@ -120,6 +111,8 @@ impl NewWorkspaceDependencies {
 //   - [] amount is displayed correctly (even for apps and flows.)
 // -[] if relative import has raw requirements, should importer inherit those?
 // -[] on deploy depenencies should be verified if they are resolvable or not.
+// -[] ignore hub_sync for default bun scripts
+// -[] deleting or archiving dependencies should also trigger dependents
 //
 // TODO(frontend):
 // - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
@@ -137,6 +130,7 @@ impl NewWorkspaceDependencies {
 // - race condition with other djobs on concurrency basis
 // - what if redeployed older script version that has either outdated syntax or other rrs id/name?
 // - how are python version are treated? From lock or from content?
+// - benchmark bunch of stuff
 // - [] leaf's wk deps should be used for inputs to top level runnable
 //    - [] ts
 //    - [] php
@@ -144,7 +138,8 @@ impl NewWorkspaceDependencies {
 //    - [] python
 //
 // cli:
-// - deployment of many at the same time has proper ordering
+// - [] deployment of many at the same time has proper ordering
+// - [] no way to exploit deployment by non admin
 
 // Type aliases for backward compatibility
 pub type RawRequirements = WorkspaceDependencies;
@@ -170,6 +165,7 @@ mod workspace_dependencies_tests {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
                     name: None,
+                    description: None,
                     content: "global:rev1".to_owned(),
                 }
                 .create(&db)
@@ -183,6 +179,7 @@ mod workspace_dependencies_tests {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
                     name: Some("rrs1".to_owned()),
+                    description: None,
                     content: "rrs1:rev1".to_owned(),
                 }
                 .create(&db)
@@ -194,6 +191,7 @@ mod workspace_dependencies_tests {
             assert!(NewWorkspaceDependencies {
                 workspace_id: "test-workspace".into(),
                 language: ScriptLang::DuckDb,
+                description: None,
                 name: None,
                 content: "".to_owned(),
             }
@@ -206,6 +204,7 @@ mod workspace_dependencies_tests {
                 NewWorkspaceDependencies {
                     workspace_id: "test-workspace".into(),
                     language: ScriptLang::Python3,
+                    description: None,
                     name: Some("rrs1".to_owned()),
                     content: "rrs1:rev2".to_owned(),
                 }

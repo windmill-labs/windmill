@@ -26,6 +26,7 @@ export interface SyncOptions {
   skipResources?: boolean;
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
+  skipWorkspaceDependencies?: boolean;
   skipScripts?: boolean;
   skipFlows?: boolean;
   skipApps?: boolean;
@@ -316,6 +317,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "skipSecrets"
       | "includeSchedules"
       | "includeTriggers"
+      | "skipWorkspaceDependencies"
       | "skipScripts"
       | "skipFlows"
       | "skipApps"
@@ -345,6 +347,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeGroups: false,
   includeSettings: false,
   includeKey: false,
+  skipWorkspaceDependencies: false,
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(

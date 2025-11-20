@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS workspace_dependencies(
     name         VARCHAR(255), -- If NULL - it's global
     content      TEXT NOT NULL,
     language     SCRIPT_LANG NOT NULL,
-    description  text,
+    description  text NOT NULL DEFAULT '',
     archived     BOOLEAN NOT NULL DEFAULT false,
     workspace_id character varying(50) NOT NULL,
     created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()

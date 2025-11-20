@@ -206,7 +206,7 @@
 		},
 		{
 			label: 'Dependencies',
-			href: `${base}/requirements`,
+			href: `${base}/workspace-dependencies`,
 			icon: FileText,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-dependencies',

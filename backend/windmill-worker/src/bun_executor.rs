@@ -118,23 +118,9 @@ pub async fn gen_bun_lockfile(
 
     let mut empty_deps = false;
 
-    if let Some(package_json_content) = match workspace_dependencies {
-        WorkspaceDependenciesPrefetched::Explicit(WorkspaceDependenciesAnnotatedRefs {
-            inline,
-            external,
-            mode,
-        }) => {
-            // TODO(claude): inline is not yet supported error
-            // TODO(claude): mode == extra is not yet supported error
-            // TODO(claude): external > 1 is not yet supported error
-            external.get(0).map(|wd| wd.content.clone())
-        }
-        WorkspaceDependenciesPrefetched::Implicit { workspace_dependencies, mode } => {
-            // TODO(claude): mode == extra is not yet supported error
-            Some(workspace_dependencies.content.clone())
-        }
-        WorkspaceDependenciesPrefetched::None => None,
-    } {
+    if let Some(package_json_content) =
+        workspace_dependencies.get_one_external_only_manual(w_id, script_path)
+    {
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
