@@ -217,6 +217,53 @@
 					if (button) {
 						button.click()
 					}
+
+					// Wait for the menu to open
+					await wait(800)
+
+					// Find the "TypeScript (Bun)" span
+					const spans = Array.from(document.querySelectorAll('span'))
+					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
+
+					if (bunSpan) {
+						// Create a fake cursor element
+						const fakeCursor = document.createElement('div')
+						fakeCursor.style.cssText = `
+							position: fixed;
+							width: 20px;
+							height: 20px;
+							border-radius: 50%;
+							background-color: rgba(59, 130, 246, 0.8);
+							border: 2px solid white;
+							pointer-events: none;
+							z-index: 10000;
+							transition: all 1.5s ease-in-out;
+						`
+						document.body.appendChild(fakeCursor)
+
+						// Get the span position
+						const spanRect = bunSpan.getBoundingClientRect()
+
+						// Start cursor at left side of screen
+						fakeCursor.style.left = `${spanRect.left - 100}px`
+						fakeCursor.style.top = `${spanRect.top + spanRect.height / 2}px`
+
+						// Wait a frame for the initial position to be set
+						await wait(100)
+
+						// Move cursor to hover over the span
+						fakeCursor.style.left = `${spanRect.left + spanRect.width / 2}px`
+						fakeCursor.style.top = `${spanRect.top + spanRect.height / 2}px`
+
+						// Wait for animation to complete and keep hovering
+						await wait(1500)
+
+						// Keep cursor there for a moment
+						await wait(1000)
+
+						// Remove fake cursor
+						fakeCursor.remove()
+					}
 				},
 				popover: {
 					title: 'Add more steps',
@@ -442,6 +489,30 @@
 			},
 			{
 				onHighlighted: async () => {
+					// Hide the default driver.js overlay
+					const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+					if (driverOverlay) {
+						driverOverlay.style.display = 'none'
+					}
+
+					// Create a single custom overlay with clip-path to reveal only bottom-right corner
+					const customOverlay = document.createElement('div')
+					customOverlay.className = 'tutorial-custom-overlay-test'
+					customOverlay.style.cssText = `
+						position: fixed;
+						top: 0;
+						left: 0;
+						width: 100%;
+						height: 100%;
+						background-color: rgba(0, 0, 0, 0.5);
+						z-index: 9999;
+						pointer-events: none;
+						clip-path: polygon(
+							0 0, 100% 0, 100% 50%, 50% 50%, 50% 100%, 0 100%
+						);
+					`
+					document.body.appendChild(customOverlay)
+
 					// Find and click the "Test this step" tab button
 					await wait(500)
 					const buttons = Array.from(document.querySelectorAll('button'))
@@ -449,9 +520,11 @@
 						return btn.textContent?.includes('Test this step') &&
 							btn.classList.contains('border-b-2') &&
 							btn.classList.contains('cursor-pointer')
-					})
+					}) as HTMLElement
 
 					if (testTabButton) {
+						// Store the button element for the popover to target
+						;(window as any).__tutorialTestTabButton = testTabButton
 						testTabButton.click()
 					}
 
@@ -510,6 +583,14 @@
 					title: 'Test your step',
 					description: 'You can test individual steps to verify they work correctly before running the entire flow.',
 					onNextClick: async () => {
+						// Clean up custom overlay
+						document.querySelector('.tutorial-custom-overlay-test')?.remove()
+						// Restore the driver.js overlay
+						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (driverOverlay) {
+							driverOverlay.style.display = ''
+						}
+
 						// Add modules 'b' and 'c' with animation delays
 						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
 						for (let i = 0; i < modulesToAdd.length; i++) {
@@ -538,75 +619,21 @@
 				}
 			},
 			{
-				element: '#b',
 				onHighlighted: async () => {
-					// Click on the 'b' node to open the drawer
-					selectionManager.selectId('b')
-					await wait(500)
-
-					// Make the plug button visible and click it to open the connections panel
-					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
-					await wait(100)
-					clickButtonBySelector('#flow-editor-plug')
-
-					// Wait for the connections panel to open
-					await wait(800)
-
-					// Find the target button with title="results.a"
-					const targetButton = document.querySelector('button[title="results.a"]') as HTMLElement
-					if (targetButton) {
-						// Create a fake cursor element
-						const fakeCursor = document.createElement('div')
-						fakeCursor.style.cssText = `
-							position: fixed;
-							width: 20px;
-							height: 20px;
-							border-radius: 50%;
-							background-color: rgba(59, 130, 246, 0.8);
-							border: 2px solid white;
-							pointer-events: none;
-							z-index: 10000;
-							transition: all 2.5s ease-in-out;
-						`
-						document.body.appendChild(fakeCursor)
-
-						// Get the plug button position (starting point)
-						const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
-						const startRect = plugButton?.getBoundingClientRect()
-
-						// Get the target button position (ending point)
-						const targetRect = targetButton.getBoundingClientRect()
-
-						if (startRect && targetRect) {
-							// Start cursor at plug button
-							fakeCursor.style.left = `${startRect.left + startRect.width / 2}px`
-							fakeCursor.style.top = `${startRect.top + startRect.height / 2}px`
-
-							// Wait a frame for the initial position to be set
-							await wait(100)
-
-							// Move cursor to target
-							fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
-							fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
-
-							// Wait for animation to complete (but don't click)
-							await wait(2500)
-
-							// Remove fake cursor without clicking
-							await wait(500)
-							fakeCursor.remove()
-						}
+					// Hide the overlay completely for this step
+					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					if (overlay) {
+						overlay.style.display = 'none'
 					}
 				},
 				popover: {
 					title: 'Convert to Fahrenheit',
 					description: 'This script converts the celsius temperature into fahrenheit.',
-					side: 'bottom',
 					onNextClick: () => {
-						// Clean up overlays before moving to next step
-						if ((window as any).__tutorialCleanupOverlays) {
-							;(window as any).__tutorialCleanupOverlays()
-							delete (window as any).__tutorialCleanupOverlays
+						// Restore the overlay for next step
+						const overlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (overlay) {
+							overlay.style.display = ''
 						}
 						driver.moveNext()
 					}
