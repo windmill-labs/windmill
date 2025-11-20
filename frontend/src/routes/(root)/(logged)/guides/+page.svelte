@@ -37,14 +37,11 @@
 						<div class="p-3 rounded-lg bg-surface-tertiary">
 							<Workflow size={28} class="text-emphasis" />
 						</div>
-						<h2 class="text-lg font-semibold text-emphasis">Create a Flow Tutorial</h2>
+						<h2 class="text-lg font-semibold text-emphasis">Create a simple flow</h2>
 					</div>
 					<p class="text-sm text-secondary mb-4">
 						Learn how to build workflows in Windmill with our interactive step-by-step tutorial.
 					</p>
-					<Button variant="accent" unifiedSize="md" startIcon={{ icon: Workflow }}>
-						Start Tutorial
-					</Button>
 				</button>
 			</div>
 		</div>
