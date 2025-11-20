@@ -647,8 +647,7 @@ async fn setup_ducklake_catalog_db_inner(
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
-    let pg_creds = &get_database_url().await?;
-    let pg_creds = parse_postgres_url(pg_creds)?;
+    let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters

@@ -208,7 +208,7 @@ pub async fn get_ducklake_from_db_unchecked(
 
     let catalog_resource =
         if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+            let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
             json!({
                 "dbname": ducklake.catalog.resource_path,
                 "host": pg_creds.host,
