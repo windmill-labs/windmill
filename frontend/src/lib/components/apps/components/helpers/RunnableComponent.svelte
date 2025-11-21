@@ -197,6 +197,7 @@
 				result_stream?: string
 			}) {
 				setResult(nresult_stream, id, false)
+				dispatch('streamupdate', { id, result_stream: nresult_stream })
 			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()

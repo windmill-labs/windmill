@@ -72,7 +72,6 @@
 	// Streaming state management
 	let currentStreamingMessageIndex: number | undefined = $state(undefined)
 	let accumulatedContent = $state('')
-	let lastProcessedResult: any = $state(undefined)
 
 	// Register component control for programmatic access
 	$componentControl[id] = {
@@ -96,66 +95,92 @@
 		}
 	})
 
-	// Watch result changes for streaming updates
-	$effect(() => {
-		// Only process if result changed and we have a result
-		if (result !== lastProcessedResult && result !== undefined && result !== null) {
-			lastProcessedResult = result
+	// Handle streaming updates
+	function handleStreamUpdate(e: CustomEvent<{ id: string; result_stream: string }>) {
+		const streamContent = e.detail.result_stream
 
-			// Parse the result to extract streaming content
-			let newContent = ''
+		// Parse streaming format - result_stream already contains ALL accumulated content
+		const parsed = parseStreamDeltas(streamContent)
+		if (parsed.content) {
+			accumulatedContent = parsed.content // SET, don't ADD (stream is already accumulated)
+		} else {
+			accumulatedContent = streamContent
+		}
 
-			if (typeof result === 'string') {
-				// Try to parse as streaming format
-				const parsed = parseStreamDeltas(result)
-				if (parsed.content) {
-					newContent = parsed.content
-					accumulatedContent += newContent
-				} else {
-					// If not streaming format, use the whole string
-					accumulatedContent = result
-				}
-			} else {
-				// Non-string result (final result or error)
-				// Check if result has an "output" key and use that instead
-				if (result && typeof result === 'object' && 'output' in result) {
-					accumulatedContent =
-						typeof result.output === 'string'
-							? result.output
-							: JSON.stringify(result.output, null, 2)
-				} else {
-					accumulatedContent = JSON.stringify(result, null, 2)
-				}
+		// Update or create streaming message
+		if (currentStreamingMessageIndex !== undefined) {
+			messages = messages.map((msg, idx) =>
+				idx === currentStreamingMessageIndex ? { ...msg, content: accumulatedContent } : msg
+			)
+		} else {
+			const assistantMessage: Message = {
+				role: 'assistant',
+				content: accumulatedContent,
+				timestamp: Date.now()
 			}
+			messages = [...messages, assistantMessage]
+			currentStreamingMessageIndex = messages.length - 1
+		}
+	}
 
-			// If we have a streaming message, update it
-			if (currentStreamingMessageIndex !== undefined) {
-				messages = messages.map((msg, idx) =>
-					idx === currentStreamingMessageIndex ? { ...msg, content: accumulatedContent } : msg
-				)
+	// Handle job completion
+	function handleJobComplete(e: CustomEvent<{ id: string; result: any }>) {
+		const finalResult = e.detail.result
 
-				// If loading is done, finalize the message
-				if (!loading) {
-					currentStreamingMessageIndex = undefined
-					accumulatedContent = ''
-				}
-			}
-			// Create a new assistant message only if we have content
-			else if (accumulatedContent.length > 0) {
-				const assistantMessage: Message = {
+		// Extract final content
+		let finalContent = ''
+		if (typeof finalResult === 'string') {
+			finalContent = finalResult
+		} else if (finalResult && typeof finalResult === 'object' && 'output' in finalResult) {
+			finalContent =
+				typeof finalResult.output === 'string'
+					? finalResult.output
+					: JSON.stringify(finalResult.output, null, 2)
+		} else {
+			finalContent = JSON.stringify(finalResult, null, 2)
+		}
+
+		// If we were streaming, update the message with final result to ensure completeness
+		if (currentStreamingMessageIndex !== undefined && finalContent) {
+			messages = messages.map((msg, idx) =>
+				idx === currentStreamingMessageIndex ? { ...msg, content: finalContent } : msg
+			)
+		}
+		// If not streaming, create new message
+		else if (finalContent.length > 0) {
+			messages = [
+				...messages,
+				{
 					role: 'assistant',
-					content: accumulatedContent,
+					content: finalContent,
 					timestamp: Date.now()
 				}
-				messages = [...messages, assistantMessage]
-
-				// If still loading, track this message for updates
-				if (loading) {
-					currentStreamingMessageIndex = messages.length - 1
-				}
-			}
+			]
 		}
-	})
+
+		// Finalize streaming
+		currentStreamingMessageIndex = undefined
+		accumulatedContent = ''
+	}
+
+	// Handle job error
+	function handleJobError(e: CustomEvent<{ id: string; error: any }>) {
+		const error = e.detail.error
+
+		// Add error message
+		messages = [
+			...messages,
+			{
+				role: 'assistant',
+				content: `Error: ${error.message || JSON.stringify(error)}`,
+				timestamp: Date.now()
+			}
+		]
+
+		// Reset streaming state
+		currentStreamingMessageIndex = undefined
+		accumulatedContent = ''
+	}
 
 	// Handle send message
 	async function handleSend() {
@@ -231,6 +256,9 @@
 	{outputs}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
+	on:streamupdate={handleStreamUpdate}
+	on:done={handleJobComplete}
+	on:doneError={handleJobError}
 	{errorHandledByComponent}
 	autoRefresh={false}
 	{render}
