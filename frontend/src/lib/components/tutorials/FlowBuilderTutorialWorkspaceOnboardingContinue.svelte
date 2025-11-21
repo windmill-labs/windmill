@@ -314,7 +314,7 @@
 					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
 					if (button) {
 						const fakeCursor1 = await createFakeCursor(null, button, 1.5)
-						await wait(DELAY_MEDIUM)
+						await wait(DELAY_SHORT)
 						button.click()
 						fakeCursor1.remove()
 					}
@@ -332,7 +332,7 @@
 					if (bunSpan) {
 						// Animate cursor from add step button to TypeScript (Bun) span
 						const fakeCursor2 = await createFakeCursor(button, bunSpan, 1.5)
-						await wait(1000)
+						await wait(DELAY_MEDIUM)
 						fakeCursor2.remove()
 
 						// Automatically trigger next step after cursor animation
@@ -527,7 +527,7 @@
 						clickButtonBySelector('#flow-editor-plug')
 					}
 
-					await wait(DELAY_VERY_LONG)
+					await wait(DELAY_MEDIUM)
 
 					// Step 2: Move to and click flow_input.celsius
 					const targetButton = document.querySelector('button[title="flow_input.celsius"]') as HTMLElement
@@ -549,11 +549,11 @@
 
 					if (testTabButton) {
 						await moveCursorToElement(fakeCursor, testTabButton, DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
+						await wait(DELAY_SHORT)
 						testTabButton.click()
 					}
 
-					await wait(DELAY_VERY_LONG)
+					await wait(DELAY_LONG)
 
 					// Step 4: Move to and click Run button
 					const testActionButton = findButtonByText('Run', ['bg-surface-accent-primary', 'w-full'])
@@ -651,7 +651,7 @@
 					const scriptC = document.querySelector('#c') as HTMLElement
 					if (scriptC) {
 						await moveCursorToElement(fakeCursor, scriptC, DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
+						await wait(DELAY_SHORT)
 						selectionManager.selectId('c')
 					}
 
