@@ -508,15 +508,7 @@
 							customOverlay.remove()
 						}
 
-						// Reset the driver.js overlay to full screen
-						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
-						if (driverOverlay) {
-							driverOverlay.style.display = ''
-							driverOverlay.style.width = ''
-							driverOverlay.style.right = ''
-							driverOverlay.style.left = ''
-						}
-
+						// Add modules b and c with empty summaries
 						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
 						for (let i = 0; i < modulesToAdd.length; i++) {
 							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
@@ -524,7 +516,7 @@
 							const moduleData = modulesToAdd[i]
 							const module: FlowModule = {
 								id: moduleData.id,
-								summary: moduleData.summary,
+								summary: '', // Start with empty summary
 								value: moduleData.value
 							}
 
@@ -537,6 +529,121 @@
 
 						await wait(700)
 
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				onHighlighted: async () => {
+					// Create a single cursor for continuous movement
+					const fakeCursor = document.createElement('div')
+					fakeCursor.style.cssText = `
+						position: fixed;
+						width: 20px;
+						height: 20px;
+						border-radius: 50%;
+						background-color: rgba(59, 130, 246, 0.8);
+						border: 2px solid white;
+						pointer-events: none;
+						z-index: 10000;
+						transition: all 1.5s ease-in-out;
+					`
+					document.body.appendChild(fakeCursor)
+
+					// Step 1: Click on script 'b'
+					await wait(300)
+					const scriptB = document.querySelector('#b') as HTMLElement
+					if (scriptB) {
+						const bRect = scriptB.getBoundingClientRect()
+						// Start from off-screen
+						fakeCursor.style.left = `${bRect.left - 100}px`
+						fakeCursor.style.top = `${bRect.top + bRect.height / 2}px`
+						await wait(100)
+						// Move to script b
+						fakeCursor.style.left = `${bRect.left + bRect.width / 2}px`
+						fakeCursor.style.top = `${bRect.top + bRect.height / 2}px`
+						await wait(1500)
+						await wait(300)
+						selectionManager.selectId('b')
+					}
+
+					await wait(500)
+
+					// Type summary for script 'b'
+					const summaryInputB = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					if (summaryInputB) {
+						const summaryTextB = 'Convert to Fahrenheit'
+						summaryInputB.value = ''
+						summaryInputB.focus()
+
+						for (let i = 0; i < summaryTextB.length; i++) {
+							summaryInputB.value += summaryTextB[i]
+							summaryInputB.dispatchEvent(new Event('input', { bubbles: true }))
+							await wait(50)
+						}
+
+						// Update the flow store with the summary
+						const moduleIndexB = flowStore.val.value.modules.findIndex(m => m.id === 'b')
+						if (moduleIndexB !== -1) {
+							flowStore.val.value.modules[moduleIndexB].summary = summaryTextB
+							flowStore.val = { ...flowStore.val }
+						}
+
+						await wait(500)
+					}
+
+					// Step 2: Move to and click on script 'c'
+					const scriptC = document.querySelector('#c') as HTMLElement
+					if (scriptC) {
+						const cRect = scriptC.getBoundingClientRect()
+						fakeCursor.style.transition = 'all 1.5s ease-in-out'
+						fakeCursor.style.left = `${cRect.left + cRect.width / 2}px`
+						fakeCursor.style.top = `${cRect.top + cRect.height / 2}px`
+						await wait(1500)
+						await wait(300)
+						selectionManager.selectId('c')
+					}
+
+					await wait(500)
+
+					// Type summary for script 'c'
+					const summaryInputC = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					if (summaryInputC) {
+						const summaryTextC = 'Categorize temperature'
+						summaryInputC.value = ''
+						summaryInputC.focus()
+
+						for (let i = 0; i < summaryTextC.length; i++) {
+							summaryInputC.value += summaryTextC[i]
+							summaryInputC.dispatchEvent(new Event('input', { bubbles: true }))
+							await wait(50)
+						}
+
+						// Update the flow store with the summary
+						const moduleIndexC = flowStore.val.value.modules.findIndex(m => m.id === 'c')
+						if (moduleIndexC !== -1) {
+							flowStore.val.value.modules[moduleIndexC].summary = summaryTextC
+							flowStore.val = { ...flowStore.val }
+						}
+
+						await wait(500)
+					}
+
+					// Remove cursor at the end
+					fakeCursor.remove()
+				},
+				popover: {
+					title: 'Complete the flow',
+					description: 'Now we add summaries to our remaining scripts to complete the flow.',
+					onNextClick: () => {
+						// Reset the driver.js overlay to full screen
+						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (driverOverlay) {
+							driverOverlay.style.display = ''
+							driverOverlay.style.width = ''
+							driverOverlay.style.right = ''
+							driverOverlay.style.left = ''
+						}
 						driver.moveNext()
 					}
 				}
