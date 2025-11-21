@@ -217,15 +217,19 @@
 			{
 				element: '#flow-editor-add-step-0',
 				onHighlighted: async () => {
+
+					// Animate cursor to the add step button
+					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
+					if (button) {
+						const fakeCursor1 = await createFakeCursor(null, button, 1.5)
+						await wait(300)
+						button.click()
+						fakeCursor1.remove()
+					}
+
 					const overlay = document.querySelector('.driver-overlay') as HTMLElement
 					if (overlay) {
 						overlay.style.display = 'none'
-					}
-
-					await wait(500)
-					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
-					if (button) {
-						button.click()
 					}
 
 					await wait(800)
@@ -234,18 +238,13 @@
 					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
 
 					if (bunSpan) {
-						const fakeCursor = await createFakeCursor(null, bunSpan, 1.5)
+						// Animate cursor from add step button to TypeScript (Bun) span
+						const fakeCursor2 = await createFakeCursor(button, bunSpan, 1.5)
 						await wait(1000)
-						fakeCursor.remove()
+						fakeCursor2.remove()
 
 						// Automatically trigger next step after cursor animation
 						await wait(500)
-
-						// Restore overlay
-						const overlay = document.querySelector('.driver-overlay') as HTMLElement
-						if (overlay) {
-							overlay.style.display = ''
-						}
 
 						// Add module
 						const moduleData = flowJson.value.modules[0]
@@ -262,6 +261,12 @@
 						flowStore.val = { ...flowStore.val }
 
 						await wait(700)
+
+						// Restore overlay
+						const overlay = document.querySelector('.driver-overlay') as HTMLElement
+						if (overlay) {
+							overlay.style.display = ''
+						}
 
 						driver.moveNext()
 					}
