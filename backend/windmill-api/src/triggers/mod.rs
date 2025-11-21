@@ -158,18 +158,6 @@ impl Default for StandardTriggerQuery {
     }
 }
 
-pub const BASE_TRIGGER_FIELDS: [&'static str; 9] = [
-    "workspace_id",
-    "path",
-    "script_path",
-    "is_flow",
-    "edited_by",
-    "email",
-    "edited_at",
-    "extra_perms",
-    "active_mode",
-];
-
 lazy_static::lazy_static! {
     pub static ref INACTIVE_TRIGGER_SCHEDULED_FOR_DATE: DateTime<Utc> = Utc.with_ymd_and_hms(9999, 12, 31, 23, 59, 59).unwrap();
 }
