@@ -25,7 +25,6 @@
 	const DELAY_SHORT = 100
 	const DELAY_MEDIUM = 300
 	const DELAY_LONG = 500
-	const DELAY_VERY_LONG = 800
 	const DELAY_ANIMATION = 1500
 	const DELAY_ANIMATION_LONG = 2500
 	const DELAY_TYPING = 50
@@ -374,6 +373,9 @@
 							return
 						}
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -487,6 +489,9 @@
 						document.body.appendChild(customOverlay)
 
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -580,6 +585,9 @@
 						}
 						cleanupCustomOverlay()
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -696,6 +704,9 @@
 							driverOverlay.style.left = ''
 						}
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -706,6 +717,9 @@
 					description: 'Run the complete flow and see your temperature converter in action.',
 					onNextClick: () => {
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
