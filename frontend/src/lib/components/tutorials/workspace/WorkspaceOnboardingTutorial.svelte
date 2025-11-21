@@ -2,16 +2,8 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import Tutorial from '../Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
-	import { base } from '$lib/base'
 
 	let tutorial: Tutorial | undefined = $state(undefined)
-
-	function hideOverlay() {
-		const overlay = document.querySelector('.driver-overlay') as HTMLElement
-		if (overlay) {
-			overlay.style.display = 'none'
-		}
-	}
 
 	export function runTutorial() {
 		tutorial?.runTutorial()
@@ -85,21 +77,11 @@
 				popover: {
 					title: 'Create your first app',
 					description:
-						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill</p>',
+						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill. That\'s it for the tour!</p>',
 					onNextClick: async () => {
-						// Clear any existing flow drafts from localStorage to ensure fresh start
-						try {
-							localStorage.removeItem('flow')
-						} catch (e) {
-							console.error('Error clearing localStorage', e)
-						}
-						// Hide overlay before navigation
-						hideOverlay()
 						// Mark tutorial as complete
 						updateProgress(8)
 						driver.destroy()
-						// Navigate to the flow creation page with tutorial continuation parameter and nodraft
-						window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue&nodraft=true`
 					}
 				},
 				element: '#create-app-button',
