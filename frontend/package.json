@@ -158,8 +158,7 @@
 		"y-websocket": "^1.5.4",
 		"yaml": "^2.8.0",
 		"yjs": "^13.6.7",
-		"zod": "^4.1.10",
-		"zod-to-json-schema": "^3.25.0"
+		"zod": "^4.1.10"
 	},
 	"peerDependencies": {
 		"svelte": "^5.0.0"
