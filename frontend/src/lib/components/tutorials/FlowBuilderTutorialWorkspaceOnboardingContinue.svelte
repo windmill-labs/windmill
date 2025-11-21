@@ -13,6 +13,81 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
+	// Constants for delays
+	const DELAY_SHORT = 100
+	const DELAY_MEDIUM = 300
+	const DELAY_LONG = 500
+	const DELAY_VERY_LONG = 800
+	const DELAY_ANIMATION = 1500
+	const DELAY_ANIMATION_LONG = 2500
+	const DELAY_TYPING = 50
+	const DELAY_CODE_CHAR = 2
+	const DELAY_CODE_NEWLINE = 5
+
+	// Helper function to get driver overlay
+	function getDriverOverlay(): HTMLElement | null {
+		return document.querySelector('.driver-overlay') as HTMLElement | null
+	}
+
+	// Helper function to type text character by character
+	async function typeText(input: HTMLInputElement, text: string, delay: number = DELAY_TYPING): Promise<void> {
+		input.value = ''
+		input.focus()
+		for (let i = 0; i < text.length; i++) {
+			input.value += text[i]
+			input.dispatchEvent(new Event('input', { bubbles: true }))
+			await wait(delay)
+		}
+	}
+
+	// Helper function to update module summary in flowStore
+	function updateModuleSummary(moduleId: string, summary: string): void {
+		const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === moduleId)
+		if (moduleIndex !== -1) {
+			flowStore.val.value.modules[moduleIndex].summary = summary
+			flowStore.val = { ...flowStore.val }
+		}
+	}
+
+	// Helper function to add module to flow
+	async function addModuleToFlow(module: FlowModule): Promise<void> {
+		const state = await loadFlowModuleState(module)
+		flowStateStore.val[module.id] = state
+		flowStore.val.value.modules.push(module)
+		flowStore.val = { ...flowStore.val }
+	}
+
+	// Helper function to find button by text and classes
+	function findButtonByText(text: string, classes: string[] = []): HTMLElement | null {
+		const buttons = Array.from(document.querySelectorAll('button'))
+		return buttons.find(btn => {
+			const hasText = btn.textContent?.includes(text) ?? false
+			const hasClasses = classes.every(cls => btn.classList.contains(cls))
+			return hasText && (classes.length === 0 || hasClasses)
+		}) as HTMLElement | null
+	}
+
+	// Helper function to cleanup custom overlay
+	function cleanupCustomOverlay(): void {
+		const customOverlay = document.querySelector('.tutorial-custom-overlay')
+		if (customOverlay) {
+			customOverlay.remove()
+		}
+	}
+
+	// Helper function to move cursor to element (for continuous cursor movement)
+	async function moveCursorToElement(
+		cursor: HTMLElement,
+		element: HTMLElement,
+		duration: number = DELAY_ANIMATION
+	): Promise<void> {
+		const rect = element.getBoundingClientRect()
+		cursor.style.transition = `all ${duration / 1000}s ease-in-out`
+		cursor.style.left = `${rect.left + rect.width / 2}px`
+		cursor.style.top = `${rect.top + rect.height / 2}px`
+		await wait(duration)
+	}
+
 	// Helper function to create and animate a fake cursor
 	async function createFakeCursor(
 		startElement: HTMLElement | null,
@@ -177,13 +252,13 @@
 			{
 				element: '#flow-editor-virtual-Input',
 				onHighlighted: async () => {
-					await wait(300)
+					await wait(DELAY_MEDIUM)
 					triggerPointerDown('#flow-editor-virtual-Input')
-					await wait(100)
+					await wait(DELAY_SHORT)
 					selectionManager.selectId('Input')
 					await wait(200)
 
-					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					const overlay = getDriverOverlay()
 					if (overlay) {
 						overlay.style.width = '50%'
 						overlay.style.right = 'auto'
@@ -194,7 +269,7 @@
 					if (celsiusInput) {
 						celsiusInput.value = ''
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
-						await wait(300)
+						await wait(DELAY_MEDIUM)
 
 						celsiusInput.value = '2'
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -222,17 +297,17 @@
 					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
 					if (button) {
 						const fakeCursor1 = await createFakeCursor(null, button, 1.5)
-						await wait(300)
+						await wait(DELAY_MEDIUM)
 						button.click()
 						fakeCursor1.remove()
 					}
 
-					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					const overlay = getDriverOverlay()
 					if (overlay) {
 						overlay.style.display = 'none'
 					}
 
-					await wait(800)
+					await wait(DELAY_VERY_LONG)
 
 					const spans = Array.from(document.querySelectorAll('span'))
 					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
@@ -244,29 +319,26 @@
 						fakeCursor2.remove()
 
 						// Automatically trigger next step after cursor animation
-						await wait(500)
+						await wait(DELAY_LONG)
 
 						// Add module with empty summary and empty content
 						const moduleData = flowJson.value.modules[0]
 						const module: FlowModule = {
 							id: moduleData.id,
 							summary: '', // Start with empty summary
-							value: {
-								...moduleData.value,
-								content: '' // Start with empty content
-							}
+							value: moduleData.value
+						}
+						// Clear content after module creation if it's a rawscript
+						if ('content' in module.value) {
+							module.value = { ...module.value, content: '' } as typeof module.value
 						}
 
-						const state = await loadFlowModuleState(module)
-						flowStateStore.val[module.id] = state
-
-						flowStore.val.value.modules.push(module)
-						flowStore.val = { ...flowStore.val }
+						await addModuleToFlow(module)
 
 						await wait(700)
 
 						// Restore overlay
-						const overlay = document.querySelector('.driver-overlay') as HTMLElement
+						const overlay = getDriverOverlay()
 						if (overlay) {
 							overlay.style.display = ''
 						}
@@ -284,9 +356,9 @@
 				element: '#a',
 				onHighlighted: async () => {
 					selectionManager.selectId('a')
-					await wait(500)
+					await wait(DELAY_LONG)
 
-					const overlay = document.querySelector('.driver-overlay') as HTMLElement
+					const overlay = getDriverOverlay()
 					if (overlay) {
 						overlay.style.width = '50%'
 						overlay.style.right = 'auto'
@@ -294,27 +366,13 @@
 					}
 
 					// First, type the summary
-					await wait(300)
+					await wait(DELAY_MEDIUM)
 					const summaryInput = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
 					if (summaryInput) {
 						const summaryText = 'Validate temperature input'
-						summaryInput.value = ''
-						summaryInput.focus()
-
-						for (let i = 0; i < summaryText.length; i++) {
-							summaryInput.value += summaryText[i]
-							summaryInput.dispatchEvent(new Event('input', { bubbles: true }))
-							await wait(50)
-						}
-
-						// Update the flow store with the summary
-						const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === 'a')
-						if (moduleIndex !== -1) {
-							flowStore.val.value.modules[moduleIndex].summary = summaryText
-							flowStore.val = { ...flowStore.val }
-						}
-
-						await wait(500)
+						await typeText(summaryInput, summaryText)
+						updateModuleSummary('a', summaryText)
+						await wait(DELAY_LONG)
 					}
 
 					// Then, type the code
@@ -343,7 +401,7 @@
 								const char = codeToType[i]
 								currentText += char
 								editor.setCode(currentText, true)
-								const delay = char === '\n' ? 5 : 2
+								const delay = char === '\n' ? DELAY_CODE_NEWLINE : DELAY_CODE_CHAR
 								await wait(delay)
 							}
 
@@ -358,7 +416,7 @@
 							}
 
 							// Press Enter after finishing typing
-							await wait(300)
+							await wait(DELAY_MEDIUM)
 							const enterEvent = new KeyboardEvent('keydown', {
 								key: 'Enter',
 								code: 'Enter',
@@ -375,7 +433,7 @@
 						"Then, we write the code for this script. Its purpose is to collect the temperature input and determine if it is a valid value.",
 					side: 'bottom',
 					onNextClick: () => {
-						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						const driverOverlay = getDriverOverlay()
 						if (driverOverlay) {
 							driverOverlay.style.display = 'none'
 						}
@@ -420,33 +478,29 @@
 
 					// Step 1: Move to and click plug button
 					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
-					await wait(100)
+					await wait(DELAY_SHORT)
 					const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
 					if (plugButton) {
 						const plugRect = plugButton.getBoundingClientRect()
 						// Start from off-screen left
 						fakeCursor.style.left = `${plugRect.left - 100}px`
 						fakeCursor.style.top = `${plugRect.top + plugRect.height / 2}px`
-						await wait(100)
+						await wait(DELAY_SHORT)
 						// Move to plug button
 						fakeCursor.style.left = `${plugRect.left + plugRect.width / 2}px`
 						fakeCursor.style.top = `${plugRect.top + plugRect.height / 2}px`
-						await wait(1500)
-						await wait(300)
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
 						clickButtonBySelector('#flow-editor-plug')
 					}
 
-					await wait(800)
+					await wait(DELAY_VERY_LONG)
 
 					// Step 2: Move to and click flow_input.celsius
 					const targetButton = document.querySelector('button[title="flow_input.celsius"]') as HTMLElement
 					if (targetButton) {
-						const targetRect = targetButton.getBoundingClientRect()
-						fakeCursor.style.transition = 'all 2.5s ease-in-out'
-						fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
-						fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
-						await wait(2500)
-						await wait(300)
+						await moveCursorToElement(fakeCursor, targetButton, DELAY_ANIMATION_LONG)
+						await wait(DELAY_MEDIUM)
 						const clickEvent = new MouseEvent('click', {
 							bubbles: true,
 							cancelable: true,
@@ -455,44 +509,27 @@
 						targetButton.dispatchEvent(clickEvent)
 					}
 
-					await wait(500)
+					await wait(DELAY_LONG)
 
 					// Step 3: Move to and click Test this step tab
-					const buttons = Array.from(document.querySelectorAll('button'))
-					const testTabButton = buttons.find(btn => {
-						return btn.textContent?.includes('Test this step') &&
-							btn.classList.contains('border-b-2') &&
-							btn.classList.contains('cursor-pointer')
-					}) as HTMLElement
+					const testTabButton = findButtonByText('Test this step', ['border-b-2', 'cursor-pointer'])
 
 					if (testTabButton) {
-						const tabRect = testTabButton.getBoundingClientRect()
-						fakeCursor.style.transition = 'all 1.5s ease-in-out'
-						fakeCursor.style.left = `${tabRect.left + tabRect.width / 2}px`
-						fakeCursor.style.top = `${tabRect.top + tabRect.height / 2}px`
-						await wait(1500)
-						await wait(300)
+						await moveCursorToElement(fakeCursor, testTabButton, DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
 						testTabButton.click()
 					}
 
-					await wait(800)
+					await wait(DELAY_VERY_LONG)
 
 					// Step 4: Move to and click Run button
-					const testActionButton = Array.from(document.querySelectorAll('button')).find(btn => {
-						return btn.textContent?.includes('Run') &&
-							btn.classList.contains('bg-surface-accent-primary') &&
-							btn.classList.contains('w-full')
-					}) as HTMLElement
+					const testActionButton = findButtonByText('Run', ['bg-surface-accent-primary', 'w-full'])
 
 					if (testActionButton) {
-						const runRect = testActionButton.getBoundingClientRect()
-						fakeCursor.style.transition = 'all 1.5s ease-in-out'
-						fakeCursor.style.left = `${runRect.left + runRect.width / 2}px`
-						fakeCursor.style.top = `${runRect.top + runRect.height / 2}px`
-						await wait(1500)
-						await wait(300)
+						await moveCursorToElement(fakeCursor, testActionButton, DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
 						testActionButton.click()
-						await wait(300)
+						await wait(DELAY_MEDIUM)
 					}
 
 					// Remove cursor at the end
@@ -502,12 +539,7 @@
 					title: 'Connect and test',
 					description: 'We connect the input data to our script and test it to ensure the validation logic is working correctly. Once validated, we complete our flow with scripts b and c.',
 					onNextClick: async () => {
-						// Clean up custom overlay immediately
-						const customOverlay = document.querySelector('.tutorial-custom-overlay')
-						if (customOverlay) {
-							customOverlay.remove()
-						}
-
+						cleanupCustomOverlay()
 						driver.moveNext()
 					}
 				}
@@ -526,11 +558,7 @@
 							value: moduleData.value
 						}
 
-						const state = await loadFlowModuleState(module)
-						flowStateStore.val[module.id] = state
-
-						flowStore.val.value.modules.push(module)
-						flowStore.val = { ...flowStore.val }
+						await addModuleToFlow(module)
 					}
 
 					await wait(700)
@@ -551,82 +579,50 @@
 					document.body.appendChild(fakeCursor)
 
 					// Step 1: Click on script 'b'
-					await wait(300)
+					await wait(DELAY_MEDIUM)
 					const scriptB = document.querySelector('#b') as HTMLElement
 					if (scriptB) {
 						const bRect = scriptB.getBoundingClientRect()
 						// Start from off-screen
 						fakeCursor.style.left = `${bRect.left - 100}px`
 						fakeCursor.style.top = `${bRect.top + bRect.height / 2}px`
-						await wait(100)
+						await wait(DELAY_SHORT)
 						// Move to script b
 						fakeCursor.style.left = `${bRect.left + bRect.width / 2}px`
 						fakeCursor.style.top = `${bRect.top + bRect.height / 2}px`
-						await wait(1500)
-						await wait(300)
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
 						selectionManager.selectId('b')
 					}
 
-					await wait(500)
+					await wait(DELAY_LONG)
 
 					// Type summary for script 'b'
 					const summaryInputB = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
 					if (summaryInputB) {
 						const summaryTextB = 'Convert to Fahrenheit'
-						summaryInputB.value = ''
-						summaryInputB.focus()
-
-						for (let i = 0; i < summaryTextB.length; i++) {
-							summaryInputB.value += summaryTextB[i]
-							summaryInputB.dispatchEvent(new Event('input', { bubbles: true }))
-							await wait(50)
-						}
-
-						// Update the flow store with the summary
-						const moduleIndexB = flowStore.val.value.modules.findIndex(m => m.id === 'b')
-						if (moduleIndexB !== -1) {
-							flowStore.val.value.modules[moduleIndexB].summary = summaryTextB
-							flowStore.val = { ...flowStore.val }
-						}
-
-						await wait(500)
+						await typeText(summaryInputB, summaryTextB)
+						updateModuleSummary('b', summaryTextB)
+						await wait(DELAY_LONG)
 					}
 
 					// Step 2: Move to and click on script 'c'
 					const scriptC = document.querySelector('#c') as HTMLElement
 					if (scriptC) {
-						const cRect = scriptC.getBoundingClientRect()
-						fakeCursor.style.transition = 'all 1.5s ease-in-out'
-						fakeCursor.style.left = `${cRect.left + cRect.width / 2}px`
-						fakeCursor.style.top = `${cRect.top + cRect.height / 2}px`
-						await wait(1500)
-						await wait(300)
+						await moveCursorToElement(fakeCursor, scriptC, DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
 						selectionManager.selectId('c')
 					}
 
-					await wait(500)
+					await wait(DELAY_LONG)
 
 					// Type summary for script 'c'
 					const summaryInputC = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
 					if (summaryInputC) {
 						const summaryTextC = 'Categorize temperature'
-						summaryInputC.value = ''
-						summaryInputC.focus()
-
-						for (let i = 0; i < summaryTextC.length; i++) {
-							summaryInputC.value += summaryTextC[i]
-							summaryInputC.dispatchEvent(new Event('input', { bubbles: true }))
-							await wait(50)
-						}
-
-						// Update the flow store with the summary
-						const moduleIndexC = flowStore.val.value.modules.findIndex(m => m.id === 'c')
-						if (moduleIndexC !== -1) {
-							flowStore.val.value.modules[moduleIndexC].summary = summaryTextC
-							flowStore.val = { ...flowStore.val }
-						}
-
-						await wait(500)
+						await typeText(summaryInputC, summaryTextC)
+						updateModuleSummary('c', summaryTextC)
+						await wait(DELAY_LONG)
 					}
 
 					// Remove cursor at the end
@@ -637,7 +633,7 @@
 					description: 'Now we add summaries to our remaining scripts to complete the flow.',
 					onNextClick: () => {
 						// Reset the driver.js overlay to full screen
-						const driverOverlay = document.querySelector('.driver-overlay') as HTMLElement
+						const driverOverlay = getDriverOverlay()
 						if (driverOverlay) {
 							driverOverlay.style.display = ''
 							driverOverlay.style.width = ''
