@@ -271,7 +271,7 @@
 			<div
 				bind:this={messagesContainer}
 				class={twMerge(
-					'flex-1 overflow-y-auto p-4 space-y-3',
+					'flex-1 overflow-y-auto p-4 bg-background',
 					css?.messagesContainer?.class,
 					'wm-chat-messages'
 				)}
@@ -282,19 +282,19 @@
 						No messages yet. Start a conversation!
 					</div>
 				{:else}
-					{#each messages as message (message.timestamp)}
-						<div class={twMerge('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}>
+					<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
+						{#each messages as message (message.timestamp)}
 							<div
 								class={twMerge(
-									'max-w-[80%] rounded-lg px-4 py-2 break-words',
+									'max-w-[90%] min-w-0 rounded-lg w-fit break-words',
 									message.role === 'user'
 										? twMerge(
-												'bg-blue-600 text-white',
+												'ml-auto bg-surface-secondary p-3',
 												css?.userMessage?.class,
 												'wm-chat-user-message'
 											)
 										: twMerge(
-												'bg-surface-secondary text-primary',
+												'mr-auto bg-surface border border-gray-200 dark:border-gray-600 px-3 pb-3 pt-3',
 												css?.assistantMessage?.class,
 												'wm-chat-assistant-message'
 											)
@@ -303,18 +303,23 @@
 									? css?.userMessage?.style
 									: css?.assistantMessage?.style}
 							>
-								<div class="whitespace-pre-wrap">
+								<p
+									class={twMerge(
+										'whitespace-pre-wrap text-sm',
+										message.role === 'user' ? 'text-right' : ''
+									)}
+								>
 									{message.content}
-								</div>
+								</p>
 							</div>
-						</div>
-					{/each}
-					{#if loading}
-						<div class="flex items-center gap-2 text-tertiary">
-							<Loader2 size={16} class="animate-spin" />
-							<span class="text-sm">Processing...</span>
-						</div>
-					{/if}
+						{/each}
+						{#if loading}
+							<div class="flex items-center gap-2 text-tertiary">
+								<Loader2 size={16} class="animate-spin" />
+								<span class="text-sm">Processing...</span>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 
