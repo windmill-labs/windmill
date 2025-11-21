@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { Tab, Button } from '$lib/components/common'
+	import { Tab } from '$lib/components/common'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { BookOpen, Users, Workflow } from 'lucide-svelte'
 	import { base } from '$lib/base'
