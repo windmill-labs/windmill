@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Dynamic skip validation for schedules',
+		href: 'https://www.windmill.dev/changelog/dynamic-skip-schedules',
+		date: '2025-10-30'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
