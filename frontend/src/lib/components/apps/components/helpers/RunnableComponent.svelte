@@ -196,7 +196,7 @@
 				id: string
 				result_stream?: string
 			}) {
-				setResult(nresult_stream, id)
+				setResult(nresult_stream, id, false)
 			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()
@@ -630,7 +630,7 @@
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
+	async function setResult(res: any, jobId: string | undefined, dispatchSuccess: boolean = true) {
 		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
@@ -669,7 +669,9 @@
 		recordJob(jobId, result, undefined, transformerResult)
 		delete $errorByComponent[id]
 
-		dispatch('success', result)
+		if (dispatchSuccess) {
+			dispatch('success', result)
+		}
 		// callbacks?.done(res)
 	}
 
