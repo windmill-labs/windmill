@@ -21,7 +21,11 @@ pub struct NewWorkspaceDependencies {
 }
 
 impl NewWorkspaceDependencies {
-    // TODO(claude): add docs
+    /// Creates a new workspace dependencies entry in the database.
+    /// 
+    /// Archives any existing dependencies with the same name/language/workspace,
+    /// then inserts the new dependencies. Triggers recomputation of dependent scripts
+    /// and rebuilds the dependency map if this is the first unnamed dependency for the language.
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
         let mut tx = db.begin().await?;
 
@@ -98,7 +102,7 @@ impl NewWorkspaceDependencies {
 // -[] handle renames
 // -[x] rebuild dependency map correctly
 // -[] deployment of many at the same time has proper ordering
-// -[] cli on generate-metadata will only send diffs
+// -[x] cli on generate-metadata will only send diffs
 // -[] raw requirements are on by default for flows (cli)
 // -[] if default rrs it has no entries in dmap, but they are always used unless told otherwise
 // -[] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)

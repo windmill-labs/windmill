@@ -151,10 +151,9 @@ use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRu
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::{
-    python_executor::handle_python_job,
-    python_versions::{PyV, PyVAlias},
-};
+use crate::{python_executor::handle_python_job, python_versions::PyV};
+#[cfg(feature = "python")]
+use windmill_common::worker::PyVAlias;
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -2371,6 +2370,10 @@ pub async fn handle_queued_job(
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
+    //
+    dbg!(&raw_code);
+    dbg!(&raw_lock);
+    dbg!(&job);
 
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));

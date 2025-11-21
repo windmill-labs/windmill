@@ -88,6 +88,7 @@ strum.workspace = true
 strum_macros.workspace = true
 url.workspace = true
 async-recursion.workspace = true
+pep440_rs.workspace = true
 
 semver.workspace = true
 croner = "2.2.0"

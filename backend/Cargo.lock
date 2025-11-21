@@ -15408,6 +15408,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
+ "pep440_rs",
  "pin-project-lite",
  "prometheus",
  "quick_cache",

@@ -27,7 +27,10 @@ use rustpython_parser::{
 use sqlx::{Pool, Postgres};
 use windmill_common::{
     error::{self, to_anyhow},
-    worker::PythonAnnotations,
+    worker::{
+        split_python_requirements, try_parse_locked_python_version_from_requirements,
+        PythonAnnotations,
+    },
     workspace_dependencies::{
         RawWorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
         WorkspaceDependenciesPrefetched,
@@ -262,6 +265,7 @@ pub async fn parse_python_imports(
     path: &str,
     db: &Pool<Postgres>,
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
+    locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
@@ -272,8 +276,8 @@ pub async fn parse_python_imports(
         db,
         &mut vec![],
         version_specifiers,
-        // &mut version_specifier.and_then(|_| Some(path.to_owned())),
         &mut None,
+        locked_v,
         raw_workspace_dependencies_o,
     )
     .await?
@@ -328,6 +332,7 @@ async fn parse_python_imports_inner(
     already_visited: &mut Vec<String>,
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     path_where_annotated_pyv: &mut Option<String>,
+    locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
@@ -408,25 +413,33 @@ async fn parse_python_imports_inner(
                 inline.is_some(),
                 external.len()
             );
-            // TODO(claude): inline is not yet supported error
-            // TODO(claude): mode == extra is not yet supported error
-            // TODO(claude): external > 1 is not yet supported error
+
+            if inline.is_some() && !external.is_empty() {
+                return Err(error::Error::ExecutionErr(
+                    "Cannot use yet both inline and external workspace dependencies".to_string(),
+                ));
+            }
+
+            if external.len() > 1 {
+                return Err(error::Error::ExecutionErr(
+                    "Multiple external workspace dependencies are not yet supported".to_string(),
+                ));
+            }
+
             inline.as_ref().inspect(|content| {
                 tracing::debug!("Processing inline workspace dependencies content");
-                extract_nimports_from_content(*content, &mut final_imports);
+                *locked_v = extract_nimports_from_content(*content, &mut final_imports);
             });
 
-            external
-                .iter()
-                .inspect(|wd| {
-                    tracing::debug!("Processing external workspace dependency: {:?}", wd.name);
-                    extract_nimports_from_content(&wd.content, &mut final_imports);
-                })
-                .collect_vec();
+            external.get(0).inspect(|wd| {
+                tracing::debug!("Processing external workspace dependency: {:?}", wd.name);
+                *locked_v = extract_nimports_from_content(&wd.content, &mut final_imports);
+            });
         }
         Implicit { workspace_dependencies, .. } => {
             tracing::debug!("Processing implicit workspace dependencies");
-            extract_nimports_from_content(&workspace_dependencies.content, &mut final_imports)
+            *locked_v =
+                extract_nimports_from_content(&workspace_dependencies.content, &mut final_imports);
         }
         None => {
             tracing::debug!("No workspace dependencies found");
@@ -553,6 +566,7 @@ async fn parse_python_imports_inner(
                         already_visited,
                         version_specifiers,
                         path_where_annotated_pyv,
+                        locked_v,
                         raw_workspace_dependencies_o,
                     )
                     .await?
@@ -678,21 +692,24 @@ async fn parse_python_imports_inner(
     Ok(final_imports)
 }
 
-fn extract_nimports_from_content(content: &str, hm: &mut HashMap<String, NImportResolved>) {
-    for requirement in content.lines() {
-        // if !line.starts_with("#") {
-        //     break;
-        // }
+fn extract_nimports_from_content(
+    content: &str,
+    hm: &mut HashMap<String, NImportResolved>,
+) -> Option<pep440_rs::Version> {
+    let lines = split_python_requirements(content);
+    let locked_version = try_parse_locked_python_version_from_requirements(&lines);
+    for requirement in lines {
         // TODO: test if `#` vs ` #`
-        let key = extract_pkg_name(requirement);
+        let key = extract_pkg_name(&requirement);
         hm.insert(
             key.clone(),
             NImportResolved::Pin {
-                pins: vec![ImportPin { pkg: requirement.to_owned(), path: Default::default() }],
+                pins: vec![ImportPin { pkg: requirement, path: Default::default() }],
                 key,
             },
         );
     }
+    locked_version
 }
 
 const STDIMPORTS: [&str; 303] = [

@@ -69,9 +69,7 @@ use crate::ruby_executor;
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
-use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, split_requirements, uv_pip_compile,
-};
+use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
@@ -2437,7 +2435,7 @@ async fn python_dep(
     py_version: crate::PyV,
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
-    use crate::python_executor::split_requirements;
+    use windmill_common::worker::{split_python_requirements, PyVAlias};
 
     create_dependencies_dir(job_dir).await;
 
@@ -2462,8 +2460,7 @@ async fn python_dep(
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
-            split_requirements(req),
-            // req.split("\n").filter(|x| !x.starts_with("--")).collect(),
+            split_python_requirements(req),
             job_id,
             w_id,
             mem_peak,
@@ -2474,7 +2471,7 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             // final_version,
-            crate::PyVAlias::default().into(),
+            PyVAlias::default().into(),
         )
         .await;
 
@@ -2649,67 +2646,45 @@ async fn capture_dependency_job(
             #[cfg(feature = "python")]
             {
                 // TODO: Multiple python versions:
+                // TODO: test ansible still works
                 // 1. in inline
                 // 2. in external
                 // 3. in file inline
                 let annotations = PythonAnnotations::parse(job_raw_code);
 
-                let parse_pyv_from_workspace_dependencies =
-                    async |content| match crate::PyV::try_parse_from_requirements(
-                        &split_requirements(content),
-                    ) {
-                        Some(pyv) => pyv,
-                        None => crate::PyV::gravitational_version(job_id, w_id, None).await,
-                    };
+                let (pyv, reqs) = {
+                    let (mut version_specifiers, mut locked_v) = (vec![], None);
+                    let reqs = windmill_parser_py_imports::parse_python_imports(
+                        job_raw_code,
+                        &w_id,
+                        script_path,
+                        &db,
+                        &mut version_specifiers,
+                        &mut locked_v,
+                        raw_workspace_dependencies_o,
+                    )
+                    .await?
+                    .0
+                    .join("\n");
 
-                let (pyv, reqs) = match &wd {
-                    WorkspaceDependenciesPrefetched::Explicit(
-                        WorkspaceDependenciesAnnotatedRefs { inline, external, mode: Mode::Manual },
-                    ) => {
-                        let input = format!(
-                            "{}\n{}",
-                            inline.clone().unwrap_or_default(),
-                            external.iter().map(|e| e.content.clone()).join("\n")
-                        );
-                        (parse_pyv_from_workspace_dependencies(&input).await, input)
-                    }
-                    WorkspaceDependenciesPrefetched::Implicit {
-                        workspace_dependencies: WorkspaceDependencies { content, .. },
-                        mode: Mode::Manual,
-                    } => (
-                        parse_pyv_from_workspace_dependencies(content).await,
-                        content.clone(),
-                    ),
-                    _ => {
-                        let mut version_specifiers = vec![];
-                        let PythonAnnotations { py_select_latest, .. } =
-                            PythonAnnotations::parse(job_raw_code);
-                        let reqs = windmill_parser_py_imports::parse_python_imports(
-                            job_raw_code,
-                            &w_id,
-                            script_path,
-                            &db,
-                            &mut version_specifiers,
-                            raw_workspace_dependencies_o,
-                        )
-                        .await?
-                        .0
-                        .join("\n");
-
-                        // Resolve python version
-                        // It is based on version specifiers
-                        let pyv = crate::PyV::resolve(
+                    // Resolve python version
+                    // It is based on version specifiers
+                    let pyv = if let Some(v) = locked_v {
+                        v.into()
+                    } else {
+                        crate::PyV::resolve(
                             version_specifiers,
                             job_id,
                             w_id,
-                            py_select_latest,
+                            annotations.py_select_latest,
                             Some(db.clone().into()),
                             None,
                             None,
                         )
-                        .await?;
-                        (pyv, reqs)
-                    }
+                        .await?
+                    };
+
+                    (pyv, reqs)
                 };
 
                 python_dep(

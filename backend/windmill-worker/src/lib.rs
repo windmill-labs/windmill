@@ -84,4 +84,4 @@ pub use bun_executor::{
 pub use deno_executor::generate_deno_lock;
 
 #[cfg(feature = "python")]
-pub use python_versions::{PyV, PyVAlias};
+pub use python_versions::PyV;

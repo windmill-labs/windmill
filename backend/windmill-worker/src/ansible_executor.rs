@@ -13,10 +13,10 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::{prepend_token_to_github_url},
+    git_sync_oss::prepend_token_to_github_url,
     worker::{
-        is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
-        Connection, WORKER_CONFIG,
+        is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
+        write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
 use windmill_queue::MiniPulledJob;
@@ -34,7 +34,7 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -399,7 +399,7 @@ async fn handle_ansible_python_deps(
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            crate::python_executor::split_requirements(requirements),
+            split_python_requirements(requirements),
             job_id,
             w_id,
             mem_peak,
@@ -958,7 +958,11 @@ pub async fn handle_ansible_job(
             #[cfg(feature = "enterprise")]
             if is_github_app {
                 if let Connection::Sql(db) = conn {
-                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(db, &client.token).await?;
+                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(
+                        db,
+                        &client.token,
+                    )
+                    .await?;
                     secret_url = prepend_token_to_github_url(&secret_url, &token)?;
                 } else {
                     return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
@@ -970,8 +974,12 @@ pub async fn handle_ansible_job(
 
             let target_path = "delegate_git_repository".to_string();
 
-            let repo =
-                GitRepo { url: secret_url, commit: delegated_git_repo.commit.clone(), branch, target_path };
+            let repo = GitRepo {
+                url: secret_url,
+                commit: delegated_git_repo.commit.clone(),
+                branch,
+                target_path,
+            };
             append_logs(
                 &job.id,
                 &job.workspace_id,

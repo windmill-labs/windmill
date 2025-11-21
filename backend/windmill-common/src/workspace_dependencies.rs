@@ -29,7 +29,7 @@ impl WorkspaceDependencies {
             self.id.to_string()
         }
     }
-    // TODO(claude): add docs
+    /// Marks workspace dependencies as archived.
     pub async fn archive<'c>(
         name: Option<String>,
         language: ScriptLang,
@@ -51,7 +51,7 @@ impl WorkspaceDependencies {
         Ok(())
     }
 
-    // TODO(claude): add docs
+    /// Permanently deletes workspace dependencies from the database.
     pub async fn delete<'c>(
         name: Option<String>,
         language: ScriptLang,
@@ -73,7 +73,7 @@ impl WorkspaceDependencies {
         Ok(())
     }
 
-    // TODO(claude): add docs
+    /// Lists all active workspace dependencies for a workspace.
     pub async fn list<'c>(workspace_id: &str, e: impl PgExecutor<'c>) -> error::Result<Vec<Self>> {
         sqlx::query_as!(
             Self,
@@ -89,7 +89,7 @@ impl WorkspaceDependencies {
         .map_err(error::Error::from)
     }
 
-    // TODO(claude): add docs
+    /// Gets the latest version of workspace dependencies by name and language.
     pub async fn get_latest(
         name: Option<String>,
         language: ScriptLang,
@@ -119,7 +119,7 @@ impl WorkspaceDependencies {
         }
     }
 
-    // TODO(claude): add docs
+    /// Gets workspace dependencies by their unique ID.
     pub async fn get<'c>(
         id: i64,
         workspace_id: &str,
@@ -141,7 +141,7 @@ impl WorkspaceDependencies {
         .map_err(error::Error::from)
     }
 
-    // TODO(claude): add docs
+    /// Gets the version history for workspace dependencies.
     pub async fn get_history<'c>(
         name: Option<String>,
         language: ScriptLang,
@@ -341,7 +341,8 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     pub mode: Mode,
 }
 
-// TODO(claude): describe what I do here and why
+/// Trait allowing the same struct to hold either String names (fast parsing without DB)
+/// or resolved WorkspaceDependencies objects (after DB expansion).
 pub trait Container {
     // TODO(#29661): Use default associated type
     type Ty;
@@ -408,12 +409,22 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
                 res.external.push(wd);
 
             // If not found, fetch from db
-            } else if let Some(wd) =
-                WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
-                    .await?
+            } else if let Some(wd) = WorkspaceDependencies::get_latest(
+                Some(name.clone()),
+                language,
+                workspace_id,
+                conn.clone(),
+            )
+            .await?
             {
-                // TODO(claude): warning if not found
                 res.external.push(wd.clone());
+            } else {
+                tracing::warn!(
+                    workspace_id,
+                    ?language,
+                    dependency_name = %name,
+                    "workspace dependency not found"
+                );
             }
         }
         Ok(res)
