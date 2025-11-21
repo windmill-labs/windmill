@@ -508,33 +508,33 @@
 							customOverlay.remove()
 						}
 
-						// Add modules b and c with empty summaries
-						const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
-						for (let i = 0; i < modulesToAdd.length; i++) {
-							await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
-
-							const moduleData = modulesToAdd[i]
-							const module: FlowModule = {
-								id: moduleData.id,
-								summary: '', // Start with empty summary
-								value: moduleData.value
-							}
-
-							const state = await loadFlowModuleState(module)
-							flowStateStore.val[module.id] = state
-
-							flowStore.val.value.modules.push(module)
-							flowStore.val = { ...flowStore.val }
-						}
-
-						await wait(700)
-
 						driver.moveNext()
 					}
 				}
 			},
 			{
 				onHighlighted: async () => {
+					// First, add modules b and c with empty summaries
+					const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
+					for (let i = 0; i < modulesToAdd.length; i++) {
+						await new Promise((resolve) => setTimeout(resolve, i === 0 ? 0 : 700))
+
+						const moduleData = modulesToAdd[i]
+						const module: FlowModule = {
+							id: moduleData.id,
+							summary: '', // Start with empty summary
+							value: moduleData.value
+						}
+
+						const state = await loadFlowModuleState(module)
+						flowStateStore.val[module.id] = state
+
+						flowStore.val.value.modules.push(module)
+						flowStore.val = { ...flowStore.val }
+					}
+
+					await wait(700)
+
 					// Create a single cursor for continuous movement
 					const fakeCursor = document.createElement('div')
 					fakeCursor.style.cssText = `
