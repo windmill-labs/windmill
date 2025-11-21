@@ -41,6 +41,7 @@ fn quick_ns(
         assets: vec![],
     }
 }
+
 #[cfg(feature = "test_job_debouncing")]
 mod dependency_job_debouncing {
     async fn trigger_djob_for(
@@ -378,6 +379,7 @@ def main():
                     false,
                     None,
                     None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -537,6 +539,7 @@ def main():
                         false,
                         None,
                         debounce_job_id_o,
+                        None,
                     )
                     .await
                     .unwrap();
@@ -714,6 +717,7 @@ def main():
                     false,
                     None,
                     debounce_job_id_o,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -1221,6 +1225,7 @@ WHERE
                 false,
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -1358,6 +1363,7 @@ WHERE
                     None,
                     None,
                     false,
+                    None,
                     None,
                     None,
                 )
@@ -1790,6 +1796,7 @@ WHERE
                     false,
                     None,
                     None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -1913,6 +1920,7 @@ WHERE
         //                     None,
         //                     None,
         //                     false,
+        //                     None,
         //                     None,
         //                     None,
         //                 )

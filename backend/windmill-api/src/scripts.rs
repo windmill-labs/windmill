@@ -131,6 +131,7 @@ pub fn global_service() -> Router {
         .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route("/hub/pick/*path", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -606,8 +607,10 @@ async fn create_script_internal<'c>(
             Ok(None)
         }
         (Some(p_hash), o) => {
+            // Lock the parent row to prevent concurrent updates with the same parent_hash
+            // This ensures linear lineage - only one script can have a given parent at a time
             if sqlx::query_scalar!(
-                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2 FOR UPDATE",
                 p_hash.0,
                 &w_id
             )
@@ -1019,6 +1022,7 @@ async fn create_script_internal<'c>(
             false,
             None,
             None,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))
@@ -1107,6 +1111,40 @@ pub async fn get_full_hub_script_by_path(
         windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, Some(&db))
             .await?,
     ))
+}
+
+pub async fn pick_hub_script_by_path(
+    Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
+) -> impl IntoResponse {
+    let path_str = path.to_path();
+
+    // Extract version_id from path (format: {hub}/{version_id}/{summary})
+    let version_id = path_str.split('/').nth(1).unwrap_or("");
+
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    // Determine which hub to use based on version_id
+    // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub
+    let target_hub_url = if version_id
+        .parse::<i32>()
+        .is_ok_and(|v| v < windmill_common::PRIVATE_HUB_MIN_VERSION)
+    {
+        windmill_common::DEFAULT_HUB_BASE_URL
+    } else {
+        &hub_base_url
+    };
+
+    // Call the hub's pick endpoint: /scripts/{version_id}/pick
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/scripts/{}/pick", target_hub_url, version_id),
+        None,
+        &db,
+    )
+    .await?;
+
+    Ok::<_, Error>((status_code, headers, response))
 }
 
 async fn get_script_by_path(

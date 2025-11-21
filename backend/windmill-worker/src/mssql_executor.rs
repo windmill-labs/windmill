@@ -12,6 +12,7 @@ use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::s3_helpers::convert_json_line_stream;
+use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     utils::empty_as_none,
@@ -95,6 +96,13 @@ pub async fn do_mssql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+        SqlResultCollectionStrategy::AllStatementsAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let mut config = Config::new();
 
@@ -237,21 +245,20 @@ pub async fn do_mssql(
             let len = results.len();
             let mut json_results = vec![];
             for (i, statement_result) in results.into_iter().enumerate() {
-                if annotations.return_last_result && i < len - 1 {
+                if collection_strategy.collect_last_statement_only(len) && i < len - 1 {
                     continue;
                 }
                 let mut json_rows = vec![];
                 for row in statement_result {
-                    let row = row_to_json(row)?;
+                    let row = to_raw_value(&row_to_json(row)?);
                     json_rows.push(row);
+                    if collection_strategy.collect_first_row_only() {
+                        break;
+                    }
                 }
                 json_results.push(json_rows);
             }
-            if annotations.return_last_result && json_results.len() > 0 {
-                Ok(to_raw_value(&json_results.pop().unwrap()))
-            } else {
-                Ok(to_raw_value(&json_results))
-            }
+            collection_strategy.collect(json_results)
         }
     };
 

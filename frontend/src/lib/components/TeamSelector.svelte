@@ -18,6 +18,7 @@
 		teams?: TeamItem[] | undefined
 		minWidth?: string
 		onError?: (error: Error) => void
+		onSelectedTeamChange?: (team: TeamItem | undefined) => void
 	}
 
 	let {
@@ -27,34 +28,56 @@
 		showRefreshButton = true,
 		teams = undefined,
 		minWidth = '160px',
-		onError
+		onError,
+		onSelectedTeamChange
 	}: Props = $props()
 
 	let isFetching = $state(false)
 	let searchResults = $state<TeamItem[]>([])
 
-	// Only enable search mode if no teams are provided
+	let selectedTeamId = $state<string | undefined>(selectedTeam?.team_id)
+
 	const searchMode = !teams
 
-	// Determine which teams to show: provided teams or search results
-	// In search mode, include the selected team if it exists
-	let displayTeams = $derived(() => {
-		const baseTeams = teams || searchResults;
-		if (searchMode && selectedTeam && !baseTeams.find(t => t.team_id === selectedTeam?.team_id)) {
-			return [selectedTeam, ...baseTeams];
+	let displayTeams = $derived.by(() => {
+		const baseTeams = teams || searchResults
+		if (selectedTeam && !baseTeams.find(t => t.team_id === selectedTeam?.team_id)) {
+			return [selectedTeam, ...baseTeams]
 		}
-		return baseTeams;
+		return baseTeams
 	})
 
-	// Create separate filter text for search mode
+	$effect(() => {
+		const newTeam = selectedTeamId
+			? displayTeams.find(t => t.team_id === selectedTeamId)
+			: undefined
+
+		if (newTeam?.team_id !== selectedTeam?.team_id) {
+			selectedTeam = newTeam
+		}
+	})
+
+	$effect(() => {
+		if (selectedTeam?.team_id !== selectedTeamId) {
+			selectedTeamId = selectedTeam?.team_id
+		}
+	})
+
+	let previousTeamId = $state<string | undefined>(undefined)
+
+	$effect(() => {
+		if (selectedTeam?.team_id !== previousTeamId) {
+			previousTeamId = selectedTeam?.team_id
+			onSelectedTeamChange?.(selectedTeam)
+		}
+	})
+
 	let searchFilterText = $state('')
 
-	// Debounced search function
 	const debouncedSearch = debounce(async (query: string) => {
 		await searchTeams(query)
 	}, 500)
 
-	// Watch for search filter text changes (only in search mode)
 	$effect(() => {
 		if (searchMode) {
 			if (searchFilterText.length >= 1) {
@@ -100,37 +123,27 @@
 			{#if searchMode}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={searchFilterText.length >= 1 || (searchFilterText.length === 0 && selectedTeam) ? displayTeams().map((team) => ({
+					items={displayTeams.map((team) => ({
 						label: team.team_name,
 						value: team.team_id
-					})) : []}
+					}))}
 					placeholder={isFetching ? "Searching..." : "Search teams..."}
 					clearable
 					disabled={disabled || isFetching}
 					bind:filterText={searchFilterText}
-					bind:value={
-						() => selectedTeam?.team_id,
-						(value) => {
-							selectedTeam = value ? displayTeams().find((team) => team.team_id === value) : undefined
-						}
-					}
+					bind:value={selectedTeamId}
 				/>
 			{:else}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayTeams().map((team) => ({
+					items={displayTeams.map((team) => ({
 						label: team.team_name,
 						value: team.team_id
 					}))}
 					placeholder="Select a team"
 					clearable
 					disabled={disabled || isFetching}
-					bind:value={
-						() => selectedTeam?.team_id,
-						(value) => {
-							selectedTeam = value ? displayTeams().find((team) => team.team_id === value) : undefined
-						}
-					}
+					bind:value={selectedTeamId}
 				/>
 			{/if}
 		</div>

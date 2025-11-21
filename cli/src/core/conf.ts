@@ -100,6 +100,7 @@ export interface Codebase {
   external?: string[];
   define?: { [key: string]: string };
   inject?: string[];
+  loader?: any,
   format?: "cjs" | "esm";
 }
 

@@ -18,6 +18,7 @@ use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
+use windmill_common::worker::error_to_value;
 use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
@@ -59,7 +60,6 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
-use windmill_queue::preprocess_dependency_job;
 use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
 
@@ -113,7 +113,7 @@ use crate::{
     bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
-        build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
+        build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
@@ -302,6 +302,128 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
+
+    pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    pub static ref UNSHARE_ISOLATION_FLAGS: String = {
+        std::env::var("UNSHARE_ISOLATION_FLAGS")
+            .unwrap_or_else(|_| "--user --map-root-user --pid --fork --mount-proc".to_string())
+    };
+
+    pub static ref UNSHARE_PATH: Option<String> = {
+        let flags = UNSHARE_ISOLATION_FLAGS.as_str();
+        let mut test_cmd_args: Vec<&str> = flags.split_whitespace().collect();
+        test_cmd_args.push("--");
+        test_cmd_args.push("true");
+
+        let test_result = std::process::Command::new("unshare")
+            .args(&test_cmd_args)
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("PID namespace isolation enabled. Flags: {}", flags);
+                Some("unshare".to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if *ENABLE_UNSHARE_PID {
+                    panic!(
+                        "ENABLE_UNSHARE_PID is set but unshare test failed.\n\
+                        Error: {}\n\
+                        Flags: {}\n\
+                        \n\
+                        Solutions:\n\
+                        • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
+                        • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
+                        • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
+                        • Alternative: Use NSJAIL instead\n\
+                        • Disable: Set ENABLE_UNSHARE_PID=false",
+                        stderr.trim(),
+                        flags
+                    );
+                }
+
+                tracing::warn!(
+                    "unshare test failed: {}. Flags: {}. Set ENABLE_UNSHARE_PID=true to fail on error.",
+                    stderr.trim(),
+                    flags
+                );
+                None
+            },
+            Err(e) => {
+                if *ENABLE_UNSHARE_PID {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but unshare binary not found.\n\
+                            Install util-linux package or set ENABLE_UNSHARE_PID=false"
+                        );
+                    } else {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but failed to test unshare: {}",
+                            e
+                        );
+                    }
+                }
+
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::debug!("unshare binary not found");
+                } else {
+                    tracing::warn!("Failed to test unshare: {}", e);
+                }
+                None
+            }
+        }
+    };
+
+    pub static ref NSJAIL_AVAILABLE: Option<String> = {
+        if *DISABLE_NSJAIL {
+            None
+        } else {
+            let nsjail_path = NSJAIL_PATH.as_str();
+
+            let test_result = std::process::Command::new(nsjail_path)
+                .arg("--help")
+                .output();
+
+            match test_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
+                    Some(nsjail_path.to_string())
+                },
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!(
+                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
+                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        stderr.trim()
+                    );
+                    None
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!(
+                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
+                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail_path
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
+                            nsjail_path,
+                            e
+                        );
+                    }
+                    None
+                }
+            }
+        }
+    };
 
     pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
         .ok()
@@ -841,10 +963,22 @@ pub fn start_interactive_worker_shell(
 
                         match job {
                             Ok(j) => match j.to_pulled_job() {
-                                Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                Ok(j) => Ok(j.clone().map(NextJob::Sql)),
+                                ref e @ (Err(PulledJobResultToJobErr::MissingConcurrencyKey(
+                                    ref jc,
+                                ))
+                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(
+                                    ref jc,
+                                ))) => {
+                                    if let Err(err) =
+                                        job_completed_tx.send_job(jc.clone(), true).await
+                                    {
+                                        let e_fmt = match e {
+                                            Ok(_) => "unknown error".to_owned(),
+                                            Err(e) => e.to_string(),
+                                        };
+
+                                        tracing::error!("An error occurred while sending job completed ({e_fmt}): {:#?}", err)
                                     }
                                     Ok(None)
                                 }
@@ -966,6 +1100,19 @@ pub async fn run_worker(
         tracing::warn!(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
+        );
+    }
+
+    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
+    // This ensures we panic at startup rather than lazily when first accessed during job execution
+    if *ENABLE_UNSHARE_PID {
+        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+        let _ = &*UNSHARE_PATH;
+
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "PID namespace isolation enabled via unshare with flags: {}",
+            UNSHARE_ISOLATION_FLAGS.as_str()
         );
     }
 
@@ -1605,30 +1752,23 @@ pub async fn run_worker(
                             }
                         };
 
-                        // Essential debouncing job preprocessing.
-                        if let Ok(windmill_queue::PulledJobResult {
-                            job: Some(ref mut pulled_job),
-                            ..
-                        }) = &mut job
-                        {
-                            match timeout(
-                                core::time::Duration::from_secs(30),
-                                preprocess_dependency_job(pulled_job, &db),
+                        // Preprocess pulled job result
+                        if let Ok(ref mut pulled_job_res) = job {
+                            if let Err(e) = timeout(
+                                // Will fail if longer than 10 seconds
+                                core::time::Duration::from_secs(10),
+                                pulled_job_res.preprocess(db),
                             )
                             .warn_after_seconds(2)
                             .await
+                            // Flatten result
+                            .map_err(error::Error::from)
+                            .and_then(|r| r)
                             {
-                                Ok(Err(e)) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                Err(e) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                _ => {}
+                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
                             }
                         }
+
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
                         let err_pull = job.is_ok();
@@ -1688,9 +1828,21 @@ pub async fn run_worker(
                         match job {
                             Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
                                 Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                ref e @ (Err(PulledJobResultToJobErr::MissingConcurrencyKey(
+                                    ref jc,
+                                ))
+                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(
+                                    ref jc,
+                                ))) => {
+                                    if let Err(err) =
+                                        job_completed_tx.send_job(jc.clone(), true).await
+                                    {
+                                        let e_fmt = match e {
+                                            Ok(_) => "unknown error".to_owned(),
+                                            Err(e) => e.to_string(),
+                                        };
+
+                                        tracing::error!("An error occurred while sending job completed ({e_fmt}): {:#?}", err)
                                     }
                                     Ok(None)
                                 }

@@ -49,7 +49,7 @@
 		hideConnectButton?: boolean
 	} = $props()
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return
@@ -141,7 +141,10 @@
 						bind:selectedTeam
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
-						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
+						onError={(e) => {
+							const errorMsg = typeof (e as any)?.body === 'string' ? (e as any).body : (e?.message || 'Unknown error')
+							sendUserToast('Failed to load teams: ' + errorMsg, true)
+						}}
 					/>
 				{/if}
 			{:else}

@@ -7,3 +7,4 @@ pub mod models;
 pub mod database;
 pub mod schema;
 pub mod transform;
+pub mod scope_matcher;

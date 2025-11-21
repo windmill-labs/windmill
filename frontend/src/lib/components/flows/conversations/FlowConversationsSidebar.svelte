@@ -8,126 +8,25 @@
 		PanelLeftOpen,
 		Loader2
 	} from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { FlowConversationService, type FlowConversation } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
+	import { type FlowConversation } from '$lib/gen'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
-	import { untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { FlowChatManager } from './FlowChatManager.svelte'
 
 	interface Props {
-		flowPath: string
-		selectedConversationId?: string
-		onNewConversation: (options: { clearMessages?: boolean }) => void
-		onSelectConversation: (conversationId: string, isDraft?: boolean) => void
-		onDeleteConversation: (conversationId: string) => void
+		manager: FlowChatManager
 	}
 
-	interface ConversationWithDraft extends FlowConversation {
-		isDraft?: boolean
-	}
-
-	let {
-		flowPath,
-		selectedConversationId,
-		onNewConversation,
-		onSelectConversation,
-		onDeleteConversation
-	}: Props = $props()
-
-	let isExpanded = $state(false)
-	let infiniteList: InfiniteList | undefined = $state()
-	let conversations = $state<ConversationWithDraft[]>([])
-	let deletingConversationId = $state<string | undefined>(undefined)
-
-	export async function refreshConversations() {
-		return await infiniteList?.loadData('forceRefresh')
-	}
-
-	export async function addNewConversation(conversationId: string, username: string) {
-		// Check if there's already a draft conversation
-		const existingDraft = conversations.find((c) => c.isDraft)
-		if (existingDraft) {
-			// Select the existing draft instead of creating a new one
-			onSelectConversation(existingDraft.id, true)
-			return existingDraft.id
-		}
-
-		// Create a new conversation object and add it to the top of the list
-		const newConversation: ConversationWithDraft = {
-			id: conversationId,
-			workspace_id: $workspaceStore!,
-			flow_path: flowPath,
-			title: 'New chat',
-			created_at: new Date().toISOString(),
-			updated_at: new Date().toISOString(),
-			created_by: username,
-			isDraft: true
-		}
-
-		// Prepend to conversations list
-		conversations = [newConversation, ...conversations]
-		return conversationId
-	}
-
-	async function loadConversations(page: number, perPage: number) {
-		if (!$workspaceStore || !flowPath) return []
-
-		try {
-			const response = await FlowConversationService.listFlowConversations({
-				workspace: $workspaceStore,
-				flowPath: flowPath,
-				page: page,
-				perPage: perPage
-			})
-
-			return response
-		} catch (error) {
-			console.error('Failed to load conversations:', error)
-			sendUserToast('Failed to load conversations', true)
-			return []
-		}
-	}
-
-	async function deleteConversation(conversationId: string) {
-		try {
-			deletingConversationId = conversationId
-			await FlowConversationService.deleteFlowConversation({
-				workspace: $workspaceStore!,
-				conversationId
-			})
-
-			onDeleteConversation(conversationId)
-			sendUserToast('Conversation deleted successfully')
-		} catch (error) {
-			console.error('Failed to delete conversation:', error)
-			sendUserToast('Failed to delete conversation', true)
-			throw error
-		} finally {
-			deletingConversationId = undefined
-		}
-	}
+	let { manager }: Props = $props()
 
 	function getConversationTitle(conversation: FlowConversation): string {
 		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
 	}
-
-	// Initialize InfiniteList when component mounts or flowPath changes
-	$effect(() => {
-		if ($workspaceStore && flowPath) {
-			if (infiniteList) {
-				untrack(() => {
-					infiniteList?.setLoader(loadConversations)
-					infiniteList?.setDeleteItemFn(deleteConversation)
-				})
-			}
-		}
-	})
 </script>
 
 <div
-	class="flex flex-col h-full bg-surface border-r border-gray-200 dark:border-gray-700 transition-all duration-300 {isExpanded
+	class="flex flex-col h-full bg-surface border-r border-gray-200 dark:border-gray-700 transition-all duration-300 {manager.isSidebarExpanded
 		? 'w-60'
 		: 'w-16'}"
 >
@@ -137,10 +36,10 @@
 			<Button
 				size="sm"
 				color="light"
-				startIcon={{ icon: isExpanded ? PanelLeftClose : PanelLeftOpen }}
-				onclick={() => (isExpanded = !isExpanded)}
-				iconOnly={!isExpanded}
-				btnClasses="!justify-start"
+				startIcon={{ icon: manager.isSidebarExpanded ? PanelLeftClose : PanelLeftOpen }}
+				onclick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
+				iconOnly={!manager.isSidebarExpanded}
+				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
 				label="Conversations"
 			>
 				Conversations
@@ -149,10 +48,10 @@
 				size="sm"
 				color="light"
 				startIcon={{ icon: Plus }}
-				onclick={() => onNewConversation({ clearMessages: true })}
+				onclick={() => manager.createConversation({ clearMessages: true })}
 				title="Start new conversation"
-				iconOnly={!isExpanded}
-				btnClasses="!justify-start"
+				iconOnly={!manager.isSidebarExpanded}
+				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
 				label="New chat"
 			>
 				New chat
@@ -161,26 +60,28 @@
 	</div>
 
 	<!-- Conversations List -->
-	{#if !isExpanded}
+	{#if !manager.isSidebarExpanded}
 		<!-- Collapsed state - show single chat icon with badge -->
 		<div class="p-2 flex flex-col items-center mt-2">
 			<button
 				class="relative w-[23px] h-[23px] rounded-md center-center hover:bg-surface-hover transition-all duration-100 text-secondary hover:text-primary group"
-				onclick={() => (isExpanded = true)}
-				title="{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}"
+				onclick={() => (manager.isSidebarExpanded = true)}
+				title="{manager.conversations.length} conversation{manager.conversations.length !== 1
+					? 's'
+					: ''}"
 			>
 				<MessageCircle size={16} />
-				<CountBadge count={conversations.length} small={true} alwaysVisible={true} />
+				<CountBadge count={manager.conversations.length} small={true} alwaysVisible={true} />
 			</button>
 		</div>
 	{/if}
 
 	<!-- Always mount InfiniteList, but hide it when collapsed -->
-	<div class="flex-1 overflow-hidden" class:hidden={!isExpanded}>
+	<div class="flex-1 overflow-hidden" class:hidden={!manager.isSidebarExpanded}>
 		<InfiniteList
-			bind:this={infiniteList}
-			bind:items={conversations}
-			selectedItemId={selectedConversationId}
+			bind:this={manager.conversationListComponent}
+			bind:items={manager.conversations}
+			selectedItemId={manager.selectedConversationId}
 			noBorder={true}
 			rounded={false}
 		>
@@ -188,7 +89,7 @@
 				<div
 					class={twMerge(
 						'w-full p-1',
-						selectedConversationId === conversation.id
+						manager.selectedConversationId === conversation.id
 							? 'bg-blue-200/30 text-blue-500 dark:bg-blue-600/30 text-blue-400'
 							: ''
 					)}
@@ -196,30 +97,29 @@
 					<Button
 						color="transparent"
 						size="xs"
-						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
+						onclick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
 					>
 						<span class="flex-1 text-left text-sm font-medium text-primary truncate">
 							{getConversationTitle(conversation)}
 						</span>
 						<button
 							class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover ||
-							deletingConversationId === conversation.id
+							manager.deletingConversationId === conversation.id
 								? 'opacity-100'
 								: 'opacity-0'}"
-							disabled={deletingConversationId === conversation.id}
+							disabled={manager.deletingConversationId === conversation.id}
 							onclick={(e) => {
 								e.stopPropagation()
 								if (conversation.isDraft) {
 									// just remove first conversation as it is the draft
-									conversations = [...conversations.slice(1)]
-									onDeleteConversation(conversation.id)
+									manager.conversations = [...manager.conversations.slice(1)]
 								} else {
-									infiniteList?.deleteItem(conversation.id)
+									manager.conversationListComponent?.deleteItem(conversation.id)
 								}
 							}}
 							title="Delete conversation"
 						>
-							{#if deletingConversationId === conversation.id}
+							{#if manager.deletingConversationId === conversation.id}
 								<Loader2 size={14} class="animate-spin" />
 							{:else}
 								<Trash2 size={14} />
@@ -237,11 +137,11 @@
 		</InfiniteList>
 	</div>
 
-	{#if isExpanded}
+	{#if manager.isSidebarExpanded}
 		<!-- Footer -->
 		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
 			<p class="text-xs text-primary">
-				{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+				{manager.conversations.length} conversation{manager.conversations.length !== 1 ? 's' : ''}
 			</p>
 		</div>
 	{/if}

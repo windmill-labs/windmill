@@ -281,7 +281,7 @@
 		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
-		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
+		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
 	>
 		{#if deletable}
 			<ModuleAcceptReject action={moduleAction ?? action} {id} />
@@ -494,7 +494,12 @@
 			{/if}
 
 			{#if id !== 'preprocessor'}
-				<div class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}>
+				<!-- The `style="will-change: transform;"` fixes a bug in Safari where the close and move
+			 		 and delete buttons would get clipped (unless an animation is running) -->
+				<div
+					class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}
+					style="will-change: transform;"
+				>
 					<button
 						class={twMerge(
 							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
@@ -510,7 +515,10 @@
 				</div>
 			{/if}
 
-			<div class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7">
+			<div
+				class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
+				style="will-change: transform;"
+			>
 				<button
 					class={twMerge(
 						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
@@ -530,6 +538,7 @@
 
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 				<Popover
+					style="will-change: transform;"
 					class={twMerge(
 						'absolute -translate-y-[100%] top-1 -left-1',
 						'flex items-center justify-center rounded-b-none rounded-md p-1 shadow-md  duration-0 ',

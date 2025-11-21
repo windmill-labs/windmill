@@ -6,15 +6,11 @@ use windmill_common::{
     cache,
     error::{Error, Result},
     flows::{FlowModuleValue, FlowValue},
-    scripts::ScriptLang,
 };
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::{
-    extract_referenced_paths, extract_relative_imports, is_generated_from_raw_requirements,
-    LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
-};
+use crate::worker_lockfiles::extract_relative_imports;
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -346,7 +342,7 @@ SELECT importer_node_id, imported_path
                         match fmv {
                             // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
                             FlowModuleValue::RawScript { content, language, lock ,.. } => {
-                                if !is_generated_from_raw_requirements(Some(*language), lock) {
+                                if !is_generated_from_raw_requirements(&Some(*language), lock) {
                                     to_process.push((
                                         extract_referenced_paths(
                                             content,

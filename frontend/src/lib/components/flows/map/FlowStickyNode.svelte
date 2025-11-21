@@ -2,7 +2,7 @@
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
-	import { DollarSign, Settings } from 'lucide-svelte'
+	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -15,6 +15,8 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		noteMode?: boolean
+		toggleNoteMode?: () => void
 		disableAi?: boolean
 	}
 
@@ -25,10 +27,13 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
+		noteMode,
+		toggleNoteMode,
 		disableAi
 	}: Props = $props()
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 </script>
 
 <div class="flex flex-row gap-2 p-1 rounded-md bg-surface">
@@ -37,10 +42,10 @@
 			unifiedSize="sm"
 			wrapperClasses="min-w-36"
 			startIcon={{ icon: Settings }}
-			selected={$selectedId?.startsWith('settings')}
+			selected={selectedId?.startsWith('settings')}
 			variant="default"
 			title="Settings"
-			onClick={() => ($selectedId = 'settings')}
+			onClick={() => selectionManager.selectId('settings')}
 		>
 			Settings
 			{#if flowStore.val.value.same_worker}
@@ -60,13 +65,13 @@
 				wrapperClasses="h-full"
 				unifiedSize="sm"
 				startIcon={{ icon: DollarSign }}
-				selected={$selectedId === 'constants'}
+				selected={selectedId === 'constants'}
 				variant="default"
 				iconOnly
-				onClick={() => ($selectedId = 'constants')}
+				onClick={() => selectionManager.selectId('constants')}
 			/>
 			{#snippet text()}
-				Static inputs
+				Environment Variables
 			{/snippet}
 		</Popover>
 	{/if}
@@ -83,4 +88,17 @@
 			{/snippet}
 		</Popover>
 	{/if}
+	<Popover>
+		<Button
+			onclick={() => toggleNoteMode?.()}
+			iconOnly
+			variant="default"
+			unifiedSize="sm"
+			startIcon={{ icon: StickyNote }}
+			selected={noteMode}
+		></Button>
+		{#snippet text()}
+			{noteMode ? 'Exit note mode' : 'Add sticky notes'}
+		{/snippet}
+	</Popover>
 </div>

@@ -115,7 +115,10 @@ ARG WITH_GIT=true
 ARG LATEST_STABLE_PY=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
+
+RUN mkdir -p /usr/local/uv
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV UV_TOOL_DIR=/usr/local/uv
 
 ENV PATH /usr/local/bin:/root/.local/bin:$PATH
 

@@ -50,10 +50,8 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_worker::scoped_dependency_map::{
-    DependencyDependent, DependencyMap, ScopedDependencyMap,
-};
+use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
+use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -167,6 +165,10 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route(
+            "/create_workspace_fork_branch",
+            post(create_workspace_fork_branch),
+        )
         .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -2460,38 +2462,6 @@ async fn create_workspace(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -3032,19 +3002,33 @@ async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> 
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
 
+/// Return the uuids of the git sync jobs to create the branch before creating the fork
+async fn create_workspace_fork_branch(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nw): Json<CreateWorkspaceFork>,
+) -> JsonResult<Vec<Uuid>> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(format!(
+            "Forking workspaces is not available on app.windmill.dev"
+        )));
+    }
+
+    Ok(Json(
+        handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
+    ))
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
-    // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-    //     require_super_admin(&db, &authed.email).await?;
-    // }
-
     if *CLOUD_HOSTED {
         return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on Cloud"
+            "Forking workspaces is not available on app.windmill.dev"
         )));
     }
 

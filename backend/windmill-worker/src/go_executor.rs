@@ -23,7 +23,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        capitalize, create_args_and_out_file, get_reserved_variables, read_result,
+        build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables, read_result,
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -383,10 +383,7 @@ func Run(req Req) (interface{{}}, error){{
         #[cfg(windows)]
         let compiled_executable_name = format!("{}/main.exe", job_dir);
 
-        #[cfg(unix)]
-        let mut run_go = Command::new(&compiled_executable_name);
-        #[cfg(windows)]
-        let mut run_go = Command::new(&compiled_executable_name);
+        let mut run_go = build_command_with_isolation(&compiled_executable_name, &[]);
 
         run_go
             .current_dir(job_dir)

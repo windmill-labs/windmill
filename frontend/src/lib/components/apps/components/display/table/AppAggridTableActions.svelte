@@ -19,6 +19,7 @@
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import type { ICellRendererParams } from 'ag-grid-community'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import AppModal from '../../layout/AppModal.svelte'
 
 	interface Props {
 		p: ICellRendererParams<any>
@@ -47,8 +48,18 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const { selectedComponent, hoverStore, mode, connectingInput } =
+	const { selectedComponent, hoverStore, mode, connectingInput, componentControl, app } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	$componentControl[id] = {
+		...$componentControl[id],
+		onDelete: () => {
+			// Remove associated subgrid
+			actions.forEach((action) => {
+				if (action?.type === 'modalcomponent') delete $app.subgrids?.[`${action.id}-0`]
+			})
+		}
+	}
 </script>
 
 <RowWrapper
@@ -198,6 +209,19 @@
 							replaceCallback={true}
 							{controls}
 						/>
+					{:else if action.type == 'modalcomponent'}
+						<AppModal
+							{render}
+							noWFull
+							id={action.id}
+							customCss={action.customCss}
+							configuration={action.configuration}
+							verticalAlignment="center"
+							preclickAction={async () => {
+								dispatch('toggleRow')
+								selectRow(p)
+							}}
+						/>
 					{:else if action.type == 'checkboxcomponent'}
 						<AppCheckbox
 							noInitialize
@@ -255,6 +279,19 @@
 						}}
 						replaceCallback={true}
 						componentInput={action.componentInput}
+					/>
+				{:else if action.type == 'modalcomponent'}
+					<AppModal
+						{render}
+						noWFull
+						id={action.id}
+						customCss={action.customCss}
+						configuration={action.configuration}
+						verticalAlignment="center"
+						preclickAction={async () => {
+							dispatch('toggleRow')
+							selectRow(p)
+						}}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
 					<AppCheckbox

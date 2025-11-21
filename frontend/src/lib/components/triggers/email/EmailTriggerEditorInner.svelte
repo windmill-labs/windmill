@@ -65,6 +65,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let enabled = $state(false)
 	// Component references
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
@@ -72,7 +73,7 @@
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
-	const routeConfig = $derived.by(getEmailTriggerConfig)
+	const emailConfig = $derived.by(getEmailTriggerConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading || !can_write || pathError != '' || !isValid || emptyString(script_path)
@@ -141,6 +142,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			enabled = defaultValues?.enabled ?? false
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -161,6 +163,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		enabled = cfg?.enabled ?? false
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -179,11 +182,11 @@
 
 	async function triggerScript(): Promise<void> {
 		if (customSaveBehavior) {
-			customSaveBehavior(routeConfig)
+			customSaveBehavior(emailConfig)
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
-			const saveCfg = routeConfig
+			const saveCfg = emailConfig
 			const isSaved = await saveEmailTriggerFromCfg(
 				initialPath,
 				saveCfg,
@@ -210,17 +213,30 @@
 			extra_perms: extraPerms,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			enabled
 		}
 
 		return nCfg
 	}
 
+	async function handleToggleEnabled(newEnabled: boolean) {
+		enabled = newEnabled
+		if (!trigger?.draftConfig) {
+			await EmailTriggerService.setEmailTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: newEnabled }
+			})
+			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} email trigger ${initialPath}`)
+		}
+	}
+
 	// Update config for captures
 	function getCaptureConfig() {
 		const newCaptureConfig = {
-			local_part: routeConfig.local_part,
-			path: routeConfig.path
+			local_part: emailConfig.local_part,
+			path: emailConfig.path
 		}
 		//
 		return newCaptureConfig
@@ -233,7 +249,7 @@
 
 	$effect(() => {
 		if (!drawerLoading) {
-			handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
+			handleConfigChange(emailConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
 	})
 </script>
@@ -284,7 +300,7 @@
 
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
+									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
 									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
@@ -338,8 +354,9 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			enabled={undefined}
+			{enabled}
 			{allowDraft}
+			onToggleEnabled={handleToggleEnabled}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}

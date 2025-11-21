@@ -501,7 +501,6 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
@@ -667,13 +666,11 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-#[derive(Copy)]
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
 }
 
-#[derive(Deserialize)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
@@ -691,15 +688,6 @@ pub struct PythonAnnotations {
     pub raw_requirements: Option<String>,
 }
 
-// #[derive(Clone, Default, Debug, Deserialize, Serialize)]
-// pub enum RawReqs {
-//     #[default]
-//     Default,
-//     None,
-//     Name(String),
-// }
-
-#[derive(Copy)]
 #[annotations("//")]
 pub struct GoAnnotations {
     pub go1_22_compat: bool,
@@ -715,13 +703,174 @@ pub struct TypeScriptAnnotations {
 
 #[annotations("--")]
 pub struct SqlAnnotations {
-    pub return_last_result: bool,
+    pub return_last_result: bool, // deprecated, use result_collection instead
+    pub result_collection: SqlResultCollectionStrategy,
 }
 
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SqlResultCollectionStrategy {
+    LastStatementAllRows,
+    LastStatementFirstRow,
+    LastStatementAllRowsScalar,
+    LastStatementFirstRowScalar,
+    AllStatementsAllRows,
+    AllStatementsFirstRow,
+    AllStatementsAllRowsScalar,
+    AllStatementsFirstRowScalar,
+    Legacy,
+}
+
+impl SqlResultCollectionStrategy {
+    pub fn parse(s: &str) -> Self {
+        use SqlResultCollectionStrategy::*;
+        match s {
+            "last_statement_all_rows" => LastStatementAllRows,
+            "last_statement_first_row" => LastStatementFirstRow,
+            "last_statement_all_rows_scalar" => LastStatementAllRowsScalar,
+            "last_statement_first_row_scalar" => LastStatementFirstRowScalar,
+            "all_statements_all_rows" => AllStatementsAllRows,
+            "all_statements_first_row" => AllStatementsFirstRow,
+            "all_statements_all_rows_scalar" => AllStatementsAllRowsScalar,
+            "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
+            "legacy" => Legacy,
+            _ => SqlResultCollectionStrategy::default(),
+        }
+    }
+
+    pub fn collect_last_statement_only(&self, query_count: usize) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementAllRows
+            | LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | LastStatementAllRowsScalar => true,
+            Legacy => query_count == 1,
+            _ => false,
+        }
+    }
+    pub fn collect_first_row_only(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | AllStatementsFirstRow
+            | AllStatementsFirstRowScalar => true,
+            _ => false,
+        }
+    }
+    pub fn collect_scalar(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRowScalar
+            | AllStatementsFirstRowScalar
+            | LastStatementAllRowsScalar
+            | AllStatementsAllRowsScalar => true,
+            _ => false,
+        }
+    }
+
+    // This function transforms the shape (e.g Row[][] -> Row)
+    // It is the responsibility of the executor to avoid fetching unnecessary statements/rows
+    pub fn collect(
+        &self,
+        values: Vec<Vec<Box<serde_json::value::RawValue>>>,
+    ) -> error::Result<Box<serde_json::value::RawValue>> {
+        let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+        let values = if self.collect_last_statement_only(values.len()) {
+            values.into_iter().rev().take(1).collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_first_row_only() {
+            values
+                .into_iter()
+                .map(|rows| rows.into_iter().take(1).collect())
+                .collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_scalar() {
+            values
+                .into_iter()
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            // Take the first value in the object
+                            let record =
+                                match serde_json::from_str(row.get()) {
+                                    Ok(serde_json::Value::Object(record)) => record,
+                                    Ok(_) => return Err(error::Error::ExecutionErr(
+                                        "Could not collect sql scalar value from non-object row"
+                                            .to_string(),
+                                    )),
+                                    Err(e) => {
+                                        return Err(error::Error::ExecutionErr(format!(
+                                    "Could not collect sql scalar value (failed to parse row): {}",
+                                    e
+                                )))
+                                    }
+                                };
+                            let Some((_, value)) = record.iter().next() else {
+                                return Err(error::Error::ExecutionErr(
+                                    "Could not collect sql scalar value from empty row".to_string(),
+                                ));
+                            };
+                            Ok(serde_json::value::RawValue::from_string(
+                                serde_json::to_string(value).map_err(to_anyhow)?,
+                            )
+                            .map_err(to_anyhow)?)
+                        })
+                        .collect::<error::Result<Vec<_>>>()
+                })
+                .collect::<error::Result<Vec<_>>>()?
+        } else {
+            values
+        };
+
+        match (
+            self.collect_last_statement_only(values.len()),
+            self.collect_first_row_only(),
+        ) {
+            (true, true) => {
+                match values
+                    .into_iter()
+                    .last()
+                    .map(|rows| rows.into_iter().next())
+                {
+                    Some(Some(row)) => Ok(row.clone()),
+                    _ => Ok(null()),
+                }
+            }
+            (true, false) => match values.into_iter().last() {
+                Some(rows) => Ok(to_raw_value(&rows)),
+                None => Ok(null()),
+            },
+            (false, true) => {
+                let values = values
+                    .into_iter()
+                    .map(|rows| rows.into_iter().next().unwrap_or_else(null))
+                    .collect::<Vec<_>>();
+                Ok(to_raw_value(&values))
+            }
+            (false, false) => Ok(to_raw_value(&values)),
+        }
+    }
+}
+
+impl Default for SqlResultCollectionStrategy {
+    fn default() -> Self {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    }
+}
+
 /// length = 5
 /// value  = "foo"
 /// output = "foo  "
@@ -1160,6 +1309,7 @@ pub struct Ping {
     pub occupancy_rate_15s: Option<f32>,
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
+    pub job_isolation: Option<String>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1207,6 +1357,7 @@ pub async fn update_ping_http(
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1222,6 +1373,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1335,10 +1487,11 @@ pub async fn insert_ping_query(
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
         DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
@@ -1348,7 +1501,8 @@ pub async fn insert_ping_query(
         dw,
         version,
         vcpus,
-        memory
+        memory,
+        job_isolation.as_deref()
         )
         .execute(db)
         .await?;
@@ -1365,11 +1519,12 @@ pub async fn update_worker_ping_from_job_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9, job_isolation = $10 WHERE worker = $5",
             job_id,
         w_id,
         memory_usage,
@@ -1379,6 +1534,7 @@ pub async fn update_worker_ping_from_job_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        job_isolation,
     )
     .execute(db)
     .await?;
@@ -1716,6 +1872,13 @@ pub fn load_env_vars(
             )
         })
         .collect()
+}
+
+pub fn error_to_value(err: &error::Error) -> serde_json::Value {
+    match err {
+        error::Error::JsonErr(err) => err.clone(),
+        _ => json!({"message": err.to_string(), "name": err.name()}),
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

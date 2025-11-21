@@ -447,7 +447,7 @@
 							/>
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
+									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
 									disabled={!can_write}

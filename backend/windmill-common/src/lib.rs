@@ -35,6 +35,8 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod db;
+#[cfg(all(feature = "enterprise", feature = "private"))]
+mod db_iam_ee;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -98,6 +100,7 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 
 #[macro_export]
@@ -340,7 +343,12 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
 
     let scheme = parsed_url.scheme().to_string();
     let username = parsed_url.username().to_string();
+    let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
     let password = parsed_url.password().map(|p| p.to_string());
+    let password = match password {
+        Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
+        None => None,
+    };
     let host = parsed_url
         .host_str()
         .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
@@ -369,27 +377,120 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
     })
 }
 
-pub async fn get_database_url() -> Result<String, Error> {
-    use std::env::var;
-    use tokio::fs::File;
-    use tokio::io::AsyncReadExt;
-    match var("DATABASE_URL_FILE") {
-        Ok(file_path) => {
-            let mut file = File::open(file_path).await?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).await?;
-            Ok(contents.trim().to_string())
+#[derive(Clone)]
+pub enum DatabaseUrl {
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    IamRds(std::sync::Arc<tokio::sync::RwLock<db_iam_ee::IamRdsUrl>>),
+    Static(String),
+}
+
+impl DatabaseUrl {
+    pub async fn as_str(&self) -> String {
+        match self {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::IamRds(rds_url) => {
+                let guard = rds_url.read().await;
+                guard.as_str().to_string()
+            }
+            DatabaseUrl::Static(url) => url.clone(),
         }
-        Err(_) => var("DATABASE_URL").map_err(|_| {
-            Error::BadConfig(
-                "Either DATABASE_URL_FILE or DATABASE_URL env var is missing".to_string(),
-            )
-        }),
     }
+
+    pub async fn refresh(&self) -> anyhow::Result<()> {
+        match self {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::IamRds(rds_url) => rds_url.write().await.refresh().await,
+            DatabaseUrl::Static(_) => Ok(()),
+        }
+    }
+
+
+}
+
+static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> =
+    tokio::sync::OnceCell::const_new();
+
+pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
+    let database_url = DATABASE_URL_CACHE
+        .get_or_try_init(|| async {
+            use std::env::var;
+            use tokio::fs::File;
+            use tokio::io::AsyncReadExt;
+
+            let url = match var("DATABASE_URL_FILE") {
+                Ok(file_path) => {
+                    let mut file = File::open(file_path).await?;
+                    let mut contents = String::new();
+                    file.read_to_string(&mut contents).await?;
+                    Ok(contents.trim().to_string())
+                }
+                Err(_) => var("DATABASE_URL").map_err(|_| {
+                    Error::BadConfig(
+                        "Either DATABASE_URL_FILE or DATABASE_URL env var is missing".to_string(),
+                    )
+                }),
+            }?;
+
+            let parsed_url = url::Url::parse(&url)?;
+
+            if parsed_url.password().is_some_and(|x| x == "iamrds") {
+                let region = var("AWS_REGION").map_err(|_| {
+                    Error::BadConfig(
+                        "AWS_REGION env var is required for IAM RDS authentication".to_string(),
+                    )
+                })?;
+
+                tracing::info!("iamrds mode detected, generating IAM RDS URL for region: {region}");
+                #[cfg(all(feature = "enterprise", feature = "private"))] 
+                {
+                let rds_url = db_iam_ee::generate_database_url(&url, &region)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("Failed to generate IAM database URL: {}", e))
+                    })?;
+                tracing::info!("IAM RDS URL generated successfully");
+                Ok::<DatabaseUrl, Error>(DatabaseUrl::IamRds(
+                    std::sync::Arc::new(tokio::sync::RwLock::new(rds_url))
+                ))
+                }
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                {
+                    return Err(Error::BadConfig("IAM RDS authentication is not enabled in OSS mode".to_string()));
+                }
+            } else {
+                Ok::<DatabaseUrl, Error>(DatabaseUrl::Static(url.to_string()))
+            }
+        })
+        .await?;
+
+    // Check if we need to refresh and do so if necessary
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let DatabaseUrl::IamRds(ref rds_url_lock) = database_url {
+        // Check if refresh is needed
+        let needs_refresh = {
+            let read_guard = rds_url_lock.read().await;
+            read_guard.needs_refresh()
+        };
+
+        // If refresh is needed, acquire write lock and refresh
+        if needs_refresh {
+            let mut write_guard = rds_url_lock.write().await;
+            // Double-check after acquiring write lock (another task might have refreshed)
+            if write_guard.needs_refresh() {
+                write_guard.refresh().await.map_err(|e| {
+                    Error::InternalErr(format!("Failed to refresh IAM token: {}", e))
+                })?;
+            }
+        }
+    }
+
+    // Return the URL string
+    Ok(database_url.clone())
 }
 
 pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    let database_url = get_database_url().await?;
+    let database_url = get_database_url().await?.as_str().await;
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
         .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
@@ -401,6 +502,8 @@ pub async fn connect_db(
     server_mode: bool,
     indexer_mode: bool,
     worker_mode: bool,
+    #[cfg(feature = "private")]
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
@@ -425,11 +528,58 @@ pub async fn connect_db(
         }
     };
 
-    Ok(connect(&database_url, max_connections, worker_mode).await?)
+
+    let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let pool2 = pool.clone();
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let DatabaseUrl::IamRds(database_url) = database_url {
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = killpill_rx.recv() => {
+                        break;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                        let needs_refresh = {
+                            let read_guard = database_url.read().await;
+                            read_guard.needs_refresh()
+                        };
+                        if needs_refresh {
+                            let new_url = tokio::time::timeout(std::time::Duration::from_secs(10), get_database_url()).await;
+                            match new_url {
+                                Ok(Ok(new_url)) => {
+                                    let new_url = new_url.as_str().await;
+                                    let connect_options = sqlx::postgres::PgConnectOptions::from_str(&new_url);
+                                    if let Err(e) = connect_options {
+                                        tracing::error!("Error parsing IAM RDS URL as connect options, retrying in 10s: {}", e);
+                                        continue;
+                                    }
+                                    pool2.set_connect_options(connect_options.unwrap());
+                                    tracing::info!("Refreshed IAM RDS URL successfully");
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::error!("Error refreshing IAM RDS URL, trying again in 10s: {}", e);
+                                    continue;
+                                }
+                                Err(e) => {
+                                    tracing::error!("Timeout after 10s refreshing IAM RDS URL, trying again in 10 seconds: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            }
+        });
+    }
+
+    Ok(pool)
 }
 
 pub async fn connect(
-    database_url: &str,
+    database_url: DatabaseUrl,
     max_connections: u32,
     worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
@@ -478,7 +628,7 @@ pub async fn connect(
             }
         })
         .connect_with(
-            sqlx::postgres::PgConnectOptions::from_str(database_url)?.statement_cache_capacity(400),
+            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?.statement_cache_capacity(400),
         )
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
@@ -489,9 +639,7 @@ type Tag = String;
 pub use db::DB;
 
 use crate::{
-    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE},
-    db::{AuthedRef, UserDbWithAuthed},
-    scripts::ScriptHash,
+    auth::{FLOW_PERMS_CACHE, HASH_PERMS_CACHE, PermsCache}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, scripts::ScriptHash
 };
 
 #[derive(Clone)]
@@ -768,7 +916,7 @@ where
     }
 }
 
-pub fn get_latest_flow_version_info_for_path_from_version<
+pub fn get_flow_version_info_from_version<
     'a,
     'e,
     A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
@@ -781,7 +929,6 @@ pub fn get_latest_flow_version_info_for_path_from_version<
     async move {
         // as instructed in the docstring of sqlx::Acquire
         let key = (w_id.to_string(), version);
-
         match FLOW_INFO_CACHE.get(&key) {
             Some(info) => {
                 tracing::debug!("Using cached flow version info for {version} ({path})");
@@ -790,21 +937,37 @@ pub fn get_latest_flow_version_info_for_path_from_version<
             _ => {
                 tracing::debug!("Fetching flow version info for {version} ({path})");
                 let mut conn = db.acquire().await?;
-                let info = sqlx::query_as!(
-                    FlowVersionInfo,
-                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, on_behalf_of_email, edited_by, flow_version.id AS version
-                    FROM flow
-                    INNER JOIN flow_version
-                        ON flow_version.id = $3
-                    WHERE flow.path = $1 and flow.workspace_id = $2",
-                path,
-                w_id,
-                version
-            )
-                .fetch_optional(&mut *conn)
-                .await?;
+                let flow_info = 
+                        sqlx::query_as!(
+                            FlowVersionInfo,
+                            r#"
+                                SELECT
+                                    flow_version.id AS version,
+                                    flow_version.value->>'early_return' as early_return, 
+                                    flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, 
+                                    (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, 
+                                    flow.tag, 
+                                    flow.dedicated_worker, 
+                                    flow.on_behalf_of_email, 
+                                    flow.edited_by
+                                FROM 
+                                    flow_version
+                                INNER JOIN flow
+                                    ON flow.path = flow_version.path AND
+                                       flow.workspace_id = flow_version.workspace_id
+                                WHERE 
+                                    flow_version.workspace_id = $1 AND
+                                    flow_version.path = $2 AND
+                                    flow_version.id = $3
+                            "#,
+                            w_id,
+                            path,
+                            version,
+                        )
+                        .fetch_optional(&mut *conn)
+                        .await?;
 
-                let info = utils::not_found_if_none(info, "flow", path)?;
+                let info = utils::not_found_if_none(flow_info, "flow", path)?;
 
                 FLOW_INFO_CACHE.insert(key, info.clone());
 
@@ -824,7 +987,7 @@ pub async fn get_latest_flow_version_info_for_path<'e>(
     // as instructed in the docstring of sqlx::Acquire
     let version =
         get_latest_flow_version_id_for_path(db_authed, &db.clone(), w_id, path, use_cache).await?;
-    get_latest_flow_version_info_for_path_from_version(db, version, w_id, path).await
+    get_flow_version_info_from_version(db, version, w_id, path).await
 }
 
 async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(

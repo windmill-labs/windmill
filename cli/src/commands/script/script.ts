@@ -181,6 +181,14 @@ export async function handleScriptMetadata(
   }
 }
 
+export interface OutputFile {
+  path: string
+  contents: Uint8Array
+  hash: string
+  /** "contents" as text (changes automatically with "contents") */
+  readonly text: string
+}
+
 export async function handleFile(
   path: string,
   workspace: Workspace,
@@ -211,7 +219,9 @@ export async function handleFile(
 
     let bundleContent: string | Tarball | undefined = undefined;
 
+    let forceTar = false;
     if (codebase) {
+      let outputFiles: OutputFile[] = [];
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
         bundleContent = execSync(
@@ -233,35 +243,42 @@ export async function handleFile(
           external: codebase.external,
           inject: codebase.inject,
           define: codebase.define,
+          loader: codebase.loader ?? { ".node": "file" },
+          outdir: '/',
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
+        outputFiles = out.outputFiles;
         log.info(
           `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
             0
           )}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
-      if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+      if (outputFiles.length > 1) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
         log.info(
-          `Using the following asset configuration for ${path}: ${JSON.stringify(
-            codebase.assets
-          )}`
+          `Found multiple output files for ${path}, creating a tarball... ${outputFiles.map((file) => file.path).join(", ")}`
         );
+        forceTar = true;
         const startTime = performance.now();
         const tarball = new archiveNpm.Tarball();
+        const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
+        const content = outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? '';
+        log.info(`Main content: ${content.length}chars`);
         tarball.append(
-          new File([bundleContent], "main.js", { type: "text/plain" })
+          new File([content], "main.js", { type: "text/plain" })
         );
-        for (const asset of codebase.assets) {
-          const data = fs.readFileSync(asset.from);
-          const blob = new Blob([data], { type: "text/plain" });
-          const file = new File([blob], asset.to);
-          tarball.append(file);
+        for (const file of outputFiles) {
+          if (file.path == "/" + mainPath) {
+            continue;
+          }
+          log.info(`Adding file: ${file.path.substring(1)}`);
+          const fil = new File([file.contents], file.path.substring(1));
+          tarball.append(fil);
         }
         const endTime = performance.now();
         log.info(
@@ -270,6 +287,33 @@ export async function handleFile(
           ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
         bundleContent = tarball;
+      } else {
+        if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+          const archiveNpm = await import("npm:@ayonli/jsext/archive");
+          log.info(
+            `Using the following asset configuration for ${path}: ${JSON.stringify(
+              codebase.assets
+            )}`
+          );
+          const startTime = performance.now();
+          const tarball = new archiveNpm.Tarball();
+          tarball.append(
+            new File([bundleContent], "main.js", { type: "text/plain" })
+          );
+          for (const asset of codebase.assets) {
+            const data = fs.readFileSync(asset.from);
+            const blob = new Blob([data], { type: "text/plain" });
+            const file = new File([blob], asset.to);
+            tarball.append(file);
+          }
+          const endTime = performance.now();
+          log.info(
+            `Finished creating tarball for ${path}: ${(
+              tarball.size / 1024
+            ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          );
+          bundleContent = tarball;
+        }
       }
     }
     let typed = opts?.skipScriptsMetadata
@@ -326,7 +370,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest();
+      typed.codebase = await codebase.getDigest(forceTar);
     }
 
     const requestBodyCommon: NewScript = {
@@ -353,7 +397,7 @@ export async function handleFile(
       concurrency_key: typed?.concurrency_key,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
-      codebase: await codebase?.getDigest(),
+      codebase: await codebase?.getDigest(forceTar),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
     };

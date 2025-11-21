@@ -80,6 +80,7 @@ pub mod args;
 mod assets;
 mod audit;
 pub mod auth;
+mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -155,6 +156,7 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+mod public_app_layer;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -323,6 +325,11 @@ pub async fn run_server(
     if server_mode {
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
+
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            windmill_queue::init_usage_buffer(db.clone());
+        }
 
         let mut start_smtp_server = false;
         if let Some(smtp_settings) =
@@ -705,6 +712,15 @@ pub async fn run_server(
                 .on_request(())
                 .on_failure(MyOnFailure {}),
         )
+    };
+
+    let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
+        tracing::info!("Public app domain filter enabled for domain: {}", domain);
+        app.layer(axum::middleware::from_fn(
+            public_app_layer::public_app_domain_filter,
+        ))
+    } else {
+        app
     };
 
     let app = app.layer(CatchPanicLayer::custom(|err| {

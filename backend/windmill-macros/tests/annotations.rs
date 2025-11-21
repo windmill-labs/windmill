@@ -25,7 +25,7 @@ mod annotations_tests {
     }
 
     #[annotations("#")]
-    #[derive(Eq, PartialEq, Copy)]
+    #[derive(Eq, PartialEq)]
     pub struct Annotations {
         pub ann1: bool,
         pub ann2: bool,
@@ -35,7 +35,7 @@ mod annotations_tests {
     }
 
     #[annotations("//")]
-    #[derive(Eq, PartialEq, Copy)]
+    #[derive(Eq, PartialEq)]
     pub struct SlashedAnnotations {
         pub ann1: bool,
         pub ann2: bool,
@@ -44,7 +44,7 @@ mod annotations_tests {
     }
 
     #[annotations("--")]
-    #[derive(Eq, PartialEq, Copy)]
+    #[derive(Eq, PartialEq)]
     pub struct MinusedAnnotations {
         pub ann1: bool,
         pub ann2: bool,

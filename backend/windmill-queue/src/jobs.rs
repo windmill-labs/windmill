@@ -35,6 +35,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -469,6 +470,7 @@ pub async fn push_init_job<'c>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -525,6 +527,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
     )
@@ -1372,6 +1375,7 @@ async fn restart_job_if_perpetual_inner(
             false,
             None,
             None,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1922,6 +1926,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2456,11 +2461,17 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
+    pub error_while_preprocessing: Option<String>
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum PulledJobResultToJobErr {
+    #[error("missing concurrency key")]
     MissingConcurrencyKey(JobCompleted),
+    #[error("pulled job preprocessor error: {}", .0.result)]
+    ErrorWhilePreprocessing(JobCompleted),
 }
+
 
 impl PulledJobResult {
     pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
@@ -2484,8 +2495,277 @@ impl PulledJobResult {
                     from_cache: None,
                 }),
             ),
+            PulledJobResult { job: Some(job), error_while_preprocessing: Some(e), .. } => Err(
+                PulledJobResultToJobErr::ErrorWhilePreprocessing(JobCompleted {
+                    preprocessed_args: None,
+                    job: MiniCompletedJob::from(job.job),
+                    success: false,
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "Pulled job preprocessing error",
+                        "message": e
+                    }))),
+                    result_columns: None,
+                    mem_peak: 0,
+                    cached_res_path: None,
+                    token: "".to_string(),
+                    canceled_by: None,
+                    duration: None,
+                    has_stream: Some(false),
+                    from_cache: None,
+                }),
+            ),
             PulledJobResult { job, .. } => Ok(job),
         }
+    }
+
+    /// Generic preprocess function
+    /// Can be used for any kind of preprocessing
+    pub async fn preprocess(&mut self, db: &DB) -> error::Result<()> {
+        let PulledJobResult { job: Some(ref mut pulled_job), .. } = self else {
+            return Ok(());
+        };
+
+        let kind = pulled_job.kind;
+        // Handle dependency job debouncing cleanup when a job is pulled for execution
+        if kind.is_dependency()
+            && pulled_job
+                .args
+                .as_ref()
+                .map(|x| x.get("triggered_by_relative_import").is_some())
+                .unwrap_or_default()
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+        {
+            return Box::pin(async move {
+                // Only used for testing in tests/relative_imports.rs
+                // Give us some space to work with.
+                #[cfg(debug_assertions)]
+                if let Some(duration) = pulled_job
+                    .args
+                    .as_ref()
+                    .map(|x| {
+                        x.get("dbg_sleep_between_pull_and_debounce_key_removal")
+                            .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+                            .flatten()
+                    })
+                    .flatten()
+                {
+                    tracing::debug!("going to sleep",);
+                    sleep(std::time::Duration::from_secs(duration as u64)).await;
+                }
+
+                tracing::debug!(
+                    "Processing debounce cleanup for dependency job {} at path {:?}",
+                    &pulled_job.id,
+                    &pulled_job.runnable_path
+                );
+
+                let key = format!("{}:{}:dependency", &pulled_job.workspace_id, pulled_job.runnable_path());
+                let mut tx = db.begin().await?;
+
+                // === DEBOUNCE CLEANUP ===
+                //
+                // Clean up the debounce_key entry for this job (if it exists).
+                //
+                // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
+                // If pusher has locked this row then this call will be blocked until all txs are commited.
+                //
+                // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
+                // This object needs to be created before the djob is executed and it happens right here.
+                //
+                // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
+                // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
+                // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
+                //
+                //
+                //
+                // Note: We don't use a transaction here for performance (it's called during job pull).
+                // This means there's a tiny window where the job is running but key isn't deleted yet,
+                // which is acceptable because new requests will just accumulate data to this job.
+                tracing::debug!(
+                    job_id = %pulled_job.id,
+                    "Cleaning up debounce_key entry for completed/pulled job"
+                );
+
+                // This will either:
+                // 1. Block until pusher pushed. Which gives us:
+                //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
+                // 2. Block pusher until we are done here. This gives us:
+                //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
+                sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            error = %e,
+                            job_id = %pulled_job.id,
+                            "Failed to delete debounce_key"
+                        );
+                        e
+                })?;
+
+                let Some(base_hash) = pulled_job.runnable_id else {
+                    return Err(Error::InternalErr(
+                        "Missing runnable_id for dependency job triggered by relative import"
+                            .to_string(),
+                    ));
+                };
+
+                tracing::debug!(
+                    job_id = %pulled_job.id,
+                    base_hash = %base_hash,
+                    job_kind = ?kind,
+                    "Creating new version for dependency job triggered by relative import"
+                );
+
+                let new_id = match kind {
+                    JobKind::Dependencies => {
+                        let deployment_message = pulled_job
+                            .args
+                            .clone()
+                            .map(|hashmap| {
+                                hashmap
+                                    .get("deployment_message")
+                                    .map(|map_value| {
+                                        serde_json::from_str::<String>(map_value.get()).ok()
+                                    })
+                                    .flatten()
+                            })
+                            .flatten();
+
+                        // This way we tell downstream which script we should archive when the resolution is finished.
+                        // (not used at the moment)
+                        pulled_job.args.as_mut().map(|args| {
+                            args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
+                        });
+
+                        let cloned_script = windmill_common::scripts::clone_script(
+                            base_hash,
+                            &pulled_job.workspace_id,
+                            deployment_message,
+                            &mut tx,
+                        )
+                        .await?;
+
+                        if is_generated_from_raw_requirements(&Some(cloned_script.old_script.language), &cloned_script.old_script.lock.map(|v| v.to_string())) {
+                            return Err(Error::BadRequest(format!(
+                                "Script at path {} is generated from raw requirements, not overriding",
+                                pulled_job.runnable_path()
+                            )));
+                        }
+
+                        cloned_script.new_hash
+                    }
+                    JobKind::FlowDependencies => {
+                        sqlx::query_scalar!(
+                            "INSERT INTO flow_version
+                        (workspace_id, path, value, schema, created_by)
+
+                        SELECT workspace_id, path, value, schema, created_by
+                        FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                        RETURNING id
+                        ",
+                            pulled_job.runnable_path(),
+                            pulled_job.workspace_id,
+                            *base_hash,
+                        )
+                        .fetch_one(&mut *tx)
+                        .await?
+                    }
+                    JobKind::AppDependencies => {
+                        sqlx::query_scalar!(
+                            "INSERT INTO app_version
+                            (app_id, value, created_by, raw_app)
+                        SELECT app_id, value, created_by, raw_app
+                        FROM app_version WHERE id = $1
+                        RETURNING id",
+                            *base_hash
+                        )
+                        .fetch_one(&mut *tx)
+                        .await?
+                    }
+                    _ => {
+                        return Err(Error::InternalErr(format!(
+                            "Matched unexpected JobKind ({:?}). This is a bug!",
+                            kind
+                        )))
+                    }
+                };
+
+                pulled_job.runnable_id.replace(new_id.into());
+
+                if *windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+                    // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
+                    //
+                    // For flows and apps, retrieve all nodes/components that were accumulated
+                    // during the debounce window. This data comes from requests that were merged
+                    // into this job instead of creating their own jobs.
+                    //
+                    // Scripts don't need this because they don't have nodes/components to relock.
+                    if let Some(to_relock_field) = match &pulled_job.kind {
+                        JobKind::FlowDependencies => Some("nodes_to_relock"),
+                        JobKind::AppDependencies => Some("components_to_relock"),
+                        _ => None, // Scripts don't use accumulated stale data
+                    } {
+                        tracing::debug!(
+                            job_id = %pulled_job.id,
+                            job_kind = ?pulled_job.kind,
+                            field = %to_relock_field,
+                            "Retrieving accumulated stale data from debounced requests"
+                        );
+
+                        if let Some(stale_data) = sqlx::query_scalar!(
+                            "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
+                            &pulled_job.id
+                        )
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(
+                                error = %e,
+                                job_id = %pulled_job.id,
+                                "Failed to retrieve debounce_stale_data"
+                            );
+                            e
+                        })?
+                        .flatten()
+                        {
+                            tracing::debug!(
+                                job_id = %pulled_job.id,
+                                node_count = stale_data.len(),
+                                nodes = ?stale_data,
+                                "Retrieved accumulated nodes/components from {} debounced requests",
+                                stale_data.len()
+                            );
+
+                            // Replace the job's relock list with the accumulated data
+                            // This ensures all nodes from all debounced requests are processed
+                            if let Some(args) = pulled_job.args.as_mut() {
+                                args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
+                                tracing::debug!(
+                                    field = %to_relock_field,
+                                    "Updated job args with accumulated debounce data"
+                                );
+                            }
+                        } else {
+                            tracing::trace!(
+                                job_id = %pulled_job.id,
+                                "No accumulated stale data found (no debounced requests or already cleaned up)"
+                            );
+                        }
+                    }
+                } else {
+                    tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+                
+                }
+                // This will unblock pusher.
+                tx.commit().await?;
+
+                Ok(())
+            }).await;
+        }
+
+        Ok(())
     }
 }
 
@@ -2512,6 +2792,7 @@ pub async fn pull(
                 job: None,
                 suspended: false,
                 missing_concurrency_key: false,
+                error_while_preprocessing: None,
             });
         }
 
@@ -2567,20 +2848,21 @@ pub async fn pull(
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
-                        let job = crate::jobs_ee::apply_concurrency_limit(
+                        crate::jobs_ee::apply_concurrency_limit(
                             db,
                             pull_loop_count,
                             suspended,
                             job,
                         )
-                        .await?;
-                        job.unwrap_or(PulledJobResult {
+                        .await?
+                        .unwrap_or(PulledJobResult {
                             job: None,
                             suspended,
                             missing_concurrency_key: false,
+                            error_while_preprocessing: None,
                         })
                     }
-                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
+                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false, error_while_preprocessing: None },
                 };
 
                 Ok::<_, Error>(pulled_job_result)
@@ -2598,7 +2880,7 @@ pub async fn pull(
         )
         .await?;
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
+            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false, error_while_preprocessing: None });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2626,6 +2908,7 @@ pub async fn pull(
                 job: Some(pulled_job),
                 suspended,
                 missing_concurrency_key: false,
+                error_while_preprocessing: None,
             });
         }
 
@@ -2633,11 +2916,11 @@ pub async fn pull(
         if cfg!(feature = "enterprise")
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
-            if let Some(pulled_job) =
+            if let Some(pulled_job_res) =
                 crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
                     .await?
             {
-                return Ok(pulled_job);
+                return Ok(pulled_job_res);
             }
         }
     }
@@ -3315,8 +3598,8 @@ A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
         sqlx::query_as!(
             MiniCompletedJob,
             "SELECT 
-            j.id, j.workspace_id, j.runnable_id AS \"runnable_id!: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
-            j.created_by, j.script_lang AS \"script_lang!: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind!: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl
+            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -3527,50 +3810,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(db: Pool<Postgres>, workspace_id: String, email: Option<String>) {
-    tokio::task::spawn(async move {
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            // Update workspace usage
-            let workspace_result = sqlx::query!(
-                "INSERT INTO usage (id, is_workspace, month_, usage)
-                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                &workspace_id
-            )
-            .execute(&db)
-            .await;
-
-            if let Err(e) = workspace_result {
-                tracing::error!("Failed to update workspace usage for {}: {:#}", workspace_id, e);
-            }
-
-            // Update user usage if email is provided (non-premium workspaces only)
-            if let Some(ref email) = email {
-                let user_result = sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                    email
-                )
-                .execute(&db)
-                .await;
-
-                if let Err(e) = user_result {
-                    tracing::error!("Failed to update user usage for {}: {:#}", email, e);
-                }
-            }
-        })
-        .await;
-
-        if let Err(_) = result {
-            tracing::error!(
-                "Usage update timed out after 10s for workspace {} and email {:?}",
-                workspace_id,
-                email
-            );
-        }
-    });
-}
+use crate::cloud_usage::increment_usage_async;
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
@@ -3604,6 +3844,7 @@ pub async fn push<'c, 'd>(
     // If we know there is already a debounce job, we can use this for debouncing.
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
+    trigger_kind: Option<JobTriggerKind>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -3688,7 +3929,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let in_queue = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_job WHERE permissioned_as_email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -4329,6 +4570,7 @@ pub async fn push<'c, 'd>(
                 skip_expr: None,
                 preprocessor_module: None,
                 chat_input_enabled: None,
+                flow_env: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
@@ -4998,11 +5240,13 @@ pub async fn push<'c, 'd>(
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
 
-    let trigger_kind = if schedule_path.is_some() {
-        Some(JobTriggerKind::Schedule)
-    } else {
-        None
-    };
+    let trigger_kind = trigger_kind.or_else(|| {
+        if schedule_path.is_some() {
+            Some(JobTriggerKind::Schedule)
+        } else {
+            None
+        }
+    });
 
     let root_job = if root_job.is_some()
         && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
@@ -5546,6 +5790,7 @@ pub async fn get_same_worker_job(
         ))
     })
 }
+<<<<<<< HEAD
 
 pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::Result<()> {
     let kind = job.kind;

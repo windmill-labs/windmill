@@ -60,10 +60,16 @@ services:
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    # privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
+      # Uncomment to enable PID namespace isolation (requires privileged: true above)
+      # - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -73,8 +79,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
-      # for AI agent memory
-      - worker_memory:/tmp/windmill/memory
 
     logging: *default-logging
 
@@ -91,12 +95,18 @@ services:
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    # privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=native
       - NUM_WORKERS=8
       - SLEEP_QUEUE=200
+      # Uncomment to enable PID namespace isolation (requires privileged: true above)
+      # - ENABLE_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
@@ -115,10 +125,16 @@ services:
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
+  #   # Uncomment to enable PID namespace isolation (recommended for security)
+  #   # Requires privileged mode for --mount-proc flag
+  #   # See: https://www.windmill.dev/docs/advanced/security_isolation
+  #   # privileged: true
   #   environment:
   #     - DATABASE_URL=${DATABASE_URL}
   #     - MODE=worker
   #     - WORKER_GROUP=reports
+  #     # Uncomment to enable PID namespace isolation (requires privileged: true above)
+  #     # - ENABLE_UNSHARE_PID=true
   #   depends_on:
   #     db:
   #       condition: service_healthy

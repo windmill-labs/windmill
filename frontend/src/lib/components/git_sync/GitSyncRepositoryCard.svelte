@@ -21,6 +21,7 @@
 	import hubPaths from '$lib/hubPaths.json'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 
 	let {
 		idx = null,
@@ -93,8 +94,17 @@
 				: isLegacy
 					? 'Legacy promotion repository'
 					: isSecondary
-						? 'Secondary sync repository'
+						? repo?.use_individual_branch
+							? 'Secondary promotion repository'
+							: 'Secondary sync repository'
 						: `Repository #${(idx ?? 0) + 1}`
+	)
+
+	// Determine the actual mode based on repository configuration
+	const repoMode = $derived<'sync' | 'promotion'>(
+		variant === 'primary-promotion' || variant === 'legacy' || repo?.use_individual_branch
+			? 'promotion'
+			: 'sync'
 	)
 
 	// Determine display description based on variant and mode
@@ -324,12 +334,12 @@
 				<Alert type="warning" title="Script version mismatch">
 					The git sync version for this repository is not latest. Current: <a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 						>{repo.script_path}</a
 					>, latest:
 					<a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 						>{hubPaths.gitSync}</a
 					>
 					<div class="flex mt-2">
@@ -352,7 +362,7 @@
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
 				<DetectionFlow
 					{idx}
-					mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'}
+					mode={repoMode}
 				/>
 			{:else}
 				<GitSyncFilterSettings
@@ -379,9 +389,7 @@
 						<!-- Display mode settings as prominent text -->
 						<div class="flex-1 mr-4">
 							<GitSyncModeDisplay
-								mode={variant === 'primary-promotion' || variant === 'legacy'
-									? 'promotion'
-									: 'sync'}
+								mode={repoMode}
 								{targetBranch}
 								repository={repo}
 							/>

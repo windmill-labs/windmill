@@ -9,6 +9,7 @@ use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use itertools::Itertools;
+use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
@@ -20,6 +21,7 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -475,17 +477,6 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
-pub fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
-    (lang.is_some_and(|v| v == ScriptLang::Bun)
-        && lock
-            .as_ref()
-            .is_some_and(|v| v.contains("generatedFromPackageJson")))
-        || (lang.is_some_and(|v| v == ScriptLang::Python3)
-            && lock
-                .as_ref()
-                .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
-}
-
 pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     importers: Vec<DependencyDependent>,
@@ -692,6 +683,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             false,
             None,
             debounce_job_id_o,
+            None,
         )
         .await?;
 
@@ -787,15 +779,16 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let mut flow = match job.runnable_id {
-        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
+    let (mut flow, notes) = match job.runnable_id {
+        Some(ScriptHash(id)) => {
+            let flow = cache::flow::fetch_version(db, id).await?;
+            (flow.value().clone(), flow.notes())
+        }
         _ => match preview_data {
-            Some(RawData::Flow(data)) => data.clone(),
+            Some(RawData::Flow(data)) => (data.value().clone(), data.notes()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
-    }
-    .value()
-    .clone();
+    };
 
     let mut tx = db.begin().await?;
 
@@ -884,7 +877,22 @@ pub async fn handle_flow_dependency_job(
         .await?;
     }
 
-    let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
+    #[derive(Debug, Clone, Serialize)]
+    struct FlowValueWithNotes<'a> {
+        #[serde(flatten)]
+        value: &'a FlowValue,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        notes: Option<Box<RawValue>>, // TODO: Make this a Vec<FlowNote>
+    }
+
+    let new_flow_value = Json(
+        serde_json::value::to_raw_value(&FlowValueWithNotes {
+            value: &flow,
+            notes: notes.and_then(|n| n.notes).map(|n| n.into()),
+        })
+        .map_err(to_anyhow)?,
+    );
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!(
@@ -1463,7 +1471,7 @@ async fn lock_modules<'c>(
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                if !is_generated_from_raw_requirements(Some(language), &lock) {
+                if !is_generated_from_raw_requirements(&Some(language), &lock) {
                     let relative_imports = get_imports();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
@@ -1476,7 +1484,7 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    if !is_generated_from_raw_requirements(Some(language), &lock) {
+                    if !is_generated_from_raw_requirements(&Some(language), &lock) {
                         let relative_imports = get_imports();
                         tx = dependency_map
                             .patch(relative_imports.clone(), e.id.clone(), tx)
@@ -2600,8 +2608,6 @@ async fn ansible_dep(
 
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
-
-pub const LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT: &str = "# from requirements.txt";
 
 async fn capture_dependency_job(
     job_id: &Uuid,

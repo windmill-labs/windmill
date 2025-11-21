@@ -176,7 +176,7 @@ export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableAction = BaseAppComponent &
-	(ButtonComponent | CheckboxComponent | SelectComponent) &
+	(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent) &
 	GridItem
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {

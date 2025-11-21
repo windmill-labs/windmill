@@ -12,7 +12,8 @@ use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    worker::{try_parse_locked_python_version_from_requirements, Connection, PyVAlias},
+    lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
+    worker::Connection,
 };
 
 use anyhow::{anyhow, bail};

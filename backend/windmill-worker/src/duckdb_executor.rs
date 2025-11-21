@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_uint, CStr, CString};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -39,6 +39,20 @@ pub async fn do_duckdb(
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
 ) -> Result<Box<RawValue>> {
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy =
+        if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+            // Before result_collection was introduced, duckdb ignored all statements results except the last one
+            SqlResultCollectionStrategy::LastStatementAllRows
+        } else {
+            annotations.result_collection
+        };
+    if annotations.return_last_result {
+        return Err(Error::ExecutionErr(
+            "return_last_result annotation is deprecated, use result_collection=last_statement_all_rows instead".to_string(),
+        ));
+    }
+
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
 
@@ -141,11 +155,13 @@ pub async fn do_duckdb(
                 &token,
                 &base_internal_url,
                 &w_id,
+                collection_strategy,
             )
         })
         .await
         .map_err(|e| Error::from(to_anyhow(e)))
         .and_then(|r| r);
+
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
@@ -210,6 +226,8 @@ struct DuckDbFfiLib {
             base_internal_url: *const c_char,
             w_id: *const c_char,
             column_order_ptr: *mut *mut c_char,
+            collect_last_only: bool,
+            collect_first_row_only: bool,
         ) -> *mut c_char,
     >,
     free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
@@ -249,7 +267,28 @@ impl DuckDbFfiLib {
                 ))
             })?
         };
+
         let lib = Box::leak(Box::new(lib));
+
+        // Version mismatch should only be possible on Windows agent workers
+        // We check for it because FFI interface mismatch will cause undefined behavior / crashes
+        unsafe {
+            let expected_version: c_uint = 1;
+            let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
+            lib.get(b"get_version")
+                .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
+            let actual_version = get_version();
+            if actual_version < expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please update to the latest windmill_duckdb_ffi_lib."),
+                ));
+            } else if actual_version > expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please upgrade your worker to the latest windmill version."),
+                ));
+            }
+        }
+
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
             free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
@@ -265,6 +304,7 @@ fn run_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
     let query_block_list = query_block_list
         .map(|s| {
@@ -296,13 +336,18 @@ fn run_duckdb_ffi_safe<'a>(
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
             &mut column_order,
+            collection_strategy.collect_last_statement_only(query_block_list_count),
+            collection_strategy.collect_first_row_only(),
         );
         let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
         free_cstr(ptr);
         str
     };
 
-    let column_order = if column_order.is_null() {
+    let column_order = if column_order.is_null()
+        || !collection_strategy.collect_last_statement_only(query_block_list_count)
+        || collection_strategy.collect_scalar()
+    {
         None
     } else {
         let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
@@ -313,7 +358,14 @@ fn run_duckdb_ffi_safe<'a>(
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))
     } else {
-        let result = serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?;
+        let result = if collection_strategy == SqlResultCollectionStrategy::AllStatementsAllRows {
+            // Avoid parsing JSON
+            serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?
+        } else {
+            let result =
+                serde_json::from_str::<Vec<Vec<Box<RawValue>>>>(&result_str).map_err(to_anyhow)?;
+            collection_strategy.collect(result)?
+        };
         Ok((result, column_order))
     }
 }
@@ -350,7 +402,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
             format!(
-                "dbname={} {} host={} {} {}",
+                "dbname={} {} host={} {} {} {}",
                 res.dbname,
                 res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
                 res.host,
@@ -358,6 +410,9 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
                     .map(|p| format!("password={}", p))
                     .unwrap_or_default(),
                 res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+                res.sslmode
+                    .map(|s| format!("sslmode={}", s))
+                    .unwrap_or_default(),
             )
         }
         #[cfg(feature = "mysql")]

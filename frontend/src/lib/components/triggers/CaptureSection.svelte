@@ -272,11 +272,7 @@
 			<div class="flex flex-col gap-1 mb-4 w-full">
 				<div class="flex justify-center w-full">
 					<div class="relative h-fit">
-						<AnimatedButton
-							animate={captureInfo.active}
-							wrapperClasses={captureInfo.active ? 'm-[-2px]' : ''}
-							baseRadius="7px"
-						>
+						<AnimatedButton animate={captureInfo.active} baseRadius="6px">
 							<Button
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
@@ -287,6 +283,7 @@
 									? { icon: CircleStop }
 									: { icon: CaptureIcon, props: { variant: 'redDot' } }}
 								loading={captureLoading}
+								btnClasses={captureInfo.active ? '!bg-surface' : ''}
 							>
 								{#if captureInfo.active}
 									<p class="w-24" transition:fade={{ duration: 300 }}>Stop capturing</p>

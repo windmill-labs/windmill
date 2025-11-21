@@ -6,7 +6,7 @@ use crate::ai::utils::{
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
     FlowContext,
 };
-use crate::common::{error_to_value, OccupancyMetrics};
+use crate::common::OccupancyMetrics;
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
@@ -322,16 +322,23 @@ async fn execute_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if let InputTransform::Static { value } = transform {
-            let val = value.get().trim();
-            if val.is_empty() || val == "null" {
+        match transform {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                if val.is_empty() || val == "null" {
+                    continue;
+                }
+            }
+            InputTransform::Ai => {
                 continue;
             }
+            _ => (),
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
             transform,
             last_result.clone(),
             flow_inputs.clone(),
+            None,
             Some(ctx.client),
             ctx.id_context.as_ref(),
         )
@@ -464,6 +471,7 @@ async fn execute_windmill_tool(
         true,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -584,7 +592,7 @@ async fn handle_tool_execution_error(
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let err_string = format!("{}: {}", err.name(), err.to_string());
-    let err_json = error_to_value(&err);
+    let err_json = windmill_common::worker::error_to_value(&err);
     let _ = handle_non_flow_job_error(
         ctx.db,
         tool_job,

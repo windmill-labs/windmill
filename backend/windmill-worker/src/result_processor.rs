@@ -22,7 +22,7 @@ use windmill_common::{
     flow_status::FlowJobDuration,
     jobs::JobKind,
     utils::WarnAfterExt,
-    worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
     KillpillSender, DB,
 };
@@ -31,7 +31,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    CanceledBy, INIT_SCRIPT_TAG, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson, WrappedError, append_logs, get_mini_completed_job
+    append_logs, get_mini_completed_job, CanceledBy, JobCompleted, MiniCompletedJob, MiniPulledJob,
+    ValidableJson, WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -42,7 +43,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
-    common::{error_to_value, read_result, save_in_cache},
+    common::{read_result, save_in_cache},
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,

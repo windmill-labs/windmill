@@ -222,6 +222,7 @@ async fn get_concurrent_intervals(
             all_workspaces: _,
             concurrency_key: Some(_),
             allow_wildcards: None,
+            trigger_kind: _,
         } => true,
         _ => false,
     };

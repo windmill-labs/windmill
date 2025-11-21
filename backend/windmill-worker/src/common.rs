@@ -528,6 +528,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         memory: None,
                         memory_usage: None,
                         wm_memory_usage: None,
+                        job_isolation: None,
                         ping_type: PingType::InitScript,
                     },
                 )
@@ -536,13 +537,6 @@ pub async fn update_worker_ping_for_failed_init_script(
                 tracing::error!("Error updating worker ping for failed init script: {e:?}");
             }
         }
-    }
-}
-
-pub fn error_to_value(err: &Error) -> serde_json::Value {
-    match err {
-        Error::JsonErr(err) => err.clone(),
-        _ => json!({"message": err.to_string(), "name": err.name()}),
     }
 }
 
@@ -633,6 +627,38 @@ impl OccupancyMetrics {
 
 lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
+}
+
+pub fn build_command_with_isolation(
+    program: &str,
+    args: &[&str],
+) -> Command {
+    use tokio::process::Command;
+
+    if *crate::ENABLE_UNSHARE_PID {
+        if let Some(unshare_path) = crate::UNSHARE_PATH.as_ref() {
+            let mut cmd = Command::new(unshare_path);
+
+            let flags = crate::UNSHARE_ISOLATION_FLAGS.as_str();
+            for flag in flags.split_whitespace() {
+                cmd.arg(flag);
+            }
+
+            cmd.arg("--");
+            cmd.arg(program);
+            cmd.args(args);
+            cmd
+        } else {
+            panic!(
+                "BUG: ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. \
+                This should have been caught at worker startup."
+            );
+        }
+    } else {
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        cmd
+    }
 }
 
 pub async fn start_child_process(
@@ -1068,7 +1094,6 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
-    // fallback to flow_innermost_root_job and parent_job as root_job is not set if equal to innermost root job or parent job
     job.root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job)

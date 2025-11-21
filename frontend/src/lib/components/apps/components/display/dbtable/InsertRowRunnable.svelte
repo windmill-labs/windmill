@@ -8,7 +8,7 @@
 	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
-	import type { DbInput } from '$lib/components/dbOps'
+	import type { DbInput } from '$lib/components/dbTypes'
 
 	interface Props {
 		id: string

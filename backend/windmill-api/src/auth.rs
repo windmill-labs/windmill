@@ -90,6 +90,7 @@ impl AuthCache {
                     w_id.as_ref(),
                     token.trim_start_matches("jwt_ext_"),
                     self.ext_jwks.clone(),
+                    &self.db,
                 )
                 .await
                 {

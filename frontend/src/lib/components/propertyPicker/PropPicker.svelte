@@ -18,11 +18,13 @@
 	export let error: boolean = false
 	export let allowCopy = false
 	export let previousId: string | undefined = undefined
+	export let flow_env: Record<string, any> | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
 	let displayResources = false
+	let displayFlowEnv = false
 
 	let allResultsCollapsed = true
 	let collapsableInitialState:
@@ -30,6 +32,7 @@
 				allResultsCollapsed: boolean
 				displayVariable: boolean
 				displayResources: boolean
+				displayFlowEnv: boolean
 		  }
 		| undefined
 
@@ -46,6 +49,7 @@
 
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
+	let flowEnvFiltered: any = pickableProperties.flow_env
 
 	let timeout: number | undefined
 	function onSearch(search: string) {
@@ -63,6 +67,9 @@
 				search === EMPTY_STRING
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
+
+			flowEnvFiltered =
+				search === EMPTY_STRING ? pickableProperties.flow_env : keepByKey(pickableProperties.flow_env, search)
 		}, 50)
 	}
 
@@ -98,6 +105,7 @@
 			if (search === EMPTY_STRING) {
 				flowInputsFiltered = pickableProperties.flow_input
 				resultByIdFiltered = pickableProperties.priorIds
+				flowEnvFiltered = pickableProperties.flow_env
 			}
 			filteringFlowInputsOrResult = ''
 			return
@@ -108,6 +116,9 @@
 		}
 		if (!$inputMatches?.some((match) => match.word === 'results')) {
 			resultByIdFiltered = {}
+		}
+		if (!$inputMatches?.some((match) => match.word === 'flow_env')) {
+			flowEnvFiltered = {}
 		}
 		if ($inputMatches?.length == 1) {
 			filteringFlowInputsOrResult = $inputMatches[0].value
@@ -124,6 +135,13 @@
 				let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
 					resultByIdFiltered = filtered
+				}
+			} else if ($inputMatches[0].word === 'flow_env') {
+				flowEnvFiltered = pickableProperties.flow_env
+				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+				let filtered = filterNestedObject(flowEnvFiltered, nestedKeys)
+				if (Object.keys(filtered).length > 0) {
+					flowEnvFiltered = filtered
 				}
 			}
 		} else {
@@ -143,7 +161,12 @@
 		}
 
 		if (!collapsableInitialState) {
-			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources }
+			collapsableInitialState = {
+				allResultsCollapsed,
+				displayVariable,
+				displayResources,
+				displayFlowEnv
+			}
 		}
 
 		if ($inputMatches[0].word === 'variable') {
@@ -156,6 +179,10 @@
 			displayResources = true
 			return
 		}
+		if ($inputMatches[0].word === 'flow_env') {
+			displayFlowEnv = true
+			return
+		}
 		if ($inputMatches[0].word === 'results') {
 			allResultsCollapsed = false
 			return
@@ -166,7 +193,8 @@
 		if (!collapsableInitialState) {
 			return
 		}
-		;({ allResultsCollapsed, displayVariable, displayResources } = collapsableInitialState)
+		;({ allResultsCollapsed, displayVariable, displayResources, displayFlowEnv } =
+			collapsableInitialState)
 		collapsableInitialState = undefined
 	}
 
@@ -183,6 +211,7 @@
 		if (prev && !filterActive) {
 			flowInputsFiltered = pickableProperties.flow_input
 			resultByIdFiltered = pickableProperties.priorIds
+			flowEnvFiltered = pickableProperties.flow_env
 		}
 	}
 
@@ -192,7 +221,7 @@
 		await updateCollapsable()
 	}
 
-	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
+	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
 
 	onDestroy(() => {
 		clearTimeout(timeout)
@@ -391,6 +420,45 @@
 							on:click={async () => {
 								await loadResources()
 								displayResources = true
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
+						>
+							{'{...}'}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+			{#if flow_env && Object.keys(flow_env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'flow_env'))}
+				<div class="overflow-y-auto pb-2">
+					<span class="font-normal text-xs text-secondary">Flow Env Variables:</span>
+
+					{#if displayFlowEnv}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayFlowEnv = false
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
+						>
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							rawKey={false}
+							json={flowEnvFiltered}
+							prefix="flow_env"
+							on:select
+						/>
+					{:else}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayFlowEnv = true
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"

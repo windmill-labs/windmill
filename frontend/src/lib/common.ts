@@ -50,6 +50,7 @@ export interface SchemaProperty {
 	oneOf?: SchemaProperty[]
 	originalType?: string
 	disabled?: boolean
+	'x-no-s3-storage-workspace-warning'?: string
 }
 
 export interface ModalSchemaProperty {
