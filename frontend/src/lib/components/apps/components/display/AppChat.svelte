@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -48,8 +51,7 @@
 		result: undefined as any,
 		loading: false,
 		jobId: undefined as string | undefined,
-		messages: [] as Message[],
-		lastMessage: undefined as Message | undefined
+		messages: [] as Message[]
 	})
 
 	// Resolve configuration
@@ -91,14 +93,6 @@
 					behavior: 'smooth'
 				})
 			}, 50)
-		}
-	})
-
-	// Update outputs when messages change
-	$effect(() => {
-		outputs.messages?.set(messages)
-		if (messages.length > 0) {
-			outputs.lastMessage?.set(messages[messages.length - 1])
 		}
 	})
 
@@ -325,6 +319,7 @@
 						placeholder={resolvedConfig.placeholder}
 						disabled={loading}
 						onkeydown={handleKeydown}
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
 						class={twMerge(
 							'flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed',
 							css?.input?.class,
