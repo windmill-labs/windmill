@@ -666,6 +666,13 @@
 						await wait(DELAY_LONG)
 					}
 
+					// Move cursor to Test Flow button
+					const testFlowButton = document.querySelector('#flow-editor-test-flow') as HTMLElement
+					if (testFlowButton) {
+						await moveCursorToElement(fakeCursor, testFlowButton, DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+					}
+
 					// Remove cursor at the end
 					fakeCursor.remove()
 
