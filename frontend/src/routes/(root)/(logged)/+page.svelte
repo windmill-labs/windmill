@@ -20,7 +20,8 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		GraduationCap
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -249,24 +250,24 @@
 			Windmill instance, such as keeping resource types up to date.
 		</Alert>
 	{/if}
-	<PageHeader title="Home">
-		<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
-			{#if !$userStore?.operator}
-				<span class="text-xs font-normal text-primary">Create a</span>
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
-				<!-- Temporary tutorial trigger button -->
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => workspaceTutorials?.runTutorialById('workspace-onboarding')}
-				>
-					🎓 Start Tutorial
-				</Button>
-			{/if}
-		</div>
+	<PageHeader
+		title="Home"
+		childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
+	>
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			wrapperClasses="mr-auto ml-4"
+			on:click={() => workspaceTutorials?.runTutorialById('workspace-onboarding')}
+		>
+			<GraduationCap size={16} /> Tutorial
+		</Button>
+		{#if !$userStore?.operator}
+			<span class="text-xs font-normal text-primary">Create a</span>
+			<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
+			{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+			{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+		{/if}
 	</PageHeader>
 
 	{#if !$userStore?.operator}
