@@ -97,8 +97,15 @@
 	let workspaceTutorials: WorkspaceTutorials | undefined = undefined
 
 	onMount(() => {
-		// Check if user hasn't completed or ignored the workspace onboarding tutorial
-		if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
+		// Check if there's a tutorial parameter in the URL
+		const tutorialParam = $page.url.searchParams.get('tutorial')
+		if (tutorialParam === 'workspace-onboarding') {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding')
+			}, 500)
+		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
+			// Check if user hasn't completed or ignored the workspace onboarding tutorial
 			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
@@ -254,14 +261,6 @@
 		title="Home"
 		childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 	>
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			wrapperClasses="mr-auto ml-4"
-			on:click={() => workspaceTutorials?.runTutorialById('workspace-onboarding')}
-		>
-			<GraduationCap size={16} /> Tutorial
-		</Button>
 		{#if !$userStore?.operator}
 			<span class="text-xs font-normal text-primary">Create a</span>
 			<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />

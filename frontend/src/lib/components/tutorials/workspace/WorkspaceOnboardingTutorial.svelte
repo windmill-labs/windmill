@@ -2,11 +2,20 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import Tutorial from '../Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
+	import { goto } from '$app/navigation'
+	import { base } from '$lib/base'
+	import { page } from '$app/stores'
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial() {
-		tutorial?.runTutorial()
+		// Check if we're on the homepage
+		if ($page.url.pathname !== `${base}/` && $page.url.pathname !== `${base}`) {
+			// Redirect to homepage with a tutorial parameter
+			goto(`${base}/?tutorial=workspace-onboarding`)
+		} else {
+			tutorial?.runTutorial()
+		}
 	}
 </script>
 
@@ -82,6 +91,11 @@
 						// Mark tutorial as complete
 						updateProgress(8)
 						driver.destroy()
+
+						// Clean up URL parameter if present
+						if ($page.url.searchParams.has('tutorial')) {
+							goto(`${base}/`, { replaceState: true })
+						}
 					}
 				},
 				element: '#create-app-button',
