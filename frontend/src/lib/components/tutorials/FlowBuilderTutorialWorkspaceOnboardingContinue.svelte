@@ -391,7 +391,11 @@
 					}) as HTMLElement
 
 					if (testTabButton) {
+						// Animate cursor to Test this step tab
+						const fakeCursor1 = await createFakeCursor(null, testTabButton, 1.5)
+						await wait(300)
 						testTabButton.click()
+						fakeCursor1.remove()
 					}
 
 					await wait(800)
@@ -403,18 +407,17 @@
 					}) as HTMLElement
 
 					if (testActionButton) {
-						const buttonRect = testActionButton.getBoundingClientRect()
-						const startElement = document.createElement('div')
-						startElement.style.position = 'fixed'
-						startElement.style.left = `${buttonRect.left + buttonRect.width / 2}px`
-						startElement.style.top = `${buttonRect.top - 100}px`
-						document.body.appendChild(startElement)
+						// Animate cursor from Test this step to Run button
+						const testTabButton2 = buttons.find(btn => {
+							return btn.textContent?.includes('Test this step') &&
+								btn.classList.contains('border-b-2') &&
+								btn.classList.contains('cursor-pointer')
+						}) as HTMLElement
 
-						const fakeCursor = await createFakeCursor(startElement, testActionButton, 1.5)
-						testActionButton.click()
+						const fakeCursor2 = await createFakeCursor(testTabButton2, testActionButton, 1.5)
 						await wait(300)
-						fakeCursor.remove()
-						startElement.remove()
+						testActionButton.click()
+						fakeCursor2.remove()
 					}
 				},
 				popover: {
