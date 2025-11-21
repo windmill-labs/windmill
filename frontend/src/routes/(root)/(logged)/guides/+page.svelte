@@ -9,7 +9,7 @@
 	let tab: 'quickstart' | 'team' = $state('quickstart')
 
 	function startFlowTutorial() {
-		window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue&nodraft=true`
+		window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial&nodraft=true`
 	}
 </script>
 

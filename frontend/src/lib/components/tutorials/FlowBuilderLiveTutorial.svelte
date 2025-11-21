@@ -227,7 +227,7 @@
 <Tutorial
 	bind:this={tutorial}
 	index={8}
-	name="workspace-onboarding-continue"
+	name="flow-live-tutorial"
 	tainted={isFlowTainted(flowStore.val)}
 	on:error
 	on:skipAll
