@@ -231,9 +231,9 @@
 		const steps: DriveStep[] = [
 			{
 				popover: {
-					title: 'Welcome to this flow tutorial',
+					title: 'Build your first flow',
 					description:
-						"In this tutorial, we will create a simple flow that validates a temperature in Celsius and converts it to Fahrenheit.",
+						"Let's create a temperature converter that validates input and converts Celsius to Fahrenheit.",
 					onNextClick: async () => {
 						const emptyFlow: Flow = {
 							summary: '',
@@ -283,8 +283,8 @@
 					}
 				},
 				popover: {
-					title: 'Define the User Input',
-					description: 'First, define the data the flow will receive. For this example, we\'ll configure the input to accept a temperature in Celsius.',
+					title: 'Set the input',
+					description: 'Every flow starts with input. Here we define a temperature in Celsius.',
 					side: 'bottom',
 					align: 'start',
 					onNextClick: () => {
@@ -350,8 +350,8 @@
 					}
 				},
 				popover: {
-					title: 'Select a language',
-					description: 'Now we need to create our first script. We\'ll use TypeScript for this example.',
+					title: 'Choose TypeScript',
+					description: 'Pick TypeScript (Bun) to write our validation script.',
 					side: 'top'
 				}
 			},
@@ -431,9 +431,9 @@
 					}
 				},
 				popover: {
-					title: 'Write our script',
+					title: 'Add validation logic',
 					description:
-						"Then, we write the code for this script. Its purpose is to collect the temperature input and determine if it is a valid value.",
+						"Watch as we write code to validate the temperature input.",
 					side: 'bottom',
 					onNextClick: () => {
 						// Only proceed if code writing is complete
@@ -544,8 +544,8 @@
 					fakeCursor.remove()
 				},
 				popover: {
-					title: 'Connect and test',
-					description: 'We connect the input data to our script and test it to ensure the validation logic is working correctly. Once validated, we complete our flow with scripts b and c.',
+					title: 'Wire it up and test',
+					description: 'Connect the input, then run a quick test to verify the validation works.',
 					onNextClick: async () => {
 						cleanupCustomOverlay()
 						driver.moveNext()
@@ -637,8 +637,8 @@
 					fakeCursor.remove()
 				},
 				popover: {
-					title: 'Complete the flow',
-					description: 'Now we add summaries to our remaining scripts to complete the flow.',
+					title: 'Add the final steps',
+					description: 'Two more scripts to convert and categorize the temperature.',
 					onNextClick: () => {
 						// Reset the driver.js overlay to full screen
 						const driverOverlay = getDriverOverlay()
@@ -655,8 +655,8 @@
 			{
 				element: '#flow-editor-test-flow',
 				popover: {
-					title: 'The flow is now complete!',
-					description: 'Click the Test Flow button to execute the entire process and view the final results.',
+					title: 'Ready to test!',
+					description: 'Run the complete flow and see your temperature converter in action.',
 					onNextClick: () => {
 						driver.moveNext()
 					}
