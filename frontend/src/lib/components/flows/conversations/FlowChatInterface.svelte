@@ -2,7 +2,7 @@
 	import { Button, Alert } from '$lib/components/common'
 	import { MessageCircle, Loader2, ArrowUp, Square } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import FlowChatMessage from './FlowChatMessage.svelte'
+	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
 
 	interface Props {
@@ -36,7 +36,13 @@
 		{:else}
 			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
 				{#each manager.messages as message (message.id)}
-					<FlowChatMessage {message} />
+					<ChatMessage
+						role={message.message_type}
+						content={message.content}
+						loading={message.loading}
+						success={message.success}
+						stepName={message.step_name}
+					/>
 				{/each}
 				{#if manager.isWaitingForResponse}
 					<div class="flex items-center gap-2 text-tertiary">

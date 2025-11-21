@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -13,10 +10,11 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { Button } from '$lib/components/common'
-	import { ArrowUp, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { initCss } from '../../utils'
-	import autosize from '$lib/autosize'
+	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
+	import ChatInput from '$lib/components/chat/ChatInput.svelte'
+	import { parseStreamDeltas } from '$lib/components/chat/utils'
 
 	interface Message {
 		role: 'user' | 'assistant'
@@ -109,9 +107,9 @@
 
 			if (typeof result === 'string') {
 				// Try to parse as streaming format
-				const parsedContent = parseStreamDeltas(result)
-				if (parsedContent) {
-					newContent = parsedContent
+				const parsed = parseStreamDeltas(result)
+				if (parsed.content) {
+					newContent = parsed.content
 					accumulatedContent += newContent
 				} else {
 					// If not streaming format, use the whole string
@@ -158,27 +156,6 @@
 			}
 		}
 	})
-
-	// Parse streaming tokens (similar to FlowChatManager parseStreamDeltas)
-	function parseStreamDeltas(streamData: string): string {
-		const lines = streamData.trim().split('\n')
-		let content = ''
-
-		for (const line of lines) {
-			if (!line.trim()) continue
-			try {
-				const parsed = JSON.parse(line)
-				// Accumulate content from token_delta events
-				if (parsed.type === 'token_delta' && parsed.content) {
-					content += parsed.content
-				}
-			} catch (e) {
-				console.error('Failed to parse stream line:', line, e)
-			}
-		}
-
-		return content
-	}
 
 	// Handle send message
 	async function handleSend() {
@@ -284,34 +261,16 @@
 				{:else}
 					<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
 						{#each messages as message (message.timestamp)}
-							<div
-								class={twMerge(
-									'max-w-[90%] min-w-0 rounded-lg w-fit break-words',
-									message.role === 'user'
-										? twMerge(
-												'ml-auto bg-surface-secondary p-3',
-												css?.userMessage?.class,
-												'wm-chat-user-message'
-											)
-										: twMerge(
-												'mr-auto bg-surface border border-gray-200 dark:border-gray-600 px-3 pb-3 pt-3',
-												css?.assistantMessage?.class,
-												'wm-chat-assistant-message'
-											)
-								)}
-								style={message.role === 'user'
-									? css?.userMessage?.style
-									: css?.assistantMessage?.style}
-							>
-								<p
-									class={twMerge(
-										'whitespace-pre-wrap text-sm',
-										message.role === 'user' ? 'text-right' : ''
-									)}
-								>
-									{message.content}
-								</p>
-							</div>
+							<ChatMessage
+								role={message.role}
+								content={message.content}
+								enableMarkdown={false}
+								enableS3Display={false}
+								customCss={{
+									userMessage: css?.userMessage,
+									assistantMessage: css?.assistantMessage
+								}}
+							/>
 						{/each}
 						{#if loading}
 							<div class="flex items-center gap-2 text-tertiary">
@@ -325,30 +284,17 @@
 
 			<!-- Input Container -->
 			<div class="border-t p-3">
-				<div
-					class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface-input px-3 py-2"
-				>
-					<textarea
-						bind:value={inputValue}
-						use:autosize
-						onkeydown={handleKeydown}
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
-						placeholder={resolvedConfig.placeholder}
-						disabled={loading}
-						class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
-						rows={1}
-					></textarea>
-					<Button
-						color="blue"
-						size="xs2"
-						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: ArrowUp }}
-						disabled={!inputValue.trim() || loading}
-						on:click={handleSend}
-						iconOnly
-						title="Send message"
-					/>
-				</div>
+				<ChatInput
+					bind:value={inputValue}
+					placeholder={resolvedConfig.placeholder}
+					disabled={loading}
+					onSend={handleSend}
+					onKeydown={handleKeydown}
+					customCss={{
+						input: css?.input,
+						button: css?.button
+					}}
+				/>
 			</div>
 		</div>
 	{/if}
