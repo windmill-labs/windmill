@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.582.1](https://github.com/windmill-labs/windmill/compare/v1.582.0...v1.582.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* fix aws oidc refresh ([a3b4cfc](https://github.com/windmill-labs/windmill/commit/a3b4cfcb8f11db326b0ebf1777ad7e6479425125))
+
 ## [1.582.0](https://github.com/windmill-labs/windmill/compare/v1.581.1...v1.582.0) (2025-11-20)
 
 
