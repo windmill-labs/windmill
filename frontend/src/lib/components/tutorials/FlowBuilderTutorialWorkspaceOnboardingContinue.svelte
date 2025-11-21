@@ -355,39 +355,61 @@
 			},
 			{
 				onHighlighted: async () => {
+					// Create a single cursor that will move continuously
+					const fakeCursor = document.createElement('div')
+					fakeCursor.style.cssText = `
+						position: fixed;
+						width: 20px;
+						height: 20px;
+						border-radius: 50%;
+						background-color: rgba(59, 130, 246, 0.8);
+						border: 2px solid white;
+						pointer-events: none;
+						z-index: 10000;
+						transition: all 1.5s ease-in-out;
+					`
+					document.body.appendChild(fakeCursor)
+
+					// Step 1: Move to and click plug button
 					document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
 					await wait(100)
-					clickButtonBySelector('#flow-editor-plug')
+					const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
+					if (plugButton) {
+						const plugRect = plugButton.getBoundingClientRect()
+						// Start from off-screen left
+						fakeCursor.style.left = `${plugRect.left - 100}px`
+						fakeCursor.style.top = `${plugRect.top + plugRect.height / 2}px`
+						await wait(100)
+						// Move to plug button
+						fakeCursor.style.left = `${plugRect.left + plugRect.width / 2}px`
+						fakeCursor.style.top = `${plugRect.top + plugRect.height / 2}px`
+						await wait(1500)
+						await wait(300)
+						clickButtonBySelector('#flow-editor-plug')
+					}
 
 					await wait(800)
 
+					// Step 2: Move to and click flow_input.celsius
 					const targetButton = document.querySelector('button[title="flow_input.celsius"]') as HTMLElement
 					if (targetButton) {
-						const plugButton = document.querySelector('#flow-editor-plug') as HTMLElement
-						if (plugButton) {
-							const fakeCursor = await createFakeCursor(plugButton, targetButton, 2.5)
-							const clickEvent = new MouseEvent('click', {
-								bubbles: true,
-								cancelable: true,
-								view: window
-							})
-							targetButton.dispatchEvent(clickEvent)
-							await wait(500)
-							fakeCursor.remove()
-						}
+						const targetRect = targetButton.getBoundingClientRect()
+						fakeCursor.style.transition = 'all 2.5s ease-in-out'
+						fakeCursor.style.left = `${targetRect.left + targetRect.width / 2}px`
+						fakeCursor.style.top = `${targetRect.top + targetRect.height / 2}px`
+						await wait(2500)
+						await wait(300)
+						const clickEvent = new MouseEvent('click', {
+							bubbles: true,
+							cancelable: true,
+							view: window
+						})
+						targetButton.dispatchEvent(clickEvent)
 					}
-				},
-				popover: {
-					title: 'Connect input data to the script',
-					description: 'Now we need to connect the input data to our script. We use data connectors to pass data between our flow steps.',
-					onNextClick: async () => {
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				onHighlighted: async () => {
+
 					await wait(500)
+
+					// Step 3: Move to and click Test this step tab
 					const buttons = Array.from(document.querySelectorAll('button'))
 					const testTabButton = buttons.find(btn => {
 						return btn.textContent?.includes('Test this step') &&
@@ -396,15 +418,18 @@
 					}) as HTMLElement
 
 					if (testTabButton) {
-						// Animate cursor to Test this step tab
-						const fakeCursor1 = await createFakeCursor(null, testTabButton, 1.5)
+						const tabRect = testTabButton.getBoundingClientRect()
+						fakeCursor.style.transition = 'all 1.5s ease-in-out'
+						fakeCursor.style.left = `${tabRect.left + tabRect.width / 2}px`
+						fakeCursor.style.top = `${tabRect.top + tabRect.height / 2}px`
+						await wait(1500)
 						await wait(300)
 						testTabButton.click()
-						fakeCursor1.remove()
 					}
 
 					await wait(800)
 
+					// Step 4: Move to and click Run button
 					const testActionButton = Array.from(document.querySelectorAll('button')).find(btn => {
 						return btn.textContent?.includes('Run') &&
 							btn.classList.contains('bg-surface-accent-primary') &&
@@ -412,22 +437,22 @@
 					}) as HTMLElement
 
 					if (testActionButton) {
-						// Animate cursor from Test this step to Run button
-						const testTabButton2 = buttons.find(btn => {
-							return btn.textContent?.includes('Test this step') &&
-								btn.classList.contains('border-b-2') &&
-								btn.classList.contains('cursor-pointer')
-						}) as HTMLElement
-
-						const fakeCursor2 = await createFakeCursor(testTabButton2, testActionButton, 1.5)
+						const runRect = testActionButton.getBoundingClientRect()
+						fakeCursor.style.transition = 'all 1.5s ease-in-out'
+						fakeCursor.style.left = `${runRect.left + runRect.width / 2}px`
+						fakeCursor.style.top = `${runRect.top + runRect.height / 2}px`
+						await wait(1500)
 						await wait(300)
 						testActionButton.click()
-						fakeCursor2.remove()
+						await wait(300)
 					}
+
+					// Remove cursor at the end
+					fakeCursor.remove()
 				},
 				popover: {
-					title: 'Test the script',
-					description: 'We test the script to ensure the validation logic is working correctly. Once validated, we to complete our flow with scripts b and c.',
+					title: 'Connect and test',
+					description: 'We connect the input data to our script and test it to ensure the validation logic is working correctly. Once validated, we complete our flow with scripts b and c.',
 					onNextClick: async () => {
 						// Clean up custom overlay immediately
 						const customOverlay = document.querySelector('.tutorial-custom-overlay')
