@@ -13,6 +13,9 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
+	// Flag to track if step 4 code writing is complete
+	let step4Complete = $state(false)
+
 	// Constants for delays
 	const DELAY_SHORT = 100
 	const DELAY_MEDIUM = 300
@@ -355,6 +358,9 @@
 			{
 				element: '#a',
 				onHighlighted: async () => {
+					// Reset the flag when step starts
+					step4Complete = false
+
 					selectionManager.selectId('a')
 					await wait(DELAY_LONG)
 
@@ -424,6 +430,9 @@
 								bubbles: true
 							})
 							editor.getModel()?.setValue(currentText + '\n')
+
+							// Mark step 4 as complete
+							step4Complete = true
 						}
 					}
 				},
@@ -433,6 +442,11 @@
 						"Then, we write the code for this script. Its purpose is to collect the temperature input and determine if it is a valid value.",
 					side: 'bottom',
 					onNextClick: () => {
+						// Only proceed if code writing is complete
+						if (!step4Complete) {
+							return
+						}
+
 						const driverOverlay = getDriverOverlay()
 						if (driverOverlay) {
 							driverOverlay.style.display = 'none'
