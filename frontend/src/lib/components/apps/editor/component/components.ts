@@ -1158,7 +1158,7 @@ export const components = {
 					fieldType: 'text',
 					value: 'Type a message...'
 				},
-				onSend: onSuccessClick,
+				onSuccess: onSuccessClick,
 				onError: onErrorClick
 			}
 		}

@@ -139,15 +139,15 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [setValue, validate, validateAll, invalidate]
 		case 'tablecomponent':
 			return [setSelectedIndex]
-	case 'dbexplorercomponent':
-		return [recompute]
-	case 'chatcomponent':
-		return [sendMessage, recompute]
-	default:
-		if (components[type].initialData['componentInput']) {
+		case 'dbexplorercomponent':
 			return [recompute]
-		} else {
-			return []
-		}
+		case 'chatcomponent':
+			return [sendMessage]
+		default:
+			if (components[type].initialData['componentInput']) {
+				return [recompute]
+			} else {
+				return []
+			}
 	}
 }
