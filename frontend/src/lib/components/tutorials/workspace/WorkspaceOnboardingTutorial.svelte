@@ -4,8 +4,6 @@
 	import type { DriveStep } from 'driver.js'
 	import { base } from '$lib/base'
 
-	let { name = 'workspace-onboarding', index = 8, onerror, onskipAll } = $props()
-
 	let tutorial: Tutorial | undefined = $state(undefined)
 
 	function hideOverlay() {
@@ -22,10 +20,8 @@
 
 <Tutorial
 	bind:this={tutorial}
-	{index}
-	{name}
-	{onerror}
-	onskipAll={onskipAll}
+	index={8}
+	name="workspace-onboarding"
 	tainted={false}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [

@@ -447,7 +447,10 @@
 
 							// Press Enter after finishing typing
 							await wait(DELAY_MEDIUM)
-							editor.getModel()?.setValue(currentText + '\n')
+							const model = editor.getModel()
+							if (model && 'setValue' in model) {
+								model.setValue(currentText + '\n')
+							}
 
 							// Mark step 4 as complete
 							step4Complete = true

@@ -17,8 +17,4 @@
 
 <WorkspaceOnboardingTutorial
 	bind:this={workspaceOnboardingTutorial}
-	on:error
-	on:skipAll={skipAll}
-	index={8}
-	name="workspace-onboarding"
 />
