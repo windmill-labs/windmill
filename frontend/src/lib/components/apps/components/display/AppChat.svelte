@@ -41,7 +41,7 @@
 		errorHandledByComponent = $bindable(false)
 	}: Props = $props()
 
-	const { worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	// Initialize outputs
 	let outputs = initOutput($worldStore, id, {
@@ -71,6 +71,16 @@
 	// Streaming state management
 	let currentStreamingMessageIndex: number | undefined = $state(undefined)
 	let accumulatedContent = $state('')
+
+	// Register component control for programmatic access
+	$componentControl[id] = {
+		sendMessage: (message: string) => {
+			if (message && !loading) {
+				inputValue = message
+				handleSend()
+			}
+		}
+	}
 
 	// Auto-scroll to bottom when messages change
 	$effect(() => {

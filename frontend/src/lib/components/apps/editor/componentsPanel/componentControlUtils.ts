@@ -83,6 +83,12 @@ const validateAll = {
 	example: 'validateAll(id: string, key: string)'
 }
 
+const sendMessage = {
+	title: 'sendMessage',
+	description: 'Programmatically send a message to the chat component',
+	example: 'sendMessage(id: string, message: string)'
+}
+
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
 	switch (type) {
 		case 'tabscomponent':
@@ -133,13 +139,15 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [setValue, validate, validateAll, invalidate]
 		case 'tablecomponent':
 			return [setSelectedIndex]
-		case 'dbexplorercomponent':
+	case 'dbexplorercomponent':
+		return [recompute]
+	case 'chatcomponent':
+		return [sendMessage, recompute]
+	default:
+		if (components[type].initialData['componentInput']) {
 			return [recompute]
-		default:
-			if (components[type].initialData['componentInput']) {
-				return [recompute]
-			} else {
-				return []
-			}
+		} else {
+			return []
+		}
 	}
 }
