@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
@@ -163,7 +163,10 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route("/create_workspace_fork_branch", post(create_workspace_fork_branch))
+        .route(
+            "/create_workspace_fork_branch",
+            post(create_workspace_fork_branch),
+        )
         .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -251,6 +254,8 @@ pub struct WorkspaceSettings {
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -522,6 +527,7 @@ async fn get_settings(
             error_handler_extra_args,
             error_handler_muted_on_cancel,
             large_file_storage,
+            datatable,
             ducklake,
             git_sync,
             deploy_ui,
@@ -706,7 +712,9 @@ async fn get_slack_oauth_config(
     .await?;
 
     // Mask the secret if it exists
-    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+    let masked_secret = settings
+        .slack_oauth_client_secret
+        .map(|_| "***".to_string());
 
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
