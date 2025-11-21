@@ -13,6 +13,7 @@ import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
+import { assert } from '$lib/utils'
 
 export type DbInput =
 	| {
@@ -179,9 +180,12 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	const mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
+	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
 
 	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	assert('mainSchema is an object', typeof mainSchema === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
 		schema: { main: mainSchema },
 		publicOnly: true,
