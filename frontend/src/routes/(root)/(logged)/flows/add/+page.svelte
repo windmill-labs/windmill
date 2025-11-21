@@ -152,14 +152,23 @@
 		// Trigger tutorial after everything is initialized
 		const tutorialParam = $page.url.searchParams.get('tutorial')
 		if (tutorialParam) {
-			// Wait a bit to ensure FlowBuilder and FlowTutorials are fully initialized
-			setTimeout(() => {
-				flowBuilder?.triggerTutorial()
-			}, 500)
+			// Wait for critical elements to be ready before triggering tutorial
+			await tick()
+			let attempts = 0
+			while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
+				await new Promise(resolve => setTimeout(resolve, 100))
+				attempts++
+			}
+			flowBuilder?.triggerTutorial()
 		} else if (!templatePath && !hubId && !state && !$importFlowStore) {
-			tick().then(() => {
-				flowBuilder?.triggerTutorial()
-			})
+			// Wait for critical elements to be ready before triggering tutorial
+			await tick()
+			let attempts = 0
+			while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
+				await new Promise(resolve => setTimeout(resolve, 100))
+				attempts++
+			}
+			flowBuilder?.triggerTutorial()
 		}
 	}
 
