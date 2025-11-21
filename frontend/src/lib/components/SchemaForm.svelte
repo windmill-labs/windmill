@@ -415,7 +415,7 @@
 									{#snippet actions()}
 										{@render actions_render?.({ item })}
 										{#if linkedSecretCandidates?.includes(argName)}
-											<div>
+											<div class="relative">
 												<ToggleButtonGroup
 													selected={linkedSecret == argName ? 'secret' : 'inlined'}
 													on:selected={(e) => {
@@ -429,14 +429,12 @@
 													{#snippet children({ item })}
 														<ToggleButton
 															value="inlined"
-															small
 															label="Inlined"
 															tooltip="The value is inlined in the resource and thus has no special treatment."
 															{item}
 														/>
 														<ToggleButton
 															value="secret"
-															small
 															label="Secret"
 															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
 															{item}

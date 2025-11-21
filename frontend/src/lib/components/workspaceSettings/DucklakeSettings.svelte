@@ -291,7 +291,7 @@
 								<Popover
 									class="absolute right-1.5"
 									enableFlyTransition
-									contentClasses="py-5 px-6 w-[34rem] bg-surface-secondary -translate-y-2"
+									contentClasses="py-5 px-6 w-[34rem] bg-surface-secondary -translate-y-2 overflow-y-auto"
 									closeOnOtherPopoverOpen
 									closeOnOutsideClick
 									bind:this={instanceCatalogPopover}
@@ -499,7 +499,7 @@
 					await instanceCatalogStatuses.refresh()
 					if (result.success) {
 						if (!wasAlreadySuccessful) sendUserToast('Setup successful')
-						else sendUserToast('Everything OK')
+						else sendUserToast('Check successful')
 					} else {
 						sendUserToast(result.error ?? 'An error occured', true)
 					}

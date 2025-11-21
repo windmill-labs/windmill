@@ -86,7 +86,8 @@
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
 										: 0),
 						y: READ_ASSET_Y_OFFSET
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -122,7 +123,8 @@
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
 										: 0),
 						y: WRITE_ASSET_Y_OFFSET
-					}
+					},
+					selectable: false
 				}
 			})
 

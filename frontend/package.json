@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.575.4",
+	"version": "1.582.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -120,7 +120,7 @@
 		"monaco-languageclient": "10.1.0",
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
-		"openai": "^5.16.0",
+		"openai": "^6.9.0",
 		"openapi-types": "^12.1.3",
 		"p-limit": "^6.1.0",
 		"panzoom": "^9.4.3",
@@ -144,7 +144,7 @@
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.574.1",
 		"windmill-parser-wasm-py": "1.538.0",
-		"windmill-parser-wasm-regex": "1.574.1",
+		"windmill-parser-wasm-regex": "1.576.3",
 		"windmill-parser-wasm-ruby": "1.526.1",
 		"windmill-parser-wasm-rust": "1.558.1",
 		"windmill-parser-wasm-ts": "1.565.0",

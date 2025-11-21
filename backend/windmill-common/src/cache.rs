@@ -285,6 +285,21 @@ pub struct FlowData {
     pub flow: FlowValue,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FlowNotes {
+    pub notes: Option<Box<RawValue>>,
+}
+
+impl FlowData {
+    pub fn notes(&self) -> Option<FlowNotes> {
+        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+            .map_err(|e| {
+                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
+                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+            })
+            .ok()
+    }
+}
 /// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
 #[derive(Deserialize)]
 struct RevertedFlowNodeFlow {
