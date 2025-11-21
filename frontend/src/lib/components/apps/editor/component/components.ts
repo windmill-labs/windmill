@@ -1171,7 +1171,7 @@ export const components = {
 						type: 'warning' as const,
 						title: 'Chat input configuration',
 						message:
-							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your flow.'
+							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your event handler.'
 					}
 				}
 
