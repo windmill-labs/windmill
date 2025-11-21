@@ -8,7 +8,7 @@
 	import { getPrimaryKeys, type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getDeleteInput } from './queries/delete'
-	import type { DbInput } from '$lib/components/dbOps'
+	import type { DbInput } from '$lib/components/dbTypes'
 
 	interface Props {
 		id: string

@@ -1,6 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import { getLanguageByResourceType, type ColumnDef, buildParameters } from '../utils'
 
 export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	let query = buildParameters(
