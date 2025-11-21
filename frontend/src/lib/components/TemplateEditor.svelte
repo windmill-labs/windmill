@@ -494,7 +494,7 @@
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor.getContentHeight())
 				if (divEl) {
-					divEl.style.height = `${contentHeight + 2}px`
+					divEl.style.height = `${contentHeight}px`
 				}
 				try {
 					editor.layout({ width, height: contentHeight })

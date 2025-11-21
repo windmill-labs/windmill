@@ -76,12 +76,14 @@ jobs:
             ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
         timeout-minutes: 16
-        run: deno --version && bun -v && go version && python3 --version &&
-          cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd .. &&
-          SQLX_OFFLINE=true
-          DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info RUST_LOG_STYLE=never
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
-          UV_PATH=$(which uv) cargo test --features
-          enterprise,deno_core,license,python,duckdb,rust,scoped_cache,private --all --
-          --nocapture
+        env:
+          SQLX_OFFLINE: true
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          DISABLE_EMBEDDING: true
+          RUST_LOG: info
+          RUST_LOG_STYLE: never
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+        run: |
+          deno --version && bun -v && go version && python3 --version
+          cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,private --all -- --nocapture

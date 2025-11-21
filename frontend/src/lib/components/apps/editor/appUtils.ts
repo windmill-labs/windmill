@@ -21,7 +21,7 @@ import {
 	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
-import { allItems, processSubcomponents } from '../utils'
+import { processSubcomponents } from '../utils'
 import type { Output, World } from '../rx'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
@@ -29,8 +29,7 @@ import type {
 	EvalAppInput,
 	EvalV2AppInput,
 	InputConnectionEval,
-	StaticAppInputOnDemand,
-	AppInputs
+	StaticAppInputOnDemand
 } from '../inputType'
 import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
@@ -39,6 +38,7 @@ import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
 import gridHelp from '../svelte-grid/utils/helper'
 import { DEFAULT_THEME } from './componentsPanel/themeUtils'
+import { allItems, findGridItem, findGridItemById } from './appUtilsCore'
 
 type GridItemLocation =
 	| {
@@ -229,18 +229,6 @@ export function connectOutput(
 		connectingInput.set(connectInput(get(connectingInput), componentId, path, typ))
 	}
 }
-function findGridItemById(
-	root: GridItem[],
-	subGrids: Record<string, GridItem[]> | undefined,
-	id: string
-): GridItem | undefined {
-	for (const gridItem of allItems(root, subGrids)) {
-		if (gridItem.id === id) {
-			return gridItem
-		}
-	}
-	return undefined
-}
 
 export function findGridItemParentGrid(app: App, id: string): string | undefined {
 	const gridItem = app.grid.find((x) => x.id === id)
@@ -282,10 +270,6 @@ export function allsubIds(app: App, parentId: string): string[] {
 		return subIds
 	}
 	return getAllSubgridsAndComponentIds(app, item?.data)[1]
-}
-
-export function findGridItem(app: App, id: string): GridItem | undefined {
-	return findGridItemById(app.grid, app.subgrids, id)
 }
 
 export function getNextGridItemId(app: App): string {
@@ -1054,67 +1038,6 @@ export function recursivelyFilterKeyInJSON(
 		}
 	})
 	return filteredJSON
-}
-
-export function collectOneOfFields(fields: AppInputs, app: App): Record<string, any[]> {
-	return Object.fromEntries(
-		Object.entries(fields ?? {})
-			.filter(([k, v]) => v.type == 'evalv2')
-			.map(([k, v]) => {
-				let field = v as EvalV2AppInput
-				if (!field.connections || field.connections.length !== 1) {
-					return [k, undefined]
-				}
-				const c = field.connections[0]
-
-				const gridItem = findGridItem(app, c.componentId)
-
-				if (field.expr !== c.componentId + '.' + c.id) {
-					return [k, undefined]
-				}
-
-				if (gridItem) {
-					const c = gridItem.data as AppComponent
-					if (c) {
-						if (
-							c.type === 'resourceselectcomponent' ||
-							c.type === 'selectcomponent' ||
-							c.type === 'multiselectcomponent' ||
-							c.type === 'multiselectcomponentv2'
-						) {
-							if (
-								(c.type === 'selectcomponent' ||
-									c.type === 'multiselectcomponent' ||
-									c.type === 'multiselectcomponentv2') &&
-								c.configuration?.create?.type === 'static' &&
-								c.configuration?.create?.value === true
-							) {
-								return [k, undefined]
-							}
-							if (c.configuration?.items?.type === 'static') {
-								const items = c.configuration.items.value
-								if (items && Array.isArray(items)) {
-									if (c.type === 'multiselectcomponent' || c.type === 'multiselectcomponentv2') {
-										return [k, items]
-									} else {
-										const options = items
-											.filter(
-												(item) => item && typeof item === 'object' && 'value' in item && item.value
-											)
-											.map((item) => item.value)
-
-										return [k, options]
-									}
-								}
-							}
-						}
-					}
-				}
-
-				return [k, undefined]
-			})
-			.filter(([k, v]) => v !== undefined)
-	)
 }
 
 export const ROW_HEIGHT = 36

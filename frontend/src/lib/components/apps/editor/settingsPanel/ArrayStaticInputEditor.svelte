@@ -11,8 +11,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
-	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { findGridItem } from '../appUtilsCore'
 
 	interface Props {
 		componentInput: StaticInput<any[]> & { loading?: boolean }
