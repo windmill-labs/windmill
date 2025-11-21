@@ -99,10 +99,9 @@
 	function handleStreamUpdate(e: CustomEvent<{ id: string; result_stream: string }>) {
 		const streamContent = e.detail.result_stream
 
-		// Parse streaming format - result_stream already contains ALL accumulated content
 		const parsed = parseStreamDeltas(streamContent)
 		if (parsed.content) {
-			accumulatedContent = parsed.content // SET, don't ADD (stream is already accumulated)
+			accumulatedContent = parsed.content
 		} else {
 			accumulatedContent = streamContent
 		}
@@ -292,8 +291,8 @@
 							<ChatMessage
 								role={message.role}
 								content={message.content}
-								enableMarkdown={false}
-								enableS3Display={false}
+								enableMarkdown={true}
+								enableS3Display={true}
 								customCss={{
 									userMessage: css?.userMessage,
 									assistantMessage: css?.assistantMessage
@@ -311,7 +310,10 @@
 			</div>
 
 			<!-- Input Container -->
-			<div class="border-t p-3">
+			<div
+				class={twMerge('border-t p-3', css?.inputContainer?.class, 'wm-chat-input')}
+				style={css?.inputContainer?.style}
+			>
 				<ChatInput
 					bind:value={inputValue}
 					placeholder={resolvedConfig.placeholder}

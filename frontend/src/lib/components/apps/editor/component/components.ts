@@ -1156,6 +1156,7 @@ export const components = {
 		customCss: {
 			container: { class: '', style: '' },
 			messagesContainer: { class: '', style: '' },
+			inputContainer: { class: '', style: '' },
 			userMessage: { class: '', style: '' },
 			assistantMessage: { class: '', style: '' },
 			input: { class: '', style: '' },
