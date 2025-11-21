@@ -237,18 +237,17 @@
 						const fakeCursor = await createFakeCursor(null, bunSpan, 1.5)
 						await wait(1000)
 						fakeCursor.remove()
-					}
-				},
-				popover: {
-					title: 'Select a language',
-					description: 'Now we need to create our first script. We\'ll use TypeScript for this example.',
-					side: 'top',
-					onNextClick: async () => {
+
+						// Automatically trigger next step after cursor animation
+						await wait(500)
+
+						// Restore overlay
 						const overlay = document.querySelector('.driver-overlay') as HTMLElement
 						if (overlay) {
 							overlay.style.display = ''
 						}
 
+						// Add module
 						const moduleData = flowJson.value.modules[0]
 						const module: FlowModule = {
 							id: moduleData.id,
@@ -266,6 +265,11 @@
 
 						driver.moveNext()
 					}
+				},
+				popover: {
+					title: 'Select a language',
+					description: 'Now we need to create our first script. We\'ll use TypeScript for this example.',
+					side: 'top'
 				}
 			},
 			{
@@ -450,7 +454,7 @@
 							flowStore.val = { ...flowStore.val }
 						}
 
-						await wait(300)
+						await wait(700)
 
 						driver.moveNext()
 					}
