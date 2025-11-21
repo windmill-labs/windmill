@@ -194,7 +194,7 @@
 	{id}
 	{recomputeIds}
 	{outputs}
-	doOnSuccess={resolvedConfig.onSend}
+	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
 	{errorHandledByComponent}
 	autoRefresh={false}

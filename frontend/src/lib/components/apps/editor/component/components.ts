@@ -464,6 +464,23 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+	/**
+	 * Optional configuration for runnable inputs validation
+	 */
+	runnableInputsInfo?: {
+		/**
+		 * Function to validate runnable inputs and return a warning if needed
+		 * @param fields - The fields object from componentInput.fields
+		 * @returns Warning object with type, title, and message, or undefined if valid
+		 */
+		validate?: (fields: Record<string, any>) =>
+			| {
+					type: 'warning' | 'error' | 'info'
+					title: string
+					message: string
+			  }
+			| undefined
+	}
 }
 
 export type PresetComponentConfig = {
@@ -1143,6 +1160,23 @@ export const components = {
 			assistantMessage: { class: '', style: '' },
 			input: { class: '', style: '' },
 			button: { class: '', style: '' }
+		},
+		runnableInputsInfo: {
+			validate: (fields) => {
+				const fieldNames = Object.keys(fields)
+				const hasUserMessage = fieldNames.includes('user_message')
+
+				if (!hasUserMessage) {
+					return {
+						type: 'warning' as const,
+						title: 'Chat input configuration',
+						message:
+							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your flow.'
+					}
+				}
+
+				return undefined
+			}
 		},
 		initialData: {
 			componentInput: {
