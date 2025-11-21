@@ -534,6 +534,17 @@ async fn update_group(
         None,
     )
     .await?;
+
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "update_summary",
+        None,
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -583,6 +594,17 @@ async fn add_user(
         Some([("user", user_username.as_str())].into()),
     )
     .await?;
+
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "add_member",
+        Some(&user_username),
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -843,6 +865,16 @@ async fn remove_user(
     )
     .await?;
 
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "remove_member",
+        Some(&user_username),
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -972,4 +1004,27 @@ async fn overwrite_igroups() -> JsonResult<String> {
     Err(Error::BadRequest(
         "This feature is only available in the enterprise version".to_string(),
     ))
+}
+
+pub async fn log_group_permission_change<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    group_name: &str,
+    changed_by: &str,
+    change_type: &str,
+    member_affected: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO group_permission_history
+         (workspace_id, group_name, changed_by, change_type, member_affected)
+         VALUES ($1, $2, $3, $4, $5)",
+        workspace_id,
+        group_name,
+        changed_by,
+        change_type,
+        member_affected
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

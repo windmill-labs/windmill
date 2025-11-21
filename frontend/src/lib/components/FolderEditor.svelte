@@ -20,6 +20,7 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -441,4 +442,19 @@
 			{/if}
 		</div>
 	</Label>
+
+	{#if can_write}
+		<PermissionHistory
+			{name}
+			kind="folder"
+			fetchHistory={async (workspace, folderName, page, perPage) => {
+				return await FolderService.getFolderPermissionHistory({
+					workspace,
+					name: folderName,
+					page,
+					perPage
+				})
+			}}
+		/>
+	{/if}
 </div>
