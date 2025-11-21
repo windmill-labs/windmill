@@ -666,13 +666,11 @@ export async function elementsToMap(
   // First pass: collect all file paths to identify branch-specific files
   const allPaths: string[] = [];
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    // console.log("entry", entry)
     if (!entry.isDirectory && !entry.ignored) {
       allPaths.push(entry.path);
     }
   }
 
-  // console.log(allPaths)
 
   const branchSpecificExists = new Set<string>();
 
@@ -698,7 +696,6 @@ export async function elementsToMap(
       continue;
     }
     const path = entry.path;
-    console.log("path: ", path);
     if (json && path.endsWith(".yaml") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
     if (!json && path.endsWith(".json") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
     const ext = json ? ".json" : ".yaml";
@@ -885,10 +882,6 @@ async function compareDynFSElement(
         elementsToMap(els2, ignore, json, skips, specificItems),
       ])
     : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
-
-  // Debug: Check what's in the maps
-  Object.keys(m1).filter(k => console.log("local:", k));
-  Object.keys(m2).filter(k => console.log("remote:", k));
 
   const changes: Change[] = [];
 
@@ -1364,17 +1357,6 @@ export async function pull(
       opts.skipWorkspaceDependencies,
       opts.defaultTs
     );
-  
-  if (zipFile) {
-    log.info("Files in ZIP:");
-    Object.keys(zipFile.files).forEach(fileName => {
-      if (fileName.startsWith("dependencies/") || fileName.includes("dependencies")) {
-        log.info(`  Dependencies file: ${fileName}`);
-      } else {
-        log.info(`  File: ${fileName}`);
-      }
-    });
-  }
   
   const remote = ZipFSElement(
     zipFile!,

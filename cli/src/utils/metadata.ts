@@ -75,9 +75,7 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   } catch {
     // dependencies directory doesn't exist
   }
-  
-  console.log(rawWorkspaceDeps);
-  return rawWorkspaceDeps;
+    return rawWorkspaceDeps;
 }
 
 export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
