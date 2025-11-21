@@ -211,7 +211,6 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() -> anyhow::Result<()> {
-
     // On Windows with enterprise feature, check if running as a service
     #[cfg(all(windows, feature = "enterprise", feature = "private"))]
     {
@@ -318,10 +317,6 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
-    // windmill_common::db_iam::main().await?;
-
-    // return Ok(());
-    
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -516,9 +511,14 @@ async fn windmill_main() -> anyhow::Result<()> {
         conn
     } else {
         // This time we use a pool of connections
-        let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode, 
+        let db = windmill_common::connect_db(
+            server_mode,
+            indexer_mode,
+            worker_mode,
             #[cfg(feature = "private")]
-            killpill_rx.resubscribe()).await?;
+            killpill_rx.resubscribe(),
+        )
+        .await?;
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
