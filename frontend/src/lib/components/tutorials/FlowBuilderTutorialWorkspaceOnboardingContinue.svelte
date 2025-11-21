@@ -9,6 +9,7 @@
 	import { loadFlowModuleState } from '../flows/flowStateUtils.svelte'
 	import { wait, type StateStore } from '$lib/utils'
 	import { get } from 'svelte/store'
+	import { sendUserToast } from '$lib/toast'
 	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
@@ -438,6 +439,7 @@
 					onNextClick: () => {
 						// Only proceed if code writing is complete
 						if (!step4Complete) {
+							sendUserToast('Please wait for the code to finish typing...', false, [], undefined, 3000)
 							return
 						}
 
