@@ -598,7 +598,10 @@ async fn transform_s3_uris(query: &str) -> Result<String> {
 // BigQuery extension requires a json file as credentials
 // The file path is set as an env var by do_duckdb
 // It is created by transform_attach_db_resource_query (when bigquery is detected)
-// and deleted by do_duckdb after the query is executed
+// and deleted by do_duckdb after the query is executed.
+//
+// This relies on the fact that DuckDB does not run in native worker, so
+// a worker will only run a single job at a time.
 pub struct UseBigQueryCredentialsFile {
     path: String,
 }
@@ -660,6 +663,8 @@ fn remove_comments(stmt: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Tests for remove_comments function
     #[test]
     fn test_remove_comments_single_line() {
         let sql = "-- This is a comment\nSELECT * FROM table;";
@@ -689,5 +694,378 @@ mod tests {
     fn test_remove_comments_with_whitespace() {
         let sql = "   -- Comment\n  -- Comment2\n  -- Comment3\n   SELECT\n\n * FROM\n table\n;\n\n -- end comment   ";
         assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
+    }
+
+    // Tests for parse_attach_db_resource function
+    #[test]
+    fn test_parse_attach_db_resource_postgres_res_prefix() {
+        let query = "ATTACH '$res:u/user/my_postgres' AS mydb (TYPE POSTGRES)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/my_postgres");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "POSTGRES");
+        assert!(parsed.extra_args.is_none() || parsed.extra_args.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_res_protocol() {
+        let query = "ATTACH 'res://f/folder/database' AS db (TYPE postgresql)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "f/folder/database");
+        assert_eq!(parsed.name, "db");
+        assert_eq!(parsed.db_type, "postgresql");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_mysql() {
+        let query = "ATTACH '$res:u/admin/mysql_prod' AS mysql_db (TYPE mysql)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/admin/mysql_prod");
+        assert_eq!(parsed.name, "mysql_db");
+        assert_eq!(parsed.db_type, "mysql");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_bigquery() {
+        let query = "ATTACH '$res:u/user/bq_resource' AS bq (TYPE bigquery)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/bq_resource");
+        assert_eq!(parsed.name, "bq");
+        assert_eq!(parsed.db_type, "bigquery");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_with_extra_args() {
+        let query = "ATTACH '$res:u/user/db' AS mydb (TYPE POSTGRES, READ_ONLY)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/db");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "POSTGRES");
+        assert_eq!(parsed.extra_args.unwrap(), ", READ_ONLY");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_case_insensitive() {
+        let query = "attach '$res:u/user/db' as mydb (type postgres)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/db");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "postgres");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_no_match() {
+        let query = "SELECT * FROM table";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_regular_attach() {
+        // Regular ATTACH without $res: or res:// should not match
+        let query = "ATTACH 'mydb.duckdb' AS mydb (TYPE duckdb)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_none());
+    }
+
+    // Tests for format_attach_db_conn_str function
+    #[test]
+    fn test_format_attach_db_conn_str_postgres_full() {
+        let db_resource = json!({
+            "host": "localhost",
+            "port": 5432,
+            "user": "admin",
+            "password": "secret123",
+            "dbname": "mydb",
+            "sslmode": "require"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        assert!(result.contains("dbname=mydb"));
+        assert!(result.contains("user=admin"));
+        assert!(result.contains("host=localhost"));
+        assert!(result.contains("password=secret123"));
+        assert!(result.contains("port=5432"));
+        assert!(result.contains("sslmode=require"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_postgres_minimal() {
+        let db_resource = json!({
+            "host": "db.example.com",
+            "dbname": "production"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        assert!(result.contains("dbname=production"));
+        assert!(result.contains("host=db.example.com"));
+        // Optional fields should result in empty strings
+        assert!(!result.contains("user="));
+        assert!(!result.contains("password="));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_postgresql_alias() {
+        let db_resource = json!({
+            "host": "localhost",
+            "dbname": "test"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
+        assert!(result.contains("dbname=test"));
+        assert!(result.contains("host=localhost"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_bigquery() {
+        let db_resource = json!({
+            "project_id": "my-gcp-project"
+        });
+        let result = format_attach_db_conn_str(db_resource, "bigquery").unwrap();
+        assert_eq!(result, "project=my-gcp-project");
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_bigquery_missing_project_id() {
+        let db_resource = json!({
+            "other_field": "value"
+        });
+        let result = format_attach_db_conn_str(db_resource, "bigquery");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("project_id"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_unsupported_type() {
+        let db_resource = json!({});
+        let result = format_attach_db_conn_str(db_resource, "oracle");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported db type"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_case_insensitive() {
+        let db_resource = json!({
+            "host": "localhost",
+            "dbname": "test"
+        });
+        let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
+        assert!(result.contains("dbname=test"));
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_format_attach_db_conn_str_mysql_full() {
+        let db_resource = json!({
+            "host": "mysql.example.com",
+            "port": 3306,
+            "user": "root",
+            "password": "mysecret",
+            "database": "app_db",
+            "ssl": true
+        });
+        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        assert!(result.contains("database=app_db"));
+        assert!(result.contains("host=mysql.example.com"));
+        assert!(result.contains("ssl_mode=required"));
+        assert!(result.contains("password=mysecret"));
+        assert!(result.contains("port=3306"));
+        assert!(result.contains("user=root"));
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_format_attach_db_conn_str_mysql_ssl_disabled() {
+        let db_resource = json!({
+            "host": "localhost",
+            "database": "test",
+            "ssl": false
+        });
+        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        assert!(result.contains("ssl_mode=disabled"));
+    }
+
+    // Tests for get_attach_db_install_str function
+    #[test]
+    fn test_get_attach_db_install_str_postgres() {
+        let result = get_attach_db_install_str("postgres").unwrap();
+        assert_eq!(result, "INSTALL postgres;");
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_bigquery() {
+        let result = get_attach_db_install_str("bigquery").unwrap();
+        assert_eq!(result, "INSTALL bigquery FROM community;");
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_unsupported() {
+        let result = get_attach_db_install_str("sqlite");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported db type"));
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_case_insensitive() {
+        let result = get_attach_db_install_str("POSTGRES").unwrap();
+        assert_eq!(result, "INSTALL postgres;");
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_get_attach_db_install_str_mysql() {
+        let result = get_attach_db_install_str("mysql").unwrap();
+        assert_eq!(result, "INSTALL mysql;");
+    }
+
+    #[cfg(not(feature = "mysql"))]
+    #[test]
+    fn test_get_attach_db_install_str_mysql_disabled() {
+        let result = get_attach_db_install_str("mysql");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("MySQL feature is not enabled"));
+    }
+
+    // Tests for transform_s3_uris function
+    #[tokio::test]
+    async fn test_transform_s3_uris_empty_storage() {
+        let query = "SELECT * FROM read_parquet('s3:///path/to/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM read_parquet('s3://_default_/path/to/file.parquet')"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_with_storage() {
+        // URIs with explicit storage should not be transformed
+        let query = "SELECT * FROM read_parquet('s3://mybucket/path/to/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(result, query);
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_multiple_empty() {
+        let query = "SELECT * FROM read_parquet('s3:///file1.parquet') UNION SELECT * FROM read_parquet('s3:///file2.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert!(result.contains("s3://_default_/file1.parquet"));
+        assert!(result.contains("s3://_default_/file2.parquet"));
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_no_s3() {
+        let query = "SELECT * FROM my_table";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(result, query);
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_mixed() {
+        let query = "SELECT * FROM read_parquet('s3:///default.parquet'), read_csv('s3://explicit/file.csv')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert!(result.contains("s3://_default_/default.parquet"));
+        assert!(result.contains("s3://explicit/file.csv"));
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_nested_path() {
+        let query = "SELECT * FROM read_parquet('s3:///deep/nested/path/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM read_parquet('s3://_default_/deep/nested/path/file.parquet')"
+        );
+    }
+
+    // Tests for Arg struct
+    #[test]
+    fn test_arg_serialization() {
+        let arg = Arg {
+            name: "test_arg".to_string(),
+            arg_type: "string".to_string(),
+            json_value: json!("hello"),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"name\":\"test_arg\""));
+        assert!(serialized.contains("\"arg_type\":\"string\""));
+        assert!(serialized.contains("\"json_value\":\"hello\""));
+    }
+
+    #[test]
+    fn test_arg_serialization_number() {
+        let arg = Arg {
+            name: "count".to_string(),
+            arg_type: "integer".to_string(),
+            json_value: json!(42),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":42"));
+    }
+
+    #[test]
+    fn test_arg_serialization_null() {
+        let arg = Arg {
+            name: "optional".to_string(),
+            arg_type: "text".to_string(),
+            json_value: json!(null),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":null"));
+    }
+
+    #[test]
+    fn test_arg_serialization_array() {
+        let arg = Arg {
+            name: "items".to_string(),
+            arg_type: "array".to_string(),
+            json_value: json!([1, 2, 3]),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":[1,2,3]"));
+    }
+
+    #[test]
+    fn test_arg_serialization_object() {
+        let arg = Arg {
+            name: "config".to_string(),
+            arg_type: "object".to_string(),
+            json_value: json!({"key": "value"}),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":{\"key\":\"value\"}"));
+    }
+
+    #[test]
+    fn test_remove_comments_comment_in_string() {
+        let sql = "SELECT '-- not a comment' FROM table;";
+        let result = remove_comments(sql);
+        assert_eq!(result, "SELECT '-- not a comment' FROM table;");
+    }
+
+    #[test]
+    fn test_remove_comments_multiple_dashes() {
+        let sql = "SELECT 5 - - 3;";
+        let result = remove_comments(sql);
+        // This correctly handles the subtraction of negative number
+        assert_eq!(result, sql);
     }
 }
