@@ -111,35 +111,40 @@
 					href: `${base}/tutorials`,
 					icon: GraduationCap,
 					aiId: 'sidebar-menu-link-tutorials',
-					aiDescription: 'Button to navigate to tutorials'
+					aiDescription: 'Button to navigate to tutorials',
+					external: false
 				},
 				{
 					label: 'Docs',
 					href: 'https://www.windmill.dev/docs/intro/',
 					icon: BookOpen,
 					aiId: 'sidebar-menu-link-docs',
-					aiDescription: 'Button to navigate to docs'
+					aiDescription: 'Button to navigate to docs',
+					external: true
 				},
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
 					icon: DiscordIcon,
 					aiId: 'sidebar-menu-link-feedbacks',
-					aiDescription: 'Button to navigate to feedbacks'
+					aiDescription: 'Button to navigate to feedbacks',
+					external: true
 				},
 				{
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
 					icon: Github,
 					aiId: 'sidebar-menu-link-issues',
-					aiDescription: 'Button to navigate to issues'
+					aiDescription: 'Button to navigate to issues',
+					external: true
 				},
 				{
 					label: 'Changelog',
 					href: 'https://www.windmill.dev/changelog/',
 					icon: Newspaper,
 					aiId: 'sidebar-menu-link-changelog',
-					aiDescription: 'Button to navigate to changelog'
+					aiDescription: 'Button to navigate to changelog',
+					external: true
 				}
 			]
 		}
@@ -627,7 +632,7 @@
 							{/snippet}
 							{#snippet children({ item })}
 								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem href={subItem.href} class={itemClass} target="_blank" {item}>
+									<MenuItem href={subItem.href} class={itemClass} target={subItem.external !== false ? "_blank" : undefined} {item}>
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<subItem.icon size={16} />
