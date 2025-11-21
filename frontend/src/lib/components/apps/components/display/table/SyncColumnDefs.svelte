@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { getContext, tick } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
-	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { RefreshCw } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { isObject } from '$lib/utils'
 	import type { WindmillColumnDef } from './utils'
+	import { findGridItem } from '$lib/components/apps/editor/appUtilsCore'
 
 	type ColumnDefsConfiguration =
 		| { type: 'static'; value: WindmillColumnDef[] }

@@ -6,7 +6,7 @@
 	import Button from '../common/button/Button.svelte'
 	import OneOfInputSpecsEditor from '../apps/editor/settingsPanel/OneOfInputSpecsEditor.svelte'
 	import type { AppViewerContext, GridItem, RichConfiguration } from '../apps/types'
-	import { findGridItem } from '../apps/editor/appUtils'
+	import { findGridItem } from '../apps/editor/appUtilsCore'
 
 	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 

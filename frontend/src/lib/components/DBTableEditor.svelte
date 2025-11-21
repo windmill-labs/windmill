@@ -53,11 +53,7 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import {
-		datatypeHasLength,
-		dbSupportsSchemas,
-		type DbType
-	} from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
@@ -74,6 +70,7 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import type { DbType } from './dbTypes'
 
 	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
 

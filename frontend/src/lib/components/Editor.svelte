@@ -91,10 +91,10 @@
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
-	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
+	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)

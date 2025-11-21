@@ -1,4 +1,4 @@
-import type { DbType } from './components/apps/components/display/dbtable/utils'
+import type { DbType } from './components/dbTypes'
 
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 

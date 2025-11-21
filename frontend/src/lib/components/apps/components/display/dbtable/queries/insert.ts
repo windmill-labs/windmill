@@ -1,6 +1,7 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { buildParameters, ColumnIdentity, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters, ColumnIdentity } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {

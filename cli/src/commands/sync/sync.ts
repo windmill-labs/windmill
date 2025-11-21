@@ -415,6 +415,7 @@ function ZipFSElement(
               };
             }
 
+            app.policy = undefined;
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),

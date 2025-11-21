@@ -1,0 +1,12 @@
+{
+	"name": "@windmill-labs/shared-utils",
+	"version": "1.0.2",
+	"type": "module",
+	"private": false,
+	"main": "./lib.es.js",
+	"module": "./lib.es.js",
+	"exports": {
+		".": "./lib.es.js"
+	},
+	"types": "./lib.d.ts"
+}

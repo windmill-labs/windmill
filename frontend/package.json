@@ -4,6 +4,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"build:utils": "vite build --config vite.sharedUtils.config.js",
 		"preview": "vite preview",
 		"postinstall": "node -e \"if (require('fs').existsSync('./scripts/untar_ui_builder.js')) { require('child_process').execSync('node ./scripts/untar_ui_builder.js', {stdio: 'inherit'}) }\"",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
@@ -65,6 +66,7 @@
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
 		"vite": "npm:rolldown-vite@latest",
+		"vite-plugin-dts": "^4.5.4",
 		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},

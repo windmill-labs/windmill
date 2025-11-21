@@ -1,10 +1,10 @@
 <script lang="ts">
 	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { allItems } from '$lib/components/apps/utils'
 	import { Pencil } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { allItems } from '../../appUtilsCore'
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 

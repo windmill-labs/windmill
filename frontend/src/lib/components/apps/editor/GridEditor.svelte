@@ -10,7 +10,6 @@
 	import {
 		dfs,
 		expandGriditem,
-		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
 		isContainer,
@@ -20,7 +19,6 @@
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import { classNames } from '$lib/utils'
-	import { BG_PREFIX } from '../utils'
 	import GridEditorMenu from './GridEditorMenu.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -28,6 +26,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Policy } from '$lib/gen'
+	import { BG_PREFIX, findGridItem } from './appUtilsCore'
 
 	interface Props {
 		policy: Policy

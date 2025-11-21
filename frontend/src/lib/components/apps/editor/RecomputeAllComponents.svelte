@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
-	import { allItems, BG_PREFIX } from '../utils'
 	import RecomputeAllButton from './RecomputeAllButton.svelte'
+	import { allItems, BG_PREFIX } from './appUtilsCore'
 
 	const { runnableComponents, app, initialized, recomputeAllContext } =
 		getContext<AppViewerContext>('AppViewerContext')

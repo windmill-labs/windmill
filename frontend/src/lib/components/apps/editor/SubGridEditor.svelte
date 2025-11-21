@@ -10,7 +10,6 @@
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import {
 		expandGriditem,
-		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
 		isContainer,
@@ -22,6 +21,7 @@
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import GridEditorMenu from './GridEditorMenu.svelte'
+	import { findGridItem } from './appUtilsCore'
 
 	interface Props {
 		containerHeight?: number | undefined

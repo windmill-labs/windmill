@@ -1,8 +1,4 @@
-import {
-	getLanguageByResourceType,
-	type ColumnDef,
-	type DbType
-} from './apps/components/display/dbtable/utils'
+import { getLanguageByResourceType, type ColumnDef } from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
 import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
@@ -13,14 +9,8 @@ import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
-
-export type DbInput =
-	| {
-			type: 'database'
-			resourceType: DbType
-			resourcePath: string
-	  }
-	| { type: 'ducklake'; ducklake: string }
+import type { DbInput, DbType } from './dbTypes'
+import { wrapDucklakeQuery } from './ducklake'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -214,9 +204,4 @@ export function getDbType(input: DbInput): DbType {
 		case 'ducklake':
 			return 'duckdb'
 	}
-}
-
-export function wrapDucklakeQuery(query: string, ducklake: string): string {
-	let attach = `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n`
-	return query.replace(/^(--.*\n)*/, (match) => match + attach)
 }

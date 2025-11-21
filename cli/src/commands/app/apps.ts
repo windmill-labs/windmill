@@ -1,7 +1,15 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { colors, Command, log, SEP, Table, yamlParseFile } from "../../../deps.ts";
+import {
+  colors,
+  Command,
+  log,
+  SEP,
+  Table,
+  windmillUtils,
+  yamlParseFile,
+} from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
@@ -37,6 +45,7 @@ export async function pushApp(
   } catch {
     //ignore
   }
+  app.value.policy = undefined;
 
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
@@ -69,7 +78,7 @@ export async function pushApp(
   }
 
   replaceInlineScripts(localApp.value);
-
+  await generatingPolicy(localApp.value, remotePath);
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -95,6 +104,16 @@ export async function pushApp(
         ...localApp,
       },
     });
+  }
+}
+
+async function generatingPolicy(app: any, path: string) {
+  log.info(colors.gray(`Generating fresh policy for app ${path}...`));
+  try {
+    app.policy = await windmillUtils.updatePolicy(app, undefined);
+  } catch (e) {
+    log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
+    throw e;
   }
 }
 

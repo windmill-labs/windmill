@@ -7,19 +7,14 @@
 	import { ArrowLeft, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		dbSupportsSchemas,
-		getDbSchemas,
 		getLanguageByResourceType,
-		loadAllTablesMetaData,
-		loadTableMetaData,
 		type TableMetadata
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
 		dbDeleteTableActionWithPreviewScript,
 		dbTableOpsWithPreviewScripts,
-		getDucklakeSchema,
-		wrapDucklakeQuery,
-		type DbInput
+		getDucklakeSchema
 	} from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runScriptAndPollResult } from './jobs/utils'
@@ -27,6 +22,13 @@
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack } from 'svelte'
+	import type { DbInput } from './dbTypes'
+	import { wrapDucklakeQuery } from './ducklake'
+	import {
+		getDbSchemas,
+		loadAllTablesMetaData,
+		loadTableMetaData
+	} from './apps/components/display/dbtable/metadata'
 
 	let input: DbInput | undefined = $state()
 	let open = $derived(!!input)
