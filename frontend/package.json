@@ -66,6 +66,7 @@
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
 		"vite": "npm:rolldown-vite@latest",
+		"vite-plugin-dts": "^4.5.4",
 		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},
@@ -169,10 +170,6 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"svelte": "./dist/index.js"
-		},
-		"./appPolicy": {
-			"types": "./dist/appPolicy.d.ts",
-			"default": "./dist/appPolicy.js"
 		},
 		"./scripts/untar_ui_builder.js": "./scripts/untar_ui_builder.js",
 		"./assets/app.css": "./package/assets/app.css",

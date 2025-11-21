@@ -197,7 +197,7 @@ async function processRunnable(
 
 	if (runnable?.type == 'runnableByName') {
 		let hex = await hash(runnable.inlineScript?.content)
-		console.log('hex', hex, id)
+		console.debug('hex', hex, id)
 		return [
 			`${id}:rawscript/${hex}`,
 			{
