@@ -33,7 +33,7 @@ export function isFrontend(runnable: Runnable): boolean {
 }
 
 export function isTriggerable(componentType: string): boolean {
-	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent', 'steppercomponent'].includes(
+	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent', 'steppercomponent', 'chatcomponent'].includes(
 		componentType
 	)
 }
@@ -55,7 +55,12 @@ export function getAllTriggerEvents(
 	const isTriggerableComponent = isTriggerable(appComponent.type)
 
 	if (isTriggerableComponent) {
-		events.push('click')
+		// Use 'send' for chat component, 'click' for others
+		if (appComponent.type === 'chatcomponent') {
+			events.push('send')
+		} else {
+			events.push('click')
+		}
 
 		if (triggerOnAppLoad) {
 			events.push('start')

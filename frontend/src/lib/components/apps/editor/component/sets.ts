@@ -73,6 +73,7 @@ const display: ComponentSet = {
 		'htmlcomponent',
 		'mardowncomponent',
 		'pdfcomponent',
+		'chatcomponent',
 		'displaycomponent',
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',

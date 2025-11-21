@@ -197,6 +197,7 @@
 				result_stream?: string
 			}) {
 				setResult(nresult_stream, id, false)
+				dispatch('streamupdate', { id, result_stream: nresult_stream })
 			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()
@@ -477,6 +478,11 @@
 		const staticRunnableInputs = {}
 		const allowUserResources: string[] = []
 		for (const k of Object.keys(fields ?? {})) {
+			// Skip fields that are being dynamically overridden
+			// Dynamic overrides should take precedence over static configuration
+			if (dynamicArgsOverride && k in dynamicArgsOverride) {
+				continue
+			}
 			let field = fields[k]
 			if (field?.type == 'static' && fields[k]) {
 				if (isEditor) {

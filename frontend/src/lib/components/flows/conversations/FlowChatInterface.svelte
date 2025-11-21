@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Button, Alert } from '$lib/components/common'
-	import { MessageCircle, Loader2, ArrowUp, Square } from 'lucide-svelte'
-	import autosize from '$lib/autosize'
-	import FlowChatMessage from './FlowChatMessage.svelte'
+	import { Alert } from '$lib/components/common'
+	import { MessageCircle, Loader2 } from 'lucide-svelte'
+	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
+	import ChatInput from '$lib/components/chat/ChatInput.svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
 
 	interface Props {
@@ -36,7 +36,13 @@
 		{:else}
 			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
 				{#each manager.messages as message (message.id)}
-					<FlowChatMessage {message} />
+					<ChatMessage
+						role={message.message_type}
+						content={message.content}
+						loading={message.loading}
+						success={message.success}
+						stepName={message.step_name}
+					/>
 				{/each}
 				{#if manager.isWaitingForResponse}
 					<div class="flex items-center gap-2 text-tertiary">
@@ -50,43 +56,17 @@
 
 	<!-- Chat Input -->
 	<div class="flex flex-row justify-center py-2 xl:max-w-7xl mx-auto w-full">
-		<div
-			class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface-input w-full"
-			class:opacity-50={deploymentInProgress}
-		>
-			<textarea
-				bind:this={manager.inputElement}
+		<div class="w-full" class:opacity-50={deploymentInProgress}>
+			<ChatInput
 				bind:value={manager.inputMessage}
-				use:autosize
-				onkeydown={manager.handleKeyDown}
-				placeholder="Type your message here..."
-				class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
-				rows={3}
-			></textarea>
-			<div class="flex-shrink-0 pr-2 bg-surface-input">
-				{#if manager.isWaitingForResponse || manager.isLoading}
-					<Button
-						color="red"
-						size="xs2"
-						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: Square }}
-						on:click={() => manager.cancelCurrentJob()}
-						iconOnly
-						title="Cancel execution"
-					/>
-				{:else}
-					<Button
-						color="blue"
-						size="xs2"
-						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: ArrowUp }}
-						disabled={!manager.inputMessage?.trim() || manager.isLoading || deploymentInProgress}
-						on:click={() => manager.sendMessage()}
-						iconOnly
-						title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-					/>
-				{/if}
-			</div>
+				bind:bindTextarea={manager.inputElement}
+				disabled={manager.isLoading || deploymentInProgress}
+				onSend={() => manager.sendMessage()}
+				onKeydown={manager.handleKeyDown}
+				showCancelButton={manager.isWaitingForResponse || manager.isLoading}
+				onCancel={() => manager.cancelCurrentJob()}
+				sendTitle={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
+			/>
 		</div>
 	</div>
 </div>
