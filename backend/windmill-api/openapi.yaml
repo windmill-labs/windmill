@@ -2077,6 +2077,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   deploy_ui:
@@ -2782,6 +2784,32 @@ paths:
                 settings:
                   $ref: "#/components/schemas/DucklakeSettings"
 
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_datatable_config:
+    post:
+      summary: edit datatable settings
+      operationId: editDataTableConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: DataTable settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  $ref: "#/components/schemas/DataTableSettings"
       responses:
         "200":
           description: status
@@ -19427,6 +19455,29 @@ components:
                     type: string
                 required:
                   - path
+
+    DataTableSettings:
+      type: object
+      required: [datatables]
+      properties:
+        datatables:
+          type: object
+          additionalProperties:
+            type: object
+            required: [database]
+            properties:
+              database:
+                type: object
+                properties:
+                  resource_type:
+                    type: string
+                    enum:
+                      - postgresql
+                      - instance
+                  resource_path:
+                    type: string
+                required:
+                  - resource_type
 
     DynamicInputData:
       type: object

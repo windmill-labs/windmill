@@ -1,12 +1,42 @@
 <script lang="ts" module>
-	export type DataTablesSettingsStruct = {
+	export type DataTableSettingsType = {
 		dataTables: {
 			name: string
 			database: {
-				resource_type: 'postgresql' | 'mysql' | 'instance'
-				resource_path: string | undefined
+				resource_type: 'postgresql' | 'instance'
+				resource_path?: string | undefined
 			}
 		}[]
+	}
+
+	export function convertDataTableSettingsFromBackend(
+		settings: GetSettingsResponse['datatable']
+	): DataTableSettingsType {
+		const s: DataTableSettingsType = { dataTables: [] }
+		if (settings?.datatables) {
+			for (const [name, rest] of Object.entries(settings.datatables)) {
+				s.dataTables.push({ name, ...rest })
+			}
+		}
+		return s
+	}
+	export function convertDataTableSettingsToBackend(
+		settings: DataTableSettingsType
+	): NonNullable<GetSettingsResponse['datatable']> {
+		const s: GetSettingsResponse['datatable'] = { datatables: {} }
+		for (const dataTable of settings.dataTables) {
+			const database = dataTable.database
+			if (dataTable.name in s.datatables)
+				throw 'Settings contain duplicate dataTable name: ' + dataTable.name
+			if (!database.resource_path) throw 'No resource selected for ' + dataTable.name
+			if (database.resource_type === 'instance' && database.resource_path === 'windmill')
+				throw dataTable.name + ' database cannot be called "windmill"'
+
+			s.datatables[dataTable.name] = {
+				database: dataTable.database
+			}
+		}
+		return s
 	}
 
 	let DEFAULT_DATATABLE_DB_NAME = 'datatable_db'
@@ -31,6 +61,17 @@
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
+	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { resource } from 'runed'
+
+	type Props = {
+		dataTableSettings: DataTableSettingsType
+	}
+
+	let { dataTableSettings = $bindable() }: Props = $props()
 
 	let tableHeadNames = ['Name', 'Database', '', ''] as const
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
@@ -38,9 +79,7 @@
 		Database: 'The database where the data is stored.'
 	}
 
-	let tempSettings: DataTablesSettingsStruct = $state({
-		dataTables: []
-	})
+	let tempSettings: DataTableSettingsType = $derived(dataTableSettings)
 
 	function removeDataTable(index: number) {
 		tempSettings.dataTables.splice(index, 1)
@@ -58,15 +97,38 @@
 			}
 		})
 	}
+	const instanceCatalogStatuses = resource([], SettingService.getCustomInstanceDbStatus)
 
 	async function onSave() {
 		try {
+			if (
+				$isCustomInstanceDbEnabled &&
+				dataTableSettings.dataTables.some(
+					(d) =>
+						d.database.resource_type === 'instance' &&
+						!instanceCatalogStatuses.current?.[d.database.resource_path ?? '']?.success
+				)
+			) {
+				let confirm = await confirmationModal.ask({
+					title: 'Some instance catalogs are not setup',
+					children: 'Are you sure you want to save without setting them up ?',
+					confirmationText: 'Save anyway'
+				})
+				if (!confirm) return
+			}
+			const settings = convertDataTableSettingsToBackend(tempSettings)
+			await WorkspaceService.editDataTableConfig({
+				workspace: $workspaceStore!,
+				requestBody: { settings }
+			})
+			dataTableSettings = tempSettings
 			sendUserToast('Data table settings saved successfully')
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving data table settings', e)
 		}
 	}
+	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -74,7 +136,7 @@
 		<div class="text-sm font-semibold text-emphasis">Data tables</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables">
 			Store relational data out of the box. Interact with a fully managed PostgreSQL database
-			directly from the windmill SDK.
+			directly from the Windmill SDK.
 		</Description>
 	</div>
 </div>
@@ -179,3 +241,5 @@
 </DataTable>
 
 <Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave}>Save</Button>
+
+<ConfirmationModal {...confirmationModal.props} />

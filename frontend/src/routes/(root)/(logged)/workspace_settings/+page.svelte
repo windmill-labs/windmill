@@ -59,7 +59,10 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
-	import DataTableSettings from '$lib/components/workspaceSettings/DataTableSettings.svelte'
+	import DataTableSettings, {
+		convertDataTableSettingsFromBackend,
+		type DataTableSettingsType
+	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -111,9 +114,9 @@
 		secondaryStorage: undefined
 	})
 
-	let ducklakeSettings: DucklakeSettingsType = $state({
-		ducklakes: []
-	})
+	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
+
+	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
@@ -307,6 +310,7 @@
 			!!$enterpriseLicense
 		)
 		initialS3ResourceSettings = clone(s3ResourceSettings)
+		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -1114,7 +1118,7 @@
 				}}
 			/>
 		{:else if tab == 'windmill_data_tables'}
-			<DataTableSettings />
+			<DataTableSettings bind:dataTableSettings />
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings
 				bind:s3ResourceSettings

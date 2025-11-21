@@ -150,6 +150,27 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+pub struct DataTable {
+    pub database: DataTableDatabase,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTableDatabase {
+    pub resource_type: DataTableCatalogResourceType,
+    pub resource_path: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[derive(AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum DataTableCatalogResourceType {
+    #[strum(serialize = "postgres")]
+    Postgresql,
+    Instance,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
     pub storage: DucklakeStorage,
