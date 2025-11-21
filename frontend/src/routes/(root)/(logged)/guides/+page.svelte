@@ -31,15 +31,13 @@
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 				<button
 					onclick={startFlowTutorial}
-					class="block border rounded-lg p-6 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
+					class="block border rounded-lg px-6 py-5 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
 				>
-					<div class="flex items-center gap-3 mb-4">
-						<div class="p-3 rounded-lg bg-surface-tertiary">
-							<Workflow size={28} class="text-emphasis" />
-						</div>
-						<h2 class="text-lg font-semibold text-emphasis">Create a simple flow</h2>
+					<div class="flex items-center gap-2 mb-2 text-primary">
+						<Workflow size={24} />
+						<h2 class="text-base font-semibold">Create a simple flow</h2>
 					</div>
-					<p class="text-sm text-secondary mb-4">
+					<p class="text-sm font-normal text-secondary">
 						Learn how to build workflows in Windmill with our interactive step-by-step tutorial.
 					</p>
 				</button>
