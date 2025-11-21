@@ -190,9 +190,24 @@ fn should_add_return(expr: &str) -> bool {
 
     // Check for common statement patterns that shouldn't have return prepended
     let statement_prefixes = [
-        "const ", "let ", "var ", "if ", "if(", "for ", "for(",
-        "while ", "while(", "switch ", "switch(", "try ", "try{",
-        "throw ", "function ", "class ", "async ", "await "
+        "const ",
+        "let ",
+        "var ",
+        "if ",
+        "if(",
+        "for ",
+        "for(",
+        "while ",
+        "while(",
+        "switch ",
+        "switch(",
+        "try ",
+        "try{",
+        "throw ",
+        "function ",
+        "class ",
+        "async ",
+        "await ",
     ];
 
     for prefix in &statement_prefixes {
@@ -677,7 +692,33 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result?.error;"
+            r#"let error = previous_result?.error;
+if (!error) {
+    if (Array.isArray(previous_result)) {
+        const errors = previous_result.filter(item => item && typeof item === 'object' && 'error' in item);
+        if (errors.length === 1) {
+            error = errors[0].error;
+        } else if (errors.length > 1) {
+            error = {
+                name: 'MultipleErrors',
+                message: errors.map(({ error: e }, i) => `[${e.step_id || i}] ${e.message || e.name}`).join('; '),
+                errors: previous_result
+            };
+        } else {
+            error = {
+                name: 'MultipleErrors',
+                message: "Could not parse errors",
+                errors: previous_result
+            };
+        }
+    } else {
+        if (previous_result) {
+            error = { name: 'UnknownError', message: 'Could not parse the error', error: previous_result };
+        } else {
+            error = { name: 'UnknownError', message: 'No error found' };
+        }
+    }
+}"#
         } else {
             ""
         },
@@ -1614,9 +1655,15 @@ multiline template`";
         assert_eq!(contains_semicolon_outside_strings("x; y"), true);
 
         // Semicolons inside strings (should NOT be detected)
-        assert_eq!(contains_semicolon_outside_strings("\"hello; world\""), false);
+        assert_eq!(
+            contains_semicolon_outside_strings("\"hello; world\""),
+            false
+        );
         assert_eq!(contains_semicolon_outside_strings("'test; string'"), false);
-        assert_eq!(contains_semicolon_outside_strings("`template; literal`"), false);
+        assert_eq!(
+            contains_semicolon_outside_strings("`template; literal`"),
+            false
+        );
 
         // Mixed cases
         assert_eq!(
