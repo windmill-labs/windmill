@@ -28,39 +28,6 @@
 	onskipAll={onskipAll}
 	tainted={false}
 	getSteps={(driver) => {
-		// Helper function to find the create script button
-		const findScriptButton = (): HTMLElement | null => {
-			const button = document.querySelector('#create-script-button') as HTMLElement | null
-			if (button) {
-				console.log('Found script button:', button)
-			} else {
-				console.error('Could not find script button')
-			}
-			return button
-		}
-
-		// Helper function to find the create flow button
-		const findFlowButton = (): HTMLElement | null => {
-			const button = document.querySelector('#create-flow-button') as HTMLElement | null
-			if (button) {
-				console.log('Found flow button:', button)
-			} else {
-				console.error('Could not find flow button')
-			}
-			return button
-		}
-
-		// Helper function to find the create app button
-		const findAppButton = (): HTMLElement | null => {
-			const button = document.querySelector('#create-app-button') as HTMLElement | null
-			if (button) {
-				console.log('Found app button:', button)
-			} else {
-				console.error('Could not find app button')
-			}
-			return button
-		}
-
 		const steps: DriveStep[] = [
 			{
 				popover: {
@@ -70,7 +37,7 @@
 					onNextClick: () => {
 						// Wait a bit to ensure the page is fully rendered before moving to next step
 						setTimeout(() => {
-							const button = findScriptButton()
+							const button = document.querySelector('#create-script-button') as HTMLElement | null
 							if (button) {
 								driver.moveNext()
 							} else {
@@ -88,7 +55,7 @@
 					onNextClick: async () => {
 						// Move to the next step (Create Flow button)
 						setTimeout(() => {
-							const button = findFlowButton()
+							const button = document.querySelector('#create-flow-button') as HTMLElement | null
 							if (button) {
 								driver.moveNext()
 							} else {
@@ -107,7 +74,7 @@
 					onNextClick: async () => {
 						// Move to the next step (Create App button)
 						setTimeout(() => {
-							const button = findAppButton()
+							const button = document.querySelector('#create-app-button') as HTMLElement | null
 							if (button) {
 								driver.moveNext()
 							} else {
