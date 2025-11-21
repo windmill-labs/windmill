@@ -4,10 +4,9 @@
 	import type { DriveStep } from 'driver.js'
 	import { base } from '$lib/base'
 
-	export let name: string = 'workspace-onboarding'
-	export let index: number = 8
+	let { name = 'workspace-onboarding', index = 8, onerror, onskipAll } = $props()
 
-	let tutorial: Tutorial | undefined = undefined
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	function hideOverlay() {
 		const overlay = document.querySelector('.driver-overlay') as HTMLElement
@@ -25,8 +24,8 @@
 	bind:this={tutorial}
 	{index}
 	{name}
-	on:error
-	on:skipAll
+	{onerror}
+	onskipAll={onskipAll}
 	tainted={false}
 	getSteps={(driver) => {
 		// Helper function to find the create script button
