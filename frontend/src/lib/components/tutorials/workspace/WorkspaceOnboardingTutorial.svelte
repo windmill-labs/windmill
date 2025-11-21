@@ -96,7 +96,7 @@
 						// Hide overlay before navigation
 						hideOverlay()
 						// Mark tutorial as complete
-						updateProgress(index)
+						updateProgress(8)
 						driver.destroy()
 						// Navigate to the flow creation page with tutorial continuation parameter and nodraft
 						window.location.href = `${base}/flows/add?tutorial=workspace-onboarding-continue&nodraft=true`
