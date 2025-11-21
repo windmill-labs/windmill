@@ -15,8 +15,8 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Guides"
-		tooltip="Learn how to use Windmill with our comprehensive guides"
+		title="Tutorials"
+		tooltip="Learn how to use Windmill with our interactive tutorials"
 		documentationLink="https://www.windmill.dev/docs/intro"
 	/>
 	<div class="flex justify-between pt-4">

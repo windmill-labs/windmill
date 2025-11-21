@@ -21,6 +21,7 @@
 		FolderCog,
 		FolderOpen,
 		Github,
+		GraduationCap,
 		HelpCircle,
 		Home,
 		LogOut,
@@ -105,6 +106,13 @@
 			label: 'Help',
 			icon: HelpCircle,
 			subItems: [
+				{
+					label: 'Tutorials',
+					href: `${base}/tutorials`,
+					icon: GraduationCap,
+					aiId: 'sidebar-menu-link-tutorials',
+					aiDescription: 'Button to navigate to tutorials'
+				},
 				{
 					label: 'Docs',
 					href: 'https://www.windmill.dev/docs/intro/',
@@ -312,13 +320,6 @@
 		// 	icon: Cog,
 		// 	disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
 		// },
-		{
-			label: 'Guides',
-			href: `${base}/guides`,
-			icon: BookOpen,
-			aiId: 'sidebar-menu-link-guides',
-			aiDescription: 'Button to navigate to guides and documentation'
-		},
 		{
 			label: 'Settings',
 			icon: Settings,
