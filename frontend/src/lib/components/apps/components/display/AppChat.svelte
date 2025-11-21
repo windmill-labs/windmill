@@ -14,14 +14,14 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Button } from '$lib/components/common'
-	import { Send } from 'lucide-svelte'
+	import { ArrowUp, Loader2 } from 'lucide-svelte'
 	import { initCss } from '../../utils'
+	import autosize from '$lib/autosize'
 
 	interface Message {
 		role: 'user' | 'assistant'
 		content: string
 		timestamp: number
-		streaming?: boolean
 	}
 
 	interface Props {
@@ -224,9 +224,7 @@
 			// If we have a streaming message, update it
 			if (currentStreamingMessageIndex !== undefined) {
 				messages = messages.map((msg, idx) =>
-					idx === currentStreamingMessageIndex
-						? { ...msg, content: accumulatedContent, streaming: loading }
-						: msg
+					idx === currentStreamingMessageIndex ? { ...msg, content: accumulatedContent } : msg
 				)
 
 				// If loading is done, finalize the message
@@ -240,8 +238,7 @@
 				const assistantMessage: Message = {
 					role: 'assistant',
 					content: accumulatedContent,
-					timestamp: Date.now(),
-					streaming: loading
+					timestamp: Date.now()
 				}
 				messages = [...messages, assistantMessage]
 
@@ -300,51 +297,44 @@
 							>
 								<div class="whitespace-pre-wrap">
 									{message.content}
-									{#if message.streaming}
-										<span class="inline-block w-1 h-4 ml-1 bg-current animate-pulse">▌</span>
-									{/if}
 								</div>
 							</div>
 						</div>
 					{/each}
+					{#if loading}
+						<div class="flex items-center gap-2 text-tertiary">
+							<Loader2 size={16} class="animate-spin" />
+							<span class="text-sm">Processing...</span>
+						</div>
+					{/if}
 				{/if}
 			</div>
 
 			<!-- Input Container -->
 			<div class="border-t p-3">
-				<div class="flex gap-2">
-					<input
-						type="text"
+				<div
+					class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface-input px-3 py-2"
+				>
+					<textarea
 						bind:value={inputValue}
-						placeholder={resolvedConfig.placeholder}
-						disabled={loading}
+						use:autosize
 						onkeydown={handleKeydown}
 						onpointerdown={stopPropagation(bubble('pointerdown'))}
-						class={twMerge(
-							'flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed',
-							css?.input?.class,
-							'wm-chat-input'
-						)}
-						style={css?.input?.style}
-					/>
+						placeholder={resolvedConfig.placeholder}
+						disabled={loading}
+						class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
+						rows={1}
+					></textarea>
 					<Button
-						on:click={handleSend}
-						disabled={loading || !inputValue.trim()}
-						size="sm"
 						color="blue"
-						btnClasses={twMerge(css?.button?.class, 'wm-chat-send-button')}
-						style={twMerge('min-width: 80px;', css?.button?.style)}
-						{loading}
-					>
-						{#if loading}
-							Sending...
-						{:else}
-							<div class="flex items-center gap-2">
-								<Send size={16} />
-								<span>Send</span>
-							</div>
-						{/if}
-					</Button>
+						size="xs2"
+						btnClasses="!rounded-full !p-1.5"
+						startIcon={{ icon: ArrowUp }}
+						disabled={!inputValue.trim() || loading}
+						on:click={handleSend}
+						iconOnly
+						title="Send message"
+					/>
 				</div>
 			</div>
 		</div>
