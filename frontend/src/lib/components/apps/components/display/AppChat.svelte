@@ -106,7 +106,9 @@
 		if (!runnableComponent) {
 			runnableWrapper?.handleSideEffect(true)
 		} else {
-			await runnableComponent?.runComponent(true, undefined, undefined, { message: userMessage })
+			await runnableComponent?.runComponent(true, undefined, undefined, {
+				user_message: userMessage
+			})
 		}
 	}
 
