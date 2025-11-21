@@ -313,6 +313,13 @@
 		// 	disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
 		// },
 		{
+			label: 'Guides',
+			href: `${base}/guides`,
+			icon: BookOpen,
+			aiId: 'sidebar-menu-link-guides',
+			aiDescription: 'Button to navigate to guides and documentation'
+		},
+		{
 			label: 'Settings',
 			icon: Settings,
 			aiId: 'sidebar-menu-link-settings',

@@ -1,0 +1,93 @@
+<script lang="ts">
+	import { updateProgress } from '$lib/tutorialUtils'
+	import Tutorial from '../Tutorial.svelte'
+	import type { DriveStep } from 'driver.js'
+
+	let tutorial: Tutorial | undefined = $state(undefined)
+
+	export function runTutorial() {
+		tutorial?.runTutorial()
+	}
+</script>
+
+<Tutorial
+	bind:this={tutorial}
+	index={8}
+	name="workspace-onboarding"
+	tainted={false}
+	getSteps={(driver) => {
+		const steps: DriveStep[] = [
+			{
+				popover: {
+					title: 'Welcome to your Windmill workspace! 🎉',
+					description:
+						"Let's take a quick tour! In this tutorial, we'll create a simple flow so you",
+					onNextClick: () => {
+						// Wait a bit to ensure the page is fully rendered before moving to next step
+						setTimeout(() => {
+							const button = document.querySelector('#create-script-button') as HTMLElement | null
+							if (button) {
+								driver.moveNext()
+							} else {
+								alert('Could not find the Create Script button. Please make sure you are on the home page.')
+							}
+						}, 100)
+					}
+				}
+			},
+			{
+				popover: {
+					title: 'Create your first script',
+					description:
+						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Click to create your first script!</p>',
+					onNextClick: async () => {
+						// Move to the next step (Create Flow button)
+						setTimeout(() => {
+							const button = document.querySelector('#create-flow-button') as HTMLElement | null
+							if (button) {
+								driver.moveNext()
+							} else {
+								alert('Could not find the Create Flow button. Please make sure you are on the home page.')
+							}
+						}, 100)
+					}
+				},
+				element: '#create-script-button',
+			},
+			{
+				popover: {
+					title: 'Create your first flow',
+					description:
+						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Discover together how flows work in Windmill</p>',
+					onNextClick: async () => {
+						// Move to the next step (Create App button)
+						setTimeout(() => {
+							const button = document.querySelector('#create-app-button') as HTMLElement | null
+							if (button) {
+								driver.moveNext()
+							} else {
+								alert('Could not find the Create App button. Please make sure you are on the home page.')
+							}
+						}, 100)
+					}
+				},
+				element: '#create-flow-button',
+			},
+			{
+				popover: {
+					title: 'Create your first app',
+					description:
+						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill. That\'s it for the tour!</p>',
+					onNextClick: async () => {
+						// Mark tutorial as complete
+						updateProgress(8)
+						driver.destroy()
+					}
+				},
+				element: '#create-app-button',
+			}
+		]
+
+		return steps
+	}}
+/>
