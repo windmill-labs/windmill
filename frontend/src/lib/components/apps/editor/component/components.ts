@@ -54,7 +54,8 @@ import {
 	RefreshCw,
 	ListCollapse,
 	GalleryThumbnails,
-	Code
+	Code,
+	MessageSquare
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -208,6 +209,7 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type ChatComponent = BaseComponent<'chatcomponent'> & RecomputeOthersSource
 export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
@@ -338,6 +340,7 @@ export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
+	| ChatComponent
 	| LogComponent
 	| JobIdLogComponent
 	| FlowStatusComponent
@@ -1125,6 +1128,38 @@ export const components = {
 					value: false,
 					tooltip: 'Force the result to be displayed as JSON'
 				}
+			}
+		}
+	},
+	chatcomponent: {
+		name: 'Chat',
+		icon: MessageSquare,
+		documentationLink: `${documentationBaseUrl}/chat`,
+		dims: '3:8-6:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			messagesContainer: { class: '', style: '' },
+			userMessage: { class: '', style: '' },
+			assistantMessage: { class: '', style: '' },
+			input: { class: '', style: '' },
+			button: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			recomputeIds: true,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Type a message...'
+				},
+				onSend: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
