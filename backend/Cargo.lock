@@ -2010,9 +2010,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.46"
+version = "1.2.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b97463e1064cb1b1c1384ad0a0b9c8abd0988e2a91f52606c80ef14aadb63e36"
+checksum = "cd405d82c84ff7f35739f175f67d8b9fb7687a0e84ccdc78bd3568839827cf07"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -9604,9 +9604,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pest"
-version = "2.8.3"
+version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "989e7521a040efde50c3ab6bbadafbe15ab6dc042686926be59ac35d74607df4"
+checksum = "cbcfd20a6d4eeba40179f05735784ad32bdaef05ce8e8af05f180d45bb3e7e22"
 dependencies = [
  "memchr",
  "ucd-trie",
@@ -9614,9 +9614,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.8.3"
+version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "187da9a3030dbafabbbfb20cb323b976dc7b7ce91fcd84f2f74d6e31d378e2de"
+checksum = "51f72981ade67b1ca6adc26ec221be9f463f2b5839c7508998daa17c23d94d7f"
 dependencies = [
  "pest",
  "pest_generator",
@@ -9624,9 +9624,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.8.3"
+version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49b401d98f5757ebe97a26085998d6c0eecec4995cad6ab7fc30ffdf4b052843"
+checksum = "dee9efd8cdb50d719a80088b76f81aec7c41ed6d522ee750178f83883d271625"
 dependencies = [
  "pest",
  "pest_meta",
@@ -9637,9 +9637,9 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.8.3"
+version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72f27a2cfee9f9039c4d86faa5af122a0ac3851441a34865b8a043b46be0065a"
+checksum = "bf1d70880e76bdc13ba52eafa6239ce793d85c8e43896507e43dd8984ff05b82"
 dependencies = [
  "pest",
  "sha2 0.10.9",
@@ -15213,7 +15213,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "aws-sdk-config",
@@ -15275,7 +15275,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -15396,7 +15396,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -15411,7 +15411,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "chrono",
  "lazy_static",
@@ -15425,7 +15425,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -15444,7 +15444,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15533,7 +15533,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "regex",
  "serde",
@@ -15548,7 +15548,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -15572,7 +15572,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15584,7 +15584,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15593,7 +15593,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15605,7 +15605,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15617,7 +15617,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15629,7 +15629,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15641,7 +15641,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15653,7 +15653,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15664,7 +15664,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15675,7 +15675,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15687,7 +15687,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15710,7 +15710,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15724,7 +15724,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15741,7 +15741,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15755,7 +15755,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15773,7 +15773,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -15784,7 +15784,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15821,7 +15821,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15831,7 +15831,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.582.2"
+version = "1.583.1"
 dependencies = [
  "anyhow",
  "async-once-cell",

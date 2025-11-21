@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.583.1](https://github.com/windmill-labs/windmill/compare/v1.583.0...v1.583.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* **cli:** improve cli local policy generation ([b857d15](https://github.com/windmill-labs/windmill/commit/b857d15352ab422c1d477cd9172856956c2c4b7c))
+
+## [1.583.0](https://github.com/windmill-labs/windmill/compare/v1.582.2...v1.583.0) (2025-11-21)
+
+
+### Features
+
+* **cli:** app policies are generated locally ([#7200](https://github.com/windmill-labs/windmill/issues/7200)) ([f85ab0c](https://github.com/windmill-labs/windmill/commit/f85ab0c5dd64f01fbd0c0c9c2a4cea029a04cd50))
+
+
+### Bug Fixes
+
+* **backend:** handle malformed errors in flow error handler ([#7196](https://github.com/windmill-labs/windmill/issues/7196)) ([f531866](https://github.com/windmill-labs/windmill/commit/f53186653220a5213e0bffdf77187faaa9190a7e))
+
 ## [1.582.2](https://github.com/windmill-labs/windmill/compare/v1.582.1...v1.582.2) (2025-11-21)
 
 

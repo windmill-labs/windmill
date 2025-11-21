@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { App, AppViewerContext, GridItem } from '../types'
-	import { BG_PREFIX } from '../utils'
 	import { findGridItemWithLocation, allItemsWithLocation } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
@@ -9,6 +8,7 @@
 	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
 	import EventHandlerItem from './settingsPanel/EventHandlerItem.svelte'
 	import type { TableAction } from './component'
+	import { BG_PREFIX } from './appUtilsCore'
 
 	const { selectedComponent, app, stateId, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
