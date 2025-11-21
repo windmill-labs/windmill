@@ -18,6 +18,7 @@
 		role: 'user' | 'assistant'
 		content: string
 		timestamp: number
+		streaming?: boolean
 	}
 
 	interface Props {
@@ -67,6 +68,10 @@
 	let inputValue = $state('')
 	let messagesContainer: HTMLDivElement | undefined = $state()
 
+	// Streaming state management
+	let currentStreamingMessageIndex: number | undefined = $state(undefined)
+	let accumulatedContent = $state('')
+
 	// Auto-scroll to bottom when messages change
 	$effect(() => {
 		if (messages.length > 0 && messagesContainer) {
@@ -87,6 +92,27 @@
 		}
 	})
 
+	// Parse streaming tokens (similar to FlowChatManager parseStreamDeltas)
+	function parseStreamDeltas(streamData: string): string {
+		const lines = streamData.trim().split('\n')
+		let content = ''
+
+		for (const line of lines) {
+			if (!line.trim()) continue
+			try {
+				const parsed = JSON.parse(line)
+				// Accumulate content from token_delta events
+				if (parsed.type === 'token_delta' && parsed.content) {
+					content += parsed.content
+				}
+			} catch (e) {
+				console.error('Failed to parse stream line:', line, e)
+			}
+		}
+
+		return content
+	}
+
 	// Handle send message
 	async function handleSend() {
 		if (!inputValue.trim() || loading) return
@@ -101,6 +127,10 @@
 			timestamp: Date.now()
 		}
 		messages = [...messages, newUserMessage]
+
+		// Reset streaming state for new message
+		currentStreamingMessageIndex = undefined
+		accumulatedContent = ''
 
 		// Trigger the runnable with the message as input
 		if (!runnableComponent) {
@@ -161,12 +191,61 @@
 	{render}
 	onSuccess={(result) => {
 		if (result !== undefined && result !== null) {
-			const assistantMessage: Message = {
-				role: 'assistant',
-				content: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
-				timestamp: Date.now()
+			// Parse the result to extract streaming content
+			let newContent = ''
+
+			if (typeof result === 'string') {
+				// Try to parse as streaming format
+				const parsedContent = parseStreamDeltas(result)
+				if (parsedContent) {
+					newContent = parsedContent
+					accumulatedContent += newContent
+				} else {
+					// If not streaming format, use the whole string
+					accumulatedContent = result
+				}
+			} else {
+				// Non-string result (final result or error)
+				// Check if result has an "output" key and use that instead
+				if (result && typeof result === 'object' && 'output' in result) {
+					accumulatedContent =
+						typeof result.output === 'string'
+							? result.output
+							: JSON.stringify(result.output, null, 2)
+				} else {
+					accumulatedContent = JSON.stringify(result, null, 2)
+				}
 			}
-			messages = [...messages, assistantMessage]
+
+			// If we have a streaming message, update it
+			if (currentStreamingMessageIndex !== undefined) {
+				messages = messages.map((msg, idx) =>
+					idx === currentStreamingMessageIndex
+						? { ...msg, content: accumulatedContent, streaming: loading }
+						: msg
+				)
+
+				// If loading is done, finalize the message
+				if (!loading) {
+					currentStreamingMessageIndex = undefined
+					accumulatedContent = ''
+				}
+			}
+			// Create a new assistant message only if we have content
+			else if (accumulatedContent.length > 0) {
+				const assistantMessage: Message = {
+					role: 'assistant',
+					content: accumulatedContent,
+					timestamp: Date.now(),
+					streaming: loading
+				}
+				messages = [...messages, assistantMessage]
+
+				// If still loading, track this message for updates
+				if (loading) {
+					currentStreamingMessageIndex = messages.length - 1
+				}
+			}
 		}
 	}}
 >
@@ -215,7 +294,12 @@
 									? css?.userMessage?.style
 									: css?.assistantMessage?.style}
 							>
-								<div class="whitespace-pre-wrap">{message.content}</div>
+								<div class="whitespace-pre-wrap">
+									{message.content}
+									{#if message.streaming}
+										<span class="inline-block w-1 h-4 ml-1 bg-current animate-pulse">▌</span>
+									{/if}
+								</div>
 							</div>
 						</div>
 					{/each}
