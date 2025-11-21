@@ -19,7 +19,8 @@ def main():
 
 ";
         let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
+                .await?;
         // println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,
@@ -52,7 +53,8 @@ def main():
 
 ";
         let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
+                .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
 
@@ -75,7 +77,8 @@ def main():
 ";
 
         let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
+                .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,

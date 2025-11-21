@@ -28,7 +28,10 @@ use sqlx::{Pool, Postgres};
 use windmill_common::{
     error::{self, to_anyhow},
     worker::PythonAnnotations,
-    workspace_dependencies::{WorkspaceDependenciesAnnotatedRefs, WorkspaceDependenciesPrefetched},
+    workspace_dependencies::{
+        RawWorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
+        WorkspaceDependenciesPrefetched,
+    },
 };
 
 fn replace_import(x: String) -> String {
@@ -259,6 +262,7 @@ pub async fn parse_python_imports(
     path: &str,
     db: &Pool<Postgres>,
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -269,7 +273,8 @@ pub async fn parse_python_imports(
         &mut vec![],
         version_specifiers,
         // &mut version_specifier.and_then(|_| Some(path.to_owned())),
-        &mut None
+        &mut None,
+        raw_workspace_dependencies_o,
     )
     .await?
     .into_values()
@@ -323,6 +328,7 @@ async fn parse_python_imports_inner(
     already_visited: &mut Vec<String>,
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     path_where_annotated_pyv: &mut Option<String>,
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -386,6 +392,7 @@ async fn parse_python_imports_inner(
         code,
         windmill_common::scripts::ScriptLang::Python3,
         w_id,
+        raw_workspace_dependencies_o,
         db.into(),
     )
     .await?;
@@ -546,6 +553,7 @@ async fn parse_python_imports_inner(
                         already_visited,
                         version_specifiers,
                         path_where_annotated_pyv,
+                        raw_workspace_dependencies_o,
                     )
                     .await?
                     .into_values()

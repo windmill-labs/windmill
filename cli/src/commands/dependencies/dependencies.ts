@@ -7,7 +7,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import type { ScriptLang, NewWorkspaceDependencies } from "../../../gen/types.gen.ts";
 import fs from "node:fs";
 import { generateHash } from "../../utils/utils.ts";
-import { checkifMetadataUptodate, updateMetadataGlobalLock } from "../../utils/metadata.ts";
+import { checkifMetadataUptodate, updateMetadataGlobalLock, workspaceDependenciesPathToLanguageAndFilename } from "../../utils/metadata.ts";
 
 async function push(
   opts: GlobalOptions,
@@ -28,6 +28,7 @@ async function push(
   await pushWorkspaceDependencies(workspace.workspaceId, filePath, null, content);
 }
 
+// TODO(claude): Remove
 async function add(
   opts: GlobalOptions,
   language: ScriptLang,
@@ -150,41 +151,24 @@ export async function pushWorkspaceDependencies(
   newDependenciesContent: string
 ): Promise<void> {
   try {
-    // Parse the workspace dependencies file path
-    // Format: dependencies/requirements.in, dependencies/package.json, dependencies/myname.requirements.in, etc.
-    const relativePath = path.replace("dependencies/", "");
-    
-    let language: ScriptLang;
-    let name: string | undefined;
-    
-    // Parse based on file extension and potential name prefix
-    if (relativePath.endsWith("requirements.in")) {
-      language = "python3";
-      name = relativePath === "requirements.in" ? undefined : relativePath.replace(".requirements.in", "");
-    } else if (relativePath.endsWith("package.json")) {
-      // Could be Bun, Deno, or Nativets - we'll default to nativets for sync
-      language = "nativets";
-      name = relativePath === "package.json" ? undefined : relativePath.replace(".package.json", "");
-    } else if (relativePath.endsWith("go.mod")) {
-      language = "go";
-      name = relativePath === "go.mod" ? undefined : relativePath.replace(".go.mod", "");
-    } else if (relativePath.endsWith("composer.json")) {
-      language = "php";
-      name = relativePath === "composer.json" ? undefined : relativePath.replace(".composer.json", "");
-    } else {
+
+    let res = workspaceDependenciesPathToLanguageAndFilename(path);
+    if (!res) {
       throw new Error(`Unknown workspace dependencies file format: ${path}`);
     }
 
+    let {
+      language,
+      name
+    } = res;
+
+    // TODO: include workspace?
     // Generate hash for workspace dependencies content and metadata
-    const contentHash = await generateHash(
-      newDependenciesContent + 
-      language + 
-      (name || "")
-    );
+    const contentHash = await generateHash(newDependenciesContent + path);
 
     // Check if dependencies are up-to-date using wmill-lock.yaml tracking
     const isUpToDate = await checkifMetadataUptodate(path, contentHash, undefined);
-    
+
     if (isUpToDate) {
       const displayName = name ? `named dependencies "${name}"` : `workspace default dependencies`;
       log.info(colors.green(`${displayName} for ${language} are up-to-date, skipping push`));

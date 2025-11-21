@@ -14,12 +14,12 @@ import {
 } from "../../bootstrap/script_bootstrap.ts";
 import { Workspace } from "../commands/workspace/workspace.ts";
 import {
-  languagesWithRawReqsSupport,
-  LanguageWithRawReqsSupport,
+  workspaceDependenciesLanguages,
+  WorkspaceDependenciesLanguage,
   ScriptLanguage,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
+import { exts } from "../commands/script/script.ts";
 import {
   FSFSElement,
   findCodebase,
@@ -48,29 +48,53 @@ export class LockfileGenerationError extends Error {
 
 export async function generateAllMetadata() {}
 
-function findClosestRawReqs(
-  lang: LanguageWithRawReqsSupport | undefined,
-  remotePath: string,
-  globalDeps: GlobalDeps
-): string | undefined {
-  let bestCandidate: { k: string; v: string } | undefined = undefined;
-  if (lang) {
-    Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
+export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
+  const rawWorkspaceDeps: Record<string, string> = {};
+  
+  try {
+    for await (const entry of Deno.readDir("dependencies")) {
+      if (entry.isDirectory) continue;
+      
+      const filePath = `dependencies/${entry.name}`;
+      const content = await Deno.readTextFile(filePath);
+      
+      // Find matching language
+      for (const lang of workspaceDependenciesLanguages) {
+        if (entry.name.endsWith(lang.filename)) {
+          // Check if out of sync
+          const contentHash = await generateHash(content + filePath);
+          const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
+          
+          if (!isUpToDate) {
+            rawWorkspaceDeps[filePath] = content;
+          }
+          break;
+        }
       }
-    });
+    }
+  } catch {
+    // dependencies directory doesn't exist
   }
-  // @ts-ignore
-  return bestCandidate?.v;
+  
+  console.log(rawWorkspaceDeps);
+  return rawWorkspaceDeps;
+}
+
+export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
+    const relativePath = path.replace("dependencies/", "");
+    for (const { filename, language } of workspaceDependenciesLanguages) {
+      if (relativePath.endsWith(filename)) {
+        return {
+          name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
+          language
+        };
+      }
+    }
 }
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
-  rawReqs: Record<string, string> | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
   folder: string,
   defaultTs: "bun" | "deno" | undefined
 ) {
@@ -78,17 +102,9 @@ async function generateFlowHash(
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
-      let reqs: string | undefined;
-      if (rawReqs) {
-        // Get language name from path
-        const lang = inferContentTypeFromFilePath(f.path, defaultTs);
-        // Get lock for that language
-        [, reqs] =
-          Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
-      }
-      // Embed lock into hash
+      // Embed workspace dependencies into hash
       hashes[f.path] = await generateHash(
-        (await f.getContentText()) + (reqs ?? "")
+        (await f.getContentText()) + JSON.stringify(rawWorkspaceDependencies)
       );
     }
   }
@@ -103,7 +119,7 @@ export async function generateFlowLockInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  useRawReqs?: boolean
+  useRawWorkspaceDependencies?: boolean
 ): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -115,24 +131,12 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let rawReqs: Record<string, string> | undefined = undefined;
-  if (useRawReqs) {
-    // Find all dependency files in the workspace
-    const globalDeps = await findGlobalDeps();
-
-    // Find closest dependency files for this flow
-    rawReqs = {};
-
-    // TODO: PERF: Only include raw reqs for the languages that are in the flow
-    languagesWithRawReqsSupport.map((lang) => {
-      const dep = findClosestRawReqs(lang, folder, globalDeps);
-      if (dep) {
-        // @ts-ignore
-        rawReqs[lang.language] = dep;
-      }
-    });
+  let rawWorkspaceDependencies: Record<string, string> = {};
+  if (useRawWorkspaceDependencies) {
+    // Get out-of-sync workspace dependencies
+    rawWorkspaceDependencies = await getRawWorkspaceDependencies();
   }
-  let hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
+  let hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -146,14 +150,14 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (useRawReqs) {
+  if (useRawWorkspaceDependencies) {
     log.warn(
       "If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)"
     );
     log.info(
       (await blueColor())(
-        `Found raw requirements (${languagesWithRawReqsSupport
-          .map((l) => l.rrFilename)
+        `Found raw requirements (${workspaceDependenciesLanguages
+          .map((l) => l.filename)
           .join("/")}) for ${folder}, using it`
       )
     );
@@ -192,7 +196,7 @@ export async function generateFlowLockInternal(
       workspace,
       flowValue.value,
       remote_path,
-      rawReqs
+      rawWorkspaceDependencies
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -212,7 +216,7 @@ export async function generateFlowLockInternal(
     );
   }
 
-  hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
+  hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
   await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -236,7 +240,7 @@ export async function generateScriptMetadataInternal(
   },
   dryRun: boolean,
   noStaleMessage: boolean,
-  globalDeps: GlobalDeps,
+  rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
@@ -245,7 +249,6 @@ export async function generateScriptMetadataInternal(
     .replaceAll(SEP, "/");
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
-
 
   const metadataWithType = await parseMetadataFile(
     remotePath,
@@ -256,14 +259,8 @@ export async function generateScriptMetadataInternal(
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
   
-  const rrLang = languagesWithRawReqsSupport.find(
-    (l) => language == l.language
-  );
-
-  const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
-
-
-  let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
+  // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
+  let hash = await generateScriptHash(rawWorkspaceDependencies, scriptContent, metadataContent);
 
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
@@ -304,7 +301,7 @@ export async function generateScriptMetadataInternal(
         language,
         remotePath,
         metadataParsedContent,
-        rawReqs
+        rawWorkspaceDependencies
       );
     } else {
       metadataParsedContent.lock = "";
@@ -323,7 +320,7 @@ export async function generateScriptMetadataInternal(
   const metadataContentUsedForHash = newMetadataContent;
 
   hash = await generateScriptHash(
-    rawReqs,
+    rawWorkspaceDependencies,
     scriptContent,
     metadataContentUsedForHash
   );
@@ -366,11 +363,11 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawDeps: string | undefined
+  rawWorkspaceDependencies: Record<string, string>
 ): Promise<void> {
   if (
     !(
-      languagesWithRawReqsSupport.some((l) => l.language == language) ||
+      workspaceDependenciesLanguages.some((l) => l.language == language) ||
       language == "deno" ||
       language == "rust" ||
       language == "ansible"
@@ -379,9 +376,20 @@ async function updateScriptLock(
     return;
   }
 
-  if (rawDeps) {
-    log.info(`Generating script lock for ${remotePath} with raw deps`);
+  // Filter workspace dependencies to only include those matching the script's language
+  const filteredWorkspaceDependencies: Record<string, string> = {};
+  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
+    if (depInfo && depInfo.language === language) {
+      filteredWorkspaceDependencies[depPath] = depContent;
+    }
   }
+
+  if (Object.keys(filteredWorkspaceDependencies).length > 0) {
+    const dependencyPaths = Object.keys(filteredWorkspaceDependencies).join(', ');
+    log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
+  }
+  
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const extraHeaders = getHeaders();
@@ -402,7 +410,9 @@ async function updateScriptLock(
             script_path: remotePath,
           },
         ],
-        raw_deps: rawDeps,
+        raw_workspace_dependencies: Object.keys(filteredWorkspaceDependencies).length > 0 
+          ? filteredWorkspaceDependencies
+          : null,
         entrypoint: remotePath,
       }),
     }
@@ -451,12 +461,12 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  rawDeps?: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>
 ): Promise<FlowValue | undefined> {
   let rawResponse;
 
-  if (rawDeps != undefined) {
-    log.info(colors.blue("Using raw requirements for flow dependencies"));
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+    log.info(colors.blue("Using raw workspace dependencies for flow dependencies"));
 
     // generate the script lock running a dependency job in Windmill and update it inplace
     const extraHeaders = getHeaders();
@@ -473,7 +483,9 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_deps: rawDeps,
+          raw_raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+          ? JSON.stringify(rawWorkspaceDependencies)
+          : null,
         }),
       }
     );
@@ -767,7 +779,7 @@ export async function parseMetadataFile(
         path: string;
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
-        globalDeps: GlobalDeps;
+        rawWorkspaceDependencies: Record<string, string>;
         codebases: SyncCodebase[]
       })
     | undefined,
@@ -829,7 +841,7 @@ export async function parseMetadataFile(
             generateMetadataIfMissing,
             false,
             false,
-            generateMetadataIfMissing.globalDeps,
+            generateMetadataIfMissing.rawWorkspaceDependencies,
             generateMetadataIfMissing.codebases,
             false
           );
@@ -911,12 +923,12 @@ export async function checkifMetadataUptodate(
 }
 
 export async function generateScriptHash(
-  rawReqs: string | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
   scriptContent: string,
   newMetadataContent: string
 ) {
   return await generateHash(
-    (rawReqs ?? "") + scriptContent + newMetadataContent
+    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
   );
 }
 

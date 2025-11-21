@@ -63,6 +63,7 @@ async fn basic_manual_named(db: Pool<Postgres>) -> anyhow::Result<()> {
             language: *l,
             content: (*c).into(),
             name: Some("test".to_owned()),
+            description: None,
         }
         .create(db)
         .await

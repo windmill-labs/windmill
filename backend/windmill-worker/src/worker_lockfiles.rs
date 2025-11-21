@@ -26,7 +26,7 @@ use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 use windmill_common::workspace_dependencies::{
-    Mode, WorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
+    Mode, RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
     WorkspaceDependenciesPrefetched,
 };
 #[cfg(feature = "python")]
@@ -186,6 +186,7 @@ pub async fn handle_dependency_job(
     base_internal_url: &str,
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
 ) -> error::Result<Box<RawValue>> {
     // Processing a dependency job - these jobs handle lockfile generation and dependency updates
     // for scripts, flows, and apps when their dependencies or imported scripts change
@@ -194,15 +195,6 @@ pub async fn handle_dependency_job(
         job.runnable_path()
     );
     let script_path = job.runnable_path();
-
-    let raw_deps = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("raw_deps")
-                .is_some_and(|y| y.to_string().as_str() == "true")
-        })
-        .unwrap_or(false);
 
     let npm_mode = if job
         .script_lang
@@ -265,11 +257,6 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        // TODO(claude): add explanations with backlinking to beginning of the function where i set raw_deps to true if this is some.
-        // raw_requirements_content_o
-        //     .as_ref()
-        //     .map(|rr| &rr.content)
-        //     .unwrap_or(&script_data.code),
         &script_data.code,
         mem_peak,
         canceled_by,
@@ -284,6 +271,7 @@ pub async fn handle_dependency_job(
         None,
         npm_mode,
         occupancy_metrics,
+        &raw_workspace_dependencies_o,
     )
     .await;
 
@@ -730,6 +718,7 @@ pub async fn handle_flow_dependency_job(
     base_internal_url: &str,
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     tracing::debug!("Processing flow dependency job");
     tracing::trace!("Job details: {:?}", &job);
@@ -853,6 +842,7 @@ pub async fn handle_flow_dependency_job(
         skip_flow_update,
         &raw_deps,
         &mut dependency_map,
+        &raw_workspace_dependencies_o,
     )
     .await?;
 
@@ -1049,6 +1039,7 @@ async fn lock_flow_value<'c>(
     skip_flow_update: bool,
     raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap,
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> Result<(
     FlowValue,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -1077,6 +1068,7 @@ async fn lock_flow_value<'c>(
         skip_flow_update,
         &raw_deps,
         dependency_map,
+        &raw_workspace_dependencies_o,
     )
     .await?;
 
@@ -1106,6 +1098,7 @@ async fn lock_flow_value<'c>(
                 skip_flow_update,
                 &raw_deps,
                 dependency_map,
+                &raw_workspace_dependencies_o,
             )
             .await?;
 
@@ -1141,6 +1134,7 @@ async fn lock_flow_value<'c>(
             skip_flow_update,
             &raw_deps,
             dependency_map,
+            raw_workspace_dependencies_o,
         )
         .await?;
 
@@ -1177,6 +1171,7 @@ async fn lock_modules<'c>(
     skip_flow_update: bool,
     raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> Result<(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -1231,6 +1226,7 @@ async fn lock_modules<'c>(
                         skip_flow_update,
                         &raw_deps,
                         dependency_map,
+                        &raw_workspace_dependencies_o,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -1267,6 +1263,7 @@ async fn lock_modules<'c>(
                             skip_flow_update,
                             &raw_deps,
                             dependency_map,
+                            raw_workspace_dependencies_o,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1296,6 +1293,7 @@ async fn lock_modules<'c>(
                         skip_flow_update,
                         &raw_deps,
                         dependency_map,
+                        raw_workspace_dependencies_o,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1329,6 +1327,7 @@ async fn lock_modules<'c>(
                             skip_flow_update,
                             &raw_deps,
                             dependency_map,
+                            raw_workspace_dependencies_o,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1357,6 +1356,7 @@ async fn lock_modules<'c>(
                         skip_flow_update,
                         &raw_deps,
                         dependency_map,
+                        raw_workspace_dependencies_o,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1425,6 +1425,7 @@ async fn lock_modules<'c>(
                         skip_flow_update,
                         &raw_deps,
                         dependency_map,
+                        raw_workspace_dependencies_o,
                     ))
                     .await?;
 
@@ -1526,6 +1527,7 @@ async fn lock_modules<'c>(
             None,
             None,
             occupancy_metrics,
+            raw_workspace_dependencies_o,
         )
         .await;
         //
@@ -2040,6 +2042,8 @@ async fn lock_modules_app(
                                 None,
                                 None,
                                 occupancy_metrics,
+                                // TODO:
+                                &None,
                             )
                             .await;
                             match new_lock {
@@ -2620,14 +2624,21 @@ async fn capture_dependency_job(
     raw_deps: Option<HashMap<String, String>>,
     npm_mode: Option<bool>,
     occupancy_metrics: &mut OccupancyMetrics,
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<String> {
     // TODO: what's the point in this?
     // let wdi = WorkspaceDependenciesInput::from(*job_language, job_raw_code, w_id, db).await?;
     // let workspace_dependencies_refs =
     //     job_language.extract_workspace_dependencies_annotated_refs(job_raw_code);
 
-    let wd = WorkspaceDependenciesPrefetched::extract(job_raw_code, *job_language, w_id, db.into())
-        .await?;
+    let wd = WorkspaceDependenciesPrefetched::extract(
+        job_raw_code,
+        *job_language,
+        w_id,
+        raw_workspace_dependencies_o,
+        db.into(),
+    )
+    .await?;
 
     let lock = match job_language {
         ScriptLang::Python3 => {
@@ -2679,6 +2690,7 @@ async fn capture_dependency_job(
                             script_path,
                             &db,
                             &mut version_specifiers,
+                            raw_workspace_dependencies_o,
                         )
                         .await?
                         .0

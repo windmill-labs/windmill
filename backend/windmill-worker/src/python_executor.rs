@@ -1187,6 +1187,8 @@ async fn handle_python_deps(
                         script_path,
                         db,
                         &mut version_specifiers,
+                        // TODO: pretty sure this is fine.
+                        &None,
                     ))
                     .await?;
 

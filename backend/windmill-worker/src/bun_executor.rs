@@ -119,7 +119,7 @@ pub async fn gen_bun_lockfile(
     let mut empty_deps = false;
 
     if let Some(package_json_content) =
-        workspace_dependencies.get_one_external_only_manual(w_id, script_path)
+        workspace_dependencies.get_one_external_only_manual(w_id, Some(script_path.to_owned()))
     {
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
@@ -998,6 +998,8 @@ pub async fn handle_bun_job(
                 inner_content,
                 ScriptLang::Bun,
                 &job.workspace_id,
+                // TODO: Unless there is some sort of "local execution"
+                &None,
                 conn.clone(),
             )
             .await?, // TODO: what about bunnative?

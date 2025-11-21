@@ -18,6 +18,7 @@ use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
+use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -2595,6 +2596,19 @@ pub async fn handle_queued_job(
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
+
+        let raw_workspace_dependencies_o = if dbg!(job.kind.is_dependency()) {
+            dbg!(&job.args);
+            job.args
+                .as_ref()
+                .and_then(|x| x.get("raw_workspace_dependencies"))
+                .map(|v| dbg!(v.get()))
+                .and_then(|v| serde_json::from_str::<RawWorkspaceDependencies>(v).ok())
+        } else {
+            None
+        };
+
+        dbg!(&raw_workspace_dependencies_o);
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -2611,6 +2625,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }
@@ -2634,6 +2649,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }

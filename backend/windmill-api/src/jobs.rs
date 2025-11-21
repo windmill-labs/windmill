@@ -39,6 +39,7 @@ use windmill_common::jobs::{
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -5785,14 +5786,14 @@ async fn run_bundle_preview_script(
     Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
-    pub raw_deps: Option<String>,
+    pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct RawScriptForDependencies {
     pub script_path: String,
     pub raw_code: Option<String>,
@@ -5822,36 +5823,30 @@ async fn run_dependencies_job(
             "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
         ));
     }
-    let raw_script = req.raw_scripts[0].clone();
-    let script_path = raw_script.script_path;
-    let ehm = HashMap::new();
-    let raw_code = raw_script.raw_code.unwrap_or_else(|| "".to_string());
-    let language = raw_script.language;
 
-    let (args, raw_code) = if let Some(deps) = req.raw_deps {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "raw_deps".to_string(),
-            JsonRawValue::from_string("true".to_string()).unwrap(),
-        );
-        if language == ScriptLang::Bun {
-            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(&raw_code);
-            hm.insert(
-                "npm_mode".to_string(),
-                JsonRawValue::from_string(annotation.npm.to_string()).unwrap(),
-            );
-        }
-        (PushArgs { extra: Some(hm), args: &ehm }, deps)
-    } else {
-        (PushArgs::from(&ehm), raw_code)
-    };
+    dbg!(&req);
+    let RawScriptForDependencies {
+        // unwrap
+        script_path,
+        raw_code,
+        language,
+    } = req.raw_scripts[0].clone();
+
+    let mut hm = HashMap::new();
+    // TODO: check if npm_mode works correctly
+    req.raw_workspace_dependencies
+        .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
-        JobPayload::RawScriptDependencies { script_path, content: raw_code, language },
-        args,
+        JobPayload::RawScriptDependencies {
+            script_path,
+            content: raw_code.unwrap_or_default(),
+            language,
+        },
+        PushArgs { extra: Some(hm), args: &HashMap::new() },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -5886,7 +5881,7 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
-    pub raw_deps: Option<HashMap<String, String>>,
+    pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
 }
 
 #[derive(Serialize)]
@@ -5907,13 +5902,12 @@ async fn run_flow_dependencies_job(
         ));
     }
 
-    // Create args HashMap with skip_flow_update and raw_deps if present
+    // Create args HashMap with skip_flow_update and raw_workspace_dependencies if present
     let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
 
-    // Add raw_deps to args if present
-    if let Some(ref raw_deps) = req.raw_deps {
-        args_map.insert("raw_deps".to_string(), to_raw_value(raw_deps));
-    }
+    // Add raw_workspace_dependencies to args if present
+    req.raw_workspace_dependencies
+        .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,

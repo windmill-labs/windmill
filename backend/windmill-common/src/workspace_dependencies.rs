@@ -2,24 +2,33 @@ use itertools::Itertools;
 use serde::Serialize;
 use sqlx::PgExecutor;
 
-use crate::{error, scripts::ScriptLang, worker::Connection};
+use crate::{error, scripts::ScriptLang, utils::calculate_hash, worker::Connection};
 
 // TODO: Make sure there is only one archived
 // and only one or none unnamed for given language
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Default)]
 pub struct WorkspaceDependencies {
     /// Global id (accross all workspaces)
-    pub id: i64,
+    id: i64,
+    archived: bool,
     /// If not set becomes default for given language
     pub name: Option<String>,
     pub description: Option<String>,
     pub workspace_id: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub language: ScriptLang,
-    pub archived: bool,
     pub content: String,
 }
+
 impl WorkspaceDependencies {
+    // TODO: Make sure it all starts with 1
+    pub fn hash(&self) -> String {
+        if self.id == 0 {
+            calculate_hash(&self.content)
+        } else {
+            self.id.to_string()
+        }
+    }
     // TODO(claude): add docs
     pub async fn archive<'c>(
         name: Option<String>,
@@ -225,17 +234,37 @@ impl WorkspaceDependenciesPrefetched {
         code: &str,
         language: ScriptLang,
         workspace_id: &str,
+        raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
         conn: Connection,
-        // db: &sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<Self> {
         tracing::debug!(workspace_id, ?language, "extracting workspace dependencies");
         Ok(
             if let Some(wdar) = language.extract_workspace_dependencies_annotated_refs(code) {
                 tracing::debug!(workspace_id, ?language, "found explicit annotations");
 
-                Self::Explicit(wdar.expand(language, workspace_id, conn).await?)
+                Self::Explicit(
+                    wdar.expand(language, workspace_id, raw_workspace_dependencies_o, conn)
+                        .await?,
+                )
+            // First try in raw dependencies
+            } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
+                raw_workspace_dependencies_o,
+                None,
+                language,
+                workspace_id.to_owned(),
+            ) {
+                tracing::debug!(
+                    workspace_id,
+                    ?language,
+                    dep_id = workspace_dependencies.id,
+                    "using implicit raw"
+                );
+
+                Self::Implicit { workspace_dependencies, mode: Mode::Manual } // Hardcode to manual for now.
             } else if let Some(workspace_dependencies) =
-                WorkspaceDependencies::get_latest(None, language, workspace_id, conn).await?
+                // If not found, fetch from db
+                WorkspaceDependencies::get_latest(None, language, workspace_id, conn)
+                        .await?
             {
                 tracing::debug!(
                     workspace_id,
@@ -264,28 +293,26 @@ impl WorkspaceDependenciesPrefetched {
             )
         };
 
-        let insert_line = |id, name: Option<String>| {
+        let insert_line = |hash, name: Option<String>| {
             format!(
                 "{} workspace-dependencies: {}:{}",
                 language.as_comment_lit(),
                 name.unwrap_or("default".to_owned()),
-                id
+                hash
             )
         };
         match self {
             Explicit(workspace_dependencies_annotated_refs) => {
                 // TODO: error on extra for now
                 header.push(prepend_mode(workspace_dependencies_annotated_refs.mode));
-                for WorkspaceDependencies { id, name, .. } in
-                    &workspace_dependencies_annotated_refs.external
-                {
-                    header.push(insert_line(id, name.clone()));
+                for wd in &workspace_dependencies_annotated_refs.external {
+                    header.push(insert_line(wd.hash(), wd.name.clone()));
                 }
             }
-            Implicit { workspace_dependencies: WorkspaceDependencies { id, .. }, mode } => {
+            Implicit { workspace_dependencies: wd, mode } => {
                 // TODO: error on extra for now
                 header.push(prepend_mode(*mode));
-                header.push(insert_line(id, Option::None));
+                header.push(insert_line(wd.hash(), Option::None));
             }
             None => return Ok(Option::None),
         }
@@ -334,13 +361,35 @@ pub enum Mode {
     Extra,
 }
 
+pub type RawWorkspaceDependencies = std::collections::HashMap<String, String>;
+
+pub fn get_raw_workspace_dependencies(
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    name: Option<String>,
+    language: ScriptLang,
+    workspace_id: String,
+) -> Option<WorkspaceDependencies> {
+    dbg!(dbg!(raw_workspace_dependencies_o.as_ref())
+        .zip(dbg!(WorkspaceDependencies::to_path(&name, language).ok()))
+        .and_then(|(hm, path)| hm.get(&path))
+        .map(|raw_content| WorkspaceDependencies {
+            // TODO: Name should be different to prevent from collisions and pg index violation
+            name,
+            workspace_id,
+            created_at: chrono::Utc::now(),
+            language,
+            content: raw_content.to_owned(),
+            ..Default::default()
+        }))
+}
+
 impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
     pub async fn expand(
         self,
         language: ScriptLang,
         workspace_id: &str,
+        raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
         conn: Connection,
-        // db: &sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies>> {
         let mut res = WorkspaceDependenciesAnnotatedRefs {
             inline: self.inline,
@@ -348,10 +397,24 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
             mode: self.mode,
         };
         for name in self.external {
-            WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
-                .await?
+            // First try in raw dependencies
+            if let Some(wd) = get_raw_workspace_dependencies(
+                raw_workspace_dependencies_o,
+                Some(name.clone()),
+                language,
+                workspace_id.to_owned(),
+            ) {
+                // TODO: Test description is correct.
+                res.external.push(wd);
+
+            // If not found, fetch from db
+            } else if let Some(wd) =
+                WorkspaceDependencies::get_latest(Some(name), language, workspace_id, conn.clone())
+                    .await?
+            {
                 // TODO(claude): warning if not found
-                .inspect(|wd| res.external.push(wd.clone()));
+                res.external.push(wd.clone());
+            }
         }
         Ok(res)
     }

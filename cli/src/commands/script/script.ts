@@ -26,13 +26,14 @@ import {
 import { Workspace } from "../workspace/workspace.ts";
 import {
   generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
   parseMetadataFile,
 } from "../../utils/metadata.ts";
 import {
-  LanguageWithRawReqsSupport,
+  WorkspaceDependenciesLanguage,
   ScriptLanguage,
   inferContentTypeFromFilePath,
-  languagesWithRawReqsSupport,
+  workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
 import {
   elementsToMap,
@@ -896,7 +897,7 @@ async function bootstrap(
 }
 
 export type GlobalDeps = Map<
-  LanguageWithRawReqsSupport,
+  WorkspaceDependenciesLanguage,
   Record<string, string>
 >;
 
@@ -908,8 +909,8 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     return (
       !isDir &&
       // Skip if the filename is not one of lockfile names
-      !languagesWithRawReqsSupport.some((lockfile) =>
-        p.endsWith(SEP + lockfile.rrFilename)
+      !workspaceDependenciesLanguages.some((lockfile) =>
+        p.endsWith(SEP + lockfile.filename)
       )
     );
   }, els)) {
@@ -917,11 +918,11 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     const content = await entry.getContentText();
 
     // Iterate over available languages to find which lockfile
-    languagesWithRawReqsSupport.map((lock) => {
-      if (entry.path.endsWith(lock.rrFilename)) {
+    workspaceDependenciesLanguages.map((lock) => {
+      if (entry.path.endsWith(lock.filename)) {
         const current = globalDeps.get(lock) ?? {};
         current[
-          entry.path.substring(0, entry.path.length - lock.rrFilename.length)
+          entry.path.substring(0, entry.path.length - lock.filename.length)
         ] = content;
         globalDeps.set(lock, current);
       }
@@ -952,7 +953,7 @@ async function generateMetadata(
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
 
-  const globalDeps = await findGlobalDeps();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
   if (scriptPath) {
     // read script metadata file
     await generateScriptMetadataInternal(
@@ -961,11 +962,12 @@ async function generateMetadata(
       opts,
       false,
       false,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases,
       false
     );
   } else {
+    // TODO: test this as well.
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd(), codebases, false),
@@ -989,7 +991,7 @@ async function generateMetadata(
         opts,
         true,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         false
       );
@@ -1016,6 +1018,7 @@ async function generateMetadata(
       log.info(colors.green.bold("No metadata to update"));
       return;
     }
+    // TODO: test this
     for (const e of Object.keys(elems)) {
       await generateScriptMetadataInternal(
         e,
@@ -1023,7 +1026,7 @@ async function generateMetadata(
         opts,
         false,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         false
       );

@@ -148,6 +148,8 @@ pub async fn handle_go_job(
                 inner_content,
                 ScriptLang::Go,
                 &job.workspace_id,
+                // TODO: This has no chance of having raw dependencies, right?
+                &None,
                 conn.clone(),
             )
             .await?,

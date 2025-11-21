@@ -126,6 +126,7 @@ impl NewWorkspaceDependencies {
 //
 // TODO(tests):
 // - old syntax rejection
+// - test apps / or disable them for now
 // - dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)
 // - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
@@ -144,7 +145,9 @@ impl NewWorkspaceDependencies {
 //
 // cli:
 // - [] deployment of many at the same time has proper ordering
+// - [] sync push will use the version in lock? Or maybe not? If one is pushing but without deps. It should use values from raw or from synced?
 // - [] no way to exploit deployment by non admin
+// - [] verify that it is supported only from root to run commands / can I just open files realtively in cli?
 
 // Type aliases for backward compatibility
 pub type RawRequirements = WorkspaceDependencies;
