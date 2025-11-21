@@ -15,7 +15,11 @@
 	let tutorial: Tutorial | undefined = undefined
 
 	// Flags to track if steps are complete
+	let step2Complete = $state(false)
+	let step3Complete = $state(false)
 	let step4Complete = $state(false)
+	let step5Complete = $state(false)
+	let step6Complete = $state(false)
 
 	// Constants for delays
 	const DELAY_SHORT = 100
@@ -256,6 +260,8 @@
 			{
 				element: '#flow-editor-virtual-Input',
 				onHighlighted: async () => {
+					step2Complete = false
+
 					await wait(DELAY_MEDIUM)
 					triggerPointerDown('#flow-editor-virtual-Input')
 					await wait(DELAY_SHORT)
@@ -281,6 +287,8 @@
 
 						celsiusInput.value = '25'
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
+
+						step2Complete = true
 					}
 				},
 				popover: {
@@ -289,6 +297,10 @@
 					side: 'bottom',
 					align: 'start',
 					onNextClick: () => {
+						if (!step2Complete) {
+							sendUserToast('Please wait for the input to be filled...', false, [], undefined, 3000)
+							return
+						}
 						driver.moveNext()
 					}
 				}
@@ -296,6 +308,7 @@
 			{
 				element: '#flow-editor-add-step-0',
 				onHighlighted: async () => {
+					step3Complete = false
 
 					// Animate cursor to the add step button
 					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
@@ -347,13 +360,21 @@
 							overlay.style.display = ''
 						}
 
+						step3Complete = true
 						driver.moveNext()
 					}
 				},
 				popover: {
 					title: 'Choose TypeScript',
 					description: 'Pick TypeScript (Bun) to write our validation script.',
-					side: 'top'
+					side: 'top',
+					onNextClick: () => {
+						if (!step3Complete) {
+							sendUserToast('Please wait for the script to be created...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
 				}
 			},
 			{
@@ -471,6 +492,8 @@
 			},
 			{
 				onHighlighted: async () => {
+					step5Complete = false
+
 					// Create a single cursor that will move continuously
 					const fakeCursor = document.createElement('div')
 					fakeCursor.style.cssText = `
@@ -544,11 +567,17 @@
 
 					// Remove cursor at the end
 					fakeCursor.remove()
+
+					step5Complete = true
 				},
 				popover: {
 					title: 'Wire it up and test',
 					description: 'Connect the input, then run a quick test to verify the validation works.',
 					onNextClick: async () => {
+						if (!step5Complete) {
+							sendUserToast('Please wait for the test to complete...', false, [], undefined, 3000)
+							return
+						}
 						cleanupCustomOverlay()
 						driver.moveNext()
 					}
@@ -556,6 +585,8 @@
 			},
 			{
 				onHighlighted: async () => {
+					step6Complete = false
+
 					// First, add modules b and c with empty summaries
 					const modulesToAdd = [flowJson.value.modules[1], flowJson.value.modules[2]]
 					for (let i = 0; i < modulesToAdd.length; i++) {
@@ -637,11 +668,18 @@
 
 					// Remove cursor at the end
 					fakeCursor.remove()
+
+					step6Complete = true
 				},
 				popover: {
 					title: 'Add the final steps',
 					description: 'Two more scripts to convert and categorize the temperature.',
 					onNextClick: () => {
+						if (!step6Complete) {
+							sendUserToast('Please wait for the summaries to be added...', false, [], undefined, 3000)
+							return
+						}
+
 						// Reset the driver.js overlay to full screen
 						const driverOverlay = getDriverOverlay()
 						if (driverOverlay) {
