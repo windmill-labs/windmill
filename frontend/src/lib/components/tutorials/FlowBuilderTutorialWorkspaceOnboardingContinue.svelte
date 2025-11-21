@@ -246,12 +246,15 @@
 						// Automatically trigger next step after cursor animation
 						await wait(500)
 
-						// Add module
+						// Add module with empty summary and empty content
 						const moduleData = flowJson.value.modules[0]
 						const module: FlowModule = {
 							id: moduleData.id,
-							summary: moduleData.summary,
-							value: moduleData.value
+							summary: '', // Start with empty summary
+							value: {
+								...moduleData.value,
+								content: '' // Start with empty content
+							}
 						}
 
 						const state = await loadFlowModuleState(module)
@@ -290,6 +293,31 @@
 						overlay.style.left = '0'
 					}
 
+					// First, type the summary
+					await wait(300)
+					const summaryInput = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					if (summaryInput) {
+						const summaryText = 'Validate temperature input'
+						summaryInput.value = ''
+						summaryInput.focus()
+
+						for (let i = 0; i < summaryText.length; i++) {
+							summaryInput.value += summaryText[i]
+							summaryInput.dispatchEvent(new Event('input', { bubbles: true }))
+							await wait(50)
+						}
+
+						// Update the flow store with the summary
+						const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === 'a')
+						if (moduleIndex !== -1) {
+							flowStore.val.value.modules[moduleIndex].summary = summaryText
+							flowStore.val = { ...flowStore.val }
+						}
+
+						await wait(500)
+					}
+
+					// Then, type the code
 					let editorState = get(currentEditor)
 					let attempts = 0
 					while (attempts < 20) {
@@ -318,6 +346,26 @@
 								const delay = char === '\n' ? 5 : 2
 								await wait(delay)
 							}
+
+							// Update the flow store with the typed code
+							const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === 'a')
+							if (moduleIndex !== -1 && 'content' in flowStore.val.value.modules[moduleIndex].value) {
+								flowStore.val.value.modules[moduleIndex].value = {
+									...flowStore.val.value.modules[moduleIndex].value,
+									content: codeToType
+								}
+								flowStore.val = { ...flowStore.val }
+							}
+
+							// Press Enter after finishing typing
+							await wait(300)
+							const enterEvent = new KeyboardEvent('keydown', {
+								key: 'Enter',
+								code: 'Enter',
+								keyCode: 13,
+								bubbles: true
+							})
+							editor.getModel()?.setValue(currentText + '\n')
 						}
 					}
 				},
