@@ -13,10 +13,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -181,7 +182,7 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .collect_vec()
         .join(" ");
     Ok(
-        r#"    
+        r#"
 $env.config.table.mode = 'basic'
 
 def nullguard [ name: string ] {
@@ -194,11 +195,11 @@ def nullguard [ name: string ] {
 # TODO: Probably needs rework in order for LSP to work
 def get_variable [ pat ] {
     let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/variables/get_value/($pat)" ;
-    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in
 }
 def get_resource [ pat ] {
     let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/resources/get_value_interpolated/($pat)" ;
-    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in
 }
 
 def 'main --wrapped' [] {
@@ -285,11 +286,14 @@ async fn run<'a>(
         // let plugin_registry = format!("{job_dir}/plugin-registry");
         // File::create(&plugin_registry).await?;
         //
-        let mut cmd = Command::new(if cfg!(windows) {
+        let nu_executable = if cfg!(windows) {
             "nu"
         } else {
             NU_PATH.as_str()
-        });
+        };
+
+        let args = vec!["main.nu", "--wrapped"];
+        let mut cmd = build_command_with_isolation(nu_executable, &args);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -297,20 +301,16 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
-            .args(&[
-                "main.nu",
-                "--wrapped",
-                // TODO(v1):
-                // "--plugins",
-                // &format!(
-                //     "[{}]",
-                //     plugins
-                //         .into_iter()
-                //         .map(|pl| format!("{NU_CACHE_DIR}/plugins/bin/nu_plugin_{pl}"))
-                //         .collect_vec()
-                //         .join(",")
-                // ),
-            ])
+            // TODO(v1):
+            // "--plugins",
+            // &format!(
+            //     "[{}]",
+            //     plugins
+            //         .into_iter()
+            //         .map(|pl| format!("{NU_CACHE_DIR}/plugins/bin/nu_plugin_{pl}"))
+            //         .collect_vec()
+            //         .join(",")
+            // ),
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -324,7 +324,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "nu", false).await?
+        start_child_process(cmd, nu_executable, false).await?
     };
     handle_child::handle_child(
         &job.id,

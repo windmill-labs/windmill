@@ -84,6 +84,7 @@
 	let static_asset_config = $state<{ s3: string; storage?: string; filename?: string } | undefined>(
 		undefined
 	)
+	let enabled: boolean = $state(false)
 	let is_static_website = $state(false)
 	let s3FileUploadRawMode = $state(false)
 	let workspaced_route = $state(false)
@@ -237,6 +238,7 @@
 			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
+			enabled = defaultValues?.enabled ?? false
 			dirtyPath = false
 			is_static_website = defaultValues?.is_static_website ?? false
 			workspaced_route = defaultValues?.workspaced_route ?? false
@@ -270,6 +272,7 @@
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
 		summary = cfg?.summary ?? ''
+		enabled = cfg?.enabled ?? false
 		routeDescription = cfg?.description ?? ''
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
@@ -347,6 +350,7 @@
 			http_method,
 			request_type,
 			workspaced_route,
+			enabled,
 			wrap_body,
 			raw_string,
 			authentication_resource_path,
@@ -364,6 +368,19 @@
 
 		return nCfg
 	}
+
+	async function handleToggleEnabled(newEnabled: boolean) {
+		enabled = newEnabled
+		if (!trigger?.draftConfig) {
+			await HttpTriggerService.setHttpTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: newEnabled }
+			})
+			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} HTTP trigger ${initialPath}`)
+		}
+	}
+
 
 	// Update config for captures
 	function getCaptureConfig() {
@@ -835,7 +852,8 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			enabled={undefined}
+			{enabled}
+			onToggleEnabled={handleToggleEnabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}

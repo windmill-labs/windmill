@@ -1,5 +1,140 @@
 # Changelog
 
+## [1.583.0](https://github.com/windmill-labs/windmill/compare/v1.582.2...v1.583.0) (2025-11-21)
+
+
+### Features
+
+* **cli:** app policies are generated locally ([#7200](https://github.com/windmill-labs/windmill/issues/7200)) ([f85ab0c](https://github.com/windmill-labs/windmill/commit/f85ab0c5dd64f01fbd0c0c9c2a4cea029a04cd50))
+
+
+### Bug Fixes
+
+* **backend:** handle malformed errors in flow error handler ([#7196](https://github.com/windmill-labs/windmill/issues/7196)) ([f531866](https://github.com/windmill-labs/windmill/commit/f53186653220a5213e0bffdf77187faaa9190a7e))
+
+## [1.582.2](https://github.com/windmill-labs/windmill/compare/v1.582.1...v1.582.2) (2025-11-21)
+
+
+### Bug Fixes
+
+* fix aws oidc refresh ([98bdb68](https://github.com/windmill-labs/windmill/commit/98bdb6825a1b85c973ddec3e6b933e4a3d6d6972))
+
+## [1.582.1](https://github.com/windmill-labs/windmill/compare/v1.582.0...v1.582.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* fix aws oidc refresh ([a3b4cfc](https://github.com/windmill-labs/windmill/commit/a3b4cfcb8f11db326b0ebf1777ad7e6479425125))
+
+## [1.582.0](https://github.com/windmill-labs/windmill/compare/v1.581.1...v1.582.0) (2025-11-20)
+
+
+### Features
+
+* **aichat:** handle duckdb scripts ([#7187](https://github.com/windmill-labs/windmill/issues/7187)) ([ce5a318](https://github.com/windmill-labs/windmill/commit/ce5a31865cf6965ec28c449c2a832b93572a8eb6))
+* **ee:** support iamrds ([e9691c9](https://github.com/windmill-labs/windmill/commit/e9691c9eb080236849850a1ea6f3237ae39a2c4c))
+
+
+### Bug Fixes
+
+* **aichat:** fallback to completion if responses fails ([#7190](https://github.com/windmill-labs/windmill/issues/7190)) ([b56e611](https://github.com/windmill-labs/windmill/commit/b56e611700f06844dda4f30d02a1119e714d73a4))
+* **frontend:** show code/lock in flow steps on runs page ([#7191](https://github.com/windmill-labs/windmill/issues/7191)) ([338fd8a](https://github.com/windmill-labs/windmill/commit/338fd8a38cb035de298006ed1b96b6513eab9769))
+
+## [1.581.1](https://github.com/windmill-labs/windmill/compare/v1.581.0...v1.581.1) (2025-11-20)
+
+
+### Bug Fixes
+
+* **frontend:** missing node Result id migration ([#7182](https://github.com/windmill-labs/windmill/issues/7182)) ([054aeb3](https://github.com/windmill-labs/windmill/commit/054aeb33271288dc9458b012881164c3c4597280))
+
+## [1.581.0](https://github.com/windmill-labs/windmill/compare/v1.580.0...v1.581.0) (2025-11-19)
+
+
+### Features
+
+* **frontend:** add notes to flow ([#6628](https://github.com/windmill-labs/windmill/issues/6628)) ([cfeb294](https://github.com/windmill-labs/windmill/commit/cfeb294308ba85763025f3628cbb85144d7f0778))
+
+## [1.580.0](https://github.com/windmill-labs/windmill/compare/v1.579.2...v1.580.0) (2025-11-18)
+
+
+### Features
+
+* **aichat:** use responses api for openai models ([#7163](https://github.com/windmill-labs/windmill/issues/7163)) ([5c79a35](https://github.com/windmill-labs/windmill/commit/5c79a35306855143428d0725519578aea0a746fd))
+* disabling/enabling email triggers ([#7171](https://github.com/windmill-labs/windmill/issues/7171)) ([8ae266b](https://github.com/windmill-labs/windmill/commit/8ae266b6a9ced16e1b7416cfc8bea5fe7a7af042))
+* **security:** unshare pid of worker job process ([#7106](https://github.com/windmill-labs/windmill/issues/7106)) ([5aa251a](https://github.com/windmill-labs/windmill/commit/5aa251a2d276cc9d27bf104f8e4f724ea6a28231))
+* support secondary promotion repos in git sync settings ([#7173](https://github.com/windmill-labs/windmill/issues/7173)) ([5548221](https://github.com/windmill-labs/windmill/commit/55482210921fe2eb0fd158abd4f7369495f2dfd7))
+
+
+### Bug Fixes
+
+* change uv tool dir from /root to /usr/local/uv ([c3e59fe](https://github.com/windmill-labs/windmill/commit/c3e59fe064fc3b9d4c05958eea54601ff3410899))
+* improve delete to handle ai chat ([f371fbe](https://github.com/windmill-labs/windmill/commit/f371fbeb9bb0946bd29a6413ee7ede75dedda5d9))
+* support IRSA for duckdb s3 proxy ([2058f27](https://github.com/windmill-labs/windmill/commit/2058f27e03468d45813f340b8563f935ca2142f4))
+
+## [1.579.2](https://github.com/windmill-labs/windmill/compare/v1.579.1...v1.579.2) (2025-11-18)
+
+
+### Bug Fixes
+
+* ducklake manager table explorer issue ([d08c091](https://github.com/windmill-labs/windmill/commit/d08c0916f72a67f01e0c4475f03f9d1d33c10905))
+
+## [1.579.1](https://github.com/windmill-labs/windmill/compare/v1.579.0...v1.579.1) (2025-11-18)
+
+
+### Bug Fixes
+
+* fix s3 object download frontend freezes ([09a6e1f](https://github.com/windmill-labs/windmill/commit/09a6e1feaa79ce3f8548f8090fddbf46abb08b18))
+
+## [1.579.0](https://github.com/windmill-labs/windmill/compare/v1.578.0...v1.579.0) (2025-11-17)
+
+
+### Features
+
+* **ai:** handle aws bedrock as provider ([#7155](https://github.com/windmill-labs/windmill/issues/7155)) ([79ac631](https://github.com/windmill-labs/windmill/commit/79ac6312e87afa3646bddc0f7e66fc4367dbff7c))
+* **mcp:** granular token scopes for scripts, flows, and endpoints ([#7130](https://github.com/windmill-labs/windmill/issues/7130)) ([88d04b9](https://github.com/windmill-labs/windmill/commit/88d04b9cbeee98f3256b78e9d34beb930cd729ec))
+* rhel8 + fix rhel9 ([#7165](https://github.com/windmill-labs/windmill/issues/7165)) ([499d7d4](https://github.com/windmill-labs/windmill/commit/499d7d4098758726a8cb2bf3e4837927b8fd70a4))
+
+
+### Bug Fixes
+
+* **backend:** worker count in latest worker usage ([#7160](https://github.com/windmill-labs/windmill/issues/7160)) ([b87d2cc](https://github.com/windmill-labs/windmill/commit/b87d2cc64cb54b602ee599fcde7f0fd3c8931550))
+* fix custom email triggers enabled ([#7164](https://github.com/windmill-labs/windmill/issues/7164)) ([90b5569](https://github.com/windmill-labs/windmill/commit/90b5569c911f9025b0e6b5318f57705efbd9bd17))
+
+## [1.578.0](https://github.com/windmill-labs/windmill/compare/v1.577.0...v1.578.0) (2025-11-17)
+
+
+### Features
+
+* support to run windows binary as service ([#7153](https://github.com/windmill-labs/windmill/issues/7153)) ([ceeff5f](https://github.com/windmill-labs/windmill/commit/ceeff5f76c69d98319bb3fb7f7779b6046478d6b))
+
+## [1.577.0](https://github.com/windmill-labs/windmill/compare/v1.576.3...v1.577.0) (2025-11-17)
+
+
+### Features
+
+* add support for validateset in pwsh ([#7158](https://github.com/windmill-labs/windmill/issues/7158)) ([b66e038](https://github.com/windmill-labs/windmill/commit/b66e038a0f8b6bffe157a83671c8e692c1441f23))
+* allow http trigger to be disabled ([#6976](https://github.com/windmill-labs/windmill/issues/6976)) ([09082de](https://github.com/windmill-labs/windmill/commit/09082de53971d0d2f2a6308bc8ee573458a3b913))
+
+
+### Bug Fixes
+
+* create app_themes/groups/components only when needed ([cf5d58e](https://github.com/windmill-labs/windmill/commit/cf5d58ea43cef6add3da2aa1e24efc83be6df3b9))
+* fix parse_postgres_uri not decoding password ([#7157](https://github.com/windmill-labs/windmill/issues/7157)) ([2cae72c](https://github.com/windmill-labs/windmill/commit/2cae72c9db6bd08689e1672be6dda32f6af831fb))
+
+## [1.576.3](https://github.com/windmill-labs/windmill/compare/v1.576.2...v1.576.3) (2025-11-15)
+
+
+### Bug Fixes
+
+* handle better alias types in duckdb ([2c04e04](https://github.com/windmill-labs/windmill/commit/2c04e04bf0e3272c89f321392158888d02a1191b))
+
+## [1.576.2](https://github.com/windmill-labs/windmill/compare/v1.576.1...v1.576.2) (2025-11-15)
+
+
+### Bug Fixes
+
+* temporary fix for duckdb type_aliases causing issues ([#7148](https://github.com/windmill-labs/windmill/issues/7148)) ([6426ebf](https://github.com/windmill-labs/windmill/commit/6426ebf8cb713443904065064b6a07eb1db0761a))
+
 ## [1.576.1](https://github.com/windmill-labs/windmill/compare/v1.576.0...v1.576.1) (2025-11-14)
 
 

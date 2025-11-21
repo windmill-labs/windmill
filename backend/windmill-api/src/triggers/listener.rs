@@ -6,7 +6,7 @@ use crate::{
     triggers::{
         handler::TriggerCrud,
         trigger_helpers::{trigger_runnable, TriggerJobArgs},
-        Trigger, TriggerErrorHandling, BASE_TRIGGER_FIELDS,
+        Trigger, TriggerErrorHandling,
     },
     users::fetch_api_authed,
 };
@@ -58,12 +58,22 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         &self,
         db: &DB,
     ) -> Result<Vec<ListeningTrigger<Self::TriggerConfig>>> {
-        let mut fields = Vec::from(BASE_TRIGGER_FIELDS);
+        let mut fields = vec![
+            "workspace_id",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+            "enabled",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
+            "active_mode"
+        ];
 
-        if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
-        }
-        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);

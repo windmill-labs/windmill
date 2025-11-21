@@ -303,6 +303,128 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
+    pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    pub static ref UNSHARE_ISOLATION_FLAGS: String = {
+        std::env::var("UNSHARE_ISOLATION_FLAGS")
+            .unwrap_or_else(|_| "--user --map-root-user --pid --fork --mount-proc".to_string())
+    };
+
+    pub static ref UNSHARE_PATH: Option<String> = {
+        let flags = UNSHARE_ISOLATION_FLAGS.as_str();
+        let mut test_cmd_args: Vec<&str> = flags.split_whitespace().collect();
+        test_cmd_args.push("--");
+        test_cmd_args.push("true");
+
+        let test_result = std::process::Command::new("unshare")
+            .args(&test_cmd_args)
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("PID namespace isolation enabled. Flags: {}", flags);
+                Some("unshare".to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if *ENABLE_UNSHARE_PID {
+                    panic!(
+                        "ENABLE_UNSHARE_PID is set but unshare test failed.\n\
+                        Error: {}\n\
+                        Flags: {}\n\
+                        \n\
+                        Solutions:\n\
+                        • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
+                        • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
+                        • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
+                        • Alternative: Use NSJAIL instead\n\
+                        • Disable: Set ENABLE_UNSHARE_PID=false",
+                        stderr.trim(),
+                        flags
+                    );
+                }
+
+                tracing::warn!(
+                    "unshare test failed: {}. Flags: {}. Set ENABLE_UNSHARE_PID=true to fail on error.",
+                    stderr.trim(),
+                    flags
+                );
+                None
+            },
+            Err(e) => {
+                if *ENABLE_UNSHARE_PID {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but unshare binary not found.\n\
+                            Install util-linux package or set ENABLE_UNSHARE_PID=false"
+                        );
+                    } else {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but failed to test unshare: {}",
+                            e
+                        );
+                    }
+                }
+
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::debug!("unshare binary not found");
+                } else {
+                    tracing::warn!("Failed to test unshare: {}", e);
+                }
+                None
+            }
+        }
+    };
+
+    pub static ref NSJAIL_AVAILABLE: Option<String> = {
+        if *DISABLE_NSJAIL {
+            None
+        } else {
+            let nsjail_path = NSJAIL_PATH.as_str();
+
+            let test_result = std::process::Command::new(nsjail_path)
+                .arg("--help")
+                .output();
+
+            match test_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
+                    Some(nsjail_path.to_string())
+                },
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!(
+                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
+                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        stderr.trim()
+                    );
+                    None
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!(
+                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
+                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail_path
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
+                            nsjail_path,
+                            e
+                        );
+                    }
+                    None
+                }
+            }
+        }
+    };
+
     pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -978,6 +1100,19 @@ pub async fn run_worker(
         tracing::warn!(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
+        );
+    }
+
+    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
+    // This ensures we panic at startup rather than lazily when first accessed during job execution
+    if *ENABLE_UNSHARE_PID {
+        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+        let _ = &*UNSHARE_PATH;
+
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "PID namespace isolation enabled via unshare with flags: {}",
+            UNSHARE_ISOLATION_FLAGS.as_str()
         );
     }
 

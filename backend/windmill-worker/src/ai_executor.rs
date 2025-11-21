@@ -2,9 +2,9 @@ use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
-    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_claude_model, load_mcp_tools,
-    parse_raw_script_schema, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
+    parse_raw_script_schema, should_use_structured_output_tool,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -15,7 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::mcp_client::McpClient;
 use windmill_common::{
-    ai_providers::AZURE_API_VERSION,
+    ai_providers::AIProvider,
     cache,
     client::AuthedClient,
     db::DB,
@@ -376,6 +376,7 @@ pub async fn run_agent(
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key();
+    let region = args.provider.get_region();
 
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
@@ -498,14 +499,15 @@ pub async fn run_agent(
         .map(|props| !props.is_empty())
         .unwrap_or(false);
 
-    let is_claude_model = is_claude_model(&args.provider.model);
+    let should_use_structured_output_tool =
+        should_use_structured_output_tool(&args.provider.kind, &args.provider.model);
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
 
     // For text output with schema, handle structured output
     if has_output_properties && output_type == &OutputType::Text {
         let schema = args.output_schema.as_ref().unwrap();
-        if is_claude_model {
+        if should_use_structured_output_tool {
             // Anthropic uses a tool for structured output
             let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
             structured_output_tool_name = Some(unique_tool_name.clone());
@@ -551,253 +553,285 @@ pub async fn run_agent(
             break;
         }
 
-        // For text output or image output with tools
-        let build_args = BuildRequestArgs {
-            messages: &messages,
-            tools: tool_defs.as_deref(),
-            model: args.provider.get_model(),
-            temperature: args.temperature,
-            max_tokens: args.max_completion_tokens,
-            output_schema: args.output_schema.as_ref(),
-            output_type,
-            system_prompt: args.system_prompt.as_deref(),
-            user_message: &args.user_message,
-            images: args.user_images.as_deref(),
-        };
+        // Special handling for AWS Bedrock using the official SDK
+        let parsed = if args.provider.kind == AIProvider::AWSBedrock {
+            let Some(region) = region else {
+                return Err(Error::internal_err(
+                    "AWS Bedrock region is required".to_string(),
+                ));
+            };
+            // Use Bedrock SDK via dedicated query builder
+            crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                .execute_request(
+                    &messages,
+                    tool_defs.as_deref(),
+                    args.provider.get_model(),
+                    args.temperature,
+                    args.max_completion_tokens,
+                    api_key,
+                    region,
+                    should_stream,
+                    stream_event_processor.clone(),
+                    client,
+                    &job.workspace_id,
+                    structured_output_tool_name.as_deref(),
+                )
+                .await?
+        } else {
+            // For non-Bedrock providers, use HTTP client
+            let build_args = BuildRequestArgs {
+                messages: &messages,
+                tools: tool_defs.as_deref(),
+                model: args.provider.get_model(),
+                temperature: args.temperature,
+                max_tokens: args.max_completion_tokens,
+                output_schema: args.output_schema.as_ref(),
+                output_type,
+                system_prompt: args.system_prompt.as_deref(),
+                user_message: &args.user_message,
+                images: args.user_images.as_deref(),
+            };
 
-        let request_body = query_builder
-            .build_request(&build_args, client, &job.workspace_id, should_stream)
-            .await?;
+            let request_body = query_builder
+                .build_request(&build_args, client, &job.workspace_id, should_stream)
+                .await?;
 
-        let endpoint =
-            query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
-        let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
+            let endpoint = query_builder.get_endpoint(
+                &base_url,
+                args.provider.get_model(),
+                output_type,
+                should_stream,
+            );
+            let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
-        let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
-            .await
-            .0;
+            let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+                .await
+                .0;
 
-        let mut request = HTTP_CLIENT
-            .post(&endpoint)
-            .timeout(timeout)
-            .header("Content-Type", "application/json");
+            let mut request = HTTP_CLIENT
+                .post(&endpoint)
+                .timeout(timeout)
+                .header("Content-Type", "application/json");
 
-        // Apply authentication headers
-        for (header_name, header_value) in &auth_headers {
-            request = request.header(*header_name, header_value.clone());
-        }
+            // Apply authentication headers
+            for (header_name, header_value) in &auth_headers {
+                request = request.header(*header_name, header_value.clone());
+            }
 
-        // Apply custom headers from AI_HTTP_HEADERS environment variable
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            request = request.header(header_name.as_str(), header_value.as_str());
-        }
+            // Apply custom headers from AI_HTTP_HEADERS environment variable
+            for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+                request = request.header(header_name.as_str(), header_value.as_str());
+            }
 
-        if args.provider.kind.is_azure_openai(&base_url) {
-            request = request.query(&[("api-version", AZURE_API_VERSION)])
-        }
+            let resp = request
+                .body(request_body)
+                .send()
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-        let resp = request
-            .body(request_body)
-            .send()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
-
-        match resp.error_for_status_ref() {
-            Ok(_) => {
-                let parsed = if let Some(stream_event_processor) = stream_event_processor.clone() {
-                    query_builder
-                        .parse_streaming_response(resp, stream_event_processor)
-                        .await?
-                } else {
-                    // Handle non-streaming response
-                    query_builder.parse_response(resp).await?
-                };
-
-                match parsed {
-                    ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
-                        if let Some(events_str) = events_str {
-                            final_events_str.push_str(&events_str);
-                        }
-
-                        if let Some(ref response_content) = response_content {
-                            actions.push(AgentAction::Message {});
-                            messages.push(OpenAIMessage {
-                                role: "assistant".to_string(),
-                                content: Some(OpenAIContent::Text(response_content.clone())),
-                                agent_action: Some(AgentAction::Message {}),
-                                ..Default::default()
-                            });
-
-                            update_flow_status_module_with_actions(db, parent_job, &actions)
-                                .await?;
-                            update_flow_status_module_with_actions_success(db, parent_job, true)
-                                .await?;
-
-                            content = Some(OpenAIContent::Text(response_content.clone()));
-
-                            // Add assistant message to conversation if chat_input_enabled
-                            let chat_enabled = flow_context
-                                .flow_status
-                                .as_ref()
-                                .and_then(|fs| fs.chat_input_enabled)
-                                .unwrap_or(false);
-                            if chat_enabled && !response_content.is_empty() {
-                                if let Some(memory_id) = flow_context
-                                    .flow_status
-                                    .as_ref()
-                                    .and_then(|fs| fs.memory_id)
-                                {
-                                    let agent_job_id = job.id;
-                                    let db_clone = db.clone();
-                                    let message_content = response_content.clone();
-                                    let step_name = get_step_name_from_flow(
-                                        summary.as_deref(),
-                                        job.flow_step_id.as_deref(),
-                                    );
-
-                                    // Spawn task because we do not need to wait for the result
-                                    tokio::spawn(async move {
-                                        if let Err(e) = add_message_to_conversation(
-                                            &db_clone,
-                                            &memory_id,
-                                            Some(agent_job_id),
-                                            &message_content,
-                                            MessageType::Assistant,
-                                            &step_name,
-                                            true,
-                                        )
-                                        .await
-                                        {
-                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
-                                        }
-                                    });
-                                }
-                            }
-                        }
-
-                        if tool_calls.is_empty() {
-                            break;
-                        } else if i == MAX_AGENT_ITERATIONS - 1 {
-                            return Err(Error::internal_err(
-                                "AI agent reached max iterations, but there are still tool calls"
-                                    .to_string(),
-                            ));
-                        }
-
-                        messages.push(OpenAIMessage {
-                            role: "assistant".to_string(),
-                            tool_calls: Some(tool_calls.clone()),
-                            ..Default::default()
-                        });
-
-                        // Handle tool calls using extracted tools module
-                        let tool_execution_ctx = ToolExecutionContext {
-                            db,
-                            conn,
-                            job,
-                            parent_job,
-                            summary: &summary,
-                            client,
-                            worker_dir,
-                            base_internal_url,
-                            worker_name,
-                            hostname,
-                            occupancy_metrics,
-                            job_completed_tx,
-                            killpill_rx,
-                            stream_event_processor: stream_event_processor.as_ref(),
-                            flow_context: &mut flow_context,
-                            previous_result: &previous_result,
-                            id_context: &id_context,
-                        };
-
-                        let (tool_messages, tool_content, tool_used_structured_output) =
-                            execute_tool_calls(
-                                tool_execution_ctx,
-                                &tool_calls,
-                                &tools,
-                                mcp_clients,
-                                &mut actions,
-                                &mut final_events_str,
-                                &structured_output_tool_name,
-                            )
-                            .await?;
-
-                        messages.extend(tool_messages);
-                        if let Some(tc) = tool_content {
-                            content = Some(tc);
-                        }
-                        used_structured_output_tool = tool_used_structured_output;
-                    }
-                    ParsedResponse::Image { base64_data } => {
-                        // For image output, upload to S3 and track in conversation
-                        let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
-
-                        let content = to_raw_value(&s3_object);
-
-                        // Add assistant message to conversation if chat_input_enabled
-                        let chat_enabled = flow_context
-                            .flow_status
-                            .as_ref()
-                            .and_then(|fs| fs.chat_input_enabled)
-                            .unwrap_or(false);
-                        if chat_enabled {
-                            if let Some(memory_id) = flow_context
-                                .flow_status
-                                .as_ref()
-                                .and_then(|fs| fs.memory_id)
-                            {
-                                let agent_job_id = job.id;
-                                let db_clone = db.clone();
-                                let flow_step_id_owned = job.flow_step_id.clone();
-                                let summary_owned = summary.map(|s| s.to_string());
-
-                                // Create extended version with type discriminator for conversation storage
-                                // This avoids conflicts with outputs that are of the same format as S3 objects
-                                let s3_with_type = S3ObjectWithType {
-                                    s3_object: s3_object.clone(),
-                                    r#type: "windmill_s3_object".to_string(),
-                                };
-
-                                let message_content = serde_json::to_string(&s3_with_type)
-                                    .unwrap_or_else(|_| content.get().to_string());
-
-                                // Spawn task because we do not need to wait for the result
-                                tokio::spawn(async move {
-                                    let step_name = get_step_name_from_flow(
-                                        summary_owned.as_deref(),
-                                        flow_step_id_owned.as_deref(),
-                                    );
-
-                                    if let Err(e) = add_message_to_conversation(
-                                        &db_clone,
-                                        &memory_id,
-                                        Some(agent_job_id),
-                                        &message_content,
-                                        MessageType::Assistant,
-                                        &step_name,
-                                        true,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
-                                    }
-                                });
-                            }
-                        }
-
-                        // Return early since image generation is complete
-                        return Ok(content);
+            match resp.error_for_status_ref() {
+                Ok(_) => {
+                    if let Some(stream_event_processor) = stream_event_processor.clone() {
+                        query_builder
+                            .parse_streaming_response(resp, stream_event_processor)
+                            .await?
+                    } else {
+                        // Handle non-streaming response
+                        query_builder.parse_response(resp).await?
                     }
                 }
+                Err(e) => {
+                    let _status = resp.status();
+                    let text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                    return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                }
             }
-            Err(e) => {
-                let _status = resp.status();
-                let text = resp
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+        };
+
+        match parsed {
+            ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
+                if let Some(events_str) = events_str {
+                    final_events_str.push_str(&events_str);
+                }
+
+                if let Some(ref response_content) = response_content {
+                    actions.push(AgentAction::Message {});
+                    messages.push(OpenAIMessage {
+                        role: "assistant".to_string(),
+                        content: Some(OpenAIContent::Text(response_content.clone())),
+                        agent_action: Some(AgentAction::Message {}),
+                        ..Default::default()
+                    });
+
+                    update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                    update_flow_status_module_with_actions_success(db, parent_job, true).await?;
+
+                    content = Some(OpenAIContent::Text(response_content.clone()));
+
+                    // Add assistant message to conversation if chat_input_enabled
+                    let chat_enabled = flow_context
+                        .flow_status
+                        .as_ref()
+                        .and_then(|fs| fs.chat_input_enabled)
+                        .unwrap_or(false);
+                    if chat_enabled && !response_content.is_empty() {
+                        if let Some(memory_id) = flow_context
+                            .flow_status
+                            .as_ref()
+                            .and_then(|fs| fs.memory_id)
+                        {
+                            let agent_job_id = job.id;
+                            let db_clone = db.clone();
+                            let message_content = response_content.clone();
+                            let step_name = get_step_name_from_flow(
+                                summary.as_deref(),
+                                job.flow_step_id.as_deref(),
+                            );
+
+                            // Spawn task because we do not need to wait for the result
+                            tokio::spawn(async move {
+                                if let Err(e) = add_message_to_conversation(
+                                    &db_clone,
+                                    &memory_id,
+                                    Some(agent_job_id),
+                                    &message_content,
+                                    MessageType::Assistant,
+                                    &step_name,
+                                    true,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to add assistant message to conversation {}: {}",
+                                        memory_id,
+                                        e
+                                    );
+                                }
+                            });
+                        }
+                    }
+                }
+
+                if tool_calls.is_empty() {
+                    break;
+                } else if i == MAX_AGENT_ITERATIONS - 1 {
+                    return Err(Error::internal_err(
+                        "AI agent reached max iterations, but there are still tool calls"
+                            .to_string(),
+                    ));
+                }
+
+                messages.push(OpenAIMessage {
+                    role: "assistant".to_string(),
+                    tool_calls: Some(tool_calls.clone()),
+                    ..Default::default()
+                });
+
+                // Handle tool calls using extracted tools module
+                let tool_execution_ctx = ToolExecutionContext {
+                    db,
+                    conn,
+                    job,
+                    parent_job,
+                    summary: &summary,
+                    client,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    hostname,
+                    occupancy_metrics,
+                    job_completed_tx,
+                    killpill_rx,
+                    stream_event_processor: stream_event_processor.as_ref(),
+                    flow_context: &mut flow_context,
+                    previous_result: &previous_result,
+                    id_context: &id_context,
+                };
+
+                let (tool_messages, tool_content, tool_used_structured_output) =
+                    execute_tool_calls(
+                        tool_execution_ctx,
+                        &tool_calls,
+                        &tools,
+                        mcp_clients,
+                        &mut actions,
+                        &mut final_events_str,
+                        &structured_output_tool_name,
+                    )
+                    .await?;
+
+                messages.extend(tool_messages);
+                if let Some(tc) = tool_content {
+                    content = Some(tc);
+                }
+                used_structured_output_tool = tool_used_structured_output;
+            }
+            ParsedResponse::Image { base64_data } => {
+                // For image output, upload to S3 and track in conversation
+                let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
+
+                let content = to_raw_value(&s3_object);
+
+                // Add assistant message to conversation if chat_input_enabled
+                let chat_enabled = flow_context
+                    .flow_status
+                    .as_ref()
+                    .and_then(|fs| fs.chat_input_enabled)
+                    .unwrap_or(false);
+                if chat_enabled {
+                    if let Some(memory_id) = flow_context
+                        .flow_status
+                        .as_ref()
+                        .and_then(|fs| fs.memory_id)
+                    {
+                        let agent_job_id = job.id;
+                        let db_clone = db.clone();
+                        let flow_step_id_owned = job.flow_step_id.clone();
+                        let summary_owned = summary.map(|s| s.to_string());
+
+                        // Create extended version with type discriminator for conversation storage
+                        // This avoids conflicts with outputs that are of the same format as S3 objects
+                        let s3_with_type = S3ObjectWithType {
+                            s3_object: s3_object.clone(),
+                            r#type: "windmill_s3_object".to_string(),
+                        };
+
+                        let message_content = serde_json::to_string(&s3_with_type)
+                            .unwrap_or_else(|_| content.get().to_string());
+
+                        // Spawn task because we do not need to wait for the result
+                        tokio::spawn(async move {
+                            let step_name = get_step_name_from_flow(
+                                summary_owned.as_deref(),
+                                flow_step_id_owned.as_deref(),
+                            );
+
+                            if let Err(e) = add_message_to_conversation(
+                                &db_clone,
+                                &memory_id,
+                                Some(agent_job_id),
+                                &message_content,
+                                MessageType::Assistant,
+                                &step_name,
+                                true,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to add assistant message to conversation {}: {}",
+                                    memory_id,
+                                    e
+                                );
+                            }
+                        });
+                    }
+                }
+
+                // Return early since image generation is complete
+                return Ok(content);
             }
         }
     }

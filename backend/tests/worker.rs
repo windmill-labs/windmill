@@ -2944,3 +2944,33 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await;
     Ok(())
 }
+
+#[cfg(feature = "duckdb")]
+#[sqlx::test(fixtures("base"))]
+async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let content = "-- result_collection=last_statement_first_row_scalar\nSELECT 'Hello world!';";
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "value": {
+                "type": "rawscript",
+                "language": "duckdb",
+                "content": content,
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+    assert_eq!(result, serde_json::json!("Hello world!"));
+    Ok(())
+}
