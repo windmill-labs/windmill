@@ -5,7 +5,7 @@
 	import FlowBuilderTutorialSimpleFlow from './tutorials/FlowBuilderTutorialSimpleFlow.svelte'
 	import FlowBuilderTutorialForLoop from './tutorials/FlowBuilderTutorialForLoop.svelte'
 	import FlowBuilderTutorialErrorHandler from './tutorials/FlowBuilderTutorialErrorHandler.svelte'
-	import FlowBuilderTutorialWorkspaceOnboardingContinue from './tutorials/FlowBuilderTutorialWorkspaceOnboardingContinue.svelte'
+	import FlowBuilderLiveTutorial from './tutorials/FlowBuilderLiveTutorial.svelte'
 
 	let flowBuilderTutorialSimpleFlow: FlowBuilderTutorialSimpleFlow | undefined = $state(undefined)
 	let flowBuilderTutorialForLoop: FlowBuilderTutorialForLoop | undefined = $state(undefined)
@@ -13,7 +13,7 @@
 	let flowBuilderTutorialBranchAll: FlowBuilderTutorialBranchAll | undefined = $state(undefined)
 	let flowBuilderTutorialErrorHandler: FlowBuilderTutorialErrorHandler | undefined =
 		$state(undefined)
-	let flowBuilderTutorialWorkspaceOnboardingContinue: FlowBuilderTutorialWorkspaceOnboardingContinue | undefined =
+	let flowBuilderLiveTutorial: FlowBuilderLiveTutorial | undefined =
 		$state(undefined)
 
 	export function runTutorialById(id: string, indexToInsertAt?: number | undefined) {
@@ -27,8 +27,8 @@
 			flowBuilderTutorialSimpleFlow?.runTutorial()
 		} else if (id === 'error-handler') {
 			flowBuilderTutorialErrorHandler?.runTutorial()
-		} else if (id === 'workspace-onboarding-continue') {
-			flowBuilderTutorialWorkspaceOnboardingContinue?.runTutorial()
+		} else if (id === 'flow-live-tutorial') {
+			flowBuilderLiveTutorial?.runTutorial()
 		}
 	}
 
@@ -67,8 +67,8 @@
 	on:skipAll={skipAll}
 	on:reload
 />
-<FlowBuilderTutorialWorkspaceOnboardingContinue
-	bind:this={flowBuilderTutorialWorkspaceOnboardingContinue}
+<FlowBuilderLiveTutorial
+	bind:this={flowBuilderLiveTutorial}
 	on:error
 	on:skipAll={skipAll}
 	on:reload
