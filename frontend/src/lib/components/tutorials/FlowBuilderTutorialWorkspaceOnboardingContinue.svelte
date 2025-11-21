@@ -13,7 +13,7 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
-	// Flag to track if step 4 code writing is complete
+	// Flags to track if steps are complete
 	let step4Complete = $state(false)
 
 	// Constants for delays
@@ -423,12 +423,6 @@
 
 							// Press Enter after finishing typing
 							await wait(DELAY_MEDIUM)
-							const enterEvent = new KeyboardEvent('keydown', {
-								key: 'Enter',
-								code: 'Enter',
-								keyCode: 13,
-								bubbles: true
-							})
 							editor.getModel()?.setValue(currentText + '\n')
 
 							// Mark step 4 as complete
