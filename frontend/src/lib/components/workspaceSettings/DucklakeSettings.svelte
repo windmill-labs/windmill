@@ -62,7 +62,7 @@
 	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { SettingService, WorkspaceService, type DucklakeInstanceCatalogDbStatus } from '$lib/gen'
+	import { SettingService, WorkspaceService, type CustomInstanceDbStatus } from '$lib/gen'
 	import { type GetSettingsResponse } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -126,7 +126,7 @@
 	)
 
 	let instanceCatalogSetupIsRunning = $state(false)
-	const instanceCatalogStatuses = usePromise(SettingService.getDucklakeInstanceCatalogDbStatus, {
+	const instanceCatalogStatuses = usePromise(SettingService.getCustomInstanceDbStatus, {
 		clearValueOnRefresh: false
 	})
 
@@ -396,10 +396,7 @@
 
 <ConfirmationModal {...confirmationModal.props} />
 
-{#snippet instanceCatalogWizard(
-	status: DucklakeInstanceCatalogDbStatus | undefined,
-	dbname: string
-)}
+{#snippet instanceCatalogWizard(status: CustomInstanceDbStatus | undefined, dbname: string)}
 	{@const showManageCatalogButton =
 		status?.logs.created_database === 'OK' || status?.logs.created_database === 'SKIP'}
 	{#if !status}
@@ -452,15 +449,15 @@
 						"Connect to the newly created database with the default admin user (the one in DATABASE_URL, usually 'postgres') to run the next commands"
 				},
 				{
-					title: 'Grant permissions to ducklake_user',
+					title: 'Grant permissions to custom_instance_user',
 					status: status?.logs.grant_permissions,
 					description:
-						'Gives ducklake_user the required permissions to use the database as a Ducklake catalog. ducklake_user is already created during a migration and has an auto-generated password stored in global_settings.ducklake_settings.ducklake_user_pg_pwd. These are the commands : \n\n' +
-						`GRANT CONNECT ON DATABASE "${dbname}" TO ducklake_user;\n` +
-						'GRANT USAGE ON SCHEMA public TO ducklake_user;\n' +
-						'GRANT CREATE ON SCHEMA public TO ducklake_user;\n' +
+						'Gives custom_instance_user the required permissions to use the database as a Ducklake catalog. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
+						`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
+						'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
+						'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
 						'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
-						'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO ducklake_user;'
+						'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;'
 				}
 			],
 			status?.error ?? undefined
@@ -495,7 +492,7 @@
 
 				try {
 					instanceCatalogSetupIsRunning = true
-					let result = await SettingService.setupDucklakeCatalogDb({ name: dbname })
+					let result = await SettingService.setupCustomInstanceDb({ name: dbname })
 					await instanceCatalogStatuses.refresh()
 					if (result.success) {
 						if (!wasAlreadySuccessful) sendUserToast('Setup successful')
@@ -525,7 +522,7 @@
 		{#if showManageCatalogButton}
 			<ExploreAssetButton
 				class="flex-1"
-				asset={{ kind: 'resource', path: 'INSTANCE_DUCKLAKE_CATALOG/' + dbname }}
+				asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
 				_resourceMetadata={{ resource_type: 'postgresql' }}
 				{dbManagerDrawer}
 				disabled={!$isCustomInstanceDbEnabled}

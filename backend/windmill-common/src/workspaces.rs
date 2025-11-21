@@ -9,6 +9,7 @@ use strum::AsRefStr;
 use crate::{
     error::{to_anyhow, Error, Result},
     get_database_url, parse_postgres_url,
+    utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
     DB,
 };
@@ -213,9 +214,9 @@ pub async fn get_ducklake_from_db_unchecked(
                 "dbname": ducklake.catalog.resource_path,
                 "host": pg_creds.host,
                 "port": pg_creds.port,
-                "user": "ducklake_user",
+                "user": "custom_instance_user",
                 "sslmode": pg_creds.ssl_mode,
-                "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+                "password": get_custom_pg_instance_password(&db).await?,
             })
         } else {
             transform_json_unchecked(
@@ -231,19 +232,6 @@ pub async fn get_ducklake_from_db_unchecked(
         storage: ducklake.storage,
     };
     Ok(ducklake)
-}
-
-pub async fn get_ducklake_instance_pg_catalog_password(db: &DB) -> Result<String> {
-    sqlx::query_scalar!(
-        "SELECT value->>'ducklake_user_pg_pwd' FROM global_settings WHERE name = 'ducklake_settings';"
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten().ok_or_else(||
-        Error::BadRequest(format!(
-            "Ducklake instance catalog password not found, did you run migrations ?"
-        ))
-    )
 }
 
 // This does not check for any permission. Should never be displayed to a user.

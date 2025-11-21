@@ -831,26 +831,26 @@ paths:
               schema:
                 type: boolean
 
-  /settings/get_ducklake_instance_catalog_db_status:
+  /settings/get_custom_instance_pg_databases_status:
     post:
-      summary: Returns the set-up statuses of ducklake instance catalog dbs
-      operationId: getDucklakeInstanceCatalogDbStatus
+      summary: Returns the set-up statuses of custom instance pg databases
+      operationId: getCustomInstanceDbStatus
       tags:
         - setting
       responses:
         "200":
-          description: Statuses of all ducklake instance catalog dbs
+          description: Statuses of all custom instance dbs
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                  $ref: "#/components/schemas/CustomInstanceDbStatus"
 
-  /settings/setup_ducklake_catalog_db/{name}:
+  /settings/setup_custom_instance_pg_database/{name}:
     post:
-      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: setupDucklakeCatalogDb
+      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the custom_instance_user
+      operationId: setupCustomInstanceDb
       tags:
         - setting
       parameters:
@@ -866,7 +866,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                $ref: "#/components/schemas/CustomInstanceDbStatus"
 
   /settings/global/{key}:
     get:
@@ -18118,7 +18118,7 @@ components:
         - SKIP
         - FAIL
 
-    DucklakeInstanceCatalogDbStatusLogs:
+    CustomInstanceDbStatusLogs:
       type: object
       properties:
         super_admin:
@@ -18135,14 +18135,14 @@ components:
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
 
-    DucklakeInstanceCatalogDbStatus:
+    CustomInstanceDbStatus:
       type: object
       required:
         - logs
         - success
       properties:
         logs:
-          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+          $ref: "#/components/schemas/CustomInstanceDbStatusLogs"
         success:
           type: boolean
           description: Whether the operation completed successfully

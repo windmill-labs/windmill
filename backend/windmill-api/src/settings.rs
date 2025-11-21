@@ -70,12 +70,12 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route(
-            "/get_ducklake_instance_catalog_db_status",
-            post(get_ducklake_instance_catalog_db_status),
+            "/get_custom_instance_pg_databases_status",
+            post(get_custom_instance_pg_databases_status),
         )
         .route(
-            "/setup_ducklake_catalog_db/:name",
-            post(setup_ducklake_catalog_db),
+            "/setup_custom_instance_pg_database/:name",
+            post(setup_custom_instance_pg_database),
         )
         .route(
             "/critical_alerts/acknowledge_all",
@@ -218,7 +218,12 @@ pub struct Value {
 }
 
 pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
-    if key == "ducklake_user_pg_pwd" || key == "ducklake_settings" {
+    // ducklake_user_pg_pwd and ducklake_settings were old names stored as standalone global settings.
+    // Leave them for backward compatibility (CLI will try to delete them if not present in the yaml)
+    if key == "ducklake_user_pg_pwd"
+        || key == "ducklake_settings"
+        || key == "custom_instance_pg_databases"
+    {
         tracing::error!("Tried to unset global setting {}, ignored", key);
         return Ok(());
     }
@@ -578,15 +583,15 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
 }
 
 #[derive(Deserialize, Debug, Serialize)]
-struct DucklakeInstanceCatalogDbStatus {
-    logs: DucklakeInstanceCatalogDbStatusLogs, // (Step, Message)[]
+struct CustomInstanceDbStatus {
+    logs: CustomInstanceDbStatusLogs, // (Step, Message)[]
     success: bool,
     error: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
 #[serde(default)]
-struct DucklakeInstanceCatalogDbStatusLogs {
+struct CustomInstanceDbStatusLogs {
     super_admin: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     database_credentials: String,
@@ -600,50 +605,50 @@ struct DucklakeInstanceCatalogDbStatusLogs {
     grant_permissions: String,
 }
 
-async fn get_ducklake_instance_catalog_db_status(
+async fn get_custom_instance_pg_databases_status(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
-) -> JsonResult<HashMap<String, DucklakeInstanceCatalogDbStatus>> {
+) -> JsonResult<HashMap<String, CustomInstanceDbStatus>> {
     let result = sqlx::query_scalar!(
-        r#"SELECT value->'instance_catalog_db_status' FROM global_settings WHERE name = 'ducklake_settings'"#,
+        r#"SELECT value->'status' FROM global_settings WHERE name = 'custom_instance_pg_databases'"#,
     )
     .fetch_one(&db)
     .await?
-    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find ducklake_settings".to_string()))?;
+    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find custom_instance_pg_databases".to_string()))?;
     let result = serde_json::from_value(result).map_err(|e| {
         error::Error::ExecutionErr(format!(
-            "couldn't parse instance_catalog_db_status : {}",
+            "couldn't parse custom_instance_pg_databases.status : {}",
             e.to_string()
         ))
     })?;
     return Ok(Json(result));
 }
 
-async fn setup_ducklake_catalog_db(
+async fn setup_custom_instance_pg_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
-) -> JsonResult<DucklakeInstanceCatalogDbStatus> {
-    let mut logs = DucklakeInstanceCatalogDbStatusLogs::default();
-    let result = setup_ducklake_catalog_db_inner(authed, &db, &dbname, &mut logs).await;
+) -> JsonResult<CustomInstanceDbStatus> {
+    let mut logs = CustomInstanceDbStatusLogs::default();
+    let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status = DucklakeInstanceCatalogDbStatus { logs, success, error };
+    let status = CustomInstanceDbStatus { logs, success, error };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{instance_catalog_db_status}', (COALESCE(value->'instance_catalog_db_status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'ducklake_settings'"#,
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{status}', (COALESCE(value->'status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
         json!({ dbname: status_json })
     ).execute(&db).await?;
 
     Ok(Json(status))
 }
 
-async fn setup_ducklake_catalog_db_inner(
+async fn setup_custom_instance_pg_database_inner(
     authed: ApiAuthed,
     db: &DB,
     dbname: &str,
-    logs: &mut DucklakeInstanceCatalogDbStatusLogs,
+    logs: &mut CustomInstanceDbStatusLogs,
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
@@ -738,16 +743,16 @@ async fn setup_ducklake_catalog_db_inner(
 
     client
         .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
-             GRANT USAGE ON SCHEMA public TO ducklake_user;
-             GRANT CREATE ON SCHEMA public TO ducklake_user;
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))
         .await
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
-                "Failed to grant permissions to ducklake_user: {}",
+                "Failed to grant permissions to custom_instance_user: {}",
                 e.to_string(),
             ))
         })?;

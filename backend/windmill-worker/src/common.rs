@@ -237,7 +237,7 @@ pub async fn transform_json_value(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
 
-            if path.split("/").count() < 2 && !path.starts_with("INSTANCE_DUCKLAKE_CATALOG/") {
+            if path.split("/").count() < 2 && !path.starts_with("CUSTOM_INSTANCE_DB/") {
                 return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
@@ -629,10 +629,7 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
-pub fn build_command_with_isolation(
-    program: &str,
-    args: &[&str],
-) -> Command {
+pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
     if *crate::ENABLE_UNSHARE_PID {
