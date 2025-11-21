@@ -662,29 +662,6 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
 
-  // First pass: collect all file paths to identify branch-specific files
-  const allPaths: string[] = [];
-  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (!entry.isDirectory && !entry.ignored) {
-      allPaths.push(entry.path);
-    }
-  }
-
-  const branchSpecificExists = new Set<string>();
-
-  if (specificItems) {
-    const currentBranch = getCurrentGitBranch();
-    if (currentBranch) {
-      for (const path of allPaths) {
-        if (isCurrentBranchFile(path)) {
-          const basePath = fromBranchSpecificPath(path, currentBranch);
-          if (isSpecificItem(basePath, specificItems)) {
-            branchSpecificExists.add(basePath);
-          }
-        }
-      }
-    }
-  }
 
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;

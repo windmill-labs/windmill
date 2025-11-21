@@ -8,7 +8,7 @@
 	import { nextId } from '../flows/flowModuleNextId'
 
 	const dispatch = createEventDispatcher()
-	const { flowStore, selectedId, flowStateStore } =
+	const { flowStore, selectionManager, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
@@ -158,7 +158,7 @@
 					title: 'Step of the loop',
 					description: 'We added an action to the loop. Let’s configure it',
 					onNextClick: () => {
-						$selectedId = tempId
+						selectionManager.selectId(tempId)
 
 						dispatch('reload')
 						setTimeout(() => {

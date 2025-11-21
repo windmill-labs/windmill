@@ -291,4 +291,4 @@ export function keepModelAroundToAvoidDisposalOfWorkers() {
 	}
 }
 
-export let MONACO_Y_PADDING = 7
+export let MONACO_Y_PADDING = 6.5

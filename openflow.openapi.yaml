@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.579.2
+  version: 1.582.2
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -73,6 +73,11 @@ components:
         chat_input_enabled:
           type: boolean
           description: Whether this flow accepts chat-style input
+        notes:
+          type: array
+          description: Sticky notes attached to the flow
+          items:
+            $ref: "#/components/schemas/FlowNote"
       required:
         - modules
 
@@ -102,6 +107,64 @@ components:
               maximum: 100
         retry_if:
           $ref: "#/components/schemas/RetryIf"
+
+    FlowNote:
+      type: object
+      description: A sticky note attached to a flow for documentation and annotation
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the note
+        text:
+          type: string
+          description: Content of the note
+        position:
+          type: object
+          description: Position of the note in the flow editor
+          properties:
+            x:
+              type: number
+              description: X coordinate
+            y:
+              type: number
+              description: Y coordinate
+          required:
+            - x
+            - y
+        size:
+          type: object
+          description: Size of the note in the flow editor
+          properties:
+            width:
+              type: number
+              description: Width in pixels
+            height:
+              type: number
+              description: Height in pixels
+          required:
+            - width
+            - height
+        color:
+          type: string
+          description: Color of the note (e.g., "yellow", "#ffff00")
+        type:
+          type: string
+          enum: [free, group]
+          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+        locked:
+          type: boolean
+          default: false
+          description: Whether the note is locked and cannot be edited or moved
+        contained_node_ids:
+          type: array
+          items:
+            type: string
+          description: For group notes, the IDs of nodes contained within this group
+      required:
+        - id
+        - text
+        - color
+        - type
 
     RetryIf:
       type: object
