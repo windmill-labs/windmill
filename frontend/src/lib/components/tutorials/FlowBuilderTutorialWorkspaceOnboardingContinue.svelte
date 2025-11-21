@@ -310,7 +310,7 @@
 						overlay.style.display = 'none'
 					}
 
-					await wait(DELAY_VERY_LONG)
+					await wait(DELAY_LONG)
 
 					const spans = Array.from(document.querySelectorAll('span'))
 					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
@@ -322,7 +322,7 @@
 						fakeCursor2.remove()
 
 						// Automatically trigger next step after cursor animation
-						await wait(DELAY_LONG)
+						await wait(DELAY_SHORT)
 
 						// Add module with empty summary and empty content
 						const moduleData = flowJson.value.modules[0]
