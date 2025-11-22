@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Sticky Notes in Flows',
+		href: 'https://www.windmill.dev/changelog/sticky-notes-in-flows',
+		date: '2025-11-20'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
