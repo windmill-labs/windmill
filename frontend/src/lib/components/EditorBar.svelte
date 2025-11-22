@@ -45,7 +45,7 @@
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
-	import { getResetCode } from '$lib/script_helpers'
+	import { getResetCode, TS_PREPROCESSOR_MODULE_CODE, PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_SCRIPT_INTRO, PYTHON_PREPROCESSOR_SCRIPT_INTRO } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
@@ -70,7 +70,7 @@
 		}
 		iconOnly?: boolean
 		validCode?: boolean
-		kind?: 'script' | 'trigger' | 'approval'
+		kind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 		collabMode?: boolean
 		collabLive?: boolean
@@ -87,6 +87,7 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
+		selectedTab?: 'main' | 'preprocessor'
 	}
 
 	let {
@@ -111,7 +112,8 @@
 		showHistoryDrawer = $bindable(false),
 		right,
 		openAiChat = false,
-		moduleId = undefined
+		moduleId = undefined,
+		selectedTab = 'main'
 	}: Props = $props()
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
@@ -401,9 +403,32 @@
 
 	function clearContent() {
 		if (editor) {
-			const resetCode = getResetCode(lang, kind as Script['kind'], template)
-			editor.setCode(resetCode)
+			// If we're on the preprocessor tab or the kind is preprocessor, use preprocessor signature
+			if (selectedTab === 'preprocessor' || kind === 'preprocessor') {
+				const preprocessorCode = getPreprocessorCode(lang)
+				if (preprocessorCode) {
+					editor.setCode(preprocessorCode)
+				} else {
+					// Fallback to regular reset code if no preprocessor code is available
+					const resetCode = getResetCode(lang, 'script', template)
+					editor.setCode(resetCode)
+				}
+			} else {
+				const resetCode = getResetCode(lang, kind as Script['kind'], template)
+				editor.setCode(resetCode)
+			}
 		}
+	}
+
+	function getPreprocessorCode(language: SupportedLanguage | 'bunnative' | undefined): string | undefined {
+		if (language === 'deno' || language === 'bun') {
+			return `${TS_PREPROCESSOR_SCRIPT_INTRO}${TS_PREPROCESSOR_MODULE_CODE}`
+		} else if (language === 'python3') {
+			return `${PYTHON_PREPROCESSOR_SCRIPT_INTRO}${PYTHON_PREPROCESSOR_MODULE_CODE}`
+		} else if (language === 'nativets' || language === 'bunnative') {
+			return `${TS_PREPROCESSOR_SCRIPT_INTRO}${TS_PREPROCESSOR_MODULE_CODE}`
+		}
+		return undefined
 	}
 
 	function windmillPathToCamelCaseName(path: string): string {

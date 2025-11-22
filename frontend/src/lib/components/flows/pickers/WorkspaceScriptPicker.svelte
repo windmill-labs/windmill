@@ -11,7 +11,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'preprocessor' = 'script'
 	export let isTemplate: boolean | undefined = undefined
 	export let displayLock = false
 

@@ -577,6 +577,7 @@
 					: undefined}
 				{diffMode}
 				bind:showHistoryDrawer
+				{selectedTab}
 			>
 				{#snippet right()}
 					{@render editor_bar_right?.()}
