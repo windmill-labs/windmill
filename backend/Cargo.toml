@@ -49,7 +49,7 @@ incremental = true
 lto = "thin"
 
 [features]
-default = []
+default = ["python", "php"]
 private = ["windmill-api/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
 agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
@@ -137,6 +137,7 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }

@@ -19,11 +19,11 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import type { LanguageType } from 'svelte-highlight/languages'
+	import { json, type LanguageType } from 'svelte-highlight/languages'
 
 	interface Props {
 		code?: string
-		language: Script['language'] | 'bunnative' | 'frontend' | undefined
+		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined
 		highlightLanguage?: LanguageType<string> | undefined
 		lines?: boolean
 		className?: string
@@ -43,7 +43,7 @@
 		applyButtonIcon = undefined
 	}: Props = $props()
 
-	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | undefined) {
+	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -91,6 +91,8 @@
 				return java
 			case 'ruby':
 				return ruby
+			case 'json':
+				return json
 			// for related places search: ADD_NEW_LANG
 			default:
 				return typescript

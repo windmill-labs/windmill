@@ -110,6 +110,7 @@ mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+mod workspace_dependencies;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -455,6 +456,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/workspace_dependencies",
+                            workspace_dependencies::workspaced_service(),
+                        )
                         .nest(
                             "/flow_conversations",
                             flow_conversations::workspaced_service(),

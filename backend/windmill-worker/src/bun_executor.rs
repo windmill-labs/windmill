@@ -29,6 +29,7 @@ use windmill_common::{
     client::AuthedClient,
     s3_helpers::BundleFormat,
     scripts::{id_to_codebase_info, CodebaseInfo},
+    workspace_dependencies::{WorkspaceDependenciesAnnotatedRefs, WorkspaceDependenciesPrefetched},
 };
 
 #[cfg(windows)]
@@ -109,7 +110,7 @@ pub async fn gen_bun_lockfile(
     base_internal_url: &str,
     worker_name: &str,
     export_pkg: bool,
-    raw_deps: Option<String>,
+    workspace_dependencies: &WorkspaceDependenciesPrefetched,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<Option<String>> {
@@ -117,9 +118,11 @@ pub async fn gen_bun_lockfile(
 
     let mut empty_deps = false;
 
-    if let Some(raw_deps) = raw_deps.as_ref() {
+    if let Some(package_json_content) =
+        workspace_dependencies.get_one_external_only_manual(w_id, Some(script_path.to_owned()))
+    {
         gen_bunfig(job_dir).await?;
-        write_file(job_dir, "package.json", raw_deps.as_str())?;
+        write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
         let _ = write_file(
             &job_dir,
@@ -213,16 +216,16 @@ pub async fn gen_bun_lockfile(
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
             let mut buf = String::default();
             file.read_to_string(&mut buf).await?;
-            if raw_deps.is_some() {
-                let mut json_map: HashMap<String, Box<RawValue>> = serde_json::from_str(&buf)?;
-                json_map.insert(
-                    "generatedFromPackageJson".to_string(),
-                    to_raw_value(&"true".to_string()),
-                );
-                content = serde_json::to_string_pretty(&json_map)?;
-            } else {
-                content = buf;
-            }
+            // if raw_deps.is_some() {
+            //     let mut json_map: HashMap<String, Box<RawValue>> = serde_json::from_str(&buf)?;
+            //     json_map.insert(
+            //         "generatedFromPackageJson".to_string(),
+            //         to_raw_value(&"true".to_string()),
+            //     );
+            //     content = serde_json::to_string_pretty(&json_map)?;
+            // } else {
+            content = buf;
+            // }
         }
         if !npm_mode {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -979,7 +982,7 @@ pub async fn handle_bun_job(
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
-        let _ = gen_bun_lockfile(
+        gen_bun_lockfile(
             mem_peak,
             canceled_by,
             &job.id,
@@ -991,7 +994,15 @@ pub async fn handle_bun_job(
             base_internal_url,
             worker_name,
             false,
-            None,
+            &WorkspaceDependenciesPrefetched::extract(
+                inner_content,
+                ScriptLang::Bun,
+                &job.workspace_id,
+                // TODO: Unless there is some sort of "local execution"
+                &None,
+                conn.clone(),
+            )
+            .await?, // TODO: what about bunnative?
             annotation.npm,
             &mut Some(occupancy_metrics),
         )

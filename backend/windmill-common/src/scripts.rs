@@ -17,6 +17,8 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
+    worker::PythonAnnotations,
+    workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
@@ -30,7 +32,20 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, Default)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Copy,
+    Clone,
+    Hash,
+    Eq,
+    sqlx::Type,
+    Default,
+    Ord,
+    PartialOrd,
+)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
@@ -88,6 +103,60 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
+        }
+    }
+
+    pub fn as_dependencies_filename(&self) -> Option<String> {
+        use ScriptLang::*;
+        Some(
+            match self {
+                // TODO: Doublecheck these
+                Bun | Bunnative | Deno => "package.json",
+                Python3 => "requirements.in",
+                Go => "go.mod",
+                Php => "composer.json",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    }
+
+    pub fn as_comment_lit(&self) -> String {
+        use ScriptLang::*;
+        // TODO: Go is fucked up a bit
+        match self {
+            Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
+            Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
+            Rust => "//!",
+            // for related places search: ADD_NEW_LANG
+        }
+        .to_owned()
+    }
+
+    // pub fn as_lock_comment_lit(&self) -> String {
+    //     use ScriptLang::*;
+    //     // TODO: Go is fucked up a bit
+    //     match self {
+    //         l => l.as_comment_lit(),
+    //     }
+    // }
+
+    pub fn extract_workspace_dependencies_annotated_refs(
+        &self,
+        code: &str,
+    ) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
+        use ScriptLang::*;
+        match self {
+            // TODO: Maybe use regex
+            // TODO: Doublecheck these
+            Bun | Bunnative => {
+                WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code)
+            }
+            Python3 => WorkspaceDependenciesAnnotatedRefs::parse("#", "requirements", code),
+            Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code),
+            Php => WorkspaceDependenciesAnnotatedRefs::parse("//", "composer_json", code),
+            _ => return None,
         }
     }
 }
@@ -736,12 +805,14 @@ pub struct ClonedScript {
     pub old_script: NewScript,
     pub new_hash: i64,
 }
+// TODO: What if dependency job fails, there is script with NULL in the lock
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
+    // TODO:!
     let s = sqlx::query_as::<_, Script>(
         "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
     )

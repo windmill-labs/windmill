@@ -35,7 +35,7 @@ import {
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
-import { deepEqual, isFileResource } from "../../utils/utils.ts";
+import { deepEqual, isFileResource, isWorkspaceDependencies } from "../../utils/utils.ts";
 import {
   SyncOptions,
   getEffectiveSettings,
@@ -310,7 +310,7 @@ function ZipFSElement(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
+    const kind: "flow" | "app" | "script" | "resource" | "dependencies" | "other" = p.endsWith(
       "flow.json"
     )
       ? "flow"
@@ -320,6 +320,8 @@ function ZipFSElement(
       ? "script"
       : p.endsWith("resource.json")
       ? "resource"
+      : p.startsWith("dependencies/")
+      ? "dependencies"
       : "other";
 
     const isJson = p.endsWith(".json");
@@ -329,6 +331,8 @@ function ZipFSElement(
         return p.replace("flow.json", "flow");
       } else if (kind == "app") {
         return p.replace("app.json", "app");
+      } else if (kind == "dependencies") {
+        return p;
       } else {
         return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
       }
@@ -485,7 +489,7 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson
+          return useYaml && isJson && kind != "dependencies"
             ? (() => {
                 try {
                   return yamlStringify(JSON.parse(content), yamlOptions);
@@ -618,7 +622,6 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
-    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
       if (e2.isDirectory) {
@@ -627,10 +630,9 @@ export async function* readDirRecursiveWithIgnore(
           continue;
         }
       }
-      // console.log(e2.path);
       stack.push({
         path: e2.path,
-        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
+        ignored: e.ignored || e2.isDirectory && e2.path == "dependencies" ? false : ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -657,16 +659,49 @@ export async function elementsToMap(
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
   skips: Skips,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
 
+<<<<<<< HEAD
+  // First pass: collect all file paths to identify branch-specific files
+  const allPaths: string[] = [];
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (entry.isDirectory || entry.ignored) continue;
+    if (!entry.isDirectory && !entry.ignored) {
+      allPaths.push(entry.path);
+    }
+  }
+
+
+  const branchSpecificExists = new Set<string>();
+
+  if (specificItems) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      for (const path of allPaths) {
+        if (isCurrentBranchFile(path)) {
+          const basePath = fromBranchSpecificPath(path, currentBranch);
+          if (isSpecificItem(basePath, specificItems)) {
+            branchSpecificExists.add(basePath);
+          }
+        }
+      }
+    }
+  }
+
+=======
+>>>>>>> main
+  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
+    if (entry.isDirectory || entry.ignored) {
+      if (entry.path.includes("dependencies")) {
+        log.info(`Ignoring dependencies-related path: ${entry.path} (isDirectory: ${entry.isDirectory}, ignored: ${entry.ignored})`);
+      }
+      continue;
+    }
     const path = entry.path;
-    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
-    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
+    if (json && path.endsWith(".yaml") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
+    if (!json && path.endsWith(".json") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (
@@ -690,16 +725,27 @@ export async function elementsToMap(
     if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
       continue;
 
+
     // Use getTypeStrFromPath for consistent type detection
     try {
       const fileType = getTypeStrFromPath(path);
+      if (fileType === "workspace_dependencies") {
+        log.info(`Found workspace dependencies file: ${path} (type: ${fileType})`);
+      }
       if (skips.skipVariables && fileType === "variable") continue;
       if (skips.skipScripts && fileType === "script") continue;
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
-    } catch {
+      if (skips.skipWorkspaceDependencies && fileType === "workspace_dependencies") {
+        log.info(`Skipping workspace dependencies file: ${path} due to skipWorkspaceDependencies flag`);
+        continue;
+      }
+    } catch (e) {
       // If getTypeStrFromPath can't determine the type, continue processing the file
+      if (path.includes("dependencies")) {
+        log.info(`Could not determine type for dependencies-related file: ${path}, error: ${e}`);
+      }
     }
 
     if (skips.skipResources && isFileResource(path)) continue;
@@ -724,6 +770,8 @@ export async function elementsToMap(
         "nu",
         "java",
         "rb",
+        "in",     // Python requirements.in files
+        "mod",    // Go go.mod files
         // for related places search: ADD_NEW_LANG
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
@@ -793,6 +841,11 @@ export async function elementsToMap(
       // No specific items configuration, use regular path
       map[entry.path] = content;
     }
+    
+    // Debug: log when workspace dependencies are added to map
+    if (path.startsWith("dependencies/")) {
+      console.log(`Added workspace dependencies file to map: ${path}`);
+    }
   }
   return map;
 }
@@ -806,6 +859,7 @@ export interface Skips {
   skipFlows?: boolean | undefined;
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
+  skipWorkspaceDependencies?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -874,11 +928,14 @@ async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
+      if (k.startsWith("dependencies/")) {
+        log.info(`Adding workspace dependencies file: ${k}`);
+      }
       changes.push({ name: "added", path: k, content: v });
     } else {
       if (m2[k] == v) {
         continue;
-      } else if (k.endsWith(".json")) {
+      } else if (k.endsWith(".json") && !isWorkspaceDependencies(k)) {
         let parsedV, parsedM2;
         try {
           parsedV = JSON.parse(v);
@@ -1089,6 +1146,7 @@ export async function ignoreF(wmillconf: {
   excludes?: string[];
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
+  skipWorkspaceDependencies?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -1146,6 +1204,9 @@ export async function ignoreF(wmillconf: {
         }
         if (wmillconf.includeKey && fileType === "encryption_key") {
           return false; // Don't ignore, always include
+        }
+        if (!wmillconf.skipWorkspaceDependencies && fileType === "workspace_dependencies") {
+          return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
         }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
@@ -1265,8 +1326,7 @@ export async function pull(
   } catch {
     // ignore
   }
-  const remote = ZipFSElement(
-    (await downloadZip(
+  const zipFile = await downloadZip(
       workspace,
       opts.plainSecrets,
       opts.skipVariables,
@@ -1279,8 +1339,12 @@ export async function pull(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
+      opts.skipWorkspaceDependencies,
       opts.defaultTs
-    ))!,
+    );
+  
+  const remote = ZipFSElement(
+    zipFile!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
@@ -1304,6 +1368,29 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
+  
+  // Debug: show what changes include workspace dependencies
+  const workspaceDepsChanges = changes.filter(c => c.path.startsWith("dependencies/"));
+  if (workspaceDepsChanges.length > 0) {
+    log.info(`Found ${workspaceDepsChanges.length} workspace dependencies changes:`);
+    workspaceDepsChanges.forEach(change => {
+      log.info(`  ${change.name}: ${change.path}`);
+    });
+  } else {
+    log.info("No workspace dependencies changes found");
+  }
+  
+  // Debug: show all changes for push operation
+  if (changes.length > 0) {
+    log.info("All changes:");
+    changes.forEach(change => {
+      if (change.path.startsWith("dependencies/")) {
+        log.info(`  ${change.name}: ${change.path} [WORKSPACE DEPS]`);
+      } else {
+        log.info(`  ${change.name}: ${change.path}`);
+      }
+    });
+  }
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -1729,6 +1816,7 @@ export async function push(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
+      opts.skipWorkspaceDependencies,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1749,6 +1837,7 @@ export async function push(
     false,
     specificItems
   );
+
 
   const globalDeps = await findGlobalDeps();
 
@@ -2222,6 +2311,38 @@ export async function push(
                     ),
                   });
                   break;
+                case "workspace_dependencies":
+                  // Parse the workspace dependencies file path
+                  // Format: dependencies/requirements.in, dependencies/package.json, dependencies/myname.requirements.in, etc.
+                  const relativePath = removePathPrefix(change.path, "dependencies");
+                  
+                  let language: "python3" | "nativets" | "go" | "php";
+                  let name: string | undefined;
+                  
+                  // Parse based on file extension and potential name prefix
+                  if (relativePath.endsWith("requirements.in")) {
+                    language = "python3";
+                    name = relativePath === "requirements.in" ? undefined : relativePath.replace(".requirements.in", "");
+                  } else if (relativePath.endsWith("package.json")) {
+                    // Could be Bun, Deno, or Nativets - we'll default to nativets for sync
+                    language = "nativets";
+                    name = relativePath === "package.json" ? undefined : relativePath.replace(".package.json", "");
+                  } else if (relativePath.endsWith("go.mod")) {
+                    language = "go";
+                    name = relativePath === "go.mod" ? undefined : relativePath.replace(".go.mod", "");
+                  } else if (relativePath.endsWith("composer.json")) {
+                    language = "php";
+                    name = relativePath === "composer.json" ? undefined : relativePath.replace(".composer.json", "");
+                  } else {
+                    throw new Error(`Unknown workspace dependencies file format: ${change.path}`);
+                  }
+
+                  await wmill.deleteWorkspaceDependencies({
+                    workspace: workspaceId,
+                    language,
+                    name
+                  });
+                  break;
                 default:
                   break;
               }
@@ -2319,6 +2440,7 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option("--skip-workspace-dependencies", "Skip syncing workspace dependencies")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2367,6 +2489,7 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option("--skip-workspace-dependencies", "Skip syncing workspace dependencies")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

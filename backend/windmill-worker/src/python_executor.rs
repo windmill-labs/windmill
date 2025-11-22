@@ -28,7 +28,8 @@ use windmill_common::{
     },
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, write_file, Connection, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -125,8 +126,8 @@ use crate::{
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
-    PyV, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -546,7 +547,6 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -565,7 +565,7 @@ pub async fn handle_python_job(
         canceled_by,
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
-        annotations,
+        annotations.clone(),
     )
     .await?;
 
@@ -1176,36 +1176,45 @@ async fn handle_python_deps(
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
         Some(r) => {
-            let rl = split_requirements(r);
+            let rl = split_python_requirements(r);
             (PyV::parse_from_requirements(&rl), rl)
         }
         // Preview
         None => {
             let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
-                    let mut version_specifiers = vec![];
+                    let (mut version_specifiers, mut locked_v) = (vec![], None);
                     let (r, h) = Box::pin(windmill_parser_py_imports::parse_python_imports(
                         inner_content,
                         w_id,
                         script_path,
                         db,
                         &mut version_specifiers,
+                        &mut locked_v,
+                        // TODO: pretty sure this is fine.
+                        &None,
                     ))
                     .await?;
 
-                    let v = PyV::resolve(
-                        version_specifiers,
-                        job_id,
-                        w_id,
-                        annotations.py_select_latest,
-                        Some(conn.clone()),
-                        None,
-                        None,
-                    )
-                    .await?;
+                    let v = if let Some(v) = locked_v {
+                        v.into()
+                    } else {
+                        PyV::resolve(
+                            version_specifiers,
+                            job_id,
+                            w_id,
+                            annotations.py_select_latest,
+                            Some(conn.clone()),
+                            None,
+                            None,
+                        )
+                        .await?
+                    };
 
                     (v, r, h)
                 }
+
+                // TODO: handle agent workers.
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python {
                         requirements,
@@ -1236,7 +1245,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
                             }
                         };
 
-                        let r = split_requirements(requirements.unwrap_or_default());
+                        let r = split_python_requirements(requirements.unwrap_or_default());
                         let h = None;
 
                         (v, r, h)
@@ -2110,15 +2119,6 @@ pub async fn handle_python_reqs(
     } else {
         Ok(req_paths)
     };
-}
-
-pub fn split_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
-    requirements
-        .as_ref()
-        .lines()
-        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
-        .map(String::from)
-        .collect()
 }
 
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed

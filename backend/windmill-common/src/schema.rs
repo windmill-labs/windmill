@@ -345,15 +345,7 @@ fn find_annotation(comm_lit: &str, annotation: &str, code: &str) -> bool {
 
 pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     let annotation = "schema_validation";
-    use ScriptLang::*;
-    let comment = match lang {
-        Nativets | Bun | Bunnative | Deno | Php | CSharp | Java => "//",
-        Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
-        Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
-        Rust => "//!",
-        // for related places search: ADD_NEW_LANG
-    };
-    find_annotation(comment, annotation, code)
+    find_annotation(&lang.as_comment_lit(), annotation, code)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

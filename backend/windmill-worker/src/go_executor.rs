@@ -11,8 +11,12 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
+    scripts::ScriptLang,
     utils::calculate_hash,
     worker::{save_cache, write_file, Connection, GoAnnotations},
+    workspace_dependencies::{
+        WorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs, WorkspaceDependenciesPrefetched,
+    },
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -140,7 +144,15 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
-            false,
+            &WorkspaceDependenciesPrefetched::extract(
+                inner_content,
+                ScriptLang::Go,
+                &job.workspace_id,
+                // TODO: This has no chance of having raw dependencies, right?
+                &None,
+                conn.clone(),
+            )
+            .await?,
             worker_name,
             &job.workspace_id,
             occupation_metrics,
@@ -461,77 +473,83 @@ pub async fn install_go_dependencies(
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
-    raw_deps: bool,
+    workspace_dependencies: &WorkspaceDependenciesPrefetched,
     worker_name: &str,
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    if raw_deps {
-        let go_mod =
-            if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
-                code.replace(module, "module mymod")
-            } else {
-                format!("module mymod\n{code}")
-            };
-        fs::write(format!("{job_dir}/go.mod"), go_mod).await?;
-    }
-    if !raw_deps && !skip_go_mod {
-        gen_go_mymod(code, job_dir).await?;
-        let mut child_cmd = Command::new(GO_PATH.as_str());
-        child_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .args(vec!["mod", "init", "mymod"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+    let (hash, go_mod_provided) = if let Some(go_mod_content) =
+        workspace_dependencies.get_one_external_only_manual(w_id, None)
+    {
+        let go_mod = if let Some(module) = go_mod_content
+            .lines()
+            .find(|l| l.trim_start().starts_with("module "))
+        {
+            go_mod_content.replace(module, "module mymod")
+        } else {
+            format!("module mymod\n{go_mod_content}")
+        };
+        fs::write(format!("{job_dir}/go.mod"), &go_mod).await?;
 
-        #[cfg(windows)]
-        child_cmd.env("GOPATH", windows_gopath());
-        #[cfg(unix)]
-        child_cmd.env("GOPATH", GO_CACHE_DIR);
-
-        #[cfg(windows)]
-        set_windows_env_vars(&mut child_cmd);
-        let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
-
-        handle_child(
-            job_id,
-            conn,
-            mem_peak,
-            canceled_by,
-            child_process,
-            false,
-            worker_name,
-            w_id,
-            "go init",
-            None,
-            false,
-            &mut Some(occupation_metrics),
-            None,
-            None,
-        )
-        .await?;
-
-        for x in REQUIRE_PARSE.captures_iter(code) {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(format!("{job_dir}/go.mod"))
-                .unwrap();
-
-            writeln!(file, "require {}\n", &x[1])?;
-        }
-    }
-
-    let mut new_lockfile = false;
-
-    let hash = if raw_deps {
-        calculate_hash(code)
-    } else if !has_sum {
-        calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
+        (calculate_hash(&go_mod), true)
     } else {
-        "".to_string()
+        if !skip_go_mod {
+            gen_go_mymod(code, job_dir).await?;
+            let mut child_cmd = Command::new(GO_PATH.as_str());
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .args(vec!["mod", "init", "mymod"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            child_cmd.env("GOPATH", windows_gopath());
+            #[cfg(unix)]
+            child_cmd.env("GOPATH", GO_CACHE_DIR);
+
+            #[cfg(windows)]
+            set_windows_env_vars(&mut child_cmd);
+            let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
+
+            handle_child(
+                job_id,
+                conn,
+                mem_peak,
+                canceled_by,
+                child_process,
+                false,
+                worker_name,
+                w_id,
+                "go init",
+                None,
+                false,
+                &mut Some(occupation_metrics),
+                None,
+                None,
+            )
+            .await?;
+
+            for x in REQUIRE_PARSE.captures_iter(code) {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(format!("{job_dir}/go.mod"))
+                    .unwrap();
+
+                writeln!(file, "require {}\n", &x[1])?;
+            }
+        }
+
+        (
+            if !has_sum {
+                calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
+            } else {
+                "".to_owned()
+            },
+            false,
+        )
     };
     let hash = format!(
         "go{}-{}",
@@ -539,6 +557,7 @@ pub async fn install_go_dependencies(
         hash
     );
 
+    let mut new_lockfile = false;
     let mut skip_tidy = has_sum;
 
     if !has_sum {
@@ -564,7 +583,7 @@ pub async fn install_go_dependencies(
     let mod_command = if skip_tidy ||
         // If there is go.mod provided we want to use `download` only.
         // Unlike `tidy` it does not modify local go.mod
-        raw_deps
+        go_mod_provided
     {
         "download"
     } else {

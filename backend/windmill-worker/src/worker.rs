@@ -19,6 +19,7 @@ use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
+use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -150,10 +151,9 @@ use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRu
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::{
-    python_executor::handle_python_job,
-    python_versions::{PyV, PyVAlias},
-};
+use crate::{python_executor::handle_python_job, python_versions::PyV};
+#[cfg(feature = "python")]
+use windmill_common::worker::PyVAlias;
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -2522,6 +2522,10 @@ pub async fn handle_queued_job(
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
+    //
+    dbg!(&raw_code);
+    dbg!(&raw_lock);
+    dbg!(&job);
 
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -2747,6 +2751,19 @@ pub async fn handle_queued_job(
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
+
+        let raw_workspace_dependencies_o = if dbg!(job.kind.is_dependency()) {
+            dbg!(&job.args);
+            job.args
+                .as_ref()
+                .and_then(|x| x.get("raw_workspace_dependencies"))
+                .map(|v| dbg!(v.get()))
+                .and_then(|v| serde_json::from_str::<RawWorkspaceDependencies>(v).ok())
+        } else {
+            None
+        };
+
+        dbg!(&raw_workspace_dependencies_o);
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -2763,6 +2780,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }
@@ -2786,6 +2804,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }

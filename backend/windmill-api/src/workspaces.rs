@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
@@ -81,6 +81,8 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
+        .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -163,7 +165,10 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route("/create_workspace_fork_branch", post(create_workspace_fork_branch))
+        .route(
+            "/create_workspace_fork_branch",
+            post(create_workspace_fork_branch),
+        )
         .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -706,7 +711,9 @@ async fn get_slack_oauth_config(
     .await?;
 
     // Mask the secret if it exists
-    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+    let masked_secret = settings
+        .slack_oauth_client_secret
+        .map(|_| "***".to_string());
 
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
@@ -3515,6 +3522,76 @@ async fn rebuild_dependency_map(
         return Err(Error::BadRequest("Disabled on Cloud".into()));
     }
     ScopedDependencyMap::rebuild_map(&w_id, &db).await
+}
+
+#[axum::debug_handler]
+async fn get_dependents(
+    Extension(db): Extension<DB>,
+    Path((w_id, imported_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<DependencyDependent>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        "API: Getting dependents for imported path"
+    );
+
+    let dependents = ScopedDependencyMap::get_dependents(&imported_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        dependents_count = dependents.len(),
+        "API: Found dependents: {:?}",
+        dependents
+    );
+
+    Ok(Json(dependents))
+}
+
+#[derive(Serialize, Debug)]
+struct DependentsAmount {
+    imported_path: String,
+    count: i64,
+}
+
+#[axum::debug_handler]
+async fn get_dependents_amounts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(imported_paths): Json<Vec<String>>,
+) -> JsonResult<Vec<DependentsAmount>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_paths = ?imported_paths,
+        "API: Getting dependents amounts for imported paths"
+    );
+
+    // TODO: Add index on (workspace_id, imported_path) to speed up this query
+    let results = sqlx::query_as!(
+        DependentsAmount,
+        r#"
+        SELECT 
+            imported_path,
+            COUNT(DISTINCT importer_path) as "count!"
+        FROM dependency_map 
+        WHERE workspace_id = $1 AND imported_path = ANY($2)
+        GROUP BY imported_path
+        "#,
+        w_id,
+        &imported_paths
+    )
+    .fetch_all(&db)
+    .await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        results_count = results.len(),
+        "API: Found dependents amounts: {:?}",
+        results
+    );
+
+    Ok(Json(results))
 }
 
 #[derive(Deserialize)]
