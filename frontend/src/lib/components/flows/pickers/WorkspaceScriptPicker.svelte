@@ -33,7 +33,8 @@
 		items = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			kinds: kind,
-			isTemplate
+			isTemplate,
+			withoutDescription: true
 		})
 	}
 

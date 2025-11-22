@@ -85,7 +85,8 @@
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true
+			includeDraftOnly: true,
+			withoutDescription: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
