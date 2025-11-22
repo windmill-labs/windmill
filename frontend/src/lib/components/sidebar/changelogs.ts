@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Enhanced git sync',
+		href: 'https://www.windmill.dev/changelog/enhanced-git-sync',
+		date: '2025-08-06'
+	},
+	{
+		label: 'Instance groups workspace mapping',
+		href: 'https://www.windmill.dev/changelog/instance-groups-workspace-mapping',
+		date: '2025-08-14'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
