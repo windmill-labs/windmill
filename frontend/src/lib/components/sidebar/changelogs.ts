@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'AI Agent chat mode and conversation memory',
+		href: 'https://www.windmill.dev/changelog/ai-agent-chat-mode',
+		date: '2025-10-06'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
