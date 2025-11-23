@@ -3,7 +3,6 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import YAML from 'yaml'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
@@ -60,7 +59,7 @@ export interface FlowAIChatHelpers {
 
 	// ai chat tools
 	setCode: (id: string, code: string) => Promise<void>
-	setFlowYaml: (yaml: string) => Promise<void>
+	setFlowJson: (json: string) => Promise<void>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
 }
 
@@ -76,18 +75,18 @@ const searchScriptsToolDef = createToolDef(
 	'Search for scripts in the workspace'
 )
 
-const setFlowYamlSchema = z.object({
-	yaml: z
+const setFlowJsonSchema = z.object({
+	json: z
 		.string()
 		.describe(
-			'Complete flow YAML including modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module'
+			'Complete flow JSON including modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module'
 		)
 })
 
-const setFlowYamlToolDef = createToolDef(
-	setFlowYamlSchema,
-	'set_flow_yaml',
-	'Set the entire flow structure using YAML. Use this for changes to the flow structure and/or input schema. The YAML should include the complete modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module. All existing modules will be replaced.'
+const setFlowJsonToolDef = createToolDef(
+	setFlowJsonSchema,
+	'set_flow_json',
+	'Set the entire flow structure using JSON. Use this for changes to the flow structure and/or input schema. The JSON should include the complete modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module. All existing modules will be replaced.'
 )
 
 class WorkspaceScriptsSearch {
@@ -162,7 +161,9 @@ const testRunStepToolDef = createToolDef(
 )
 
 const inspectInlineScriptSchema = z.object({
-	moduleId: z.string().describe('The ID of the module whose inline script content you want to inspect')
+	moduleId: z
+		.string()
+		.describe('The ID of the module whose inline script content you want to inspect')
 })
 
 const inspectInlineScriptToolDef = createToolDef(
@@ -545,21 +546,22 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			return JSON.stringify({
 				moduleId,
 				content,
-				note: 'To modify this script, include the full updated content in the set_flow_yaml tool call'
+				note: 'To modify this script, include the full updated content in the set_flow_json tool call'
 			})
 		}
 	},
 	{
-		def: setFlowYamlToolDef,
+		def: setFlowJsonToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setFlowYamlSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow YAML...' })
+			console.log('HERE ARGS', args)
+			const parsedArgs = setFlowJsonSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow JSON...' })
 
-			await helpers.setFlowYaml(parsedArgs.yaml)
+			await helpers.setFlowJson(parsedArgs.json)
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Flow YAML applied successfully' })
+			toolCallbacks.setToolStatus(toolId, { content: 'Flow JSON applied successfully' })
 
-			return 'Flow structure updated via YAML. All affected modules have been marked and require review/acceptance.'
+			return 'Flow structure updated via JSON. All affected modules have been marked and require review/acceptance.'
 		}
 	}
 ]
@@ -579,87 +581,114 @@ function formatOpenFlowSchemaForPrompt(): string {
 }
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You modify flows using the **set_flow_yaml** tool, which replaces the entire flow structure with the YAML you provide.
+	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You modify flows using the **set_flow_json** tool, which replaces the entire flow structure with the JSON you provide.
 
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
-## Working with YAML
+## Working with JSON
 
-The YAML must include the complete flow definition with all modules. Example structure:
-\`\`\`yaml
-schema:  # optional - JSON Schema for flow inputs
-  type: object
-  properties:
-    user_id:
-      type: string
-    count:
-      type: number
-      default: 10
-  required: ["user_id"]
-modules:
-  - id: step_a
-    summary: "First step"
-    value:
-      type: rawscript
-      language: bun
-      content: "export async function main() {...}"
-      input_transforms: {}
-  - id: step_b
-    value:
-      type: forloopflow
-      iterator:
-        type: javascript
-        expr: "results.step_a"
-      skip_failures: true
-      parallel: true
-      modules: [...]
-  - id: step_c
-    value:
-      type: branchone
-      branches:
-        - expr: "results.step_a > 10"
-          modules: [...]
-      default: [...]
-preprocessor_module:  # optional - runs before first step
-  id: preprocessor
-  value: {...}
-failure_module:  # optional - runs on flow failure
-  id: failure
-  value: {...}
+The JSON must include the complete flow definition with all modules. Example structure:
+\`\`\`json
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string"
+      },
+      "count": {
+        "type": "number",
+        "default": 10
+      }
+    },
+    "required": ["user_id"]
+  },
+  "modules": [
+    {
+      "id": "step_a",
+      "summary": "First step",
+      "value": {
+        "type": "rawscript",
+        "language": "bun",
+        "content": "export async function main() {...}",
+        "input_transforms": {}
+      }
+    },
+    {
+      "id": "step_b",
+      "value": {
+        "type": "forloopflow",
+        "iterator": {
+          "type": "javascript",
+          "expr": "results.step_a"
+        },
+        "skip_failures": true,
+        "parallel": true,
+        "modules": []
+      }
+    },
+    {
+      "id": "step_c",
+      "value": {
+        "type": "branchone",
+        "branches": [
+          {
+            "expr": "results.step_a > 10",
+            "modules": []
+          }
+        ],
+        "default": []
+      }
+    }
+  ],
+  "preprocessor_module": {
+    "id": "preprocessor",
+    "value": {}
+  },
+  "failure_module": {
+    "id": "failure",
+    "value": {}
+  }
+}
 \`\`\`
 
 ### Inline Script References (Token Optimization)
 
-To reduce token usage, rawscript content in the flow YAML you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
+To reduce token usage, rawscript content in the flow JSON you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
 
-\`\`\`yaml
-modules:
-  - id: step_a
-    value:
-      type: rawscript
-      content: inline_script.step_a  # Reference, not actual code
-      language: bun
+\`\`\`json
+{
+  "modules": [
+    {
+      "id": "step_a",
+      "value": {
+        "type": "rawscript",
+        "content": "inline_script.step_a",
+        "language": "bun"
+      }
+    }
+  ]
+}
 \`\`\`
 
 **When you receive a flow with inline script references:**
-- If you DON'T need to modify a script, keep the reference as-is in your YAML response
+- If you DON'T need to modify a script, keep the reference as-is in your JSON response
 - If you DO need to see or modify a script, use the \`inspect_inline_script\` tool with the module ID
 - When creating NEW modules, always provide the full script content (not a reference)
-- When MODIFYING existing scripts, replace the reference with the full updated content in your YAML
+- When MODIFYING existing scripts, replace the reference with the full updated content in your JSON
 
 **Example workflow:**
-1. You receive YAML with \`content: inline_script.step_a\`
+1. You receive JSON with \`"content": "inline_script.step_a"\`
 2. You need to modify this step → call \`inspect_inline_script\` with moduleId "step_a"
 3. Tool returns the actual code
-4. In your \`set_flow_yaml\` response, include the full modified content:
-   \`\`\`yaml
-   content: |
-     export async function main() {
-       // your modified code
-     }
+4. In your \`set_flow_json\` response, include the full modified content:
+   \`\`\`json
+   {
+     "content": "export async function main() {\\n  // your modified code\\n}"
+   }
    \`\`\`
 
 **Important:** The system automatically handles reference restoration. You just need to:
@@ -767,17 +796,14 @@ ${instructions}`
 	}
 
 	const finalFlow = {
-		...flow,
-		value: {
-			...flow.value,
-			modules: flowModulesYaml,
-			preprocessor_module: optimizedPreprocessor,
-			failure_module: optimizedFailure
-		}
+		schema: flow.schema,
+		modules: flowModulesYaml,
+		preprocessor_module: optimizedPreprocessor,
+		failure_module: optimizedFailure
 	}
 
-	let flowContent = `## CURRENT FLOW YAML:
-${YAML.stringify(finalFlow)}
+	let flowContent = `## CURRENT FLOW JSON:
+${JSON.stringify(finalFlow, null, 2)}
 
 currently selected step:
 ${selectedId}`

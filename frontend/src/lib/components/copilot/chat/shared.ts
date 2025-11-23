@@ -12,7 +12,6 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
-import YAML from 'yaml'
 import { getCurrentModel } from '$lib/aiStore'
 
 export interface ContextStringResult {
@@ -113,7 +112,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return YAML.stringify(modifiedModules)
+	return JSON.stringify(modifiedModules, null, 2)
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {

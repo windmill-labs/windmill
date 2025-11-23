@@ -9,7 +9,6 @@
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 
 	let {
@@ -114,14 +113,15 @@
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
 		},
-		setFlowYaml: async (yaml: string) => {
+		setFlowJson: async (json: string) => {
 			try {
-				// Parse YAML to JavaScript object
-				const parsed = YAML.parse(yaml)
+				// Parse JSON to JavaScript object
+				console.log('HERE JSON', json)
+				const parsed = JSON.parse(json)
 
 				// Validate that it has the expected structure
 				if (!parsed.modules || !Array.isArray(parsed.modules)) {
-					throw new Error('YAML must contain a "modules" array')
+					throw new Error('JSON must contain a "modules" array')
 				}
 
 				// Restore inline script references back to full content
@@ -129,7 +129,10 @@
 
 				// Also restore preprocessor and failure modules if they have references
 				let restoredPreprocessor = parsed.preprocessor_module
-				if (restoredPreprocessor?.value?.type === 'rawscript' && restoredPreprocessor.value.content) {
+				if (
+					restoredPreprocessor?.value?.type === 'rawscript' &&
+					restoredPreprocessor.value.content
+				) {
 					const match = restoredPreprocessor.value.content.match(/^inline_script\.(.+)$/)
 					if (match) {
 						// Wrap in array to reuse the restoration function
@@ -172,7 +175,7 @@
 				// flowStore unchanged - changes only in mergedFlow for review
 			} catch (error) {
 				throw new Error(
-					`Failed to parse or apply YAML: ${error instanceof Error ? error.message : String(error)}`
+					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
 				)
 			}
 		}
