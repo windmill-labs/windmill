@@ -474,40 +474,41 @@
 	}
 
 	export async function buildRequestBody(dynamicArgsOverride: Record<string, any> | undefined) {
-		const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
-		const staticRunnableInputs = {}
+		const nonStaticRunnableInputs: Record<string, any> = dynamicArgsOverride ?? {}
+		const staticRunnableInputs: Record<string, any> = {}
 		const allowUserResources: string[] = []
+
 		for (const k of Object.keys(fields ?? {})) {
-			// Skip fields that are being dynamically overridden
-			// Dynamic overrides should take precedence over static configuration
-			if (dynamicArgsOverride && k in dynamicArgsOverride) {
+			const field = fields[k]
+			const isOverridden = dynamicArgsOverride && k in dynamicArgsOverride
+
+			if (
+				isEditor &&
+				['user', 'evalv2', 'connected'].includes(field.type) &&
+				'allowUserResources' in field &&
+				field.allowUserResources
+			) {
+				allowUserResources.push(k)
+			}
+
+			if (isOverridden) {
 				continue
 			}
-			let field = fields[k]
-			if (field?.type == 'static' && fields[k]) {
+
+			if (field?.type == 'static') {
 				if (isEditor) {
 					staticRunnableInputs[k] = field.value
 				}
 			} else if (field?.type == 'user') {
 				nonStaticRunnableInputs[k] = args?.[k]
-				if (isEditor && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
 				const ctxMatch = field?.expr?.match(ctxRegex)
 				if (ctxMatch) {
 					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
 				} else {
-					// console.log('k', k)
 					nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 				}
-				if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 			} else {
-				if (isEditor && field?.type == 'connected' && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 				nonStaticRunnableInputs[k] = runnableInputValues[k]
 			}
 		}
