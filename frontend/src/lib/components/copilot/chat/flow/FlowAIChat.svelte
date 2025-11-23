@@ -5,6 +5,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { OpenFlow } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
+	import { restoreInlineScriptReferences } from './core'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
@@ -123,6 +124,29 @@
 					throw new Error('YAML must contain a "modules" array')
 				}
 
+				// Restore inline script references back to full content
+				const restoredModules = restoreInlineScriptReferences(parsed.modules)
+
+				// Also restore preprocessor and failure modules if they have references
+				let restoredPreprocessor = parsed.preprocessor_module
+				if (restoredPreprocessor?.value?.type === 'rawscript' && restoredPreprocessor.value.content) {
+					const match = restoredPreprocessor.value.content.match(/^inline_script\.(.+)$/)
+					if (match) {
+						// Wrap in array to reuse the restoration function
+						const restored = restoreInlineScriptReferences([restoredPreprocessor])
+						restoredPreprocessor = restored[0]
+					}
+				}
+
+				let restoredFailure = parsed.failure_module
+				if (restoredFailure?.value?.type === 'rawscript' && restoredFailure.value.content) {
+					const match = restoredFailure.value.content.match(/^inline_script\.(.+)$/)
+					if (match) {
+						const restored = restoreInlineScriptReferences([restoredFailure])
+						restoredFailure = restored[0]
+					}
+				}
+
 				// Take snapshot of current flowStore
 				const snapshot = $state.snapshot(flowStore).val
 				diffManager?.setSnapshot(snapshot)
@@ -133,9 +157,9 @@
 
 				// Set as afterFlow (don't modify flowStore) ✓
 				diffManager.setAfterFlow({
-					modules: parsed.modules,
-					failure_module: parsed.failure_module || undefined,
-					preprocessor_module: parsed.preprocessor_module || undefined,
+					modules: restoredModules,
+					failure_module: restoredFailure || undefined,
+					preprocessor_module: restoredPreprocessor || undefined,
 					skip_expr: parsed.skip_expr,
 					cache_ttl: parsed.cache_ttl
 				})

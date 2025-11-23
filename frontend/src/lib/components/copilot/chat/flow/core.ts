@@ -161,7 +161,178 @@ const testRunStepToolDef = createToolDef(
 	'Execute a test run of a specific step in the flow'
 )
 
+const inspectInlineScriptSchema = z.object({
+	moduleId: z.string().describe('The ID of the module whose inline script content you want to inspect')
+})
+
+const inspectInlineScriptToolDef = createToolDef(
+	inspectInlineScriptSchema,
+	'inspect_inline_script',
+	'Inspect the full content of an inline script that was replaced with a reference. Use this when you need to see or modify the actual script code for a specific module.'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
+
+/**
+ * Storage for inline scripts extracted from flow modules.
+ * Maps module IDs to their rawscript content for token-efficient transmission to AI.
+ */
+class InlineScriptStore {
+	private scripts: Map<string, string> = new Map()
+
+	clear() {
+		this.scripts.clear()
+	}
+
+	set(moduleId: string, content: string) {
+		this.scripts.set(moduleId, content)
+	}
+
+	get(moduleId: string): string | undefined {
+		return this.scripts.get(moduleId)
+	}
+
+	has(moduleId: string): boolean {
+		return this.scripts.has(moduleId)
+	}
+
+	getAll(): Record<string, string> {
+		return Object.fromEntries(this.scripts.entries())
+	}
+}
+
+const inlineScriptStore = new InlineScriptStore()
+
+/**
+ * Recursively extracts all rawscript content from flow modules and stores them.
+ * Replaces the content with references like "inline_script.{module_id}".
+ */
+function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModule[] {
+	if (!modules || !Array.isArray(modules)) {
+		return []
+	}
+
+	return modules.map((module) => {
+		const newModule = { ...module }
+
+		if (newModule.value.type === 'rawscript' && newModule.value.content) {
+			// Store the original content
+			inlineScriptStore.set(module.id, newModule.value.content)
+
+			// Replace with reference
+			newModule.value = {
+				...newModule.value,
+				content: `inline_script.${module.id}`
+			}
+		} else if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+			// Recursively process nested modules in loops
+			if (newModule.value.modules) {
+				newModule.value = {
+					...newModule.value,
+					modules: extractAndReplaceInlineScripts(newModule.value.modules)
+				}
+			}
+		} else if (newModule.value.type === 'branchone') {
+			// Process branches and default modules
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules) : []
+					}))
+				}
+			}
+			if (newModule.value.default) {
+				newModule.value = {
+					...newModule.value,
+					default: extractAndReplaceInlineScripts(newModule.value.default)
+				}
+			}
+		} else if (newModule.value.type === 'branchall') {
+			// Process all branches
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules) : []
+					}))
+				}
+			}
+		}
+
+		return newModule
+	})
+}
+
+/**
+ * Recursively restores inline script references back to their full content.
+ * If content matches pattern "inline_script.{id}", looks up and restores the original.
+ * If content doesn't match (new/modified script), keeps it as-is.
+ */
+export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule[] {
+	return modules.map((module) => {
+		const newModule = { ...module }
+
+		if (newModule.value.type === 'rawscript' && newModule.value.content) {
+			const content = newModule.value.content
+			// Check if it's a reference
+			const match = content.match(/^inline_script\.(.+)$/)
+			if (match) {
+				const moduleId = match[1]
+				const storedContent = inlineScriptStore.get(moduleId)
+				if (storedContent !== undefined) {
+					// Restore original content
+					newModule.value = {
+						...newModule.value,
+						content: storedContent
+					}
+				}
+				// If not found in store, keep the reference as-is (shouldn't happen normally)
+			}
+			// If not a reference, it's new/modified content - keep as-is
+		} else if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+			// Recursively process nested modules in loops
+			if (newModule.value.modules) {
+				newModule.value = {
+					...newModule.value,
+					modules: restoreInlineScriptReferences(newModule.value.modules)
+				}
+			}
+		} else if (newModule.value.type === 'branchone') {
+			// Process branches and default modules
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? restoreInlineScriptReferences(branch.modules) : []
+					}))
+				}
+			}
+			if (newModule.value.default) {
+				newModule.value = {
+					...newModule.value,
+					default: restoreInlineScriptReferences(newModule.value.default)
+				}
+			}
+		} else if (newModule.value.type === 'branchall') {
+			// Process all branches
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? restoreInlineScriptReferences(branch.modules) : []
+					}))
+				}
+			}
+		}
+
+		return newModule
+	})
+}
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
@@ -346,6 +517,39 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showDetails: true
 	},
 	{
+		def: inspectInlineScriptToolDef,
+		fn: async ({ args, toolCallbacks, toolId }) => {
+			const parsedArgs = inspectInlineScriptSchema.parse(args)
+			const moduleId = parsedArgs.moduleId
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieving inline script content for module '${moduleId}'...`
+			})
+
+			const content = inlineScriptStore.get(moduleId)
+
+			if (content === undefined) {
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Module '${moduleId}' not found in inline script store`,
+					error: `No inline script found for module ID '${moduleId}'`
+				})
+				throw new Error(
+					`Module '${moduleId}' not found. This module either doesn't exist, isn't a rawscript, or wasn't replaced with a reference.`
+				)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieved inline script for module '${moduleId}'`
+			})
+
+			return JSON.stringify({
+				moduleId,
+				content,
+				note: 'To modify this script, include the full updated content in the set_flow_yaml tool call'
+			})
+		}
+	},
+	{
 		def: setFlowYamlToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setFlowYamlSchema.parse(args)
@@ -427,6 +631,41 @@ failure_module:  # optional - runs on flow failure
   value: {...}
 \`\`\`
 
+### Inline Script References (Token Optimization)
+
+To reduce token usage, rawscript content in the flow YAML you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
+
+\`\`\`yaml
+modules:
+  - id: step_a
+    value:
+      type: rawscript
+      content: inline_script.step_a  # Reference, not actual code
+      language: bun
+\`\`\`
+
+**When you receive a flow with inline script references:**
+- If you DON'T need to modify a script, keep the reference as-is in your YAML response
+- If you DO need to see or modify a script, use the \`inspect_inline_script\` tool with the module ID
+- When creating NEW modules, always provide the full script content (not a reference)
+- When MODIFYING existing scripts, replace the reference with the full updated content in your YAML
+
+**Example workflow:**
+1. You receive YAML with \`content: inline_script.step_a\`
+2. You need to modify this step → call \`inspect_inline_script\` with moduleId "step_a"
+3. Tool returns the actual code
+4. In your \`set_flow_yaml\` response, include the full modified content:
+   \`\`\`yaml
+   content: |
+     export async function main() {
+       // your modified code
+     }
+   \`\`\`
+
+**Important:** The system automatically handles reference restoration. You just need to:
+- Keep references unchanged when not modifying scripts
+- Provide full content when creating or modifying scripts
+
 ### Key Concepts
 - **input_transforms**: Map parameter names to values. Use \`results.step_id\` for previous results, \`flow_input.property\` for flow inputs, \`flow_input.iter.value\` inside loops
 - **Resources**: For flow inputs, use type "object" with format "resource-<type>". For step inputs, use "$res:path/to/resource"
@@ -494,12 +733,46 @@ ${instructions}`
 	}
 
 	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
-	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
+
+	// Clear the inline script store and extract inline scripts for token optimization
+	inlineScriptStore.clear()
+	const optimizedModules = extractAndReplaceInlineScripts(flow.value.modules)
+
+	// Apply code pieces to the optimized modules (returns YAML string)
+	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, optimizedModules)
+
+	// Handle preprocessor and failure modules
+	let optimizedPreprocessor = flow.value.preprocessor_module
+	if (optimizedPreprocessor?.value?.type === 'rawscript' && optimizedPreprocessor.value.content) {
+		inlineScriptStore.set(optimizedPreprocessor.id, optimizedPreprocessor.value.content)
+		optimizedPreprocessor = {
+			...optimizedPreprocessor,
+			value: {
+				...optimizedPreprocessor.value,
+				content: `inline_script.${optimizedPreprocessor.id}`
+			}
+		}
+	}
+
+	let optimizedFailure = flow.value.failure_module
+	if (optimizedFailure?.value?.type === 'rawscript' && optimizedFailure.value.content) {
+		inlineScriptStore.set(optimizedFailure.id, optimizedFailure.value.content)
+		optimizedFailure = {
+			...optimizedFailure,
+			value: {
+				...optimizedFailure.value,
+				content: `inline_script.${optimizedFailure.id}`
+			}
+		}
+	}
+
 	const finalFlow = {
 		...flow,
 		value: {
 			...flow.value,
-			modules: flowModulesYaml
+			modules: flowModulesYaml,
+			preprocessor_module: optimizedPreprocessor,
+			failure_module: optimizedFailure
 		}
 	}
 
