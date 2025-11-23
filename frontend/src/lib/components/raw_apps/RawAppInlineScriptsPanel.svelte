@@ -10,7 +10,7 @@
 		initRunnablesContent: Record<string, string>
 	}
 
-	let { runnables, selectedRunnable = $bindable(), appPath, initRunnablesContent }: Props = $props()
+	let { runnables, selectedRunnable = $bindable(), appPath }: Props = $props()
 </script>
 
 {#if !selectedRunnable}

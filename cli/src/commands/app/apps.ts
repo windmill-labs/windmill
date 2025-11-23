@@ -15,6 +15,7 @@ import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
+import devCommand from "./dev.ts";
 
 export interface AppFile {
   value: any;
@@ -163,6 +164,7 @@ const command = new Command()
   .action(list as any)
   .command("push", "push a local app ")
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command("dev", devCommand);
 
 export default command;

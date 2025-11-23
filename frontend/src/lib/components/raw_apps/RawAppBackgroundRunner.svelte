@@ -2,14 +2,13 @@
 	import { executeRunnable } from '../apps/components/helpers/executeRunnable'
 	import { userStore } from '$lib/stores'
 	import { waitJob } from '../waitJob'
-	import type { JobById } from '../apps/types'
+	import type { HiddenRunnable, JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
-	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
 		path: string
-		runnables: Record<string, Runnable>
+		runnables: Record<string, HiddenRunnable>
 		jobs?: string[]
 		jobsById?: Record<string, JobById>
 		editor: boolean

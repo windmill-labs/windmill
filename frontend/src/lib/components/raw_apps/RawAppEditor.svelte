@@ -10,11 +10,10 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { genWmillTs } from './utils'
+	import { genWmillTs, type Runnable } from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 
 	interface Props {
 		initFiles: Record<string, string>

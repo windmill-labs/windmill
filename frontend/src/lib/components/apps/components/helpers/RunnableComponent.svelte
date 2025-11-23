@@ -7,14 +7,13 @@
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
-	import type { AppInputs, Runnable } from '../../inputType'
+	import type { AppInputs, InlineScript, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
 		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
-		InlineScript,
 		ListContext
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'

@@ -13,7 +13,8 @@
 		RefreshCcw,
 		Repeat,
 		Square,
-		Pin
+		Pin,
+		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -21,7 +22,6 @@
 	import { getLatestHashForScript } from '$lib/scripts'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
-	import SaveToWorkspace from '$lib/components/SaveToWorkspace.svelte'
 
 	interface Props {
 		module: FlowModule

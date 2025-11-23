@@ -9,7 +9,8 @@
 		isScriptPreview,
 		isJobSelectable,
 		msToReadableTime,
-		isFlowPreview
+		isFlowPreview,
+		type RunsSelectionMode
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -37,7 +38,6 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
-	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { GitIcon } from '../icons'
@@ -205,10 +205,7 @@
 						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					Waiting executor (<TimeAgo
-						agoOnlyIfRecent
-						date={job.scheduled_for || ''}
-					/>)
+					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.scheduled_for || ''} />)
 				{:else}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}

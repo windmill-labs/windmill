@@ -1,7 +1,16 @@
-import type { Schema } from '$lib/common'
-import { schemaToTsType } from '$lib/schema'
-import { capitalize } from '$lib/utils'
-import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
+import type { ScriptLang } from '../../gen/types.gen'
+import type { Schema } from '../../common'
+import { schemaToTsType } from '../../schema'
+import { capitalize } from '../../sharedUtils'
+// import type { RunnableWithFields } from '../apps/inputType'
+import type { InlineScript } from '../apps/sharedTypes'
+
+export type RunnableWithFields = any
+
+type RunnableWithInlineScript = RunnableWithFields & {
+	inlineScript?: InlineScript & { language: ScriptLang }
+}
+export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
@@ -42,7 +51,9 @@ function removeStaticFields(schema: Schema, fields: Record<string, { type: strin
 function hiddenRunnableToTsType(runnable: Runnable) {
 	if (runnable?.type == 'runnableByName') {
 		if (runnable?.inlineScript?.schema) {
-			return schemaToTsType(removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {}))
+			return schemaToTsType(
+				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
+			)
 		} else {
 			return '{}'
 		}
@@ -58,20 +69,20 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 	
 ${Object.entries(runnables)
-			.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
 
-			.join('\n')}
+	.join('\n')}
 
 export const runBg = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
-			.join(',\n')}
+	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
+	.join(',\n')}
 }
 	
 export const runBgAsync = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
-			.join(',\n')}
+	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
+	.join(',\n')}
 }
 	
 

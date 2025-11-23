@@ -1,8 +1,13 @@
 <script lang="ts">
 	import EmptyInlineScript from '../apps/editor/inlineScriptsPanel/EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from '../apps/editor/inlineScriptsPanel/InlineScriptRunnableByPath.svelte'
-	import type { RunnableWithFields, StaticAppInput, UserAppInput } from '../apps/inputType'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import type {
+		InlineScript,
+		RunnableWithFields,
+		StaticAppInput,
+		UserAppInput
+	} from '../apps/inputType'
+	import { createEventDispatcher } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -13,7 +18,6 @@
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
 	import type { Job, ScriptLang } from '$lib/gen'
-	import type { InlineScript } from '../apps/types'
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -26,7 +30,7 @@
 		lastDeployedCode?: string | undefined
 	}
 
-	let { runnable = $bindable(), id, appPath, lastDeployedCode }: Props = $props()
+	let { runnable = $bindable(), id, appPath }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -110,27 +114,22 @@
 	<Splitpanes>
 		<Pane size={55}>
 			{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
-				{#if runnable.inlineScript.language == 'frontend'}
-					<div class="text-sm text-primary">Frontend scripts not supported for raw apps</div>
-				{:else}
-					<RawAppInlineScriptEditor
-						on:createScriptFromInlineScript={() =>
-							dispatch('createScriptFromInlineScript', runnable)}
-						{id}
-						bind:inlineScript={runnable.inlineScript}
-						bind:name={runnable.name}
-						bind:fields={runnable.fields}
-						isLoading={testIsLoading}
-						onRun={testPreview}
-						onCancel={async () => {
-							if (jobLoader) {
-								await jobLoader.cancelJob()
-							}
-						}}
-						on:delete
-						path={appPath}
-					/>
-				{/if}
+				<RawAppInlineScriptEditor
+					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+					{id}
+					bind:inlineScript={runnable.inlineScript}
+					bind:name={runnable.name}
+					bind:fields={runnable.fields}
+					isLoading={testIsLoading}
+					onRun={testPreview}
+					onCancel={async () => {
+						if (jobLoader) {
+							await jobLoader.cancelJob()
+						}
+					}}
+					on:delete
+					path={appPath}
+				/>
 			{:else if runnable?.type == 'runnableByPath'}
 				<InlineScriptRunnableByPath
 					rawApps

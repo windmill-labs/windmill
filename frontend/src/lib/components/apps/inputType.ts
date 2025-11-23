@@ -1,6 +1,7 @@
 import type { ReadFileAs } from '../common/fileInput/model'
 import type { DecisionTreeNode, TypedComponent } from './editor/component'
-import type { InlineScript } from './types'
+import type { InlineScript } from './sharedTypes'
+export type { InlineScript } from './sharedTypes'
 
 export type InputType =
 	| 'integer'
@@ -143,7 +144,9 @@ export type RunnableByName = {
 
 export type Runnable = RunnableByPath | RunnableByName | undefined
 
-export type RunnableWithFields = Runnable & { fields?: Record<string, StaticAppInput | UserAppInput> }
+export type RunnableWithFields = Runnable & {
+	fields?: Record<string, StaticAppInput | UserAppInput>
+}
 
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {

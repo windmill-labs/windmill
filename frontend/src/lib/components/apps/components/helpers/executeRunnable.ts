@@ -1,7 +1,7 @@
 import { AppService, type ExecuteComponentData } from '$lib/gen'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { Runnable } from '../../inputType'
-import type { InlineScript } from '../../types'
+import type { InlineScript } from '../../sharedTypes'
 
 export async function executeRunnable(
 	runnable: Runnable,

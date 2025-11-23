@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type UserExt } from '$lib/stores'
+	import type { HiddenRunnable } from '../apps/types'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
-	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { htmlContent } from './utils'
 
 	interface Props {
@@ -9,7 +9,7 @@
 		user: UserExt | undefined
 		secret: string | undefined
 		path: string
-		runnables: Record<string, Runnable>
+		runnables: Record<string, HiddenRunnable>
 	}
 
 	let { workspace, user, secret, path, runnables }: Props = $props()

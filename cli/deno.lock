@@ -58,6 +58,7 @@
     "jsr:@windmill-labs/cliffy-prompt@^1.0.0-rc.5": "1.0.0-rc.6",
     "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5": "1.0.0-rc.5",
+    "jsr:@windmill-labs/shared-utils@1.0.3": "1.0.3",
     "npm:@ayonli/jsext@*": "1.8.0",
     "npm:@types/node@*": "22.12.0",
     "npm:@windmill-labs/shared-utils@1.0.1": "1.0.1",
@@ -282,6 +283,9 @@
         "jsr:@std/cli",
         "jsr:@std/fmt@~0.225.4"
       ]
+    },
+    "@windmill-labs/shared-utils@1.0.3": {
+      "integrity": "35bafaf74092ebb63e96c75897337320378c04f93cf9b352fcc2137ffdb3e862"
     }
   },
   "npm": {

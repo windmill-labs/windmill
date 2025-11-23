@@ -13,8 +13,7 @@
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import type { InlineScript } from '../apps/types'
-	import type { AppInput } from '../apps/inputType'
+	import type { AppInput, InlineScript } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'

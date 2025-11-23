@@ -1,15 +1,3 @@
-/// <reference types="@sveltejs/kit" />
-
-declare type Item = import('@windmill-labs/svelte-dnd-action').Item
-declare type DndEvent<ItemType = Item> =
-	import('@windmill-labs/svelte-dnd-action').DndEvent<ItemType>
-declare namespace svelte.JSX {
-	interface HTMLAttributes<T> {
-		onconsider?: (event: CustomEvent<DndEvent<ItemType>> & { target: EventTarget & T }) => void
-		onfinalize?: (event: CustomEvent<DndEvent<ItemType>> & { target: EventTarget & T }) => void
-	}
-}
-
 /// <reference types="vite/client" />
 
 // Vite environment variables

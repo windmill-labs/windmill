@@ -1,8 +1,8 @@
 import type { Schema } from '$lib/common'
 import { ScriptService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type { AppInputs, Runnable, RunnableByName } from '../../inputType'
-import type { GridItem, HiddenRunnable, InlineScript } from '../../types'
+import type { AppInputs, InlineScript, Runnable, RunnableByName } from '../../inputType'
+import type { GridItem, HiddenRunnable } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
 

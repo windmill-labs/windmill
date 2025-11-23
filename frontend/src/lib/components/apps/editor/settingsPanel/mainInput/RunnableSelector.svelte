@@ -3,7 +3,7 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -12,7 +12,6 @@
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import type { InlineScript } from '$lib/components/apps/types'
 
 	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 

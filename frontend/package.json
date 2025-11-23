@@ -4,7 +4,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"build:utils": "vite build --config vite.sharedUtils.config.js",
+		"build:utils": "vite build --config sharedUtils/vite.sharedUtils.config.js",
 		"preview": "vite preview",
 		"postinstall": "node -e \"if (require('fs').existsSync('./scripts/untar_ui_builder.js')) { require('child_process').execSync('node ./scripts/untar_ui_builder.js', {stdio: 'inherit'}) }\"",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
@@ -41,6 +41,7 @@
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
 		"d3-dag": "^0.11.5",
+		"dts-bundle-generator": "^9.5.1",
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.45.1",
@@ -66,7 +67,6 @@
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
 		"vite": "npm:rolldown-vite@latest",
-		"vite-plugin-dts": "^4.5.4",
 		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},

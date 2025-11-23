@@ -36,6 +36,7 @@
 		Package,
 		Plus,
 		RotateCw,
+		Save,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
@@ -52,7 +53,6 @@
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
-	import SaveToWorkspace from './SaveToWorkspace.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -1011,14 +1011,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
 					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
-				{:else}
-					<ScriptGen
-						{editor}
-						{diffEditor}
-						{lang}
-						btnProps={{ variant: 'subtle', iconOnly: true }}
-						{args}
-					/>
 				{/if}
 			{/if}
 
