@@ -25,6 +25,7 @@
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { convertManagedFieldsToEvalv2 } from '$lib/components/apps/components/componentManagedFields'
 
 	const {
 		runnableComponents,
@@ -127,73 +128,18 @@
 					fieldType: 'number'
 				}
 			}
-		} else if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			newFields['offset'] = {
-				type: 'evalv2',
-				expr: `${id}.params.offset`,
-				fieldType: 'number'
-			}
-			newFields['limit'] = {
-				type: 'evalv2',
-				expr: `${id}.params.limit`,
-				fieldType: 'number'
-			}
-			newFields['orderBy'] = {
-				type: 'evalv2',
-				expr: `${id}.params.orderBy`,
-				fieldType: 'string'
-			}
-			newFields['isDesc'] = {
-				type: 'evalv2',
-				expr: `${id}.params.isDesc`,
-				fieldType: 'boolean'
-			}
-			newFields['search'] = {
-				type: 'evalv2',
-				expr: `${id}.params.search`,
-				fieldType: 'string'
-			}
-		} else if (componentType === 'chatcomponent') {
-			// Only add evalv2 field if user_message exists in schema
-			if (newFields['user_message']) {
-				newFields['user_message'] = {
-					type: 'evalv2',
-					expr: `${id}.userMessage`,
-					fieldType: 'string'
-				}
-			}
+		} else {
+			// Convert component-managed fields to evalv2 type using centralized utility
+			const convertedFields = convertManagedFieldsToEvalv2(componentType, id, newFields)
+			Object.assign(newFields, convertedFields)
 		}
 	}
 
 	function assertConnections(newFields) {
-		if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			const fields = ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-
-			fields.forEach((field) => {
-				if (newFields[field]?.type !== 'evalv2') {
-					newFields[field] = {
-						type: 'evalv2',
-						expr: `${id}.params.${field}`,
-						fieldType: newFields[field]?.fieldType ?? 'string'
-					}
-				}
-			})
-		} else if (componentType === 'chatcomponent') {
-			// Only convert to evalv2 if field exists
-			if (newFields['user_message'] && newFields['user_message']?.type !== 'evalv2') {
-				newFields['user_message'] = {
-					type: 'evalv2',
-					expr: `${id}.userMessage`,
-					fieldType: newFields['user_message']?.fieldType ?? 'string'
-				}
-			}
-		}
+		// Convert component-managed fields to evalv2 type using centralized utility
+		// This ensures that even if fields were somehow changed, they remain as evalv2
+		const convertedFields = convertManagedFieldsToEvalv2(componentType ?? '', id, newFields)
+		Object.assign(newFields, convertedFields)
 	}
 
 	async function loadSchemaAndInputsByName() {

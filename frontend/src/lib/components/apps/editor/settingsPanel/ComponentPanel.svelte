@@ -38,6 +38,7 @@
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
+	import { getManagedFields } from '$lib/components/apps/components/componentManagedFields'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
@@ -385,12 +386,7 @@
 										acceptSelf={component.type === 'aggridinfinitecomponent' ||
 											component.type === 'aggridinfinitecomponentee' ||
 											component.type === 'steppercomponent'}
-										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
-										component.type === 'aggridinfinitecomponentee'
-											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-											: component.type === 'chatcomponent'
-												? ['user_message']
-												: []}
+										overridenByComponent={getManagedFields(component.type)}
 										securedContext
 									/>
 								</div>
