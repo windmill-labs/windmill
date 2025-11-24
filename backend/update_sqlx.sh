@@ -2,15 +2,6 @@
 
 set -e
 
-# Parse arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --dir) EE_DIR="$2"; shift ;;
-        *) echo "Unknown parameter: $1"; exit 1 ;;
-    esac
-    shift
-done
-
 # Check if running on macOS
 if [[ "$(uname)" == "Darwin" ]]; then
     echo "Running on macOS - substituting samael..."
