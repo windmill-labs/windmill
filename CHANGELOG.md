@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.583.3](https://github.com/windmill-labs/windmill/compare/v1.583.2...v1.583.3) (2025-11-24)
+
+
+### Bug Fixes
+
+* **cli:** fix pushing non existing apps with cli ([29d8ad2](https://github.com/windmill-labs/windmill/commit/29d8ad2e5de1447f39252edd5ceea22034801547))
+* fix deadlock on oidc ([0e717c9](https://github.com/windmill-labs/windmill/commit/0e717c9588c1a3811cc4d438b53a93b4b13cf239))
+
 ## [1.583.2](https://github.com/windmill-labs/windmill/compare/v1.583.1...v1.583.2) (2025-11-24)
 
 

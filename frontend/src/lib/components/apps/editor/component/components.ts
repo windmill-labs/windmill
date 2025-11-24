@@ -54,7 +54,8 @@ import {
 	RefreshCw,
 	ListCollapse,
 	GalleryThumbnails,
-	Code
+	Code,
+	MessageSquare
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -208,6 +209,7 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type ChatComponent = BaseComponent<'chatcomponent'> & RecomputeOthersSource
 export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
@@ -338,6 +340,7 @@ export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
+	| ChatComponent
 	| LogComponent
 	| JobIdLogComponent
 	| FlowStatusComponent
@@ -461,6 +464,23 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+	/**
+	 * Optional configuration for runnable inputs validation
+	 */
+	runnableInputsInfo?: {
+		/**
+		 * Function to validate runnable inputs and return a warning if needed
+		 * @param fields - The fields object from componentInput.fields
+		 * @returns Warning object with type, title, and message, or undefined if valid
+		 */
+		validate?: (fields: Record<string, any>) =>
+			| {
+					type: 'warning' | 'error' | 'info'
+					title: string
+					message: string
+			  }
+			| undefined
+	}
 }
 
 export type PresetComponentConfig = {
@@ -1125,6 +1145,56 @@ export const components = {
 					value: false,
 					tooltip: 'Force the result to be displayed as JSON'
 				}
+			}
+		}
+	},
+	chatcomponent: {
+		name: 'Chat',
+		icon: MessageSquare,
+		documentationLink: `${documentationBaseUrl}/chat`,
+		dims: '3:8-6:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			messagesContainer: { class: '', style: '' },
+			inputContainer: { class: '', style: '' },
+			userMessage: { class: '', style: '' },
+			assistantMessage: { class: '', style: '' },
+			input: { class: '', style: '' },
+			button: { class: '', style: '' }
+		},
+		runnableInputsInfo: {
+			validate: (fields) => {
+				const fieldNames = Object.keys(fields)
+				const hasUserMessage = fieldNames.includes('user_message')
+
+				if (!hasUserMessage) {
+					return {
+						type: 'warning' as const,
+						title: 'Chat input configuration',
+						message:
+							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your event handler.'
+					}
+				}
+
+				return undefined
+			}
+		},
+		initialData: {
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			recomputeIds: true,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Type a message...'
+				},
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
