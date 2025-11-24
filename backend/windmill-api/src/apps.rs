@@ -1655,7 +1655,7 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
-    /// Flow-specific query parameters (e.g., memory_id for chat-enabled flows)
+    /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
 }
 
@@ -1897,8 +1897,8 @@ async fn execute_component(
     )
     .await?;
 
-    // Determine if this is a flow before we move payload.path
-    let is_flow = payload.path
+    let is_flow = payload
+        .path
         .as_ref()
         .map(|p| p.starts_with("flow/"))
         .unwrap_or(false);
@@ -1964,14 +1964,8 @@ async fn execute_component(
     )
     .await?;
 
-    // Apply flow-specific query parameters if provided
+    // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {
-        tracing::info!(
-            "HERE [execute_component] Received run_query_params for job_id={}, is_flow={}, run_query={:?}",
-            uuid,
-            is_flow,
-            run_query
-        );
         if is_flow {
             crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
         }

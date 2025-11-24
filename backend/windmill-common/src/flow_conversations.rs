@@ -26,14 +26,6 @@ pub async fn add_message_to_conversation_tx(
     step_name: Option<&str>,
     success: bool,
 ) -> Result<()> {
-    tracing::info!(
-        "HERE [add_message_to_conversation_tx] Adding message to conversation_id={}, message_type={:?}, content_len={}, job_id={:?}",
-        conversation_id,
-        message_type,
-        content.len(),
-        job_id
-    );
-
     // Check if conversation exists first
     let conversation_exists = sqlx::query!(
         "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1) as \"exists!\"",

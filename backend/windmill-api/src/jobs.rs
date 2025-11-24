@@ -3969,19 +3969,8 @@ pub async fn process_flow_run_query_params(
     job_id: Uuid,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
-    tracing::info!(
-        "HERE [process_flow_run_query_params] Processing query params for job_id={}, run_query={:?}",
-        job_id,
-        run_query
-    );
-
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_id {
-        tracing::info!(
-            "HERE [process_flow_run_query_params] Setting memory_id={} for job_id={}",
-            memory_id,
-            job_id
-        );
         set_flow_memory_id(tx, job_id, memory_id).await?;
     }
 
@@ -5699,7 +5688,7 @@ pub async fn stream_job(
                 version,
                 run_query,
                 args,
-                None
+                None,
             )
             .await?
             .0
