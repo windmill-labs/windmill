@@ -440,7 +440,7 @@ function ZipFSElement(
               throw error;
             }
             // console.log("rawApp", rawApp);
-
+            rawApp.policy = undefined;
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
