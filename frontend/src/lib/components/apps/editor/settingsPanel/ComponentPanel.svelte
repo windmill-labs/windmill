@@ -388,7 +388,9 @@
 										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
 										component.type === 'aggridinfinitecomponentee'
 											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-											: []}
+											: component.type === 'chatcomponent'
+												? ['user_message']
+												: []}
 										securedContext
 									/>
 								</div>

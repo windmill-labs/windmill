@@ -49,7 +49,8 @@
 		result: undefined as any,
 		loading: false,
 		jobId: undefined as string | undefined,
-		messages: [] as Message[]
+		messages: [] as Message[],
+		userMessage: '' as string  // Output for evalv2 field
 	})
 
 	// Resolve configuration
@@ -200,13 +201,14 @@
 		currentStreamingMessageIndex = undefined
 		accumulatedContent = ''
 
-		// Trigger the runnable with the message as input
+		// Update output so evalv2 field can reference it
+		outputs.userMessage.set(userMessage)
+
+		// Trigger the runnable
 		if (!runnableComponent) {
 			runnableWrapper?.handleSideEffect(true)
 		} else {
-			await runnableComponent?.runComponent(true, undefined, undefined, {
-				user_message: userMessage
-			})
+			await runnableComponent?.runComponent()
 		}
 	}
 

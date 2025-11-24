@@ -480,7 +480,6 @@
 
 		for (const k of Object.keys(fields ?? {})) {
 			const field = fields[k]
-			const isOverridden = dynamicArgsOverride && k in dynamicArgsOverride
 
 			if (
 				isEditor &&
@@ -489,10 +488,6 @@
 				field.allowUserResources
 			) {
 				allowUserResources.push(k)
-			}
-
-			if (isOverridden) {
-				continue
 			}
 
 			if (field?.type == 'static') {

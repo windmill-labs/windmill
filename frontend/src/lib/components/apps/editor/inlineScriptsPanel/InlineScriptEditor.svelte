@@ -156,6 +156,15 @@
 				expr: `${id}.params.search`,
 				fieldType: 'string'
 			}
+		} else if (componentType === 'chatcomponent') {
+			// Only add evalv2 field if user_message exists in schema
+			if (newFields['user_message']) {
+				newFields['user_message'] = {
+					type: 'evalv2',
+					expr: `${id}.userMessage`,
+					fieldType: 'string'
+				}
+			}
 		}
 	}
 
@@ -175,6 +184,15 @@
 					}
 				}
 			})
+		} else if (componentType === 'chatcomponent') {
+			// Only convert to evalv2 if field exists
+			if (newFields['user_message'] && newFields['user_message']?.type !== 'evalv2') {
+				newFields['user_message'] = {
+					type: 'evalv2',
+					expr: `${id}.userMessage`,
+					fieldType: newFields['user_message']?.fieldType ?? 'string'
+				}
+			}
 		}
 	}
 
