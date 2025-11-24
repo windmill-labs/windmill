@@ -226,7 +226,8 @@
 		}
 	}
 
-	function getCapturePayload(capture: Capture, showRawPayload: boolean) {
+	function getCapturePayload(capture: Capture | undefined, showRawPayload: boolean) {
+		if (!capture) return {}
 		let payloadData: any = {}
 		const preprocessor_args = isObject(capture.preprocessor_args) ? capture.preprocessor_args : {}
 		if ('wm_trigger' in preprocessor_args) {
@@ -251,6 +252,8 @@
 	function toggleRawPayload() {
 		showRawPayload = !showRawPayload
 	}
+
+	const payloadData = $derived(getCapturePayload(selectedCapture, showRawPayload))
 
 	// Start or stop capture listening based on active state
 	$effect(() => {
@@ -491,15 +494,8 @@
 											wrapperClasses="w-fit"
 											onclick={() => {
 												if (selectedCapture) {
-													const payloadData = selectedCapture?.main_args ?? {}
-													const trigger_extra = isObject(selectedCapture.preprocessor_args)
-														? selectedCapture.preprocessor_args
-														: {}
 													dispatch('addPreprocessor', {
-														args: $state.snapshot({
-															...payloadData,
-															...trigger_extra
-														})
+														args: $state.snapshot(payloadData)
 													})
 												} else {
 													dispatch('addPreprocessor', { args: {} })
@@ -516,7 +512,7 @@
 							bind:this={displayResult}
 							workspaceId={undefined}
 							jobId={undefined}
-							result={getCapturePayload(selectedCapture, showRawPayload)}
+							result={payloadData}
 							externalToolbarAvailable
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocation = detail
@@ -530,7 +526,7 @@
 				{/if}
 			</div>
 
-			{#if selectedCapture?.main_args}
+			{#if !hasPreprocessor && !isLoadingBigPayload && selectedCapture?.main_args}
 				<div class="mt-2 text-2xs text-secondary flex-shrink-0 text-right px-2">
 					{showRawPayload ? '' : 'Need more data about the trigger event?'}
 					<button onclick={toggleRawPayload} class="text-accent cursor-pointer">
