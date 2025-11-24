@@ -46,7 +46,9 @@ export async function pushApp(
   } catch {
     //ignore
   }
-  app.policy = undefined;
+  if (app) {
+    app.policy = undefined;
+  }
 
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
