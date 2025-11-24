@@ -76,7 +76,11 @@ export const authorizedClassnames = [
 	'wm-conditional-tabs',
 
 	'wm-rich-result-header',
-	'wm-rich-result-container'
+	'wm-rich-result-container',
+
+	'wm-chat-container',
+	'wm-chat-messages',
+	'wm-chat-input'
 	// TODO: Select and mutltiselect
 ]
 
@@ -615,6 +619,27 @@ export const customisationByComponent: Customisation[] = [
 				selector: '.wm-rich-result-container',
 				comment: 'Rich result container',
 				customCssKey: 'container'
+			}
+		],
+		variables: []
+	},
+	{
+		components: ['chatcomponent'],
+		selectors: [
+			{
+				selector: '.wm-chat-container',
+				comment: 'Main chat container',
+				customCssKey: 'container'
+			},
+			{
+				selector: '.wm-chat-messages',
+				comment: 'Messages container',
+				customCssKey: 'messagesContainer'
+			},
+			{
+				selector: '.wm-chat-input',
+				comment: 'Input container',
+				customCssKey: 'inputContainer'
 			}
 		],
 		variables: []

@@ -15,6 +15,8 @@ pub enum MessageType {
 }
 
 /// Add a message to a conversation using an existing transaction
+/// If the conversation doesn't exist, logs a warning and returns Ok (no error thrown)
+/// This allows memory_id to be used for agent memory without requiring a conversation
 pub async fn add_message_to_conversation_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     conversation_id: Uuid,
@@ -24,6 +26,23 @@ pub async fn add_message_to_conversation_tx(
     step_name: Option<&str>,
     success: bool,
 ) -> Result<()> {
+    // Check if conversation exists first
+    let conversation_exists = sqlx::query!(
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1) as \"exists!\"",
+        conversation_id
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .exists;
+
+    if !conversation_exists {
+        tracing::warn!(
+            "Conversation {} does not exist. Skipping message insertion. This is expected when flows are called from apps (memory_id is used for agent memory only).",
+            conversation_id
+        );
+        return Ok(());
+    }
+
     // Insert the message
     sqlx::query!(
         "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success)

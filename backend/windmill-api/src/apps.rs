@@ -10,6 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     auth::OptTokened,
     db::{ApiAuthed, DB},
+    jobs::RunJobQuery,
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
@@ -1654,6 +1655,8 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
+    /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
+    pub run_query_params: Option<RunJobQuery>,
 }
 
 fn digest(code: &str) -> String {
@@ -1894,6 +1897,12 @@ async fn execute_component(
     )
     .await?;
 
+    let is_flow = payload
+        .path
+        .as_ref()
+        .map(|p| p.starts_with("flow/"))
+        .unwrap_or(false);
+
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
@@ -1920,7 +1929,7 @@ async fn execute_component(
 
     let end_user_email = opt_authed.as_ref().map(|a| a.email.clone());
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -1954,6 +1963,14 @@ async fn execute_component(
         None,
     )
     .await?;
+
+    // Apply runnable query parameters if provided
+    if let Some(ref run_query) = payload.run_query_params {
+        if is_flow {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        }
+    }
+
     tx.commit().await?;
 
     Ok(uuid.to_string())

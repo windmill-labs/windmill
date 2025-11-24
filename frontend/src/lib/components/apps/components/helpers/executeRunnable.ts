@@ -11,7 +11,8 @@ export async function executeRunnable(
 	path: string,
 	id: string,
 	requestBody: ExecuteComponentData['requestBody'],
-	inlineScriptOverride?: InlineScript
+	inlineScriptOverride?: InlineScript,
+	queryParams?: Record<string, any>
 ) {
 	let appPath = defaultIfEmptyString(path, `u/${username ?? 'unknown'}/newapp`)
 	if (runnable?.type === 'runnableByName') {
@@ -38,6 +39,10 @@ export async function executeRunnable(
 
 	if (version !== undefined) {
 		requestBody['version'] = version
+	}
+
+	if (queryParams && Object.keys(queryParams).length > 0) {
+		requestBody['run_query_params'] = queryParams
 	}
 
 	const uuid = await AppService.executeComponent({

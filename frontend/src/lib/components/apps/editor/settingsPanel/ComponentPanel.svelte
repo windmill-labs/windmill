@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -37,6 +38,7 @@
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
+	import { getManagedFields } from '$lib/components/apps/components/componentManagedFields'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
@@ -145,6 +147,10 @@
 
 	const componentInput: RichConfiguration | undefined = item?.data?.type
 		? ccomponents[item?.data?.type]?.initialData?.componentInput
+		: undefined
+
+	const runnableInputsInfo = item?.data?.type
+		? ccomponents[item.data.type]?.runnableInputsInfo
 		: undefined
 
 	const hasInteraction = item.data.type ? isTriggerable(item.data.type) : false
@@ -355,6 +361,19 @@
 											parameters this component is attached to.
 										</Tooltip>
 									</div>
+
+									<!-- Generic runnable inputs validation -->
+									{#if runnableInputsInfo?.validate}
+										{@const validation = runnableInputsInfo?.validate(
+											item.data.componentInput.fields ?? {}
+										)}
+										{#if validation}
+											<Alert type={validation.type} title={validation.title} size="xs" class="my-2">
+												{@html validation.message}
+											</Alert>
+										{/if}
+									{/if}
+
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
@@ -367,10 +386,7 @@
 										acceptSelf={component.type === 'aggridinfinitecomponent' ||
 											component.type === 'aggridinfinitecomponentee' ||
 											component.type === 'steppercomponent'}
-										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
-										component.type === 'aggridinfinitecomponentee'
-											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-											: []}
+										overridenByComponent={getManagedFields(component.type)}
 										securedContext
 									/>
 								</div>
