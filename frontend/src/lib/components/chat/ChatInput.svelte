@@ -55,7 +55,6 @@
 		onkeydown={handleKeydown}
 		onpointerdown={stopPropagation(bubble('pointerdown'))}
 		{placeholder}
-		{disabled}
 		class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none {customCss
 			?.input?.class ?? ''}"
 		style={customCss?.input?.style}
