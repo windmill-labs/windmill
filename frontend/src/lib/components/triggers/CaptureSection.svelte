@@ -67,7 +67,7 @@
 	const dispatch = createEventDispatcher<{
 		captureToggle: { disableOnly?: boolean }
 		updateSchema: { payloadData: Record<string, any>; redirect: boolean; args?: boolean }
-		addPreprocessor: { args: Record<string, any> }
+		addPreprocessor: { args: Record<string, any> } | null
 		testWithArgs: Record<string, any>
 		applyArgs: { kind: 'main' | 'preprocessor'; args: Record<string, any> }
 	}>()
@@ -391,10 +391,10 @@
 				{#if selectedCapture}
 					{@const SvelteComponent = triggerIconMap[captureType]}
 					<div
-						class="min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
+						class="min-w-16 text-primary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
 					>
 						<SvelteComponent size={12} />
-						<span class="text-xs text-secondary truncate">
+						<span class="text-xs truncate">
 							Capture {formatDateShort(selectedCapture?.created_at)}
 						</span>
 					</div>
@@ -498,7 +498,7 @@
 														args: $state.snapshot(payloadData)
 													})
 												} else {
-													dispatch('addPreprocessor', { args: {} })
+													dispatch('addPreprocessor')
 												}
 											}}
 										>
