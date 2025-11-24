@@ -18,9 +18,9 @@
 	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
 
 	interface Message {
+		id: string
 		role: 'user' | 'assistant'
 		content: string
-		timestamp: number
 	}
 
 	interface Props {
@@ -118,9 +118,9 @@
 			)
 		} else {
 			const assistantMessage: Message = {
+				id: randomUUID(),
 				role: 'assistant',
-				content: accumulatedContent,
-				timestamp: Date.now()
+				content: accumulatedContent
 			}
 			messages = [...messages, assistantMessage]
 			currentStreamingMessageIndex = messages.length - 1
@@ -155,9 +155,9 @@
 			messages = [
 				...messages,
 				{
+					id: randomUUID(),
 					role: 'assistant',
-					content: finalContent,
-					timestamp: Date.now()
+					content: finalContent
 				}
 			]
 		}
@@ -175,9 +175,9 @@
 		messages = [
 			...messages,
 			{
+				id: randomUUID(),
 				role: 'assistant',
-				content: `Error: ${error.message || JSON.stringify(error)}`,
-				timestamp: Date.now()
+				content: `Error: ${error.message || JSON.stringify(error)}`
 			}
 		]
 
@@ -195,9 +195,9 @@
 
 		// Add user message to chat
 		const newUserMessage: Message = {
+			id: randomUUID(),
 			role: 'user',
-			content: userMessage,
-			timestamp: Date.now()
+			content: userMessage
 		}
 		messages = [...messages, newUserMessage]
 
@@ -294,7 +294,7 @@
 					</div>
 				{:else}
 					<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
-						{#each messages as message (message.timestamp)}
+						{#each messages as message (message.id)}
 							<ChatMessage
 								role={message.role}
 								content={message.content}
