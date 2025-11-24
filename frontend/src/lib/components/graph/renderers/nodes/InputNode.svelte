@@ -12,6 +12,7 @@
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getGraphContext } from '../../graphContext'
+	import FunnelCog from '$lib/components/icons/FunnelCog.svelte'
 
 	interface Props {
 		data: InputN['data']
@@ -71,7 +72,11 @@
 					}}
 				>
 					{#snippet trigger()}
-						<InsertModuleButton title={`Add preprocessor step`} id={`flow-editor-add-step-0`} />
+						<InsertModuleButton
+							title={`Add preprocessor step`}
+							id={`flow-editor-add-step-0`}
+							Icon={FunnelCog}
+						/>
 					{/snippet}
 				</InsertModulePopover>
 			</div>
