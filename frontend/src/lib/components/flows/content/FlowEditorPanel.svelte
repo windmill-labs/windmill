@@ -64,7 +64,8 @@
 		initialPathStore,
 		fakeInitialPath,
 		previewArgs,
-		flowInputEditorState
+		flowInputEditorState,
+		stepsInputArgs
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
@@ -119,12 +120,8 @@
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
+			stepsInputArgs.setStepArgs('preprocessor', e.detail.args ?? {})
 			selectionManager.selectId('preprocessor')
-
-			// Apply the provided args to the preprocessor
-			if (e.detail.args && Object.keys(e.detail.args).length > 0) {
-				previewArgs.val = JSON.parse(JSON.stringify(e.detail.args))
-			}
 		}}
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail

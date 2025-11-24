@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, Play, Loader2 } from 'lucide-svelte'
+	import { CircleStop, History, Play, Loader2, ExternalLink } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -480,7 +480,8 @@
 											rel="noopener noreferrer"
 											class="underline"
 										>
-											Learn more about preprocessors →
+											Learn more about preprocessors
+											<ExternalLink size={12} class="inline-block" />
 										</a>
 									</div>
 									<div class="flex justify-end">
@@ -494,12 +495,11 @@
 													const trigger_extra = isObject(selectedCapture.preprocessor_args)
 														? selectedCapture.preprocessor_args
 														: {}
-
 													dispatch('addPreprocessor', {
-														args: {
-															...structuredClone($state.snapshot(payloadData)),
+														args: $state.snapshot({
+															...payloadData,
 															...trigger_extra
-														}
+														})
 													})
 												} else {
 													dispatch('addPreprocessor', { args: {} })
@@ -531,12 +531,9 @@
 			</div>
 
 			{#if selectedCapture?.main_args}
-				<div class="mt-2 text-xs text-secondary flex-shrink-0">
+				<div class="mt-2 text-2xs text-secondary flex-shrink-0 text-right px-2">
 					{showRawPayload ? '' : 'Need more data about the trigger event?'}
-					<button
-						onclick={toggleRawPayload}
-						class="text-blue-600 dark:text-blue-400 underline hover:no-underline cursor-pointer"
-					>
+					<button onclick={toggleRawPayload} class="text-accent cursor-pointer">
 						{showRawPayload ? 'Show processed payload' : 'Show raw payload'}
 					</button>
 				</div>
