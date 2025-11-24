@@ -24,7 +24,7 @@
 	import CaptureIcon from './CaptureIcon.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { Popover } from '$lib/components/meltComponents'
+	import { Popover, Tooltip } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { isObject, sendUserToast } from '$lib/utils'
@@ -379,14 +379,41 @@
 				{/if}
 				{#if selectedCapture}
 					{@const SvelteComponent = triggerIconMap[captureType]}
-					<div
-						class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
+					{@const testPayload = {
+						"event": {
+							"body": {},
+							"kind": "webhook",
+							"query": {},
+							"headers": {
+								"host": "127.0.0.1:8000",
+								"accept": "*/*",
+								"connection": "close",
+								"user-agent": "curl/8.7.1",
+								"content-type": "application/json",
+								"content-length": "2"
+							},
+							"raw_string": null
+						}
+					}}
+					<Tooltip
+						markdownTooltip={`**Raw Payload:**
+\`\`\`json
+${JSON.stringify(testPayload, null, 2)}
+\`\`\`
+
+The raw payload trigger data can be processed using a preprocessor.
+
+[Learn more about preprocessors →](https://www.windmill.dev/docs/core_concepts/preprocessors)`}
 					>
-						<SvelteComponent size={12} />
-						<span class="text-xs text-secondary truncate">
-							Capture {formatDateShort(selectedCapture?.created_at)}
-						</span>
-					</div>
+						<div
+							class="min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
+						>
+							<SvelteComponent size={12} />
+							<span class="text-xs text-secondary truncate">
+								Capture {formatDateShort(selectedCapture?.created_at)}
+							</span>
+						</div>
+					</Tooltip>
 				{/if}
 
 				{#if selectedCapture}
