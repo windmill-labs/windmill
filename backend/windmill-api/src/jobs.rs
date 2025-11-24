@@ -3963,7 +3963,6 @@ async fn set_flow_memory_id(
 }
 
 /// Apply flow-specific query parameters after job creation
-/// This is a generic function that processes RunJobQuery parameters for flows
 pub async fn process_flow_run_query_params(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     job_id: Uuid,
@@ -3973,10 +3972,6 @@ pub async fn process_flow_run_query_params(
     if let Some(memory_id) = run_query.memory_id {
         set_flow_memory_id(tx, job_id, memory_id).await?;
     }
-
-    // Future: Add more flow-specific query param handling here
-    // Examples: custom flow metadata, flow-specific settings, etc.
-
     Ok(())
 }
 

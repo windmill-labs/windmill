@@ -41,19 +41,9 @@ export async function executeRunnable(
 		requestBody['version'] = version
 	}
 
-	// Merge query params into request body as run_query_params if provided
 	if (queryParams && Object.keys(queryParams).length > 0) {
-		console.log(
-			`HERE [executeRunnable] Merging queryParams into run_query_params:`,
-			queryParams
-		)
 		requestBody['run_query_params'] = queryParams
 	}
-
-	console.log(
-		`HERE [executeRunnable] Calling executeComponent with workspace=${workspace}, path=${appPath}, requestBody:`,
-		requestBody
-	)
 
 	const uuid = await AppService.executeComponent({
 		workspace,
