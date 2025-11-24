@@ -18,7 +18,7 @@
 	const dispatch = createEventDispatcher()
 
 	// Helper function to get full filename
-	function getFullFilename(language: string, name: string | null): string | null {
+	export function getFullFilename(language: ScriptLang, name: string | null): string | null {
 		const extension = getFileExtension(language)
 		if (extension == null) return null;
 		return name ? `${name}.${extension}` : extension

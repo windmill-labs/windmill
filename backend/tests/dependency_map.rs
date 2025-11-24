@@ -142,7 +142,24 @@ mod dependency_map {
         ("f/rel/root_app", "app", "f/rel/leaf_1", "pressmeplz"),
         ("f/rel/root_app", "app", "f/rel/leaf_2", "pressmeplz"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_2", "qtool1"),
-        ("f/rel/root_app", "app", "f/rel/branch", "youcanpressme")];
+        ("f/rel/root_app", "app", "f/rel/branch", "youcanpressme"),
+
+        // Default
+        ("f/rel/leaf_1", "script", "dependencies/requirements.in", ""),
+        ("f/rel/leaf_2", "script", "dependencies/requirements.in", ""),
+        ("f/rel/branch", "script", "dependencies/requirements.in", ""),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "failure"),
+        ("f/rel/root_flow", "flow", "dependencies/package.json", "nstep2_1"),
+        ("f/rel/root_flow", "flow", "dependencies/package.json", "nstep3_2"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "nstep2_2"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "nstep3_1"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "nstep4_1"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "nstep5_1"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "preprocessor"),
+        ("f/rel/root_app", "app", "dependencies/requirements.in", "pressmeplz"),
+        ("f/rel/root_flow", "flow", "dependencies/requirements.in", "qtool1"),
+        ("f/rel/root_app", "app", "dependencies/requirements.in", "youcanpressme")
+    ];
     }
     // TODO:
     // Test that checks that we can run rebuild_dmap multiple times in tests.
@@ -235,46 +252,17 @@ def main():
         assert_dmap(
             &db,
             Some("f/rel/root_script".into()),
-            Vec::<(String, String, String, String)>::new(),
+            vec![
+                ("f/rel/root_script", "script", "f/rel/branch", ""),
+                ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
+                ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
+            ],
         )
         .await;
 
         Ok(())
     }
 
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_without_requirements_txt(
-        db: Pool<Postgres>,
-    ) -> anyhow::Result<()> {
-        let (client, _port, _s) = init(db.clone()).await;
-
-        client
-            .create_script(
-                "test-workspace",
-                &quick_ns(
-                    "
-from f.rel.branch import main as br;
-from f.rel.leaf_1 import main as lf_1;
-from f.rel.leaf_2 import main as lf_2;
-
-def main():
-    return [br(), lf_1(), lf_2];
-                            ",
-                    windmill_api_client::types::ScriptLang::Python3,
-                    "f/rel/root_script",
-                    // We still want to pass lock to it.
-                    Some("# py311".to_string()),
-                    Some("000000000005165B".into()),
-                ),
-            )
-            .await
-            .unwrap();
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        // tokio::time::sleep(std::time::Duration::from_secs(13)).await;
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        Ok(())
-    }
     // Consider simple one. Only referenced directly. No deep connections
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
@@ -301,7 +289,10 @@ def main():
         in_test_worker(&db, completed.next(), port).await;
 
         // Changing leafs should not change dependency map
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
+        assert_dmap(&db, None, corrected_dmap(vec![
+                ("f/rel/leaf_2", "f/rel/leaf_2_renamed"),
+            ]),
+).await;
         Ok(())
     }
 
@@ -331,7 +322,10 @@ def main():
         in_test_worker(&db, completed.next(), port).await;
 
         // Changing leafs should not change dependency map
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
+        assert_dmap(&db, None, corrected_dmap(vec![
+                ("f/rel/leaf_1", "f/rel/leaf_1_renamed"),
+            ]),
+).await;
         Ok(())
     }
 
@@ -390,6 +384,7 @@ def main():
                 "test-workspace",
                 &quick_ns(
                     "
+# requirements: test
 from f.rel.branch import main as br;
 from f.rel.leaf_1 import main as lf_1;
 from f.rel.leaf_2 import main as lf_2;

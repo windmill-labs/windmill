@@ -22,13 +22,21 @@ pub struct NewWorkspaceDependencies {
 
 impl NewWorkspaceDependencies {
     /// Creates a new workspace dependencies entry in the database.
-    /// 
+    ///
     /// Archives any existing dependencies with the same name/language/workspace,
     /// then inserts the new dependencies. Triggers recomputation of dependent scripts
     /// and rebuilds the dependency map if this is the first unnamed dependency for the language.
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
-        let mut tx = db.begin().await?;
+        let path = WorkspaceDependencies::to_path(&self.name, self.language)?;
 
+        // If it is unnamed then we want to rebuild dependency map. Otherwise trigger dependents to recompute locks will not work
+        // TODO: Check db if map was already rebuilt.
+        // NOTE: We rebuild first, even before creating new w deps. We want to make sure that if rebuild failed, then no new default workspace dependencies were created.
+        if self.name.is_none() {
+            ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
+        };
+
+        let mut tx = db.begin().await?;
         let prev_description = sqlx::query_scalar!(
             "
                 UPDATE workspace_dependencies
@@ -52,34 +60,48 @@ impl NewWorkspaceDependencies {
             VALUES ($1, $2, $3, $4, $5) 
             RETURNING id
             ",
-            self.name,
+            self.name.clone(),
             self.workspace_id,
             self.content,
             self.language as ScriptLang,
             self.description
                 .or(prev_description.clone())
-                .unwrap_or_default()
+                .unwrap_or("Default Workspace Dependencies".to_owned())
         )
         .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
 
-        // If it is none, then it is first time we create this workspace dependencies file
-        // If it is unnamed then we want to rebuild dependency map. Otherwise trigger dependents to recompute locks will not work
-        if self.name.is_none() && prev_description.is_none() {
-            ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
-        };
+        // Make sure trigger dependents will have latest view.
+        // NOTE: Uncomment for tests
+        // #[cfg(test)]
+        // assert_eq!(
+        //     sqlx::query_scalar!(
+        //         "
+        //         SELECT id FROM workspace_dependencies
+        //         WHERE archived = false
+        //             AND name IS NOT DISTINCT FROM $1
+        //             AND workspace_id = $2
+        //             AND language = $3
+        //         ",
+        //         self.name,
+        //         self.workspace_id,
+        //         self.language as ScriptLang,
+        //     )
+        //     .fetch_one(db) // Use db
+        //     .await?,
+        //     new_id
+        // );
 
-        let path = WorkspaceDependencies::to_path(&self.name, self.language)?;
-        let importers = crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            path.as_str(),
-            &self.workspace_id,
-            db,
-        )
-        .await?;
-
+        // It's ok to fail, it will return an error and user will get notified that they should redeploy workspace dependencies
         trigger_dependents_to_recompute_dependencies(
             &self.workspace_id,
-            importers,
+            crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
+                path.as_str(),
+                &self.workspace_id,
+                db,
+            )
+            .await?,
             None, // TODO
             None, // TODO
             "",   // TODO
@@ -90,8 +112,6 @@ impl NewWorkspaceDependencies {
         )
         .await?;
 
-        // TODO: Check what's up with db and tx
-        tx.commit().await?;
         Ok(new_id)
     }
 }
@@ -107,29 +127,34 @@ impl NewWorkspaceDependencies {
 // -[] if default rrs it has no entries in dmap, but they are always used unless told otherwise
 // -[] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)
 // -[] docs
-// -[] Manual/Extra -> manual/extra
+// -[x](no) disable for apps (for now)
+// -[] add support for apps in cli
+// -[x] Manual/Extra -> manual/extra
 // -[x] add description
 // -[] do we need min_version?
-// -[] delete should also trigger redeploy
+// -[] agent workers
+// -[] rearrange pyversion with from raw req.
+// -[x] delete should also trigger redeploy
 // -[] warning
 //   - [] amount is displayed correctly (even for apps and flows.)
 // -[x] store mode in lock, so when viewed one can tell difference.
 // -[] if relative import has raw requirements, should importer inherit those? - yes
 //   - [x] python
-//   - [] bun
+//   - [x] bun
 // -[] on deploy depenencies should be verified if they are resolvable or not.
 // -[] ignore hub_sync for default bun scripts
-// -[] deleting or archiving dependencies should also trigger dependents
-// -[] maybe no dmap rebuild on creation?
+// -[x] deleting or archiving dependencies should also trigger dependents
+// -[x](no) maybe no dmap rebuild on creation?
 //
 // TODO(frontend):
 // - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
+// - warn on creation of new one
 // - deployed runnable should show backlink to rrs.
 // - warn on rename - renaming will not be reflected in existing scripts, so the linkage will break. (Show which runnables it references). It is subject to change.
 // - deploy should scroll up to show the warning.
 //
 // TODO(tests):
-// - old syntax rejection
+// - [] old syntax rejection
 // - test apps / or disable them for now
 // - dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)

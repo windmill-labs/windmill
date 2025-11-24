@@ -6,11 +6,12 @@ use windmill_common::{
     cache,
     error::{Error, Result},
     flows::{FlowModuleValue, FlowValue},
+    scripts::ScriptLang,
 };
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::extract_relative_imports;
+use crate::worker_lockfiles::{extract_referenced_paths, extract_relative_imports};
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -36,6 +37,7 @@ pub struct DependencyDependent {
 
 #[derive(Debug)]
 pub struct ScopedDependencyMap {
+    /// (importer_node_id, imported_path)
     to_delete: HashSet<(String, String)>,
     w_id: String,
     importer_path: String,
@@ -134,6 +136,7 @@ SELECT importer_node_id, imported_path
 
     pub(crate) async fn patch_tx_ref<'c>(
         &mut self,
+        // NOTE: Referenced_paths should include all of the paths.
         referenced_paths: Option<Vec<String>>,
         node_id: &str, // Flow Step/Node ID
         tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
@@ -341,17 +344,15 @@ SELECT importer_node_id, imported_path
                     FlowValue::traverse_leafs(modules_to_check, &mut |fmv, id| {
                         match fmv {
                             // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
-                            FlowModuleValue::RawScript { content, language, lock ,.. } => {
-                                if !is_generated_from_raw_requirements(&Some(*language), lock) {
-                                    to_process.push((
-                                        extract_referenced_paths(
-                                            content,
-                                            &(r.path.clone() + "/flow"),
-                                            Some(*language),
-                                        ),
-                                        id.clone(),
-                                    ));
-                                }
+                            FlowModuleValue::RawScript { content, language, .. } => {
+                                to_process.push((
+                                    extract_referenced_paths(
+                                        content,
+                                        &(r.path.clone() + "/flow"),
+                                        Some(*language),
+                                    ),
+                                    id.clone(),
+                                ));
                             }
                             // But just in case we will also handle other cases.
                             FlowModuleValue::FlowScript { .. } => {
@@ -363,8 +364,8 @@ SELECT importer_node_id, imported_path
                         Ok(())
                     })?;
 
-                    for (ri, id) in to_process {
-                        tx = dmap.patch(ri, id, tx).await?;
+                    for (rp, id) in to_process {
+                        tx = dmap.patch(rp, id, tx).await?;
                     }
 
                     if !*WMDEBUG_NO_DMAP_DISSOLVE {
@@ -460,8 +461,8 @@ SELECT importer_node_id, imported_path
             DependencyDependent,
             r#"
             SELECT 
-                COALESCE(importer_kind::text, '') as "importer_kind!", -- sqlx thinks this is nullable somehow, so enfore with !
                 importer_path,
+                importer_kind::text as "importer_kind!", -- sqlx thinks this is nullable somehow, so enfore with !
                 array_agg(importer_node_id) as importer_node_ids
             FROM dependency_map 
             WHERE workspace_id = $1 AND imported_path = $2

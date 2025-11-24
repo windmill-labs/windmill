@@ -16,9 +16,9 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
-        build_command_with_isolation, read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
-        StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
+        write_file_binary, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
@@ -1000,6 +1000,7 @@ pub async fn handle_bun_job(
                 &job.workspace_id,
                 // TODO: Unless there is some sort of "local execution"
                 &None,
+                job.runnable_path(),
                 conn.clone(),
             )
             .await?, // TODO: what about bunnative?

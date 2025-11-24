@@ -23,8 +23,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables, read_result,
-        start_child_process, OccupancyMetrics,
+        build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
@@ -150,6 +150,7 @@ pub async fn handle_go_job(
                 &job.workspace_id,
                 // TODO: This has no chance of having raw dependencies, right?
                 &None,
+                job.runnable_path(),
                 conn.clone(),
             )
             .await?,

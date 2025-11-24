@@ -17,14 +17,18 @@
 	let viewLanguage: string = $state('python')
 	let viewPath: string = $state('')
 	let viewDescription: string = $state('')
+	let viewDepsId: number | undefined = $state(undefined)
+	let viewDepsName: string | undefined = $state(undefined)
 	let canWriteDeps: boolean = $state(false)
 
 	// Export methods for external control
-	export function openViewer(path: string, content?: string, language?: string, description?: string) {
+	export function openViewer(path: string, content?: string, language?: string, description?: string, depsId?: number, depsName?: string) {
 		viewPath = path
 		viewContent = content || ''
 		viewLanguage = language || 'python'
 		viewDescription = description || ''
+		viewDepsId = depsId
+		viewDepsName = depsName
 		
 		// TODO: Replace with actual API call to check permissions
 		// For now, mock the permission check
@@ -38,7 +42,9 @@
 	}
 
 	function editWorkspaceDependencies() {
-		workspaceDependenciesEditor?.editWorkspaceDependencies(1, null, viewLanguage)
+		if (viewDepsId) {
+			workspaceDependenciesEditor?.editWorkspaceDependencies(viewDepsId, viewDepsName, viewLanguage)
+		}
 		closeViewer()
 	}
 

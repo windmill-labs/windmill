@@ -126,7 +126,7 @@
 
 	// Delete workspace dependencies
 	async function deleteWorkspaceDependencies(deps: WorkspaceDependencies): Promise<void> {
-		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name ?? null, deps.language)
 		if (!importedPath) {
 			sendUserToast('Unable to determine workspace dependencies path', true)
 			return
@@ -303,7 +303,7 @@
 											{/if}
 										</a>
 										<span class="text-xs text-tertiary font-mono">
-											{deps.name || 'workspace default'} • {deps.language}
+											{workspaceDependenciesEditor?.getFullFilename(deps.language, deps.name ?? null)} • {deps.language}
 										</span>
 									</div>
 								</div>

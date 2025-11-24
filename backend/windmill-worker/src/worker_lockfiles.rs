@@ -21,7 +21,6 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
-use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -146,7 +145,7 @@ pub fn extract_referenced_paths(
 ) -> Option<Vec<String>> {
     let mut referenced_paths = vec![];
     if let Some(wk_deps_refs) = language
-        .and_then(|l| l.extract_workspace_dependencies_annotated_refs(raw_code))
+        .and_then(|l| l.extract_workspace_dependencies_annotated_refs(raw_code, script_path))
         .map(|r| r.external)
     {
         let l = language.expect("should be some");
@@ -155,7 +154,10 @@ pub fn extract_referenced_paths(
                 referenced_paths.push(path);
             };
         }
-    } else if let Some(l) = language {
+    } else if let (Some(l), false /* Only if it is not blacklisted */) = (
+        language,
+        WorkspaceDependenciesPrefetched::replace_blacklisted(script_path).is_some(),
+    ) {
         // we assume all runnables without annotated dependencies reference default dependencies file.
         WorkspaceDependencies::to_path(&None, l)
             .ok()
@@ -495,6 +497,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     );
     for DependencyDependent { importer_path, importer_kind, importer_node_ids } in importers.iter()
     {
+        dbg!(&importer_path);
+        dbg!(&importer_node_ids);
         tracing::trace!("Processing dependency: {:?}", importer_path);
         if already_visited.contains(importer_path) {
             tracing::trace!("Skipping already visited dependency");
@@ -1464,19 +1468,16 @@ async fn lock_modules<'c>(
             .await?;
         }
 
-        let get_imports = || {
+        let get_references = || {
             let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
             extract_referenced_paths(&content, &format!("{dep_path}/flow"), Some(language))
         };
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                if !is_generated_from_raw_requirements(&Some(language), &lock) {
-                    let relative_imports = get_imports();
-                    tx = dependency_map
-                        .patch(relative_imports.clone(), e.id.clone(), tx)
-                        .await?;
-                }
+                tx = dependency_map
+                    .patch(get_references(), e.id.clone(), tx)
+                    .await?;
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1484,12 +1485,9 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    if !is_generated_from_raw_requirements(&Some(language), &lock) {
-                        let relative_imports = get_imports();
-                        tx = dependency_map
-                            .patch(relative_imports.clone(), e.id.clone(), tx)
-                            .await?;
-                    }
+                    tx = dependency_map
+                        .patch(get_references(), e.id.clone(), tx)
+                        .await?;
 
                     new_flow_modules.push(e);
                     continue;
@@ -1540,7 +1538,7 @@ async fn lock_modules<'c>(
         let lock = match new_lock {
             Ok(new_lock) => {
                 if !raw_deps && !skip_flow_update {
-                    let relative_imports = get_imports();
+                    let relative_imports = get_references();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
@@ -1945,6 +1943,7 @@ async fn lock_modules_app(
     // Represents the closest container id
     container_id: Option<String>,
     dependency_map: &mut ScopedDependencyMap,
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -2125,6 +2124,7 @@ async fn lock_modules_app(
                             .map(str::to_owned)
                             .or(container_id.clone()),
                         dependency_map,
+                        raw_workspace_dependencies_o,
                     )
                     .await?,
                 );
@@ -2151,6 +2151,7 @@ async fn lock_modules_app(
                         locks_to_reload,
                         container_id.clone(),
                         dependency_map,
+                        raw_workspace_dependencies_o,
                     )
                     .await?,
                 );
@@ -2172,6 +2173,7 @@ pub async fn handle_app_dependency_job(
     base_internal_url: &str,
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
 ) -> error::Result<()> {
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
@@ -2243,6 +2245,7 @@ pub async fn handle_app_dependency_job(
             &components_to_relock,
             None,
             &mut dependency_map,
+            &raw_workspace_dependencies_o,
         )
         .await?;
 
@@ -2639,6 +2642,7 @@ async fn capture_dependency_job(
         *job_language,
         w_id,
         raw_workspace_dependencies_o,
+        script_path,
         db.into(),
     )
     .await?;
@@ -2806,7 +2810,7 @@ async fn capture_dependency_job(
                 &mut Some(occupancy_metrics),
             )
             .await?;
-            if req.is_some() && wd.get_mode() != Some(Mode::Manual) {
+            if req.is_some() && wd.get_mode() != Some(Mode::manual) {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
                     req.as_ref(),
@@ -2962,8 +2966,8 @@ async fn add_lock_header(
     lines: &mut Vec<String>,
     wd: WorkspaceDependenciesPrefetched,
     language: ScriptLang,
-    workspace_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    _workspace_id: &str,
+    _db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<()> {
     if let Some(header) = wd.to_lock_header(language).await? {
         lines.push(header);

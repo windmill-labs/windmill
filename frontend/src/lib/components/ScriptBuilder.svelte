@@ -12,7 +12,8 @@
 		PostgresTriggerService,
 		CaptureService,
 		type ScriptLang,
-		WorkerService
+		WorkerService,
+		WorkspaceDependenciesService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -99,6 +100,7 @@
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import WorkspaceDependenciesViewer from './WorkspaceDependenciesViewer.svelte'
+	import WorkspaceDependenciesEditor from './WorkspaceDependenciesEditor.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -160,6 +162,7 @@
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 	let workspaceDependenciesViewer: WorkspaceDependenciesViewer | undefined = $state()
+	let workspaceDependenciesEditor: WorkspaceDependenciesEditor | undefined = $state()
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -192,23 +195,62 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-
-	function showRequirements() {
-		if (!script.path) return
-		
-		// Extract directory path from script path
-		const pathParts = script.path.split('/')
-		const directoryPath = pathParts.slice(0, -1).join('/') || '/'
-		
-		// TODO: Replace with actual API call to get requirements for this path
-		// For now, mock the requirements data
-		const mockRequirement = {
-			content: 'requests>=2.31.0\\npandas>=2.0.0\\nnumpy>=1.24.0',
-			language: 'python',
-			description: `Requirements for ${directoryPath}`
+	
+	// Reactive state for workspace dependencies
+	let hasWorkspaceDependencies = $state(false)
+	let workspaceDependencies = $state(undefined)
+	
+	// Check for workspace dependencies when script language changes
+	$effect(async () => {
+		if (!script.language || !$workspaceStore) {
+			hasWorkspaceDependencies = false
+			workspaceDependencies = undefined
+			return
 		}
 		
-		workspaceDependenciesViewer?.openViewer(directoryPath, mockRequirement.content, mockRequirement.language, mockRequirement.description)
+		try {
+			// Check if this language supports workspace dependencies
+			const dependenciesPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(null, script.language)
+			if (!dependenciesPath) {
+				hasWorkspaceDependencies = false
+				workspaceDependencies = undefined
+				return
+			}
+			
+			// Try to get workspace dependencies for this language (default)
+			const deps = await WorkspaceDependenciesService.getLatestWorkspaceDependencies({
+				workspace: $workspaceStore!,
+				language: script.language,
+				name: undefined // Get default workspace dependencies
+			})
+
+			console.log(deps);
+			console.log(deps);
+			console.log(deps);
+			console.log(deps);
+			
+			hasWorkspaceDependencies = !!deps
+			workspaceDependencies = deps
+		} catch (error) {
+			// If no dependencies found or error, hide the button
+			hasWorkspaceDependencies = false
+			workspaceDependencies = undefined
+		}
+	})
+
+	async function showRequirements() {
+		if (!workspaceDependencies || !script.language) return
+		
+		const displayPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(null, script.language) || 'dependencies'
+		
+		workspaceDependenciesViewer?.openViewer(
+			displayPath,
+			workspaceDependencies.content,
+			script.language,
+			workspaceDependencies.description || `Workspace dependencies for ${script.language}`,
+			workspaceDependencies.id,
+			workspaceDependencies.name
+		)
 	}
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
@@ -1776,7 +1818,7 @@
 						</div>
 					{/if}
 					
-					{#if script.path}
+					{#if hasWorkspaceDependencies}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: FileText }}
@@ -1883,3 +1925,4 @@
 {/if}
 
 <WorkspaceDependenciesViewer bind:this={workspaceDependenciesViewer} />
+<WorkspaceDependenciesEditor bind:this={workspaceDependenciesEditor} />

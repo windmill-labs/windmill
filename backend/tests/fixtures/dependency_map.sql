@@ -133,3 +133,18 @@ INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_2', 'qtool1');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'f/rel/branch', 'youcanpressme');
 
+-- Default
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/leaf_1', 'script', 'dependencies/requirements.in', '');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/leaf_2', 'script', 'dependencies/requirements.in', '');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/branch', 'script', 'dependencies/requirements.in', '');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'failure');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/package.json', 'nstep2_1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/package.json', 'nstep3_2');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'nstep2_2');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'nstep3_1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'nstep4_1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'nstep5_1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'preprocessor');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'dependencies/requirements.in', 'pressmeplz');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'dependencies/requirements.in', 'qtool1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'dependencies/requirements.in', 'youcanpressme');

@@ -51,7 +51,9 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
 };
 use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
-use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
+use windmill_worker::scoped_dependency_map::{
+    DependencyDependent, DependencyMap, ScopedDependencyMap,
+};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -2518,8 +2520,10 @@ async fn clone_workspace_data(
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone workspace runnable dependencies and dependency map
-    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone workspace dependencies
+    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
     Ok(())
 }
 
@@ -2966,7 +2970,7 @@ async fn clone_raw_apps(
     Ok(())
 }
 
-async fn clone_workspace_dependencies(
+async fn clone_workspace_runnable_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
@@ -2988,6 +2992,26 @@ async fn clone_workspace_dependencies(
         "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
          SELECT $1, importer_path, importer_kind, imported_path, importer_node_id
          FROM dependency_map
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_workspace_dependencies(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // Clone workspace_runnable_dependencies
+    sqlx::query!(
+        "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
+         SELECT $1, language, name, description, content, archived, created_at
+         FROM workspace_dependencies 
          WHERE workspace_id = $2",
         target_workspace_id,
         source_workspace_id

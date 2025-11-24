@@ -10,7 +10,7 @@ use serde::{
     de::{DeserializeOwned, Visitor},
     Deserialize, Deserializer, Serialize,
 };
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     cmp::Reverse,
@@ -267,6 +267,8 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    // TODO(claude): implement and warn if it is not the case, say one SHOULD upgrade all workers to latest
+    pub static ref MIN_VERSION_IS_V2_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
     /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -681,11 +683,6 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
-
-    // Aliases
-    pub rr: Option<String>,
-    pub raw_reqs: Option<String>,
-    pub raw_requirements: Option<String>,
 }
 
 #[annotations("//")]

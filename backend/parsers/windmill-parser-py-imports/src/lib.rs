@@ -398,6 +398,7 @@ async fn parse_python_imports_inner(
         windmill_common::scripts::ScriptLang::Python3,
         w_id,
         raw_workspace_dependencies_o,
+        path,
         db.into(),
     )
     .await?;
@@ -446,7 +447,7 @@ async fn parse_python_imports_inner(
         }
     };
 
-    if wdp.get_mode() == Some(Manual) {
+    if wdp.get_mode() == Some(manual) {
         tracing::debug!(
             "Workspace dependencies mode is Manual, returning {} imports",
             final_imports.len()

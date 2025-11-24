@@ -2826,6 +2826,7 @@ pub async fn handle_queued_job(
                     base_internal_url,
                     &client.token,
                     occupancy_metrics,
+                    raw_workspace_dependencies_o,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),

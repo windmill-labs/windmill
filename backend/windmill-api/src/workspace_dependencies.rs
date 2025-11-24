@@ -14,7 +14,10 @@ use windmill_common::{
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
-use windmill_worker::workspace_dependencies::NewWorkspaceDependencies;
+use windmill_worker::{
+    scoped_dependency_map, trigger_dependents_to_recompute_dependencies,
+    workspace_dependencies::NewWorkspaceDependencies,
+};
 
 use crate::db::ApiAuthed;
 
@@ -81,8 +84,27 @@ async fn archive(
     Query(params): Query<NameQuery>,
 ) -> error::Result<()> {
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "archive workspace dependencies");
+    let db = &db;
     // TODO: Check that it is an admin
-    WorkspaceDependencies::archive(params.name, language, &w_id, &db).await
+    WorkspaceDependencies::archive(params.name.clone(), language, &w_id, db).await?;
+
+    trigger_dependents_to_recompute_dependencies(
+        &w_id,
+        scoped_dependency_map::ScopedDependencyMap::get_dependents(
+            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
+            &w_id,
+            db,
+        )
+        .await?,
+        None, // TODO
+        None, // TODO
+        "",   // TODO
+        "",   // TODO
+        "",   // TODO
+        db,   // TODO
+        vec![],
+    )
+    .await
 }
 
 #[axum::debug_handler]
@@ -94,6 +116,25 @@ async fn delete(
     Query(params): Query<NameQuery>,
 ) -> error::Result<()> {
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "delete workspace dependencies");
+    let db = &db;
     // TODO: Check that it is an admin
-    WorkspaceDependencies::delete(params.name, language, &w_id, &db).await
+    WorkspaceDependencies::delete(params.name.clone(), language, &w_id, db).await?;
+
+    trigger_dependents_to_recompute_dependencies(
+        &w_id,
+        scoped_dependency_map::ScopedDependencyMap::get_dependents(
+            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
+            &w_id,
+            db,
+        )
+        .await?,
+        None, // TODO
+        None, // TODO
+        "",   // TODO
+        "",   // TODO
+        "",   // TODO
+        db,
+        vec![],
+    )
+    .await
 }

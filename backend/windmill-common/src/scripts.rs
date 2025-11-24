@@ -145,17 +145,25 @@ impl ScriptLang {
     pub fn extract_workspace_dependencies_annotated_refs(
         &self,
         code: &str,
+        runnable_path: &str,
     ) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
         use ScriptLang::*;
         match self {
             // TODO: Maybe use regex
             // TODO: Doublecheck these
             Bun | Bunnative => {
-                WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code)
+                WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code, runnable_path)
             }
-            Python3 => WorkspaceDependenciesAnnotatedRefs::parse("#", "requirements", code),
-            Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code),
-            Php => WorkspaceDependenciesAnnotatedRefs::parse("//", "composer_json", code),
+            Python3 => {
+                WorkspaceDependenciesAnnotatedRefs::parse("#", "requirements", code, runnable_path)
+            }
+            Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, runnable_path),
+            Php => WorkspaceDependenciesAnnotatedRefs::parse(
+                "//",
+                "composer_json",
+                code,
+                runnable_path,
+            ),
             _ => return None,
         }
     }

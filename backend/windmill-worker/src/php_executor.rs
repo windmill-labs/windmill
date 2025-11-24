@@ -7,7 +7,9 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
+    scripts::ScriptLang,
     worker::{write_file, Connection},
+    workspace_dependencies::{clean_lock_from_annotations, WorkspaceDependenciesPrefetched},
 };
 use windmill_queue::MiniPulledJob;
 
@@ -20,8 +22,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NSJAIL_PATH, PHP_PATH,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -135,6 +136,20 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
+fn split_reqs_and_lock(content: &String) -> error::Result<(Option<String>, Option<String>)> {
+    let splitted = content.split(COMPOSER_LOCK_SPLIT).collect_vec();
+    if splitted.len() != 2 {
+        return Err(error::Error::ExecutionErr(format!(
+            "Invalid requirements, expected to find LOCK split pattern in reqs. Found: |{content}|"
+        )));
+    }
+
+    Ok((
+        Some(clean_lock_from_annotations(splitted[0], ScriptLang::Php)),
+        Some(splitted[1].to_string()),
+    ))
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
     requirements_o: Option<&String>,
@@ -155,16 +170,21 @@ pub async fn handle_php_job(
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
     let (composer_json, composer_lock) = match requirements_o {
-        Some(reqs_and_lock) if !reqs_and_lock.is_empty() => {
-            let splitted = reqs_and_lock.split(COMPOSER_LOCK_SPLIT).collect_vec();
-            if splitted.len() != 2 {
-                return Err(error::Error::ExecutionErr(
-                    format!("Invalid requirements, expected to find LOCK split pattern in reqs. Found: |{reqs_and_lock}|")
-                ));
-            }
-            (Some(splitted[0].to_string()), Some(splitted[1].to_string()))
-        }
-        _ => (parse_php_imports(inner_content)?, None),
+        Some(reqs_and_lock) if !reqs_and_lock.is_empty() => split_reqs_and_lock(reqs_and_lock)?,
+        _ => (
+            WorkspaceDependenciesPrefetched::extract(
+                &inner_content,
+                ScriptLang::Php,
+                &job.workspace_id,
+                &None,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?
+            .get_one_external_only_manual(&job.workspace_id, Some(job.runnable_path().to_owned()))
+            .or(parse_php_imports(inner_content)?),
+            None,
+        ),
     };
 
     let autoload_line = if let Some(composer_json) = composer_json {

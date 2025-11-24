@@ -15491,6 +15491,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "pep440_rs",
+ "phf 0.11.3",
  "pin-project-lite",
  "prometheus",
  "quick_cache",
@@ -15583,6 +15584,9 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
+ "serde",
+ "serde_derive",
+ "serde_yml",
  "syn 2.0.110",
 ]
 

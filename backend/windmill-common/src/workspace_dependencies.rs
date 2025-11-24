@@ -1,12 +1,18 @@
 use itertools::Itertools;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 
 use crate::{error, scripts::ScriptLang, utils::calculate_hash, worker::Connection};
+use phf::phf_set;
 
+pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
+    "u/admin/hub_sync",
+    // TODO: Could bad actor possibly exloit if not this?
+    "g/all/setup_app/app"
+};
 // TODO: Make sure there is only one archived
 // and only one or none unnamed for given language
-#[derive(sqlx::FromRow, Debug, Clone, Serialize, Default)]
+#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorkspaceDependencies {
     /// Global id (accross all workspaces)
     id: i64,
@@ -114,8 +120,18 @@ impl WorkspaceDependencies {
             .map_err(error::Error::from),
 
             // TODO: Check it works for non admin when endpoint is admin only.
-            // Connection::Http(http_client) => http_client.get(format!(), headers, body),
-            Connection::Http(http_client) => todo!(),
+            Connection::Http(http_client) => http_client
+                .get::<Option<WorkspaceDependencies>>(&format!(
+                    "/api/w/{workspace_id}/workspace_dependencies/get_latest/{}{}",
+                    language.as_str(),
+                    if let Some(name) = name {
+                        format!("?name={name}")
+                    } else {
+                        "".to_owned()
+                    }
+                ))
+                .await
+                .map_err(error::Error::from),
         }
     }
 
@@ -195,7 +211,7 @@ impl WorkspaceDependenciesPrefetched {
     ) -> Option<String> {
         use WorkspaceDependenciesPrefetched::*;
 
-        if self.get_mode() == Some(Mode::Extra) {
+        if self.get_mode() == Some(Mode::extra) {
             tracing::warn!(
                 workspace_id,
                 script_path,
@@ -230,26 +246,44 @@ impl WorkspaceDependenciesPrefetched {
         }
     }
 
+    /// Replaces with Self::None if blacklisted
+    pub fn replace_blacklisted(runnable_path: &str) -> Option<WorkspaceDependenciesPrefetched> {
+        use WorkspaceDependenciesPrefetched::*;
+        if BLACKLIST.contains(runnable_path) || runnable_path.starts_with("hub/") {
+            tracing::debug!(
+                runnable_path,
+                "skipping implicit workspace dependencies for runnable"
+            );
+            Some(None)
+        } else {
+            Option::None
+        }
+    }
     pub async fn extract<'c>(
         code: &str,
         language: ScriptLang,
         workspace_id: &str,
         raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+        runnable_path: &str,
         conn: Connection,
-    ) -> error::Result<Self> {
+    ) -> error::Result<WorkspaceDependenciesPrefetched> {
+        use WorkspaceDependenciesPrefetched::*;
+
         tracing::debug!(workspace_id, ?language, "extracting workspace dependencies");
         Ok(
-            if let Some(wdar) = language.extract_workspace_dependencies_annotated_refs(code) {
+            if let Some(wdar) =
+                language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
+            {
                 tracing::debug!(workspace_id, ?language, "found explicit annotations");
 
-                Self::Explicit(
+                Explicit(
                     wdar.expand(language, workspace_id, raw_workspace_dependencies_o, conn)
                         .await?,
                 )
             // First try in raw dependencies
             } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
                 raw_workspace_dependencies_o,
-                None,
+                Option::None,
                 language,
                 workspace_id.to_owned(),
             ) {
@@ -260,11 +294,18 @@ impl WorkspaceDependenciesPrefetched {
                     "using implicit raw"
                 );
 
-                Self::Implicit { workspace_dependencies, mode: Mode::Manual } // Hardcode to manual for now.
+                // Hardcode to manual for now.
+                Self::replace_blacklisted(runnable_path)
+                    .unwrap_or(Implicit { workspace_dependencies, mode: Mode::manual })
             } else if let Some(workspace_dependencies) =
                 // If not found, fetch from db
-                WorkspaceDependencies::get_latest(None, language, workspace_id, conn)
-                        .await?
+                WorkspaceDependencies::get_latest(
+                    Option::None,
+                    language,
+                    workspace_id,
+                    conn,
+                )
+                .await?
             {
                 tracing::debug!(
                     workspace_id,
@@ -273,7 +314,9 @@ impl WorkspaceDependenciesPrefetched {
                     "using implicit default"
                 );
 
-                Self::Implicit { workspace_dependencies, mode: Mode::Manual } // Hardcode to manual for now.
+                // Hardcode to manual for now.
+                Self::replace_blacklisted(runnable_path)
+                    .unwrap_or(Implicit { workspace_dependencies, mode: Mode::manual })
             } else {
                 tracing::debug!(workspace_id, ?language, "no dependencies found");
 
@@ -356,13 +399,19 @@ impl Container for WorkspaceDependencies {
 
 /// `# extra_requirements:` - Extra
 /// `# requirements:` - Manual
+#[allow(non_camel_case_types)]
 #[derive(PartialEq, Eq, strum_macros::Display, Clone, Copy)]
 pub enum Mode {
-    Manual,
-    Extra,
+    manual,
+    extra,
 }
 
 pub type RawWorkspaceDependencies = std::collections::HashMap<String, String>;
+
+pub fn clean_lock_from_annotations(lock: &str, language: ScriptLang) -> String {
+    let mat = format!("{} workspace-dependencies", language.as_comment_lit());
+    lock.lines().filter(|l| !l.starts_with(&mat)).collect()
+}
 
 pub fn get_raw_workspace_dependencies(
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
@@ -370,8 +419,9 @@ pub fn get_raw_workspace_dependencies(
     language: ScriptLang,
     workspace_id: String,
 ) -> Option<WorkspaceDependencies> {
-    dbg!(dbg!(raw_workspace_dependencies_o.as_ref())
-        .zip(dbg!(WorkspaceDependencies::to_path(&name, language).ok()))
+    raw_workspace_dependencies_o
+        .as_ref()
+        .zip(WorkspaceDependencies::to_path(&name, language).ok())
         .and_then(|(hm, path)| hm.get(&path))
         .map(|raw_content| WorkspaceDependencies {
             // TODO: Name should be different to prevent from collisions and pg index violation
@@ -381,7 +431,7 @@ pub fn get_raw_workspace_dependencies(
             language,
             content: raw_content.to_owned(),
             ..Default::default()
-        }))
+        })
 }
 
 impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
@@ -397,11 +447,14 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
             external: vec![],
             mode: self.mode,
         };
+
         for name in self.external {
+            // "default" maps to unnamed workspace dependencies.
+            let name = if name == "default" { None } else { Some(name) };
             // First try in raw dependencies
             if let Some(wd) = get_raw_workspace_dependencies(
                 raw_workspace_dependencies_o,
-                Some(name.clone()),
+                name.clone(),
                 language,
                 workspace_id.to_owned(),
             ) {
@@ -410,7 +463,7 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
 
             // If not found, fetch from db
             } else if let Some(wd) = WorkspaceDependencies::get_latest(
-                Some(name.clone()),
+                name.clone(),
                 language,
                 workspace_id,
                 conn.clone(),
@@ -422,8 +475,8 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
                 tracing::warn!(
                     workspace_id,
                     ?language,
-                    dependency_name = %name,
-                    "workspace dependency not found"
+                    dependency_name = name,
+                    "workspace dependencies not found"
                 );
             }
         }
@@ -433,7 +486,7 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
     // TODO: Maybe implemented by our Annotations macro
     // TODO: BREAKING: Note this will include all seqsequent lines as long as they start with comment.
     // TODO: What sep should be? ':' or '='?
-    pub fn parse(comment: &str, keyword: &str, code: &str) -> Option<Self> {
+    pub fn parse(comment: &str, keyword: &str, code: &str, runnable_path: &str) -> Option<Self> {
         let (extra_deps, manual_deps) = (format!("extra_{keyword}:"), format!("{keyword}:"));
 
         let Some((pos, mat)) = code.lines().find_position(|l| {
@@ -444,34 +497,41 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         let mut lines_it = code.lines().skip(pos);
 
         let mode = if mat.contains(&extra_deps) {
-            Mode::Extra
+            Mode::extra
         } else {
-            Mode::Manual
+            Mode::manual
         };
 
-        let external = lines_it
-            .next()
-            // We are not interested in matched annotation.
-            .map(|s| {
-                match mode {
-                    Mode::Manual => s.replace(&manual_deps, ""),
-                    Mode::Extra => s.replace(&extra_deps, ""),
-                }
-                .replace(comment, "")
-            })
-            .map(|unparsed| {
-                unparsed
-                    .split(',')
-                    // TODO: do we want to sort it?
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    // .map(FromName::from_name)
-                    .map(str::to_owned)
-                    .collect_vec()
-            })
-            .unwrap_or_default();
-
-        // dbg!(&external);
+        let external = {
+            let next_line = lines_it.next();
+            if WorkspaceDependenciesPrefetched::replace_blacklisted(runnable_path).is_some() {
+                // TODO: test for hub that it fails before submission.
+                Default::default()
+                // return Err(error::Error::BadConfig(format!(
+                //     "{runnable_path} should not include external Workspace Dependencies"
+                // )));
+            } else {
+                next_line
+                    .map(|s| {
+                        match mode {
+                            Mode::manual => s.replace(&manual_deps, ""),
+                            Mode::extra => s.replace(&extra_deps, ""),
+                        }
+                        .replace(comment, "")
+                    })
+                    .map(|unparsed| {
+                        unparsed
+                            .split(',')
+                            // TODO: do we want to sort it?
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            // .map(FromName::from_name)
+                            .map(str::to_owned)
+                            .collect_vec()
+                    })
+                    .unwrap_or_default()
+            }
+        };
 
         let inline_deps = lines_it
             .map_while(|l| {
@@ -515,8 +575,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(
             result.external,
             vec!["default".to_owned(), "base".to_owned()]
@@ -538,8 +599,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Extra));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::extra));
         assert_eq!(result.external, vec!["utils".to_owned()]);
         assert_eq!(result.inline.as_ref().unwrap(), "numpy>=1.24.0");
     }
@@ -558,9 +620,9 @@ export function main() {}
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code)
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code, "")
                 .unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["utils".to_owned(), "base".to_owned()]);
         let expected_inline = r#"{
   "dependencies": {
@@ -579,8 +641,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["no_space".to_owned()]);
         assert!(result.inline.is_none());
     }
@@ -594,8 +657,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["with_space".to_owned()]);
         assert!(result.inline.is_none());
     }
@@ -611,8 +675,8 @@ func main() {}
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "go_mod", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "go_mod", code, "").unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["base".to_owned()]);
         assert_eq!(
             result.inline.as_ref().unwrap(),
@@ -630,8 +694,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["default".to_owned()]);
         assert!(result.inline.is_none());
     }
@@ -648,8 +713,9 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert!(result.external.is_empty());
         assert_eq!(
             result.inline.as_ref().unwrap(),
@@ -664,7 +730,8 @@ def main():
     pass
 "#;
 
-        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code);
+        let result =
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "");
         assert!(result.is_none());
     }
 
@@ -683,9 +750,9 @@ function main() {}
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code)
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code, "")
                 .unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+        assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["composer".to_owned()]);
         let expected_inline = r#"{
   "require": {
@@ -705,8 +772,29 @@ def main():
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code).unwrap();
-        assert!(matches!(result.mode, Mode::Manual));
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
+                .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
+        assert!(result.external.is_empty());
+        assert!(result.inline.is_none());
+    }
+    #[test]
+    fn test_parse_annotation_blacklisted() {
+        let code = r#"
+#requirements: hello, world
+
+def main():
+    pass
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            "u/admin/hub_sync",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
         assert!(result.external.is_empty());
         assert!(result.inline.is_none());
     }
