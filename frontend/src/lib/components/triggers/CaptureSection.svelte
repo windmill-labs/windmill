@@ -24,7 +24,7 @@
 	import CaptureIcon from './CaptureIcon.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { Popover, Tooltip } from '$lib/components/meltComponents'
+	import { Popover } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { isObject, sendUserToast } from '$lib/utils'
@@ -121,6 +121,25 @@
 	let lastCaptureId: number | undefined = undefined
 	let displayResult: DisplayResult | undefined = $state(undefined)
 	let toolbarLocation: 'internal' | 'external' | undefined = $state(undefined)
+	let showRawPayload = $state(false)
+
+	// Test raw payload for demo purposes
+	const testRawPayload = {
+		event: {
+			body: {},
+			kind: 'webhook',
+			query: {},
+			headers: {
+				host: '127.0.0.1:8000',
+				accept: '*/*',
+				connection: 'close',
+				'user-agent': 'curl/8.7.1',
+				'content-type': 'application/json',
+				'content-length': '2'
+			},
+			raw_string: null
+		}
+	}
 
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
@@ -242,6 +261,10 @@
 			payloadData = testKind === 'preprocessor' ? capture.preprocessor_args : capture.main_args
 		}
 		return payloadData
+	}
+
+	function toggleRawPayload() {
+		showRawPayload = !showRawPayload
 	}
 
 	// Start or stop capture listening based on active state
@@ -379,44 +402,17 @@
 				{/if}
 				{#if selectedCapture}
 					{@const SvelteComponent = triggerIconMap[captureType]}
-					{@const testPayload = {
-						"event": {
-							"body": {},
-							"kind": "webhook",
-							"query": {},
-							"headers": {
-								"host": "127.0.0.1:8000",
-								"accept": "*/*",
-								"connection": "close",
-								"user-agent": "curl/8.7.1",
-								"content-type": "application/json",
-								"content-length": "2"
-							},
-							"raw_string": null
-						}
-					}}
-					<Tooltip
-						markdownTooltip={`**Raw Payload:**
-\`\`\`json
-${JSON.stringify(testPayload, null, 2)}
-\`\`\`
-
-The raw payload trigger data can be processed using a preprocessor.
-
-[Learn more about preprocessors →](https://www.windmill.dev/docs/core_concepts/preprocessors)`}
+					<div
+						class="min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
 					>
-						<div
-							class="min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
-						>
-							<SvelteComponent size={12} />
-							<span class="text-xs text-secondary truncate">
-								Capture {formatDateShort(selectedCapture?.created_at)}
-							</span>
-						</div>
-					</Tooltip>
+						<SvelteComponent size={12} />
+						<span class="text-xs text-secondary truncate">
+							Capture {formatDateShort(selectedCapture?.created_at)}
+						</span>
+					</div>
 				{/if}
 
-				{#if selectedCapture}
+				{#if selectedCapture && !showRawPayload}
 					{@const label = isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
 					{@const title =
 						isFlow && testKind === 'main'
@@ -482,26 +478,66 @@ The raw payload trigger data can be processed using a preprocessor.
 				/>
 			{/if}
 		</div>
-		<div class="grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto">
-			{#if isLoadingBigPayload}
-				<Loader2 class="animate-spin" />
-			{:else if selectedCapture?.main_args}
-				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
-					<DisplayResult
-						bind:this={displayResult}
-						workspaceId={undefined}
-						jobId={undefined}
-						result={getCapturePayload(selectedCapture)}
-						externalToolbarAvailable
-						on:toolbar-location-changed={({ detail }) => {
-							toolbarLocation = detail
-						}}
-					/>
+		<div class="grow min-h-0 w-full pl-2 py-1 pb-2 flex flex-col">
+			<div class="flex-1 min-h-0 overflow-auto">
+				{#if isLoadingBigPayload}
+					<Loader2 class="animate-spin" />
+				{:else if selectedCapture?.main_args}
+					<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
+						{#if showRawPayload}
+							<Alert type="info" title="Raw payload displayed" size="xs" class="mt-2 mb-2">
+								<div class="flex flex-col gap-2">
+									<div>
+										Add a preprocessor to use the raw payload data in the flow.
+										<a
+											href="https://www.windmill.dev/docs/core_concepts/preprocessors"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="underline"
+										>
+											Learn more about preprocessors →
+										</a>
+									</div>
+									<div>
+										<Button
+											size="xs"
+											variant="accent"
+											onclick={() => dispatch('addPreprocessor', null)}
+										>
+											Add preprocessor
+										</Button>
+									</div>
+								</div>
+							</Alert>
+						{/if}
+						<DisplayResult
+							bind:this={displayResult}
+							workspaceId={undefined}
+							jobId={undefined}
+							result={showRawPayload ? testRawPayload : getCapturePayload(selectedCapture)}
+							externalToolbarAvailable
+							on:toolbar-location-changed={({ detail }) => {
+								toolbarLocation = detail
+							}}
+						/>
+					</div>
+				{:else}
+					<div class="text-center text-primary p-4 bg-surface rounded-md"
+						>No captures to show yet.</div
+					>
+				{/if}
+			</div>
+
+			{#if selectedCapture?.main_args}
+				<div class="mt-2 text-xs text-secondary flex-shrink-0">
+					Need more data about the trigger event?
+					<button
+						onclick={toggleRawPayload}
+						class="text-blue-600 dark:text-blue-400 underline hover:no-underline cursor-pointer"
+					>
+						{showRawPayload ? 'Show processed payload' : 'Show raw payload'}
+					</button>
 				</div>
-			{:else}
-				<div class="text-center text-primary p-4 bg-surface rounded-md"
-					>No captures to show yet.</div
-				>
 			{/if}
 		</div>
 	</Pane>
