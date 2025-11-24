@@ -27,7 +27,8 @@
 	async function loadFlow(): Promise<void> {
 		const loadedFlows = await FlowService.listFlows({
 			workspace: $workspaceStore!,
-			perPage: 300
+			perPage: 300,
+			withoutDescription: true
 		})
 
 		flows = loadedFlows

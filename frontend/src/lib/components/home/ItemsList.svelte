@@ -103,7 +103,8 @@
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true
+				includeDraftOnly: true,
+				withoutDescription: true
 			})
 		).map((x: Flow) => {
 			return {
