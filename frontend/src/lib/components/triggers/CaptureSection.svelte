@@ -67,7 +67,7 @@
 	const dispatch = createEventDispatcher<{
 		captureToggle: { disableOnly?: boolean }
 		updateSchema: { payloadData: Record<string, any>; redirect: boolean; args?: boolean }
-		addPreprocessor: null
+		addPreprocessor: { args: Record<string, any> }
 		testWithArgs: Record<string, any>
 		applyArgs: { kind: 'main' | 'preprocessor'; args: Record<string, any> }
 	}>()
@@ -498,11 +498,28 @@
 											Learn more about preprocessors →
 										</a>
 									</div>
-									<div>
+									<div class="flex justify-end">
 										<Button
 											size="xs"
 											variant="accent"
-											onclick={() => dispatch('addPreprocessor', null)}
+											wrapperClasses="w-fit"
+											onclick={() => {
+												if (selectedCapture) {
+													const payloadData = selectedCapture?.main_args ?? {}
+													const trigger_extra = isObject(selectedCapture.preprocessor_args)
+														? selectedCapture.preprocessor_args
+														: {}
+
+													dispatch('addPreprocessor', {
+														args: {
+															...structuredClone($state.snapshot(payloadData)),
+															...trigger_extra
+														}
+													})
+												} else {
+													dispatch('addPreprocessor', { args: {} })
+												}
+											}}
 										>
 											Add preprocessor
 										</Button>

@@ -115,11 +115,16 @@
 {:else if selectedId === 'Trigger'}
 	<TriggersEditor
 		on:applyArgs
-		on:addPreprocessor={async () => {
+		on:addPreprocessor={async (e) => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
 			selectionManager.selectId('preprocessor')
+
+			// Apply the provided args to the preprocessor
+			if (e.detail.args && Object.keys(e.detail.args).length > 0) {
+				previewArgs.val = JSON.parse(JSON.stringify(e.detail.args))
+			}
 		}}
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
