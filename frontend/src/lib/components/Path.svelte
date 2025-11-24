@@ -138,7 +138,7 @@
 	}
 
 	export async function reset() {
-		if (path == '' || path == 'u//') {
+		if (path == '' || path == 'u//' || path?.startsWith('tmp/')) {
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
 					ownerKind: hideUser ? 'folder' : 'user',
@@ -323,12 +323,12 @@
 
 	async function initPath() {
 		await tick()
-		if (path != undefined && path != '') {
+		if (path != undefined && path != '' && !path?.startsWith('tmp/')) {
 			meta = pathToMeta(path, hideUser)
 			onMetaChange()
 			return
 		}
-		if (initialPath == undefined || initialPath == '') {
+		if (initialPath == undefined || initialPath == '' || initialPath?.startsWith('tmp/')) {
 			reset()
 		} else {
 			meta = pathToMeta(initialPath, hideUser)

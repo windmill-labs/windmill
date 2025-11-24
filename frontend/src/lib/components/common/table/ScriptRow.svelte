@@ -112,7 +112,7 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.draft_only || script.kind !== 'script' || script.no_main_func
+	href={script.draft_only || (script.no_main_func && script.kind !== 'preprocessor')
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"

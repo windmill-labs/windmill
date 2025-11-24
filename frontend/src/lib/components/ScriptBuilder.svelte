@@ -379,7 +379,7 @@
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
-		scriptEditor?.inferSchema(script.content, language, true)
+		scriptEditor?.inferSchema(script.content, { nlang: language, resetArgs: true })
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
@@ -567,7 +567,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || script.kind !== 'script' || script.no_main_func) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
