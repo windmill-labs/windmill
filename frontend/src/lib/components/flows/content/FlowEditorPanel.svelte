@@ -64,7 +64,8 @@
 		initialPathStore,
 		fakeInitialPath,
 		previewArgs,
-		flowInputEditorState
+		flowInputEditorState,
+		stepsInputArgs
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
@@ -115,10 +116,11 @@
 {:else if selectedId === 'Trigger'}
 	<TriggersEditor
 		on:applyArgs
-		on:addPreprocessor={async () => {
+		on:addPreprocessor={async (e) => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
+			stepsInputArgs.setStepArgs('preprocessor', e.detail.args ?? {})
 			selectionManager.selectId('preprocessor')
 		}}
 		on:updateSchema={(e) => {

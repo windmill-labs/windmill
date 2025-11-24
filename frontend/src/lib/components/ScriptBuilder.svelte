@@ -849,7 +849,7 @@
 		captureOn.set(true)
 	}
 
-	function addPreprocessor() {
+	function addPreprocessor(e?: { detail?: { args: Record<string, any> } }) {
 		const code = editor?.getCode()
 		if (code) {
 			const preprocessorCode = getPreprocessorFullCode(script.language, false)
@@ -865,6 +865,11 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+
+		// Apply provided args to the preprocessor
+		if (e?.detail?.args && Object.keys(e.detail.args).length > 0) {
+			args = { ...args, ...e.detail.args }
+		}
 	}
 
 	function handleDeployTrigger(trigger: Trigger) {

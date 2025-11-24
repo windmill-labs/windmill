@@ -691,16 +691,21 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
  */\n`
 
-export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
-  event:
-    | {
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(event: TriggerEvent) {
+  return {
+    // return the args to be passed to the runnable
+  };
+}
+
+type TriggerEvent =
+  | {
       kind: "webhook";
       body: any;
       raw_string: string | null;
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "http";
       body: any;
       raw_string: string | null;
@@ -711,21 +716,21 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "email";
       parsed_email: any;
       raw_email: string;
       email_extra_args?: Record<string, string>;
     }
-    | { kind: "websocket"; msg: string; url: string }
-    | {
+  | { kind: "websocket"; msg: string; url: string }
+  | {
       kind: "kafka";
       payload: string;
       brokers: string[];
       topic: string;
       group_id: string;
     }
-    | {
+  | {
       kind: "nats";
       payload: string;
       servers: string[];
@@ -735,7 +740,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       description?: string;
       length: number;
     }
-    | {
+  | {
       kind: "sqs";
       msg: string;
       queue_url: string;
@@ -747,7 +752,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         { string_value?: string; data_type: string }
       >;
     }
-    | {
+  | {
       kind: "mqtt";
       payload: string;
       topic: string;
@@ -764,7 +769,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         content_type?: string;
       };
     }
-    | {
+  | {
       kind: "gcp";
       payload: string;
       message_id: string;
@@ -776,19 +781,14 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       publish_time?: string;
       ack_id?: string;
     }
-    | {
+  | {
       kind: "postgres";
-      transaction_type: "insert" | "update" | "delete",
-      schema_name: string,
-      table_name: string,
-      old_row?: Record<string, any>,
-      row: Record<string, any>
-    }
-) {
-  return {
-    // return the args to be passed to the runnable
-  };
-}
+      transaction_type: "insert" | "update" | "delete";
+      schema_name: string;
+      table_name: string;
+      old_row?: Record<string, any>;
+      row: Record<string, any>;
+    };
 `
 
 const PYTHON_INIT_CODE_APPROVAL = `import wmill

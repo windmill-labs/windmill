@@ -1049,6 +1049,8 @@
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
+							wrap
+							class="mb-4"
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
