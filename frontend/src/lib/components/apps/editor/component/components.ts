@@ -2413,12 +2413,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}/select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			input: {
-				style: '',
-				tooltip:
-					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
-				class: ''
-			}
+			input: { style: '', class: '' }
 		},
 		initialData: {
 			recomputeIds: true,
