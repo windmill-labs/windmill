@@ -50,7 +50,7 @@
 		loading: false,
 		jobId: undefined as string | undefined,
 		messages: [] as Message[],
-		userMessage: '' as string  // Output for evalv2 field
+		userMessage: '' as string // Output for evalv2 field
 	})
 
 	// Resolve configuration
@@ -73,6 +73,21 @@
 	// Streaming state management
 	let currentStreamingMessageIndex: number | undefined = $state(undefined)
 	let accumulatedContent = $state('')
+
+	// Generate stable memory_id for chat session (for agent memory persistence)
+	let chatMemoryId = $state(crypto.randomUUID())
+
+	$effect(() => {
+		console.log(`HERE [AppChat] Component ${id} initialized with chatMemoryId=${chatMemoryId}`)
+	})
+
+	// Debug: Log when extraQueryParams would be passed
+	$effect(() => {
+		console.log(
+			`HERE [AppChat] extraQueryParams for RunnableWrapper:`,
+			{ memory_id: chatMemoryId }
+		)
+	})
 
 	// Register component control for programmatic access
 	$componentControl[id] = {
@@ -187,6 +202,9 @@
 		if (!inputValue.trim() || loading) return
 
 		const userMessage = inputValue.trim()
+		console.log(
+			`HERE [AppChat.handleSend] Sending message with chatMemoryId=${chatMemoryId}, userMessage="${userMessage}"`
+		)
 		inputValue = ''
 
 		// Add user message to chat
@@ -263,6 +281,7 @@
 	{errorHandledByComponent}
 	autoRefresh={false}
 	{render}
+	extraQueryParams={{ memory_id: chatMemoryId }}
 >
 	{#if render}
 		<div

@@ -443,7 +443,8 @@
 						$appPath,
 						id,
 						await buildRequestBody(dynamicArgsOverride),
-						inlineScriptOverride
+						inlineScriptOverride,
+						extraQueryParams
 					)
 					if (isEditor) {
 						addJob(uuid)

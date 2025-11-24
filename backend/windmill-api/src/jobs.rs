@@ -1740,7 +1740,7 @@ pub struct ListableCompletedJob {
     pub labels: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct RunJobQuery {
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_in_secs: Option<i64>,
@@ -3947,7 +3947,7 @@ async fn set_flow_memory_id(
     memory_id: Uuid,
 ) -> error::Result<()> {
     sqlx::query!(
-        "UPDATE v2_job_status 
+        "UPDATE v2_job_status
          SET flow_status = jsonb_set(
              flow_status,
              '{memory_id}',
@@ -3959,6 +3959,35 @@ async fn set_flow_memory_id(
     )
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// Apply flow-specific query parameters after job creation
+/// This is a generic function that processes RunJobQuery parameters for flows
+pub async fn process_flow_run_query_params(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    run_query: &RunJobQuery,
+) -> error::Result<()> {
+    tracing::info!(
+        "HERE [process_flow_run_query_params] Processing query params for job_id={}, run_query={:?}",
+        job_id,
+        run_query
+    );
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        tracing::info!(
+            "HERE [process_flow_run_query_params] Setting memory_id={} for job_id={}",
+            memory_id,
+            job_id
+        );
+        set_flow_memory_id(tx, job_id, memory_id).await?;
+    }
+
+    // Future: Add more flow-specific query param handling here
+    // Examples: custom flow metadata, flow-specific settings, etc.
+
     Ok(())
 }
 

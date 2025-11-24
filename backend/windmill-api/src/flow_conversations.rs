@@ -112,6 +112,13 @@ pub async fn get_or_create_conversation_with_id(
     title: &str,
     conversation_id: Uuid,
 ) -> Result<FlowConversation> {
+    tracing::info!(
+        "HERE [get_or_create_conversation_with_id] Looking for conversation_id={}, w_id={}, flow_path={}",
+        conversation_id,
+        w_id,
+        flow_path
+    );
+
     // Check if conversation already exists
     let existing_conversation = sqlx::query_as!(
         FlowConversation,
@@ -125,6 +132,10 @@ pub async fn get_or_create_conversation_with_id(
     .await?;
 
     if let Some(existing) = existing_conversation {
+        tracing::info!(
+            "HERE [get_or_create_conversation_with_id] Found existing conversation: {:?}",
+            existing
+        );
         return Ok(existing);
     }
 
@@ -134,6 +145,16 @@ pub async fn get_or_create_conversation_with_id(
     } else {
         title.to_string()
     };
+
+    tracing::info!(
+        "HERE [get_or_create_conversation_with_id] Creating new conversation with id={}, w_id={}, flow_path={}, username={}, title={}",
+        conversation_id,
+        w_id,
+        flow_path,
+        username,
+        title
+    );
+
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
@@ -148,6 +169,12 @@ pub async fn get_or_create_conversation_with_id(
     )
     .fetch_one(&mut **tx)
     .await?;
+
+    tracing::info!(
+        "HERE [get_or_create_conversation_with_id] Successfully created conversation: {:?}",
+        conversation
+    );
+
     Ok(conversation)
 }
 

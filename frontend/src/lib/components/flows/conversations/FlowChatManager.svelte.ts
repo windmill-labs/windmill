@@ -88,6 +88,7 @@ export class FlowChatManager {
 	}
 
 	focusInput() {
+		console.log('focusInput', this.inputElement)
 		this.inputElement?.focus()
 	}
 
