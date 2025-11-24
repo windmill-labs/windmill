@@ -123,24 +123,6 @@
 	let toolbarLocation: 'internal' | 'external' | undefined = $state(undefined)
 	let showRawPayload = $state(false)
 
-	// Test raw payload for demo purposes
-	const testRawPayload = {
-		event: {
-			body: {},
-			kind: 'webhook',
-			query: {},
-			headers: {
-				host: '127.0.0.1:8000',
-				accept: '*/*',
-				connection: 'close',
-				'user-agent': 'curl/8.7.1',
-				'content-type': 'application/json',
-				'content-length': '2'
-			},
-			raw_string: null
-		}
-	}
-
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
 		if (
@@ -244,13 +226,13 @@
 		}
 	}
 
-	function getCapturePayload(capture: Capture) {
+	function getCapturePayload(capture: Capture, showRawPayload: boolean) {
 		let payloadData: any = {}
 		const preprocessor_args = isObject(capture.preprocessor_args) ? capture.preprocessor_args : {}
 		if ('wm_trigger' in preprocessor_args) {
 			// v1
 			payloadData =
-				testKind === 'preprocessor'
+				testKind === 'preprocessor' || showRawPayload
 					? {
 							...(typeof capture.main_args === 'object' ? capture.main_args : {}),
 							...preprocessor_args
@@ -258,7 +240,10 @@
 					: capture.main_args
 		} else {
 			// v2
-			payloadData = testKind === 'preprocessor' ? capture.preprocessor_args : capture.main_args
+			payloadData =
+				testKind === 'preprocessor' || showRawPayload
+					? capture.preprocessor_args
+					: capture.main_args
 		}
 		return payloadData
 	}
@@ -531,7 +516,7 @@
 							bind:this={displayResult}
 							workspaceId={undefined}
 							jobId={undefined}
-							result={showRawPayload ? testRawPayload : getCapturePayload(selectedCapture)}
+							result={getCapturePayload(selectedCapture, showRawPayload)}
 							externalToolbarAvailable
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocation = detail
@@ -547,7 +532,7 @@
 
 			{#if selectedCapture?.main_args}
 				<div class="mt-2 text-xs text-secondary flex-shrink-0">
-					Need more data about the trigger event?
+					{showRawPayload ? '' : 'Need more data about the trigger event?'}
 					<button
 						onclick={toggleRawPayload}
 						class="text-blue-600 dark:text-blue-400 underline hover:no-underline cursor-pointer"
