@@ -138,7 +138,9 @@ export async function runScript(
   args: Record<string, any> | null = null,
   verbose: boolean = false
 ): Promise<any> {
-  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  console.warn(
+    "runScript is deprecated. Use runScriptByPath or runScriptByHash instead."
+  );
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
@@ -157,7 +159,10 @@ async function _runScriptInternal(
     if (path) {
       console.info(`running \`${path}\` synchronously with args:`, args);
     } else if (hash_) {
-      console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+      console.info(
+        `running script with hash \`${hash_}\` synchronously with args:`,
+        args
+      );
     }
   }
 
@@ -185,9 +190,7 @@ export async function runScriptByHash(
  * Append a text to the result stream
  * @param text text to append to the result stream
  */
-export function appendToResultStream(
-  text: string
-) {
+export function appendToResultStream(text: string) {
   console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
 }
 
@@ -195,9 +198,7 @@ export function appendToResultStream(
  * Stream to the result stream
  * @param stream stream to stream to the result stream
  */
-export async function streamResult(
-  stream: AsyncIterable<string>
-) {
+export async function streamResult(stream: AsyncIterable<string>) {
   for await (const text of stream) {
     appendToResultStream(text);
   }
@@ -310,7 +311,9 @@ export async function runScriptAsync(
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
-  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
+  console.warn(
+    "runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead."
+  );
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
@@ -815,7 +818,8 @@ export async function loadS3FileStream(
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
   const response = await fetch(
-    `${OpenAPI.BASE
+    `${
+      OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
@@ -1218,6 +1222,35 @@ export async function requestInteractiveTeamsApproval({
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
+}
+
+export type DataTableStatement = {
+  query(): Promise<any>;
+};
+
+export type DataTableSqlTemplateFunction = (
+  strings: TemplateStringsArray,
+  ...values: any[]
+) => DataTableStatement;
+
+export function datatable(name: string = "main"): DataTableSqlTemplateFunction {
+  return (strings, ...values) => {
+    let queryStr =
+      values.map((_, i) => `-- $${i + 1} arg${i + 1}`).join("\n") + "\n";
+    for (let i = 0; i < strings.length; i++) {
+      queryStr += strings[i];
+      if (i !== strings.length - 1) queryStr += `$${i + 1}`;
+    }
+    const args = Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v]));
+
+    return {
+      queryStr,
+      args,
+      query: async () => {
+        return ["results from datatable (TODO)"];
+      },
+    };
+  };
 }
 
 async function getMockedApi(): Promise<MockedApi | undefined> {
