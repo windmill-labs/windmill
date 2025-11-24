@@ -5180,6 +5180,14 @@ paths:
             Accepts multiple values as a comma-separated list.
           schema:
             type: string
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+
       responses:
         "200":
           description: All scripts
@@ -6461,6 +6469,13 @@ paths:
             (default false)
             include deployment message
           in: query
+          schema:
+            type: boolean
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
           schema:
             type: boolean
       responses:
@@ -11999,32 +12014,32 @@ paths:
               schema:
                 type: boolean
   /w/{workspace}/email_triggers/setenabled/{path}:
-      post:
-        summary: enable/disable email trigger
-        operationId: setEmailTriggerEnabled
-        tags:
-          - email_trigger
-        parameters:
-          - $ref: "#/components/parameters/WorkspaceId"
-          - $ref: "#/components/parameters/Path"
-        requestBody:
-          required: true
+    post:
+      summary: enable/disable email trigger
+      operationId: setEmailTriggerEnabled
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: email trigger enable/disable
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-        responses:
-          "200":
-            description: email trigger enable/disable
-            content:
-              text/plain:
-                schema:
-                  type: string
+                type: string
 
   /groups/list:
     get:

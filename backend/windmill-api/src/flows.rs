@@ -133,7 +133,11 @@ async fn list_flows(
             "o.workspace_id",
             "o.path",
             "summary",
-            "description",
+            if !lq.without_description.unwrap_or(false) {
+                "description"
+            } else {
+                "NULL as description"
+            },
             "fv.created_by as edited_by",
             "fv.created_at as edited_at",
             "archived",

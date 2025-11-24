@@ -13,8 +13,13 @@
 		}) =>
 			workspace && get(userStore)
 				? kind == 'flow'
-					? FlowService.listFlows({ workspace })
-					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+					? FlowService.listFlows({ workspace, withoutDescription: true })
+					: ScriptService.listScripts({
+							workspace,
+							kinds: kind,
+							isTemplate,
+							withoutDescription: true
+						})
 				: undefined,
 		initialWorkspace
 			? {

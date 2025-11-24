@@ -374,7 +374,7 @@ class WorkspaceScriptsSearch {
 
 	private async init(workspace: string) {
 		this.scripts = await ScriptService.listScripts({
-			workspace
+			workspace,
 		})
 		this.workspace = workspace
 	}

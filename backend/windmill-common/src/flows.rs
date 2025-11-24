@@ -78,7 +78,8 @@ pub struct ListableFlow {
     pub workspace_id: String,
     pub path: String,
     pub summary: String,
-    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub edited_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
@@ -1122,6 +1123,7 @@ where
 
 #[derive(Deserialize)]
 pub struct ListFlowQuery {
+    pub without_description: Option<bool>,
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
     pub edited_by: Option<String>,

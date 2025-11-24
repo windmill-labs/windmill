@@ -155,11 +155,13 @@
 		const scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? '',
 			starredOnly: true,
-			includeWithoutMain: true
+			includeWithoutMain: true,
+			withoutDescription: true
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore ?? '',
-			starredOnly: true
+			starredOnly: true,
+			withoutDescription: true
 		})
 		const apps = await AppService.listApps({
 			workspace: $workspaceStore ?? '',
