@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.583.2](https://github.com/windmill-labs/windmill/compare/v1.583.1...v1.583.2) (2025-11-24)
+
+
+### Bug Fixes
+
+* listScripts include description with opt-out query arg ([#7210](https://github.com/windmill-labs/windmill/issues/7210)) ([80c7911](https://github.com/windmill-labs/windmill/commit/80c79116416db8629135a8853df645d9fff286dd))
+* **scim:** use value instead of display for group updates ([#7203](https://github.com/windmill-labs/windmill/issues/7203)) ([193efe3](https://github.com/windmill-labs/windmill/commit/193efe31c8aeab3a5e3e28278855d518c000bda8))
+
 ## [1.583.1](https://github.com/windmill-labs/windmill/compare/v1.583.0...v1.583.1) (2025-11-21)
 
 
