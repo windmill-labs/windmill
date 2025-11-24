@@ -360,6 +360,7 @@
 		on:cancel
 		on:recompute
 		on:argsChanged
+		on:streamupdate
 		on:resultSet={(e) => {
 			const res = e.detail
 			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
