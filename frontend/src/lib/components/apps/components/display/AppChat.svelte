@@ -15,6 +15,7 @@
 	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
 	import ChatInput from '$lib/components/chat/ChatInput.svelte'
 	import { parseStreamDeltas } from '$lib/components/chat/utils'
+	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
 
 	interface Message {
 		role: 'user' | 'assistant'
@@ -75,19 +76,7 @@
 	let accumulatedContent = $state('')
 
 	// Generate stable memory_id for chat session (for agent memory persistence)
-	let chatMemoryId = $state(crypto.randomUUID())
-
-	$effect(() => {
-		console.log(`HERE [AppChat] Component ${id} initialized with chatMemoryId=${chatMemoryId}`)
-	})
-
-	// Debug: Log when extraQueryParams would be passed
-	$effect(() => {
-		console.log(
-			`HERE [AppChat] extraQueryParams for RunnableWrapper:`,
-			{ memory_id: chatMemoryId }
-		)
-	})
+	let chatMemoryId = $state(randomUUID())
 
 	// Register component control for programmatic access
 	$componentControl[id] = {
@@ -202,9 +191,6 @@
 		if (!inputValue.trim() || loading) return
 
 		const userMessage = inputValue.trim()
-		console.log(
-			`HERE [AppChat.handleSend] Sending message with chatMemoryId=${chatMemoryId}, userMessage="${userMessage}"`
-		)
 		inputValue = ''
 
 		// Add user message to chat
