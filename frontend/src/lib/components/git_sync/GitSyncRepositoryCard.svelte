@@ -50,7 +50,7 @@
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
-	let targetBranch = $state('main') // Default to main, will be updated when resource is available
+	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -99,12 +99,13 @@
 	)
 
 	// Determine display description based on variant and mode
+	const targetOrDefaultBranch = $derived(targetBranch ? `'${targetBranch}'` : 'repo\'s default' )
 	const displayDescription = $derived(
 		variant === 'primary-sync' || variant === 'primary-promotion'
 			? mode === 'sync'
-				? `Changes will be committed directly to the ${targetBranch} branch`
+				? `Changes will be committed directly to the ${targetOrDefaultBranch} branch`
 				: mode === 'promotion'
-					? `Changes will be made to new branches whose promotion target is ${targetBranch}`
+					? `Changes will be made to new branches whose promotion target is the ${targetOrDefaultBranch} branch`
 					: null
 			: null
 	)
