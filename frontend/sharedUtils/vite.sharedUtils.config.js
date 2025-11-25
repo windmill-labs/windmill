@@ -73,7 +73,7 @@ export default defineConfig({
 						name: '@windmill-labs/shared-utils',
 						version: VERSION,
 						license: 'MIT',
-						exports: './mod.ts'
+						exports: './lib.es.js'
 					}
 					writeFileSync(
 						resolve(__dirname, '../dist/sharedUtils/package.json'),
