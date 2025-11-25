@@ -39,16 +39,19 @@
 </script>
 
 <div class="flex flex-col space-y-2 w-full">
-	<div class="w-full">
+	<div class="w-full flex justify-start">
 		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
 				aiId="add-trigger"
 				aiDescription="Add a new trigger"
-				size="xs"
-				startIcon={{ icon: Plus }}
+				unifiedSize="md"
 				nonCaptureEvent
-				variant="accent"
+				variant="subtle"
+				btnClasses="justify-start h-8 p-0"
 			>
+				<div class="center-center h-8 w-8 bg-surface-accent-primary rounded-md">
+					<Plus size={14} class="text-white" />
+				</div>
 				Add trigger
 			</Button>
 		</AddTriggersButton>
@@ -59,7 +62,7 @@
 				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
-						'cursor-pointer h-10 group',
+						'cursor-pointer h-8 group',
 						trigger.isDraft ? 'text-hint' : '',
 						selectedTrigger === index
 							? 'bg-surface-accent-selected text-accent '
@@ -72,9 +75,9 @@
 						callback: () => onSelect?.(index)
 					}}
 				>
-					<td class="w-12 text-center py-2 px-2">
+					<td class="w-8 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
-							<SvelteComponent size={16} />
+							<SvelteComponent size={14} />
 
 							{#if trigger.isPrimary}
 								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
