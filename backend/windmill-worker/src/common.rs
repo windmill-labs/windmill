@@ -127,7 +127,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"(?:\$var|\$res|\$encrypted|datatable|CUSTOM_INSTANCE_DB)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -137,14 +137,7 @@ pub async fn transform_json<'a>(
     job: &MiniPulledJob,
     db: &Connection,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
-    let mut has_match = false;
-    for (_, v) in vs {
-        let inner_vs = v.get();
-        if (*RE_RES_VAR).is_match(inner_vs) {
-            has_match = true;
-            break;
-        }
-    }
+    let has_match = vs.iter().any(|(_, v)| (*RE_RES_VAR).is_match(v.get()));
     if !has_match {
         return Ok(None);
     }
@@ -243,13 +236,22 @@ pub async fn transform_json_value(
                 )));
             }
             client
-                .get_resource_value_interpolated::<serde_json::Value>(
-                    path,
-                    Some(job.id.to_string()),
-                )
+                .get_resource_value_interpolated(path, Some(job.id.to_string()))
                 .await
                 .map_err(|e| {
                     Error::NotFound(format!("Resource {path} not found for `{name}`: {e:#}"))
+                })
+        }
+        Value::String(ref path)
+            if path.starts_with("CUSTOM_INSTANCE_DB://") || path.starts_with("datatable://") =>
+        {
+            client
+                .get_resource_value_interpolated(path, Some(job.id.to_string()))
+                .await
+                .map_err(|e| {
+                    Error::NotFound(format!(
+                        "Custom database {path} not found for `{name}`: {e:#}"
+                    ))
                 })
         }
         Value::String(y) if y.starts_with("$encrypted:") => {
