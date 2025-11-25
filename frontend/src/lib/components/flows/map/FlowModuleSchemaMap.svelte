@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
+	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createInlineScriptModule,
@@ -42,7 +42,6 @@
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
-	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
@@ -302,41 +301,6 @@
 
 	export function getDiffManager() {
 		return graph?.getDiffManager()
-	}
-
-	// Handle accept module action
-	function handleAcceptModule(moduleId: string) {
-		const diffManager = graph?.getDiffManager()
-		if (!diffManager) return
-
-		// Accept the module (marks as not pending, deletes removed modules)
-		diffManager.acceptModule(moduleId, { flowStore })
-
-		// Handle editor state separately
-		const editor = $currentEditor
-		if (editor?.type === 'script' && editor.stepId === moduleId) {
-			const handler = editor.editor.getAiChatEditorHandler()
-			handler?.keepAll({ disableReviewCallback: true })
-		}
-	}
-
-	// Handle reject module action
-	function handleRejectModule(moduleId: string) {
-		const diffManager = graph?.getDiffManager()
-		if (!diffManager) return
-
-		// Revert the module (reverts changes, marks as not pending)
-		diffManager.rejectModule(moduleId, { flowStore })
-
-		// Handle editor state separately
-		const editor = $currentEditor
-		if (editor?.type === 'script' && editor.stepId === moduleId) {
-			const handler = editor.editor.getAiChatEditorHandler()
-			handler?.revertAll({ disableReviewCallback: true })
-		}
-		if (editor?.type === 'script') {
-			editor.hideDiffMode()
-		}
 	}
 
 	export function enableNotes(): void {

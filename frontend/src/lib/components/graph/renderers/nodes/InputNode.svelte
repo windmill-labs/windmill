@@ -8,7 +8,7 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
-	import type { FlowEditorContext, FlowGraphContext } from '$lib/components/flows/types'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getGraphContext } from '../../graphContext'

@@ -48,8 +48,7 @@
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { randomUUID } from '../conversations/FlowChatManager.svelte'
-	import { createFlowDiffManager } from '../flowDiffManager.svelte'
+	import FlowChat from '../conversations/FlowChat.svelte'
 
 	interface Props {
 		noEditor: boolean

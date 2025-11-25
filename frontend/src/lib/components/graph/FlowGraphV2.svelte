@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
+	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
-	import type { FlowGraphContext } from '../flows/types'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -72,7 +71,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import type { AIModuleAction } from '../copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
@@ -102,7 +101,7 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
-		moduleActions?: Record<string, AIModuleAction>
+		moduleActions?: Record<string, ModuleActionInfo>
 		selectionManager?: SelectionManager
 		path?: string | undefined
 		newFlow?: boolean
@@ -191,6 +190,7 @@
 		testModuleStates = undefined,
 		moduleActions = undefined,
 		selectionManager: selectionManagerProp = undefined,
+		path = undefined,
 		newFlow = false,
 		insertable = false,
 		earlyStop = false,
@@ -748,8 +748,8 @@
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
-				moduleActions: untrack(() => moduleActions),
-				inputSchemaModified: untrack(() => inputSchemaModified),
+				moduleActions: untrack(() => effectiveModuleActions),
+				inputSchemaModified: untrack(() => effectiveInputSchemaModified),
 				selectedId: untrack(() => selectedId),
 				path,
 				newFlow,

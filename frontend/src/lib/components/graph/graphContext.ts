@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte'
 import type { SelectionManager } from './selectionUtils.svelte'
 import type { NoteManager } from './noteManager.svelte'
 import type { Writable } from 'svelte/store'
+import type { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 export type GraphContext = {
 	selectionManager: SelectionManager
@@ -10,6 +11,7 @@ export type GraphContext = {
 	noteManager?: NoteManager
 	clearFlowSelection?: () => void
 	yOffset?: number
+	diffManager: ReturnType<typeof createFlowDiffManager>
 }
 
 const graphContextKey = 'FlowGraphContext'

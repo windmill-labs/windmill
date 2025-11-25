@@ -12,7 +12,7 @@
 		type onSelectedIteration
 	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
-	import type { FlowEditorContext, FlowGraphContext } from '$lib/components/flows/types'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
@@ -72,7 +72,7 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectionManager, diffManager } = getGraphContext()
+	const { selectionManager } = getGraphContext()
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { flowStore } = flowEditorContext || {}

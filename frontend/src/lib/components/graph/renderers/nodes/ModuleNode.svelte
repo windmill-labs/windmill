@@ -4,8 +4,6 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
-	import { getContext } from 'svelte'
-	import type { FlowGraphContext } from '$lib/components/flows/types'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
 	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
@@ -16,7 +14,6 @@
 
 	let { data }: Props = $props()
 
-	const { diffManager } = getContext<FlowGraphContext>('FlowGraphContext')
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
 
@@ -59,8 +56,6 @@
 			insertable={data.insertable}
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
-			onShowModuleDiff={data.onShowModuleDiff}
-			{diffManager}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
