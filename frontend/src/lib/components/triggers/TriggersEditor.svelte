@@ -405,7 +405,7 @@
 				{:else}
 					<!-- Full-width triggers table when no trigger is selected -->
 					<div
-						class="h-full w-full overflow-auto p-4 flex justify-center"
+						class="h-full w-full overflow-auto p-4 flex justify-start"
 						in:fade={{ duration: 200, delay: 50 }}
 						out:fade={{ duration: 150 }}
 					>
@@ -414,7 +414,7 @@
 								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full max-w-6xl"
 							></div>
 						{:else}
-							<div class="w-full max-w-6xl">
+							<div class="w-full max-w-2xl">
 								<TriggersTable
 									selectedTrigger={triggersState.selectedTriggerIndex}
 									{onSelect}
