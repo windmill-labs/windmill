@@ -2566,9 +2566,14 @@ async fn update_workspace_settings(
         WorkspaceGitSyncSettings::default()
     };
 
-    // We only keep the first git sync repo, since it is considered the main one
+    // We only keep the first git sync repo that is sync mode (use_individual_branch = false), since it is considered the main one
     // Context: see WIN-1559
-    git_sync_settings.repositories.truncate(1);
+    git_sync_settings.repositories = git_sync_settings
+        .repositories
+        .into_iter()
+        .filter(|r| !r.use_individual_branch.unwrap_or(false))
+        .take(1)
+        .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
