@@ -114,6 +114,22 @@
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
 		},
+
+		// accept/reject operations (via flowDiffManager)
+		acceptAllModuleActions: () => {
+			diffManager?.acceptAll({ flowStore })
+		},
+		rejectAllModuleActions: () => {
+			diffManager?.rejectAll({ flowStore })
+		},
+		hasPendingChanges: () => {
+			return diffManager?.hasPendingChanges ?? false
+		},
+
+		selectStep: (id) => {
+			selectionManager.selectId(id)
+		},
+
 		setFlowJson: async (json: string) => {
 			try {
 				// Parse JSON to JavaScript object

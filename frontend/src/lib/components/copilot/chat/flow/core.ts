@@ -49,7 +49,7 @@ export type ModuleActionInfo = {
  * Helper interface for AI chat flow operations
  *
  * Note: AI chat is only responsible for setting the beforeFlow snapshot when making changes.
- * Accept/reject operations are handled directly by the UI via flowDiffManager.
+ * Accept/reject operations are exposed here but implemented via flowDiffManager.
  */
 export interface FlowAIChatHelpers {
 	// flow context
@@ -66,6 +66,16 @@ export interface FlowAIChatHelpers {
 	setCode: (id: string, code: string) => Promise<void>
 	setFlowJson: (json: string) => Promise<void>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
+
+	// accept/reject operations (via flowDiffManager)
+	/** Accept all pending module changes */
+	acceptAllModuleActions: () => void
+	/** Reject all pending module changes */
+	rejectAllModuleActions: () => void
+	/** Check if there are pending changes requiring user approval */
+	hasPendingChanges: () => boolean
+	/** Select a step in the flow */
+	selectStep: (id: string) => void
 }
 
 const searchScriptsSchema = z.object({
@@ -133,7 +143,7 @@ class WorkspaceScriptsSearch {
 
 	private async init(workspace: string) {
 		this.scripts = await ScriptService.listScripts({
-			workspace,
+			workspace
 		})
 		this.workspace = workspace
 	}
