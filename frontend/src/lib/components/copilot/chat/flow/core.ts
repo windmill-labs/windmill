@@ -1,4 +1,4 @@
-import { ScriptService, type FlowModule, type Script, JobService } from '$lib/gen'
+import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -6,7 +6,12 @@ import type {
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
-import { createDbSchemaTool } from '../script/core'
+import {
+	createDbSchemaTool,
+	getFormattedResourceTypes,
+	getLangContext,
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES
+} from '../script/core'
 import {
 	createSearchHubScriptsTool,
 	createToolDef,
@@ -73,6 +78,34 @@ const searchScriptsToolDef = createToolDef(
 	searchScriptsSchema,
 	'search_scripts',
 	'Search for scripts in the workspace'
+)
+
+const langSchema = z.enum(
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES as [RawScript['language'], ...RawScript['language'][]]
+)
+
+const resourceTypeToolSchema = z.object({
+	query: z.string().describe('The query to search for, e.g. stripe, google, etc..'),
+	language: langSchema.describe(
+		'The programming language the code using the resource type will be written in'
+	)
+})
+
+const resourceTypeToolDef = createToolDef(
+	resourceTypeToolSchema,
+	'resource_type',
+	'Search for resource types'
+)
+
+const getInstructionsForCodeGenerationToolSchema = z.object({
+	id: z.string().describe('The id of the step to generate code for'),
+	language: langSchema.describe('The programming language the code will be written in')
+})
+
+const getInstructionsForCodeGenerationToolDef = createToolDef(
+	getInstructionsForCodeGenerationToolSchema,
+	'get_instructions_for_code_generation',
+	'Get instructions for code generation for a raw script step'
 )
 
 const setFlowJsonSchema = z.object({
@@ -405,6 +438,38 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					'"'
 			})
 			return JSON.stringify(scriptResults)
+		}
+	},
+	{
+		def: resourceTypeToolDef,
+		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
+			const parsedArgs = resourceTypeToolSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Searching resource types for "' + parsedArgs.query + '"...'
+			})
+			const formattedResourceTypes = await getFormattedResourceTypes(
+				parsedArgs.language,
+				parsedArgs.query,
+				workspace
+			)
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved resource types for "' + parsedArgs.query + '"'
+			})
+			return formattedResourceTypes
+		}
+	},
+	{
+		def: getInstructionsForCodeGenerationToolDef,
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
+			const langContext = getLangContext(parsedArgs.language, {
+				allowResourcesFetch: true,
+				isPreprocessor: parsedArgs.id === 'preprocessor'
+			})
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
+			})
+			return langContext
 		}
 	},
 	{
@@ -822,10 +887,23 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
 - **Module types**: Use 'bun' as default language for rawscript if unspecified
 
 ### Creating New Steps
-1. Search for existing scripts using \`search_scripts\` or \`search_hub_scripts\` tools
+1. If the user hasn't explicitly asked to write from scratch:
+   - First search for matching scripts in the workspace using \`search_scripts\`
+   - Then search for matching scripts in the hub using \`search_hub_scripts\`, but ONLY consider highly relevant results
+   - Only if no suitable script is found, create a raw script step
 2. If found, use type \`script\` with the path
-3. If not found, create a \`rawscript\` module with inline code
+3. If creating a \`rawscript\` module:
+   - If no language is specified, use 'bun' as the default language
+   - Use \`get_instructions_for_code_generation\` to get the correct code format for the language
+   - Create the module with inline code
 4. Set appropriate \`input_transforms\` to pass data between steps
+5. If any inputs use flow_input properties that don't exist yet, add them to the schema
+
+## Resource Types
+On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
+- Use the \`resource_type\` tool to search for available resource types (e.g. stripe, google, postgresql, etc.)
+- If the user needs a resource as flow input, set the property type in the schema to "object" and add a key called "format" set to "resource-nameofresourcetype" (e.g. "resource-stripe")
+- If the user wants a specific resource as step input, set the step value to a static string in the format: "$res:path/to/resource"
 
 ### OpenFlow Schema Reference
 Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow YAML:
