@@ -172,6 +172,17 @@ const inspectInlineScriptToolDef = createToolDef(
 	'Inspect the full content of an inline script that was replaced with a reference. Use this when you need to see or modify the actual script code for a specific module.'
 )
 
+const setModuleCodeSchema = z.object({
+	moduleId: z.string().describe('The ID of the module to set code for'),
+	code: z.string().describe('The full script code content')
+})
+
+const setModuleCodeToolDef = createToolDef(
+	setModuleCodeSchema,
+	'set_module_code',
+	'Set or modify the code for an existing inline script module. Use this to modify code without needing to call set_flow_json. The module must already exist in the flow.'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 /**
@@ -333,6 +344,45 @@ export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule
 
 		return newModule
 	})
+}
+
+/**
+ * Recursively finds any unresolved inline script references in flow modules.
+ * Returns array of module IDs that still have `inline_script.{id}` patterns.
+ */
+export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
+	const unresolvedRefs: string[] = []
+
+	function checkModule(module: FlowModule) {
+		if (module.value.type === 'rawscript' && module.value.content) {
+			const match = module.value.content.match(/^inline_script\.(.+)$/)
+			if (match) {
+				unresolvedRefs.push(match[1])
+			}
+		} else if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			if (module.value.modules) {
+				module.value.modules.forEach(checkModule)
+			}
+		} else if (module.value.type === 'branchone') {
+			if (module.value.branches) {
+				module.value.branches.forEach((branch) => {
+					branch.modules?.forEach(checkModule)
+				})
+			}
+			if (module.value.default) {
+				module.value.default.forEach(checkModule)
+			}
+		} else if (module.value.type === 'branchall') {
+			if (module.value.branches) {
+				module.value.branches.forEach((branch) => {
+					branch.modules?.forEach(checkModule)
+				})
+			}
+		}
+	}
+
+	modules.forEach(checkModule)
+	return unresolvedRefs
 }
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
@@ -546,20 +596,45 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			return JSON.stringify({
 				moduleId,
 				content,
-				note: 'To modify this script, include the full updated content in the set_flow_json tool call'
+				note: 'To modify this script, use the set_module_code tool with the new code'
 			})
+		}
+	},
+	{
+		def: setModuleCodeToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setModuleCodeSchema.parse(args)
+			const { moduleId, code } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: `Setting code for module '${moduleId}'...` })
+
+			// Update store to keep it coherent (for subsequent set_flow_json calls with references)
+			inlineScriptStore.set(moduleId, code)
+
+			// Update the flow directly via helper
+			await helpers.setCode(moduleId, code)
+
+			toolCallbacks.setToolStatus(toolId, { content: `Code updated for module '${moduleId}'` })
+			return `Code for module '${moduleId}' has been updated successfully.`
 		}
 	},
 	{
 		def: setFlowJsonToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			console.log('HERE ARGS', args)
 			const parsedArgs = setFlowJsonSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow JSON...' })
 
 			await helpers.setFlowJson(parsedArgs.json)
 
+			// Check for unresolved inline script references
+			const { flow } = helpers.getFlowAndSelectedId()
+			const unresolvedRefs = findUnresolvedInlineScriptRefs(flow.value.modules)
+
 			toolCallbacks.setToolStatus(toolId, { content: 'Flow JSON applied successfully' })
+
+			if (unresolvedRefs.length > 0) {
+				return `Flow structure updated with warnings: Unresolved inline script references found for modules: ${unresolvedRefs.join(', ')}. These modules have invalid content - use set_module_code to set their code.`
+			}
 
 			return 'Flow structure updated via JSON. All affected modules have been marked and require review/acceptance.'
 		}
@@ -581,7 +656,9 @@ function formatOpenFlowSchemaForPrompt(): string {
 }
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You modify flows using the **set_flow_json** tool, which replaces the entire flow structure with the JSON you provide.
+	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You have two main tools for modifying flows:
+- **set_module_code**: Modify the code of an existing inline script module (use this for code-only changes)
+- **set_flow_json**: Replace the entire flow structure with JSON (use this for structural changes like adding/removing modules)
 
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
@@ -674,26 +751,20 @@ To reduce token usage, rawscript content in the flow JSON you receive is replace
 }
 \`\`\`
 
-**When you receive a flow with inline script references:**
-- If you DON'T need to modify a script, keep the reference as-is in your JSON response
-- If you DO need to see or modify a script, use the \`inspect_inline_script\` tool with the module ID
-- When creating NEW modules, always provide the full script content (not a reference)
-- When MODIFYING existing scripts, replace the reference with the full updated content in your JSON
+**To modify an existing script's code:**
+- Use the \`set_module_code\` tool: \`set_module_code(moduleId, newCode)\`
+- No need to call \`set_flow_json\` for code-only changes
+- If you also need structural changes, call \`set_module_code\` first, then \`set_flow_json\` with the reference
 
-**Example workflow:**
-1. You receive JSON with \`"content": "inline_script.step_a"\`
-2. You need to modify this step → call \`inspect_inline_script\` with moduleId "step_a"
-3. Tool returns the actual code
-4. In your \`set_flow_json\` response, include the full modified content:
-   \`\`\`json
-   {
-     "content": "export async function main() {\\n  // your modified code\\n}"
-   }
-   \`\`\`
+**To add a new inline script module:**
+- Call \`set_flow_json\` with the full code content directly (not a reference)
 
-**Important:** The system automatically handles reference restoration. You just need to:
-- Keep references unchanged when not modifying scripts
-- Provide full content when creating or modifying scripts
+**To keep existing code unchanged in structural changes:**
+- Keep the \`inline_script.{module_id}\` reference as-is in \`set_flow_json\`
+- The original code will be restored automatically
+
+**To inspect existing code:**
+- Use \`inspect_inline_script\` tool to view current code before modifying
 
 ### Key Concepts
 - **input_transforms**: Map parameter names to values. Use \`results.step_id\` for previous results, \`flow_input.property\` for flow inputs, \`flow_input.iter.value\` inside loops
