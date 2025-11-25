@@ -47,7 +47,6 @@
 		a: {
 			name: 'a',
 			fields: {},
-			recomputeIds: [],
 			type: 'runnableByName',
 			inlineScript: {
 				content:

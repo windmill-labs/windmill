@@ -82,7 +82,7 @@ export type BaseComponent<T extends string> = {
 }
 
 export type RecomputeOthersSource = {
-	recomputeIds: string[] | undefined
+	recomputeIds?: string[] | undefined
 }
 
 export type CustomComponentConfig = {
