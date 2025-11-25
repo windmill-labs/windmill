@@ -490,6 +490,12 @@ function ZipFSElement(
               };
             }
 
+            const runnables = rawApp?.["value"]?.["runnables"];
+            if (runnables) {
+              rawApp.runnables = runnables;
+              delete rawApp?.["value"];
+            }
+
             yield {
               isDirectory: false,
               path: path.join(finalPath, "raw_app.yaml"),
