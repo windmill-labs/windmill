@@ -24,12 +24,14 @@
 					properties?: { [name: string]: SchemaProperty }
 			  }
 			| undefined
+		nonEmpty?: boolean | undefined
 	}
 
 	let {
 		canEditResourceType = false,
 		originalType = undefined,
-		itemsType = $bindable()
+		itemsType = $bindable(),
+		nonEmpty = $bindable()
 	}: Props = $props()
 
 	let selected:
@@ -143,6 +145,12 @@
 				</div>
 			{/each}
 		</div>
+		<Toggle
+			size="sm"
+			class="mt-8"
+			bind:checked={nonEmpty}
+			options={{ right: 'Require non-empty array' }}
+		/>
 		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 			<div class="flex flex-row mb-1 mt-2">
 				<Button

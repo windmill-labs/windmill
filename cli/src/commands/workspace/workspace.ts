@@ -477,6 +477,7 @@ const command = new Command()
   .command("delete-fork")
   .description("Delete a forked workspace and git branch")
   .arguments("<fork_name:string>")
+  .option("-y --yes", "Skip confirmation prompt")
   .action(deleteWorkspaceFork as any);
 
 export default command;

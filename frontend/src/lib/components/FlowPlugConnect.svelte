@@ -14,7 +14,7 @@
 		variant="default"
 		btnClasses={twMerge(
 			connecting ? 'text-accent' : '',
-			'bg-surface group/plug-btn overflow-clip flex p-0'
+			'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
 		)}
 		on:click
 		{...id ? { id } : {}}

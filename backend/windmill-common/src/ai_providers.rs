@@ -10,7 +10,6 @@ lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 }
 
-pub const AZURE_API_VERSION: &str = "2025-04-01-preview";
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
@@ -27,11 +26,18 @@ pub enum AIProvider {
     OpenRouter,
     TogetherAI,
     CustomAI,
+    #[serde(rename = "aws_bedrock")]
+    AWSBedrock,
 }
 
 impl AIProvider {
     /// Get the base URL for the AI provider
-    pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
+    pub async fn get_base_url(
+        &self,
+        resource_base_url: Option<String>,
+        region: Option<String>,
+        db: &DB,
+    ) -> Result<String> {
         match self {
             AIProvider::OpenAI => {
                 // Check for Azure base path override
@@ -74,6 +80,10 @@ impl AIProvider {
                     )))
                 }
             }
+            AIProvider::AWSBedrock => Ok(format!(
+                "https://bedrock-runtime.{}.amazonaws.com",
+                region.unwrap_or_else(|| "us-east-1".to_string())
+            )),
         }
     }
 
@@ -89,13 +99,12 @@ impl AIProvider {
     }
 
     /// Build Azure OpenAI URL with deployment model path
-    pub fn build_azure_openai_url(base_url: &str, model: &str, path: &str) -> String {
+    pub fn build_azure_openai_url(base_url: &str, path: &str) -> String {
         let base_url = base_url.trim_end_matches('/');
-
-        if base_url.ends_with("/deployments") {
-            format!("{}/{}/{}", base_url, model, path)
-        } else if base_url.ends_with("/openai") {
-            format!("{}/deployments/{}/{}", base_url, model, path)
+        if base_url.ends_with("/openai") {
+            format!("{}/v1/{}", base_url, path)
+        } else if base_url.ends_with("/deployments") {
+            format!("{}/v1/{}", base_url.trim_end_matches("/deployments"), path)
         } else {
             format!("{}/{}", base_url, path)
         }

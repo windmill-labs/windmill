@@ -188,7 +188,7 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let (_, expired) = validate_license_key(license_key).await?;
+    let (_, expired) = validate_license_key(license_key, Some(&db)).await?;
 
     if expired {
         Err(error::Error::BadRequest("Expired license key".to_string()))
@@ -647,8 +647,7 @@ async fn setup_ducklake_catalog_db_inner(
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
-    let pg_creds = &get_database_url().await?;
-    let pg_creds = parse_postgres_url(pg_creds)?;
+    let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters
@@ -695,29 +694,55 @@ async fn setup_ducklake_catalog_db_inner(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
         password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
-        host = urlencoding::encode(&pg_creds.host),
+        host = &pg_creds.host,
         port = pg_creds.port.unwrap_or(5432),
         dbname = dbname,
         sslmode = ssl_mode
     );
 
-    let (client, connection) = tokio::time::timeout(
-        std::time::Duration::from_secs(20),
-        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-    )
-    .await
-    .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-    .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
-    let join_handle = tokio::spawn(async move { connection.await });
+    let (client, join_handle) = if ssl_mode == "require" {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let mut connector = TlsConnector::builder();
+        connector.danger_accept_invalid_certs(true);
+        connector.danger_accept_invalid_hostnames(true);
+
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(
+                &conn_str,
+                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+            ),
+        )
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+
+        let join_handle = tokio::spawn(async move { connection.await });
+        (client, join_handle)
+    } else {
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
+        )
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+
+        let join_handle = tokio::spawn(async move { connection.await });
+        (client, join_handle)
+    };
+
     logs.db_connect = "OK".to_string();
 
     client
         .batch_execute(&format!(
             "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
-            GRANT USAGE ON SCHEMA public TO ducklake_user;
-            GRANT CREATE ON SCHEMA public TO ducklake_user;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+             GRANT USAGE ON SCHEMA public TO ducklake_user;
+             GRANT CREATE ON SCHEMA public TO ducklake_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
         ))
         .await
         .map_err(|e| {

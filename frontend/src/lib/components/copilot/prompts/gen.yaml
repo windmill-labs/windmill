@@ -151,6 +151,24 @@ prompts:
       No need to require autoload, it is already done.
       <contextual_information>
       My instructions: {description}
+  csharp:
+    prompt: |-
+      <contextual_information>
+      You have to write C# code with a public static Main method inside a class. The class name is irrelevant. Specify the parameter types. Do not call the main function. You should generally return the result.
+      NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script.
+      The Main method signature should be: public static ReturnType Main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      My instructions: {description}
+  java:
+    prompt: |-
+      <contextual_information>
+      You have to write Java code with a Main public class and a public static main() method. The return type can be Object or void. Do not call the main function. You should generally return the result.
+      Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script.
+      The method signature should be: public static Object main(parameter types...)
+      Arguments are used to generate the input specification and create the frontend UI for the script.
+      </contextual_information>
+      My instructions: {description}
   frontend:
     prompt: |-
       Write client-side javascript code that should {description}. 
@@ -176,7 +194,7 @@ prompts:
       At the end of the code, the processed result has to be returned.
 
       <contextual_information>
-      You can access the context object with the ctx global variable. 
+      You can access the context object with the ctx global variable.
       The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
       You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
       You can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)
@@ -189,3 +207,9 @@ prompts:
       You can validate all fields of a form: validateAll(id: string, key: string)
       You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
       </contextual_information>
+  duckdb:
+    prompt: |-
+      <contextual_information>
+      You have to write a statement for DuckDB. Arguments are defined with comments like `-- $age (text) = 20` or `-- $name (text)` (one per row) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage.
+      </contextual_information>
+      My instructions: {description}

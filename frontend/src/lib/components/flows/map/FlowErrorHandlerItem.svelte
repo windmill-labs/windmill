@@ -21,7 +21,7 @@
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 	}>()
 
-	const { selectedId, flowStateStore, flowStore } =
+	const { selectionManager, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertFailureModule(
@@ -42,7 +42,7 @@
 			})
 		}
 
-		$selectedId = 'failure'
+		selectionManager.selectId('failure')
 		refreshStateStore(flowStore)
 	}
 </script>
@@ -55,10 +55,10 @@
 		unifiedSize="sm"
 		wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 		id="flow-editor-error-handler"
-		selected={$selectedId?.includes('failure')}
+		selected={selectionManager.getSelectedId()?.includes('failure')}
 		onClick={() => {
 			if (flowStore.val?.value?.failure_module) {
-				$selectedId = 'failure'
+				selectionManager.selectId('failure')
 			}
 		}}
 	>
@@ -77,7 +77,7 @@
 			class="ml-1"
 			onclick={() => {
 				flowStore.val.value.failure_module = undefined
-				$selectedId = 'settings-metadata'
+				selectionManager.selectId('settings-metadata')
 			}}
 		>
 			<X size={12} />

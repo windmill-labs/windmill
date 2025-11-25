@@ -15,7 +15,12 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode } from '$lib/script_helpers'
+	import {
+		initialCode,
+		canHavePreprocessor,
+		getPreprocessorFullCode,
+		getMainFunctionPattern
+	} from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -80,12 +85,6 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import {
-		TS_PREPROCESSOR_MODULE_CODE,
-		TS_PREPROCESSOR_SCRIPT_INTRO,
-		PYTHON_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_SCRIPT_INTRO
-	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
@@ -313,7 +312,7 @@
 		{
 			value: 'preprocessor',
 			title: 'Preprocessor',
-			desc: 'Transform incoming requests before they are passed to the flow.',
+			desc: 'Transform incoming requests before they are passed to the main entrypoint.',
 			documentationLink: 'https://www.windmill.dev/docs/core_concepts/preprocessors',
 			Icon: Shuffle
 		}
@@ -380,7 +379,7 @@
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
-		scriptEditor?.inferSchema(script.content, language, true)
+		scriptEditor?.inferSchema(script.content, { nlang: language, resetArgs: true })
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
@@ -568,7 +567,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || script.kind !== 'script' || script.no_main_func) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -850,16 +849,13 @@
 		captureOn.set(true)
 	}
 
-	function addPreprocessor() {
+	function addPreprocessor(e?: { detail?: { args: Record<string, any> } }) {
 		const code = editor?.getCode()
 		if (code) {
-			const preprocessorCode =
-				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
-					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
-			const mainIndex = code.indexOf(
-				script.language === 'python3' ? 'def main' : 'export async function main'
-			)
+			const preprocessorCode = getPreprocessorFullCode(script.language, false)
+			const mainPattern = getMainFunctionPattern(script.language)
+			const mainIndex = code.indexOf(mainPattern)
+
 			if (mainIndex === -1) {
 				editor?.setCode(code + preprocessorCode)
 			} else {
@@ -869,6 +865,11 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+
+		// Apply provided args to the preprocessor
+		if (e?.detail?.args && Object.keys(e.detail.args).length > 0) {
+			args = { ...args, ...e.detail.args }
+		}
 	}
 
 	function handleDeployTrigger(trigger: Trigger) {
@@ -1139,7 +1140,8 @@
 															btnClasses={isPicked ? '' : 'm-[1px]'}
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
-																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
+																(script.kind == 'preprocessor' && !canHavePreprocessor(lang))}
 															startIcon={{
 																icon: LanguageIcon,
 																props: { lang }
@@ -1667,13 +1669,11 @@
 									newItem={initialPath == ''}
 									isFlow={false}
 									{hasPreprocessor}
-									canHavePreprocessor={script.language === 'bun' ||
-										script.language === 'deno' ||
-										script.language === 'python3'}
+									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
-									hash={script.parent_hash}
+									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 

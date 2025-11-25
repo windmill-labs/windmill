@@ -48,6 +48,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
@@ -121,6 +122,8 @@
 		editor_bar_right,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
+
+	let initialArgs = structuredClone($state.snapshot(args))
 
 	$effect.pre(() => {
 		if (schema == undefined) {
@@ -268,7 +271,18 @@
 		})
 	}
 
-	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
+	export async function inferSchema(
+		code: string,
+		{
+			nlang,
+			resetArgs = false,
+			applyInitialArgs = false
+		}: {
+			nlang?: SupportedLanguage
+			resetArgs?: boolean
+			applyInitialArgs?: boolean
+		} = {}
+	) {
 		let nschema = schema ?? emptySchema()
 
 		try {
@@ -295,6 +309,10 @@
 			validCode = true
 			if (resetArgs) {
 				args = {}
+			}
+			if (applyInitialArgs) {
+				// we reapply initial args as the schema form might have cleared them between mount and the schema inference
+				args = initialArgs
 			}
 			schema = nschema
 		} catch (e) {
@@ -337,7 +355,7 @@
 	}
 
 	onMount(() => {
-		inferSchema(code)
+		inferSchema(code, { applyInitialArgs: true })
 		loadPastTests()
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
@@ -741,7 +759,7 @@
 									<CaptureTable
 										bind:this={captureTable}
 										{hasPreprocessor}
-										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+										canHavePreprocessor={canHavePreprocessor(lang)}
 										isFlow={false}
 										path={stablePathForCaptures}
 										canEdit={true}

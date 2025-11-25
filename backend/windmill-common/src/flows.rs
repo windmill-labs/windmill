@@ -66,6 +66,7 @@ pub struct FlowWithStarred {
     pub starred: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock_error_logs: Option<String>,
+    pub version_id: i64,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -77,7 +78,8 @@ pub struct ListableFlow {
     pub workspace_id: String,
     pub path: String,
     pub summary: String,
-    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub edited_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
@@ -193,7 +195,7 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_env: Option<HashMap<String, Box<RawValue>>>
+    pub flow_env: Option<HashMap<String, Box<RawValue>>>,
 }
 
 impl FlowValue {
@@ -1121,6 +1123,7 @@ where
 
 #[derive(Deserialize)]
 pub struct ListFlowQuery {
+    pub without_description: Option<bool>,
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
     pub edited_by: Option<String>,

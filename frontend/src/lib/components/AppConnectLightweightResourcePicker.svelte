@@ -42,7 +42,7 @@
 					<Button variant="default" on:click={appConnect?.back ?? (() => {})}>Back</Button>
 				{/if}
 
-				<Button {disabled} on:click={appConnect?.next ?? (() => {})}>
+				<Button variant="accent" {disabled} on:click={appConnect?.next ?? (() => {})}>
 					{#if step == 2 && !manual}
 						Connect
 					{:else if step == 1}

@@ -18,8 +18,8 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
 	interface Props {

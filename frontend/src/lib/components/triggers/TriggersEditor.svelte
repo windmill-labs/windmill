@@ -41,7 +41,7 @@
 		newItem?: boolean
 		currentPath: string
 		fakeInitialPath?: string
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		args?: Record<string, any>
 		initialPath: string
 		isFlow: boolean
@@ -59,7 +59,7 @@
 		newItem = false,
 		currentPath,
 		fakeInitialPath = '',
-		hash = undefined,
+		runnableVersion = undefined,
 		args = {},
 		initialPath,
 		isFlow,
@@ -363,7 +363,7 @@
 										{initialPath}
 										{fakeInitialPath}
 										{currentPath}
-										{hash}
+										{runnableVersion}
 										{isDeployed}
 										small={useVerticalTriggerBar}
 										{args}
@@ -416,7 +416,7 @@
 								{hasPreprocessor}
 								{canHavePreprocessor}
 								args={config}
-								data={{ args, hash, emailDomain }}
+								data={{ args, hash: !isFlow ? runnableVersion : undefined, emailDomain }}
 								{isValid}
 								triggerDeployed={!triggersState.selectedTrigger.isDraft}
 								on:applyArgs

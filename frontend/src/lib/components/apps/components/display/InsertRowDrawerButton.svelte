@@ -2,7 +2,8 @@
 	import { Drawer, DrawerContent, Button } from '$lib/components/common'
 	import { CornerDownLeft, Plus } from 'lucide-svelte'
 	import InsertRow from './dbtable/InsertRow.svelte'
-	import type { ColumnDef, DbType } from './dbtable/utils'
+	import type { ColumnDef } from './dbtable/utils'
+	import type { DbType } from '$lib/components/dbTypes'
 
 	type Props = {
 		columnDefs: ColumnDef[]

@@ -6,7 +6,7 @@ use crate::ai::utils::{
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
     FlowContext,
 };
-use crate::common::{error_to_value, OccupancyMetrics};
+use crate::common::OccupancyMetrics;
 use crate::result_processor::handle_non_flow_job_error;
 use crate::worker_flow::{
     evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
@@ -471,6 +471,7 @@ async fn execute_windmill_tool(
         true,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -591,7 +592,7 @@ async fn handle_tool_execution_error(
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let err_string = format!("{}: {}", err.name(), err.to_string());
-    let err_json = error_to_value(&err);
+    let err_json = windmill_common::worker::error_to_value(&err);
     let _ = handle_non_flow_job_error(
         ctx.db,
         tool_job,

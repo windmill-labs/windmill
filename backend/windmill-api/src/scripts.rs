@@ -228,6 +228,11 @@ async fn list_scripts(
             "COALESCE(draft.created_at, o.created_at) as created_at",
             "archived",
             "extra_perms",
+            if !lq.without_description.unwrap_or(false) {
+                "description"
+            } else {
+                "NULL as description"
+            },
             "CASE WHEN lock_error_logs IS NOT NULL THEN true ELSE false END as has_deploy_errors",
             "language",
             "favorite.path IS NOT NULL as starred",
@@ -1020,6 +1025,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
             None,
             None,
         )

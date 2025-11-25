@@ -2232,7 +2232,7 @@ async fn push_next_flow_job(
             }
         });
 
-    // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
+    // if this is an empty module without preprocessor or if the module has already been completed, successfully, update the parent flow
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
         || matches!(status_module, FlowStatusModule::Success { .. })
     {
@@ -3303,6 +3303,7 @@ async fn push_next_flow_job(
             false,
             None,
             None,
+            None,
         )
         .warn_after_seconds(2)
         .await?;
@@ -3717,11 +3718,13 @@ pub struct JobPayloadWithTag {
     pub timeout: Option<i32>,
     pub on_behalf_of: Option<OnBehalfOf>,
 }
+#[derive(Debug)]
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
     ParallelJobs(Vec<JobPayloadWithTag>),
 }
 
+#[derive(Debug)]
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),

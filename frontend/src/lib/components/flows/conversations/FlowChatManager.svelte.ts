@@ -1,21 +1,20 @@
-import type { FlowConversationMessage } from '$lib/gen/types.gen'
+import type { FlowConversation, FlowConversationMessage } from '$lib/gen/types.gen'
 import { FlowConversationService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
+import InfiniteList from '$lib/components/InfiniteList.svelte'
+import { workspaceStore, userStore } from '$lib/stores'
+import { get } from 'svelte/store'
+import { parseStreamDeltas } from '$lib/components/chat/utils'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
 }
 
-export interface FlowChatManagerOptions {
-	onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
-	createConversation: (options: { clearMessages?: boolean }) => Promise<string>
-	refreshConversations?: () => Promise<void>
-	conversationId?: string
-	useStreaming?: boolean
-	path?: string
+export interface ConversationWithDraft extends FlowConversation {
+	isDraft?: boolean
 }
 
 export function randomUUID() {
@@ -27,7 +26,7 @@ export function randomUUID() {
 	})
 }
 
-class FlowChatManager {
+export class FlowChatManager {
 	// State
 	messages = $state<ChatMessage[]>([])
 	inputMessage = $state('')
@@ -42,33 +41,34 @@ class FlowChatManager {
 	currentEventSource = $state<EventSource | undefined>(undefined)
 	pollingInterval = $state<ReturnType<typeof setInterval> | undefined>(undefined)
 	currentJobId = $state<string | undefined>(undefined)
+	conversations = $state<ConversationWithDraft[]>([])
+	deletingConversationId = $state<string | undefined>(undefined)
+	isSidebarExpanded = $state(false)
+	selectedConversationId = $state<string | undefined>(undefined)
+	conversationListComponent = $state<InfiniteList | undefined>(undefined)
 
 	// Private state
 	#conversationsCache = $state<Record<string, ChatMessage[]>>({})
 	#scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 	#perPage = 50
-	#workspace = $state<string | undefined>(undefined)
 
 	// Options
-	#onRunFlow?: FlowChatManagerOptions['onRunFlow']
-	#createConversation?: FlowChatManagerOptions['createConversation']
-	#refreshConversations?: FlowChatManagerOptions['refreshConversations']
-	#conversationId = $state<string | undefined>(undefined)
+	#onRunFlow?: (userMessage: string, conversationId: string) => Promise<string | undefined>
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
-	initialize(options: FlowChatManagerOptions, workspace: string) {
-		this.#onRunFlow = options.onRunFlow
-		this.#createConversation = options.createConversation
-		this.#refreshConversations = options.refreshConversations
-		this.#conversationId = options.conversationId
-		this.#useStreaming = options.useStreaming ?? false
-		this.#path = options.path
-		this.#workspace = workspace
+	initialize(
+		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>,
+		path: string,
+		useStreaming: boolean = false
+	) {
+		this.#onRunFlow = onRunFlow
+		this.#path = path
+		this.#useStreaming = useStreaming
 	}
 
 	updateConversationId(conversationId: string | undefined) {
-		this.#conversationId = conversationId
+		this.selectedConversationId = conversationId
 	}
 
 	cleanup() {
@@ -88,6 +88,7 @@ class FlowChatManager {
 	}
 
 	focusInput() {
+		console.log('focusInput', this.inputElement)
 		this.inputElement?.focus()
 	}
 
@@ -97,15 +98,95 @@ class FlowChatManager {
 		this.page = 1
 	}
 
+	async createConversation({ clearMessages = true }: { clearMessages?: boolean }) {
+		// Check if there's already a draft conversation
+		const existingDraft = this.conversations.find((c) => c.isDraft)
+		if (existingDraft) {
+			// Select the existing draft instead of creating a new one
+			this.selectedConversationId = existingDraft.id
+			this.clearMessages()
+			return existingDraft.id
+		}
+		const newConversationId = randomUUID()
+		this.selectedConversationId = newConversationId
+
+		// Create a new conversation object and add it to the top of the list
+		const newConversation: ConversationWithDraft = {
+			id: newConversationId,
+			workspace_id: get(workspaceStore)!,
+			flow_path: this.#path!,
+			title: 'New chat',
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			created_by: get(userStore)!.username!,
+			isDraft: true
+		}
+
+		// Prepend to conversations list
+		this.conversations = [newConversation, ...this.conversations]
+		// Clear messages in the chat interface
+		if (clearMessages) {
+			this.clearMessages()
+		}
+		this.focusInput()
+
+		return newConversationId
+	}
+
+	setupInfiniteList() {
+		this.conversationListComponent?.setLoader((page, perPage) =>
+			this.loadConversations(page, perPage)
+		)
+		this.conversationListComponent?.setDeleteItemFn((id) => this.deleteConversation(id))
+	}
+
+	async selectConversation(conversationId: string, isDraft?: boolean) {
+		this.selectedConversationId = conversationId
+		// Load conversation messages into chat interface
+		if (isDraft) {
+			// For draft conversations, just clear messages (don't try to load from backend)
+			this.clearMessages()
+		} else {
+			// For persisted conversations, load messages from backend
+			await this.loadConversationMessages(conversationId)
+		}
+	}
+
+	async refreshConversations() {
+		await this.conversationListComponent?.loadData('forceRefresh')
+	}
+
+	// Only used by InfiniteList
+	private async deleteConversation(conversationId: string) {
+		try {
+			this.deletingConversationId = conversationId
+			await FlowConversationService.deleteFlowConversation({
+				workspace: get(workspaceStore)!,
+				conversationId
+			})
+			if (this.selectedConversationId === conversationId) {
+				this.selectedConversationId = undefined
+				this.clearMessages()
+			}
+			sendUserToast('Conversation deleted successfully')
+		} catch (error) {
+			console.error('Failed to delete conversation:', error)
+			sendUserToast('Failed to delete conversation', true)
+			throw error
+		} finally {
+			this.deletingConversationId = undefined
+		}
+	}
+
 	async cancelCurrentJob() {
-		if (!this.#workspace) {
+		if (!get(workspaceStore)) {
 			return
 		}
 
 		try {
 			if (this.currentJobId) {
 				await JobService.cancelQueuedJob({
-					workspace: this.#workspace,
+					workspace: get(workspaceStore)!,
 					id: this.currentJobId,
 					requestBody: {}
 				})
@@ -124,10 +205,30 @@ class FlowChatManager {
 		await this.loadMessages(true, conversationId)
 	}
 
+	// Only used by InfiniteList
+	private async loadConversations(page: number, perPage: number) {
+		if (!get(workspaceStore) || !this.#path) return []
+
+		try {
+			const response = await FlowConversationService.listFlowConversations({
+				workspace: get(workspaceStore)!,
+				flowPath: this.#path,
+				page: page,
+				perPage: perPage
+			})
+
+			return response
+		} catch (error) {
+			console.error('Failed to load conversations:', error)
+			sendUserToast('Failed to load conversations', true)
+			return []
+		}
+	}
+
 	// Message loading
 	private async loadMessages(reset: boolean, conversationId?: string) {
-		let conversationIdToUse = conversationId ?? this.#conversationId
-		if (!this.#workspace || !conversationIdToUse) return
+		let conversationIdToUse = conversationId ?? this.selectedConversationId
+		if (!get(workspaceStore) || !conversationIdToUse) return
 
 		if (reset) {
 			if (this.#conversationsCache[conversationIdToUse]) {
@@ -145,7 +246,7 @@ class FlowChatManager {
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
 			const response = await FlowConversationService.listConversationMessages({
-				workspace: this.#workspace,
+				workspace: get(workspaceStore)!,
 				conversationId: conversationIdToUse,
 				page: pageToFetch,
 				perPage: this.#perPage
@@ -213,51 +314,21 @@ class FlowChatManager {
 		} finally {
 			// Do a final poll to get all messages from database
 			try {
-				if (this.#conversationId) {
-					await this.pollConversationMessages(this.#conversationId)
+				if (this.selectedConversationId) {
+					await this.pollConversationMessages(this.selectedConversationId)
 				}
 			} catch {}
 			this.cleanup()
 		}
 	}
 
-	private parseStreamDeltas(streamData: string): {
-		type: string
-		content: string
-		success: boolean
-	} {
-		let type = 'message'
-		const lines = streamData.trim().split('\n')
-		let content = ''
-		let success = true
-		for (const line of lines) {
-			if (!line.trim()) continue
-			try {
-				const parsed = JSON.parse(line)
-				if (parsed.type === 'tool_result') {
-					type = 'tool_result'
-					const toolName = parsed.function_name
-					success = parsed.success
-					content = success ? `Used ${toolName} tool` : `Failed to use ${toolName} tool`
-				}
-				if (parsed.type === 'token_delta' && parsed.content) {
-					type = 'message'
-					content += parsed.content
-				}
-			} catch (e) {
-				console.error('Failed to parse stream line:', line, e)
-			}
-		}
-		return { type, content, success }
-	}
-
 	private async pollConversationMessages(conversationId: string, isNewConversation?: boolean) {
-		if (!this.#workspace) return
+		if (!get(workspaceStore)) return
 
 		try {
 			const lastId = this.messages[this.messages.length - 1].id
 			const response = await FlowConversationService.listConversationMessages({
-				workspace: this.#workspace,
+				workspace: get(workspaceStore)!,
 				conversationId: conversationId,
 				page: 1,
 				perPage: 50,
@@ -265,7 +336,7 @@ class FlowChatManager {
 			})
 
 			if (isNewConversation) {
-				await this.#refreshConversations?.()
+				await this.refreshConversations()
 			}
 
 			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
@@ -314,9 +385,9 @@ class FlowChatManager {
 		this.stopPolling()
 
 		// Generate a new conversation ID if we don't have one
-		let currentConversationId = this.#conversationId
-		if (!this.#conversationId && this.#createConversation) {
-			const newConversationId = await this.#createConversation({ clearMessages: false })
+		let currentConversationId = this.selectedConversationId
+		if (!this.selectedConversationId) {
+			const newConversationId = await this.createConversation({ clearMessages: false })
 			currentConversationId = newConversationId
 		}
 
@@ -380,16 +451,14 @@ class FlowChatManager {
 		let isCompleted = false
 
 		try {
-			const jobId = await JobService.runFlowByPath({
-				workspace: this.#workspace!,
-				path: this.#path!,
-				requestBody: { user_message: messageContent },
-				memoryId: currentConversationId
-			})
-			// Encode the payload as base64
+			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+			if (!jobId) {
+				console.error('No jobId returned from onRunFlow')
+				return
+			}
 
 			// Build the EventSource URL
-			const streamUrl = `/api/w/${this.#workspace}/jobs_u/getupdate_sse/${jobId}`
+			const streamUrl = `/api/w/${get(workspaceStore)}/jobs_u/getupdate_sse/${jobId}`
 			const url = new URL(streamUrl, window.location.origin)
 			url.searchParams.set('poll_delay_ms', '50')
 			url.searchParams.set('fast', 'true')
@@ -416,7 +485,7 @@ class FlowChatManager {
 								type,
 								content: newContent,
 								success
-							} = this.parseStreamDeltas(data.new_result_stream)
+							} = parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
 
 							// Create tool message if type is tool_result
@@ -479,8 +548,8 @@ class FlowChatManager {
 						if (data.completed) {
 							isCompleted = true
 							// Do a final poll to get all messages from database
-							if (this.#conversationId) {
-								await this.pollConversationMessages(this.#conversationId)
+							if (this.selectedConversationId) {
+								await this.pollConversationMessages(this.selectedConversationId)
 							}
 							this.cleanup()
 						}
@@ -518,7 +587,7 @@ class FlowChatManager {
 		this.currentJobId = jobId
 
 		if (isNewConversation) {
-			await this.#refreshConversations?.()
+			await this.refreshConversations()
 		}
 
 		// Start polling for intermediate messages in non-streaming mode too

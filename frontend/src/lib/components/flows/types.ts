@@ -16,6 +16,8 @@ import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 import type { createFlowDiffManager } from './flowDiffManager.svelte'
 
+import type { SelectionManager } from '../graph/selectionUtils.svelte'
+
 export type FlowInput = Record<
 	string,
 	{
@@ -29,6 +31,7 @@ export type FlowInput = Record<
 	}
 >
 
+// Extended OpenFlow with additional properties not in the core spec
 export type ExtendedOpenFlow = OpenFlow & {
 	tag?: string
 	ws_error_handler_muted?: boolean
@@ -69,7 +72,7 @@ export type CurrentEditor =
 	| undefined
 
 export type FlowEditorContext = {
-	selectedId: Writable<string>
+	selectionManager: SelectionManager
 	currentEditor: Writable<CurrentEditor>
 	moving: Writable<{ id: string } | undefined>
 	previewArgs: StateStore<Record<string, any>>

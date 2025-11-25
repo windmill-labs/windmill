@@ -19,7 +19,8 @@
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
-	import { collectOneOfFields, selectId } from '../../editor/appUtils'
+	import { selectId } from '../../editor/appUtils'
+	import { collectOneOfFields } from '../../editor/appUtilsCore'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
@@ -195,7 +196,8 @@
 				id: string
 				result_stream?: string
 			}) {
-				setResult(nresult_stream, id)
+				setResult(nresult_stream, id, false)
+				dispatch('streamupdate', { id, result_stream: nresult_stream })
 			},
 			cancel({ id }: { id: string }) {
 				onCancel?.()
@@ -441,7 +443,8 @@
 						$appPath,
 						id,
 						await buildRequestBody(dynamicArgsOverride),
-						inlineScriptOverride
+						inlineScriptOverride,
+						extraQueryParams
 					)
 					if (isEditor) {
 						addJob(uuid)
@@ -472,35 +475,36 @@
 	}
 
 	export async function buildRequestBody(dynamicArgsOverride: Record<string, any> | undefined) {
-		const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
-		const staticRunnableInputs = {}
+		const nonStaticRunnableInputs: Record<string, any> = dynamicArgsOverride ?? {}
+		const staticRunnableInputs: Record<string, any> = {}
 		const allowUserResources: string[] = []
+
 		for (const k of Object.keys(fields ?? {})) {
-			let field = fields[k]
-			if (field?.type == 'static' && fields[k]) {
+			const field = fields[k]
+
+			if (
+				isEditor &&
+				['user', 'evalv2', 'connected'].includes(field.type) &&
+				'allowUserResources' in field &&
+				field.allowUserResources
+			) {
+				allowUserResources.push(k)
+			}
+
+			if (field?.type == 'static') {
 				if (isEditor) {
 					staticRunnableInputs[k] = field.value
 				}
 			} else if (field?.type == 'user') {
 				nonStaticRunnableInputs[k] = args?.[k]
-				if (isEditor && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
 				const ctxMatch = field?.expr?.match(ctxRegex)
 				if (ctxMatch) {
 					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
 				} else {
-					// console.log('k', k)
 					nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 				}
-				if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 			} else {
-				if (isEditor && field?.type == 'connected' && field.allowUserResources) {
-					allowUserResources.push(k)
-				}
 				nonStaticRunnableInputs[k] = runnableInputValues[k]
 			}
 		}
@@ -629,7 +633,7 @@
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
+	async function setResult(res: any, jobId: string | undefined, dispatchSuccess: boolean = true) {
 		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
@@ -668,7 +672,9 @@
 		recordJob(jobId, result, undefined, transformerResult)
 		delete $errorByComponent[id]
 
-		dispatch('success', result)
+		if (dispatchSuccess) {
+			dispatch('success', result)
+		}
 		// callbacks?.done(res)
 	}
 

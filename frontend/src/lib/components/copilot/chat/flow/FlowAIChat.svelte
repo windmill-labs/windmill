@@ -17,8 +17,9 @@
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
 
-	const { flowStore, flowStateStore, selectedId, currentEditor } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
@@ -39,7 +40,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: $selectedId
+				selectedId: selectedId
 			}
 		},
 		getModules: (id?: string) => {
@@ -188,7 +189,7 @@
 
 	$effect(() => {
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
-			$selectedId,
+			selectedId,
 			flowStore.val,
 			flowStateStore.val,
 			$currentEditor

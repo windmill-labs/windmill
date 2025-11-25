@@ -285,6 +285,21 @@ pub struct FlowData {
     pub flow: FlowValue,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FlowNotes {
+    pub notes: Option<Box<RawValue>>,
+}
+
+impl FlowData {
+    pub fn notes(&self) -> Option<FlowNotes> {
+        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+            .map_err(|e| {
+                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
+                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+            })
+            .ok()
+    }
+}
 /// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
 #[derive(Deserialize)]
 struct RevertedFlowNodeFlow {
@@ -433,9 +448,9 @@ pub mod flow {
     make_static! {
         /// Flow node cache.
         /// FIXME: Use `Arc<Node>` for cheap cloning.
-        static ref NODES: { FlowNodeId => RawData } in "flow" <= 1000;
+        static ref NODES: { FlowNodeId => RawData } in "flow_2" <= 1000;
         /// Flow version value cache (version id => value).
-        static ref FLOWS: { i64 => Entry<FlowData> } in "flows" <= 1000;
+        static ref FLOWS: { i64 => Entry<FlowData> } in "flows_2" <= 1000;
         /// Flow version lite value cache (version id => value).
         static ref FLOWS_LITE: { i64 => Entry<FlowData> } in "flowslite" <= 1000;
     }
@@ -567,7 +582,7 @@ pub mod script {
     make_static! {
         /// Scripts cache.
         /// FIXME: Use `Arc<Val>` for cheap cloning.
-        static ref CACHE: { ScriptHash => ScriptFull } in "script" <= 1000;
+        static ref CACHE: { ScriptHash => ScriptFull } in "script_2" <= 1000;
     }
 
     /// Clear the script cache.
@@ -670,7 +685,7 @@ pub mod app {
 
     make_static! {
         /// App scripts cache.
-        static ref CACHE: { AppScriptId => Entry<ScriptData> } in "app" <= 1000;
+        static ref CACHE: { AppScriptId => Entry<ScriptData> } in "app_2" <= 1000;
     }
 
     /// Clear the app scripts cache.

@@ -44,23 +44,41 @@ fn parse_default_expr(e: Expression) -> Option<Value> {
 
 pub fn parse_php_signature(
     code: &str,
-    override_main: Option<String>,
+    override_entrypoint: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
-    let main_name = override_main.unwrap_or("main".to_string());
+    let entrypoint_fn_name = override_entrypoint.unwrap_or("main".to_string());
 
     let ast = parser::parse(code)
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let params = ast.into_iter().find_map(|x| match x {
-        Statement::Function(FunctionStatement {
-            name,
-            parameters: FunctionParameterList { parameters, .. },
-            ..
-        }) if name.to_string() == main_name => Some(parameters),
-        _ => None,
-    });
+    let mut entrypoint_params = None;
+    let mut has_preprocessor = None;
+    for node in ast.into_iter() {
+        match node {
+            Statement::Function(FunctionStatement {
+                name,
+                parameters: FunctionParameterList { parameters, .. },
+                ..
+            }) => {
+                let fn_name = name.to_string();
 
-    if let Some(params) = params {
+                if has_preprocessor.is_none() && fn_name == "preprocessor" {
+                    has_preprocessor = Some(true);
+                }
+
+                if entrypoint_params.is_none() && fn_name == entrypoint_fn_name {
+                    entrypoint_params = Some(parameters);
+                }
+
+                if has_preprocessor.is_some() && entrypoint_params.is_some() {
+                    break;
+                }
+            }
+            _ => {}
+        };
+    }
+
+    if let Some(params) = entrypoint_params {
         let args = params
             .into_iter()
             .map(|x| {
@@ -82,7 +100,7 @@ pub fn parse_php_signature(
             star_kwargs: false,
             args,
             no_main_func: Some(false),
-            has_preprocessor: None,
+            has_preprocessor,
         })
     } else {
         Ok(MainArgSignature {
@@ -90,7 +108,7 @@ pub fn parse_php_signature(
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
-            has_preprocessor: None,
+            has_preprocessor,
         })
     }
 }

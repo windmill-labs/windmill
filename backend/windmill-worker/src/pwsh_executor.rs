@@ -23,12 +23,13 @@ lazy_static::lazy_static! {
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
-        OccupancyMetrics,
+        build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
+        read_file_content, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
-    POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
+    TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -81,14 +82,14 @@ $credentials = $null
 if ($hasPrivateRepo) {
     $repoName = "windmill-private-$jobId"
     $repoUri = "$privateRepoUrl"
-    
+
     # Create PSCredential for authentication
     $username = "token"
     $patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
     $credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
-    
+
     Write-Host "Registering temporary repository: $repoName"
-    
+
     # Remove repository if it already exists
     Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
     Register-PSResourceRepository -Name $repoName -Uri $repoUri -Trusted
@@ -99,7 +100,7 @@ try {
     foreach ($moduleRequest in $moduleRequests) {
         $moduleName = $moduleRequest.Name
         $requiredVersion = $moduleRequest.Version
-        
+
         # Check if module is already installed with the required version (case-insensitive)
         $isInstalled = $false
         if ($requiredVersion) {
@@ -107,32 +108,32 @@ try {
         } else {
             $isInstalled = $availableModules | Where-Object { $_.Name -eq $moduleName }
         }
-        
+
         if (-not $isInstalled) {
             $moduleFound = $false
-            
+
             # First try private repository if configured
             if ($hasPrivateRepo) {
                 $findParams = @{ Name = $moduleName; Repository = $repoName; ErrorAction = 'SilentlyContinue'; Credential = $credentials }
                 if ($requiredVersion) { $findParams.Version = $requiredVersion }
-                
+
                 $privateModule = Find-PSResource @findParams
                 if ($privateModule) {
                     $moduleFound = $true
                     $versionInfo = if ($requiredVersion) { " version $requiredVersion" } else { "" }
                     Write-Host "Found module $moduleName$versionInfo in private repository, installing from there..."
-                    
+
                     $saveParams = @{ Name = $moduleName; Path = $path; Repository = $repoName; Credential = $credentials }
                     if ($requiredVersion) { $saveParams.Version = $requiredVersion }
                     Save-PSResource @saveParams
                 }
             }
-            
+
             # If not found in private repo (or no private repo configured), try all repositories
             if (-not $moduleFound) {
                 $versionInfo = if ($requiredVersion) { " version $requiredVersion" } else { "" }
                 Write-Host "Installing module $moduleName$versionInfo from public repositories..."
-                
+
                 $saveParams = @{ Name = $moduleName; Path = $path; TrustRepository = $true }
                 if ($requiredVersion) { $saveParams.Version = $requiredVersion }
                 Save-PSResource @saveParams
@@ -255,20 +256,42 @@ pub async fn handle_powershell_job(
             job.args.as_ref()
         };
 
-        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
+        let parsed_sig = windmill_parser_bash::parse_powershell_sig(&content)?;
+
+        parsed_sig
             .args
             .iter()
-            .map(|arg| {
-                (
-                    arg.name.clone(),
-                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_pwsh_param(x.get()))),
-                )
-            })
-            .collect::<Vec<(String, Option<String>)>>();
+            .filter_map(|arg| {
+                let value_opt = job_args.and_then(|x| x.get(&arg.name));
 
-        args_owned
-            .into_iter()
-            .filter_map(|(n, v)| v.map(|v| format!("-{n} {v}")))
+                // Check if this is a switch parameter (only [switch], not [bool])
+                let is_switch = arg.otyp.as_ref().map(|t| {
+                    t.to_lowercase() == "switch"
+                }).unwrap_or(false);
+
+                if is_switch {
+                    // Handle switch parameters: -SwitchName or omit
+                    if let Some(value) = value_opt {
+                        match serde_json::from_str::<serde_json::Value>(value.get()) {
+                            Ok(serde_json::Value::Bool(true)) => {
+                                // Switch is enabled: just pass -SwitchName
+                                Some(format!("-{}", arg.name))
+                            }
+                            Ok(serde_json::Value::Bool(false)) | _ => {
+                                // Switch is disabled or invalid: omit the parameter
+                                None
+                            }
+                        }
+                    } else {
+                        // No value provided, omit the switch (defaults to false)
+                        None
+                    }
+                } else {
+                    // Regular parameter (including [bool]): format as -ParamName Value
+                    // For [bool] parameters, this will be -ParamName $true or -ParamName $false
+                    value_opt.map(|v| format!("-{} {}", arg.name, raw_to_pwsh_param(v.get())))
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
@@ -425,16 +448,16 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             exit 1\n\
         }\n";
 
-    // make sure param() is first
-    let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
-    let content: String = if let Some(param_match) = param_match {
-        let param_match = param_match.as_str();
+    // make sure param() with its attributes is first
+    let content: String = if let Some((param_block, remaining_code)) =
+        windmill_parser_bash::extract_powershell_param_block_with_attributes(&content, true)
+    {
         format!(
             "{}\n{}\n{}\n{}\n{}",
-            param_match,
+            param_block,
             profile,
             strict_termination_start,
-            content.replace(param_match, ""),
+            remaining_code,
             strict_termination_end
         )
     } else {
@@ -504,7 +527,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
         let cmd_args;
 
         #[cfg(unix)]
@@ -517,6 +539,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec![r".\wrapper.ps1"];
         }
 
+        let mut cmd = build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args);
+
         cmd.current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -525,7 +549,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(&cmd_args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

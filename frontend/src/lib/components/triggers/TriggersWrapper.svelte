@@ -24,7 +24,7 @@
 		initialPath: string
 		fakeInitialPath: string
 		currentPath: string
-		hash?: string
+		runnableVersion?: string
 		isDeployed: boolean
 		small: boolean
 		args: Record<string, any>
@@ -45,7 +45,7 @@
 		initialPath,
 		fakeInitialPath,
 		currentPath,
-		hash,
+		runnableVersion,
 		small,
 		args,
 		newItem,
@@ -68,7 +68,7 @@
 	<WebhooksPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
-		{hash}
+		{runnableVersion}
 		token=""
 		{args}
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
@@ -80,7 +80,7 @@
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
-		{hash}
+		runnableVersion={!isFlow ? runnableVersion : undefined}
 		{onEmailDomain}
 	/>
 {:else if selectedTrigger.type === 'schedule'}

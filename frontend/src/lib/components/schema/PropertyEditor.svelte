@@ -32,6 +32,7 @@
 		title?: string | undefined
 		placeholder?: string | undefined
 		properties?: Record<string, any> | undefined
+		nonEmpty?: boolean | undefined
 		isFlowInput?: boolean
 		isAppInput?: boolean
 		order?: string[] | undefined
@@ -57,6 +58,7 @@
 		pattern = $bindable(undefined),
 		enum_ = $bindable(undefined),
 		extra = $bindable({}),
+		nonEmpty = $bindable(undefined),
 		minW = true,
 		customErrorMessage = $bindable(undefined),
 		title = $bindable(undefined),
@@ -219,6 +221,7 @@
 				originalType={extra['originalType']}
 				bind:itemsType
 				canEditResourceType={isFlowInput || isAppInput}
+				bind:nonEmpty
 			/>
 		{:else if type == 'string' || ['number', 'integer'].includes(type ?? '')}
 			<div>

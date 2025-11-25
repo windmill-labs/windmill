@@ -6,6 +6,9 @@
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowGraphContext } from '$lib/components/flows/types'
+	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -14,6 +17,8 @@
 	let { data }: Props = $props()
 
 	const { diffManager } = getContext<FlowGraphContext>('FlowGraphContext')
+	// Get NoteEditor context for group note creation
+	const noteEditorContext = getNoteEditorContext()
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -39,9 +44,14 @@
 		}
 		return typ
 	})
+
+	// Define context menu items
+	const contextMenuItems: ContextMenuItem[] = $derived(
+		data.editMode ? [addGroupNoteContextMenuItem(data.id, noteEditorContext)] : []
+	)
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} {contextMenuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}

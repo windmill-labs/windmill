@@ -18,6 +18,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 
 	interface Props {
 		failureModule: boolean
@@ -57,18 +58,51 @@
 	)
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
+		if (preprocessorModule) {
+			return canHavePreprocessor(lang as SupportedLanguage)
+		}
+
+		if (failureModule || kind === 'trigger') {
+			if (
+				[
+					'postgresql',
+					'mysql',
+					'bigquery',
+					'snowflake',
+					'mssql',
+					'graphql',
+					'duckdb',
+					'oracledb'
+				].includes(lang)
+			) {
+				return false
+			}
 			return true
 		}
 
-		if (lang == 'go') {
-			return (kind == 'script' || kind == 'trigger' || failureModule) && !preprocessorModule
+		if (kind === 'script') {
+			return lang !== 'docker'
 		}
 
-		if (lang == 'bash' || lang == 'nativets') {
-			return kind == 'script' && !preprocessorModule
+		if (kind === 'approval') {
+			if (
+				[
+					'postgresql',
+					'mysql',
+					'bigquery',
+					'snowflake',
+					'mssql',
+					'graphql',
+					'duckdb',
+					'oracledb'
+				].includes(lang)
+			) {
+				return false
+			}
+			return true
 		}
-		return kind == 'script' && !failureModule && !preprocessorModule
+
+		return false
 	}
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')

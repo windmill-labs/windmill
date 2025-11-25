@@ -15,6 +15,7 @@
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
 	import type { StateStore } from '$lib/utils'
+	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
 
 	interface Props {
 		noEditor?: boolean
@@ -29,7 +30,7 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		onTestFlow?: () => Promise<string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		job?: Job
 		isOwner?: boolean
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
@@ -57,7 +58,7 @@
 	}: Props = $props()
 
 	const {
-		selectedId,
+		selectionManager,
 		flowStore,
 		flowStateStore,
 		flowInputsStore,
@@ -65,8 +66,11 @@
 		initialPathStore,
 		fakeInitialPath,
 		previewArgs,
-		flowInputEditorState
+		flowInputEditorState,
+		stepsInputArgs
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
@@ -87,14 +91,16 @@
 	})
 </script>
 
-{#if $selectedId?.startsWith('settings')}
+{#if selectionManager && selectionManager.selectedIds.length > 1}
+	<FlowSelectionPanel {selectionManager} {noEditor} />
+{:else if selectedId?.startsWith('settings')}
 	<FlowSettings {enableAi} {noEditor} />
-{:else if $selectedId === 'Input'}
+{:else if selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			$selectedId = 'triggers'
+			selectionManager.selectId('Trigger')
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
@@ -103,22 +109,23 @@
 		{previewOpen}
 		{flowModuleSchemaMap}
 	/>
-{:else if $selectedId === 'Result'}
+{:else if selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
-{:else if $selectedId === 'constants'}
+{:else if selectedId === 'constants'}
 	<FlowEnvironmentVariables {noEditor} />
-{:else if $selectedId === 'failure'}
+{:else if selectedId === 'failure'}
 	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
-{:else if $selectedId === 'preprocessor'}
+{:else if selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
-{:else if $selectedId === 'triggers'}
+{:else if selectedId === 'Trigger'}
 	<TriggersEditor
 		on:applyArgs
-		on:addPreprocessor={async () => {
+		on:addPreprocessor={async (e) => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
-			$selectedId = 'preprocessor'
+			stepsInputArgs.setStepArgs('preprocessor', e.detail.args ?? {})
+			selectionManager.selectId('preprocessor')
 		}}
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
@@ -126,7 +133,7 @@
 				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
-				$selectedId = 'Input'
+				selectionManager.selectId('Input')
 				$flowInputEditorState.selectedTab = 'captures'
 				$flowInputEditorState.payloadData = payloadData
 			}
@@ -145,7 +152,7 @@
 		schema={flowStore.val.schema}
 		{onDeployTrigger}
 	/>
-{:else if $selectedId.startsWith('subflow:')}
+{:else if selectedId?.startsWith('subflow:')}
 	<div class="p-4"
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
@@ -154,7 +161,7 @@
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
-		{#key $selectedId}
+		{#key selectedId}
 			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}

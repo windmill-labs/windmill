@@ -23,7 +23,8 @@
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -113,7 +114,7 @@
 	}
 </script>
 
-{#if flowModule.id === $selectedId}
+{#if flowModule.id === selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
@@ -123,13 +124,13 @@
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesAllWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
-		{#if $selectedId == 'failure'}
+		{#if selectedId == 'failure'}
 			<div class="p-4">
 				<Alert type="info" title="Error handlers are triggered upon non recovered errors">
 					If defined, the error handler will take the error as input.
 				</Alert>
 			</div>
-		{:else if $selectedId == 'preprocessor'}
+		{:else if selectedId == 'preprocessor'}
 			<div class="p-4">
 				<Alert
 					type="info"
@@ -157,8 +158,8 @@
 				summary={flowModule.summary}
 				shouldDisableTriggerScripts={parentModule !== undefined ||
 					previousModule !== undefined ||
-					$selectedId == 'failure' ||
-					$selectedId == 'preprocessor'}
+					selectedId == 'failure' ||
+					selectedId == 'preprocessor'}
 				on:pick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
 					createModuleFromScript(path, summary, kind, hash)
@@ -187,8 +188,8 @@
 					flowModule = module
 					flowStateStore.val[module.id] = state
 				}}
-				failureModule={$selectedId === 'failure'}
-				preprocessorModule={$selectedId === 'preprocessor'}
+				failureModule={selectedId === 'failure'}
+				preprocessorModule={selectedId === 'preprocessor'}
 			/>
 		{/if}
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent'}
@@ -197,8 +198,8 @@
 			bind:flowModule
 			{parentModule}
 			{previousModule}
-			failureModule={$selectedId === 'failure'}
-			preprocessorModule={$selectedId === 'preprocessor'}
+			failureModule={selectedId === 'failure'}
+			preprocessorModule={selectedId === 'preprocessor'}
 			{scriptKind}
 			{scriptTemplate}
 			{enableAi}
@@ -225,7 +226,7 @@
 		/>
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
-	{#if $selectedId === `${flowModule?.id}-branch-default`}
+	{#if selectedId === `${flowModule?.id}-branch-default`}
 		<div class="p-2">
 			<h3 class="mb-4">Default branch</h3>
 			Nothing to configure, this is the default branch if none of the predicates are met.
@@ -247,7 +248,7 @@
 		{/each}
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
-		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
+		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchOneWrapper
 				{noEditor}
 				bind:branch={flowModule.value.branches[branchIndex]}
@@ -274,7 +275,7 @@
 	{/each}
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
-		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
+		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchAllWrapper {noEditor} bind:branch={flowModule.value.branches[branchIndex]} />
 		{:else}
 			{#each branch.modules as _, index}
@@ -295,7 +296,7 @@
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
 	{#each flowModule.value.tools as tool, toolIndex (toolIndex)}
-		{#if $selectedId === tool.id}
+		{#if selectedId === tool.id}
 			<AgentToolWrapper
 				{noEditor}
 				bind:tool={flowModule.value.tools[toolIndex]}
