@@ -6,6 +6,7 @@ import { tick } from 'svelte'
 import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { parseStreamDeltas } from '$lib/components/chat/utils'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
@@ -87,6 +88,7 @@ export class FlowChatManager {
 	}
 
 	focusInput() {
+		console.log('focusInput', this.inputElement)
 		this.inputElement?.focus()
 	}
 
@@ -320,36 +322,6 @@ export class FlowChatManager {
 		}
 	}
 
-	private parseStreamDeltas(streamData: string): {
-		type: string
-		content: string
-		success: boolean
-	} {
-		let type = 'message'
-		const lines = streamData.trim().split('\n')
-		let content = ''
-		let success = true
-		for (const line of lines) {
-			if (!line.trim()) continue
-			try {
-				const parsed = JSON.parse(line)
-				if (parsed.type === 'tool_result') {
-					type = 'tool_result'
-					const toolName = parsed.function_name
-					success = parsed.success
-					content = success ? `Used ${toolName} tool` : `Failed to use ${toolName} tool`
-				}
-				if (parsed.type === 'token_delta' && parsed.content) {
-					type = 'message'
-					content += parsed.content
-				}
-			} catch (e) {
-				console.error('Failed to parse stream line:', line, e)
-			}
-		}
-		return { type, content, success }
-	}
-
 	private async pollConversationMessages(conversationId: string, isNewConversation?: boolean) {
 		if (!get(workspaceStore)) return
 
@@ -513,7 +485,7 @@ export class FlowChatManager {
 								type,
 								content: newContent,
 								success
-							} = this.parseStreamDeltas(data.new_result_stream)
+							} = parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
 
 							// Create tool message if type is tool_result

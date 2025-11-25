@@ -202,7 +202,8 @@
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return scripts.map((x) => x.path)
 	}
@@ -219,7 +220,8 @@
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return flows.map((x) => x.path)
 	}

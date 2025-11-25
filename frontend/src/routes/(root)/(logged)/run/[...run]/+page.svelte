@@ -320,7 +320,8 @@
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork'
 			}
-			window.open(`/flows/add#${encodeState(state)}`)
+			const encodedArgs = encodeState(job?.args)
+			window.open(`/flows/add?initial_args=${encodedArgs}#${encodeState(state)}`)
 		} else {
 			$initialArgsStore = job?.args
 			let n: NewScript = {
@@ -328,9 +329,11 @@
 				summary: 'Fork of preview of ' + job?.script_path,
 				language: job?.language as NewScript['language'],
 				description: '',
-				content: job?.raw_code ?? ''
+				content: job?.raw_code ?? '',
+				kind: 'script'
 			}
-			window.open(`/scripts/add#${encodeState(n)}`)
+			const encodedArgs = encodeState(job?.args)
+			window.open(`/scripts/add?initial_args=${encodedArgs}#${encodeState(n)}`)
 		}
 	}
 

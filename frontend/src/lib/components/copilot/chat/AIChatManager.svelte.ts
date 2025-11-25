@@ -43,6 +43,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
@@ -407,15 +408,42 @@ class AIChatManager {
 				}
 
 				const model = getCurrentModel()
-				const completionFn = model.provider === 'anthropic' ? getAnthropicCompletion : getCompletion
-				const parseFn =
-					model.provider === 'anthropic' ? parseAnthropicCompletion : parseOpenAICompletion
+				const isOpenAI = model.provider === 'openai' || model.provider === 'azure_openai'
+				const isAnthropic = model.provider === 'anthropic'
 
-				const completion = await completionFn(
-					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
-					abortController,
-					tools.map((t) => t.def)
-				)
+				let completion: any
+				let parseFn: any
+
+				const messageParams = [
+					systemMessage,
+					...messages,
+					...(pendingUserMessage ? [pendingUserMessage] : [])
+				]
+				const toolDefs = tools.map((t) => t.def)
+
+				// For OpenAI/Azure, try Responses API first, fallback to Completions API
+				if (isOpenAI) {
+					try {
+						completion = await getOpenAIResponsesCompletion(
+							messageParams,
+							abortController,
+							toolDefs
+						)
+						parseFn = parseOpenAIResponsesCompletion
+					} catch (err) {
+						console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
+						completion = await getCompletion(messageParams, abortController, toolDefs, {
+							forceCompletions: true
+						})
+						parseFn = parseOpenAICompletion
+					}
+				} else if (isAnthropic) {
+					completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
+					parseFn = parseAnthropicCompletion
+				} else {
+					completion = await getCompletion(messageParams, abortController, toolDefs)
+					parseFn = parseOpenAICompletion
+				}
 
 				if (completion) {
 					const continueCompletion = await parseFn(
@@ -872,7 +900,7 @@ class AIChatManager {
 	}
 
 	listenForSelectedIdChanges = (
-		selectedId: string,
+		selectedId: string | undefined,
 		flowStore: ExtendedOpenFlow,
 		flowStateStore: FlowState,
 		currentEditor: CurrentEditor

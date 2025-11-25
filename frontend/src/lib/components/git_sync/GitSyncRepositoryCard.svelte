@@ -94,8 +94,17 @@
 				: isLegacy
 					? 'Legacy promotion repository'
 					: isSecondary
-						? 'Secondary sync repository'
+						? repo?.use_individual_branch
+							? 'Secondary promotion repository'
+							: 'Secondary sync repository'
 						: `Repository #${(idx ?? 0) + 1}`
+	)
+
+	// Determine the actual mode based on repository configuration
+	const repoMode = $derived<'sync' | 'promotion'>(
+		variant === 'primary-promotion' || variant === 'legacy' || repo?.use_individual_branch
+			? 'promotion'
+			: 'sync'
 	)
 
 	// Determine display description based on variant and mode
@@ -354,7 +363,7 @@
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
 				<DetectionFlow
 					{idx}
-					mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'}
+					mode={repoMode}
 				/>
 			{:else}
 				<GitSyncFilterSettings
@@ -381,9 +390,7 @@
 						<!-- Display mode settings as prominent text -->
 						<div class="flex-1 mr-4">
 							<GitSyncModeDisplay
-								mode={variant === 'primary-promotion' || variant === 'legacy'
-									? 'promotion'
-									: 'sync'}
+								mode={repoMode}
 								{targetBranch}
 								repository={repo}
 							/>

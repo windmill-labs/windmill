@@ -30,14 +30,15 @@
 	const primarySync = $derived(gitSyncContext?.getPrimarySyncRepository() || null)
 	const primaryPromotion = $derived(gitSyncContext?.getPrimaryPromotionRepository() || null)
 	const secondarySync = $derived(gitSyncContext?.getSecondarySyncRepositories() || [])
-	const legacyPromotion = $derived(gitSyncContext?.getLegacyPromotionRepositories() || [])
+	const secondaryPromotion = $derived(gitSyncContext?.getSecondaryPromotionRepositories() || [])
 
 	// State for collapsible sections
 	let secondarySyncExpanded = $state(false)
-	let legacyPromotionExpanded = $state(false)
+	let secondaryPromotionExpanded = $state(false)
 
 	// Check if any secondary repositories are unsaved
 	const hasUnsavedSecondary = $derived(secondarySync.some((s) => s.repo.isUnsavedConnection))
+	const hasUnsavedSecondaryPromotion = $derived(secondaryPromotion.some((s) => s.repo.isUnsavedConnection))
 </script>
 
 {#if !gitSyncContext}
@@ -169,38 +170,70 @@
 					isCollapsible={false}
 					showEmptyState={primaryPromotion?.repo === null}
 				/>
-			</div>
 
-			<!-- Legacy promotion repositories (backwards compatibility) -->
-			{#if legacyPromotion.length > 0}
-				<Alert type="warning" title="Multiple promotion repositories detected">
-					Multiple promotion repositories are no longer supported. Please reduce to a single
-					promotion repository. Only deletion is allowed for the additional repositories below.
-				</Alert>
-				<div class="mt-4">
-					<button
-						class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-						onclick={() => (legacyPromotionExpanded = !legacyPromotionExpanded)}
-					>
-						{#if legacyPromotionExpanded}
-							<ChevronDown size={16} />
-						{:else}
-							<ChevronRight size={16} />
-						{/if}
-						Legacy promotion repositories ({legacyPromotion.length})
-					</button>
+				<!-- Secondary Promotion Repositories -->
+				{#if primaryPromotion && !primaryPromotion.repo?.isUnsavedConnection}
+					{#if secondaryPromotion.length > 0 || secondaryPromotionExpanded}
+						<div class="mt-4">
+							<button
+								class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
+								onclick={() => (secondaryPromotionExpanded = !secondaryPromotionExpanded)}
+							>
+								{#if secondaryPromotionExpanded}
+									<ChevronDown size={16} />
+								{:else}
+									<ChevronRight size={16} />
+								{/if}
+								Secondary promotion repositories ({secondaryPromotion.length})
+							</button>
 
-					{#if legacyPromotionExpanded}
-						<div class="space-y-3 mt-3">
-							{#each legacyPromotion as { repo, idx } (repo.git_repo_resource_path)}
-								<div class="pl-4">
-									<GitSyncRepositoryCard {idx} variant="legacy" isLegacy={true} />
+							{#if secondaryPromotionExpanded}
+								<div class="mt-3 space-y-3">
+									{#if secondaryPromotion.length === 0}
+										<div class="text-sm text-secondary italic">
+											No secondary promotion repositories configured
+										</div>
+									{:else}
+										{#each secondaryPromotion as { repo, idx } (repo.git_repo_resource_path)}
+											<div class="pl-4">
+												<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
+											</div>
+										{/each}
+									{/if}
+
+									{#if !hasUnsavedSecondaryPromotion}
+										<div class="pl-4">
+											<Button
+												size="xs"
+												variant="default"
+												startIcon={{ icon: Plus }}
+												onclick={() => gitSyncContext.addPromotionRepository()}
+											>
+												Add secondary promotion
+											</Button>
+										</div>
+									{/if}
 								</div>
-							{/each}
+							{/if}
 						</div>
+					{:else}
+						<!-- Collapsed state when no secondary promotion repos exist -->
+						{#if !hasUnsavedSecondaryPromotion}
+							<div class="mt-2">
+								<button
+									class="text-xs text-primary hover:text-secondary transition-colors"
+									onclick={() => {
+										secondaryPromotionExpanded = true
+										gitSyncContext.addPromotionRepository()
+									}}
+								>
+									+ Add secondary promotion repository
+								</button>
+							</div>
+						{/if}
 					{/if}
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 
 		<!-- Modals -->

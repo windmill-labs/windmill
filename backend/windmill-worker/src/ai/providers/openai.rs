@@ -351,7 +351,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
     fn get_endpoint(
         &self,
         base_url: &str,
-        model: &str,
+        _model: &str,
         output_type: &OutputType,
         _stream: bool,
     ) -> String {
@@ -361,7 +361,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         };
 
         if self.provider_kind.is_azure_openai(base_url) {
-            AIProvider::build_azure_openai_url(base_url, model, path)
+            AIProvider::build_azure_openai_url(base_url, path)
         } else {
             format!("{}/{}", base_url, path)
         }

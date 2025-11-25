@@ -595,7 +595,7 @@ export function createGitSyncContext(workspace: string) {
 		return result
 	}
 
-	function getLegacyPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
+	function getSecondaryPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
 		const result: { repo: GitSyncRepository, idx: number }[] = []
 		let foundFirst = false
 		repositories.forEach((repo, idx) => {
@@ -738,7 +738,7 @@ export function createGitSyncContext(workspace: string) {
 		getPrimarySyncRepository,
 		getPrimaryPromotionRepository,
 		getSecondarySyncRepositories,
-		getLegacyPromotionRepositories,
+		getSecondaryPromotionRepositories,
 
 		// Helper methods
 		getTargetBranch,
