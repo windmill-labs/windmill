@@ -316,6 +316,40 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn print_help() {
+	println!("Windmill - a fast, open-source workflow engine and job runner.");
+	println!();
+	println!("Usage:");
+	println!("  windmill [SUBCOMMAND]");
+	println!();
+	println!("Subcommands:");
+	println!("  help                 Show this help information and exit");
+	println!("  version              Show Windmill version and exit");
+	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
+	println!();
+	println!("Configuration via environment variables (name = default):");
+	println!("  DATABASE_URL = <required>   PostgreSQL connection string");
+	println!("  NUM_WORKERS = {}            Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
+	println!("  DISABLE_SERVER = false      Disable HTTP server when true");
+	println!("  SERVER_BIND_ADDR = {}       IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
+	println!("  PORT = {}                   Server port (in server/indexer/MCP modes)", DEFAULT_PORT);
+	println!("  RUST_LOG = info             Rust logging level (e.g., trace, debug, info)");
+	println!("  OTEL_ENVIRONMENT = local    Environment tag for telemetry (defaults to base URL prefix or 'local')");
+	println!("  SKIP_MIGRATION = false      Skip DB migrations at startup");
+	println!("  BASE_INTERNAL_URL = http://localhost:{PORT}  Internal base URL (agent mode honors this)");
+	println!("  PG_LISTENER_REFRESH_PERIOD_SECS = 43200  Periodic refresh of PG listeners/settings");
+	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
+	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
+	#[cfg(feature = "parquet")]
+	{
+		println!("  DISABLE_S3_STORE = false    Disable object store-backed logs (parquet feature)");
+	}
+	println!();
+	println!("Notes:");
+	println!("- Many advanced settings can be configured from the database and are not listed here.");
+	println!("- At startup, Windmill logs currently set configuration keys for visibility.");
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -374,6 +408,10 @@ async fn windmill_main() -> anyhow::Result<()> {
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
     match cli_arg.as_str() {
+        "-h" | "--help" | "help" => {
+            print_help();
+            return Ok(());
+        }
         "cache" => {
             #[cfg(feature = "embedding")]
             {
