@@ -323,30 +323,27 @@ fn print_help() {
 	println!("  windmill [SUBCOMMAND]");
 	println!();
 	println!("Subcommands:");
-	println!("  help                 Show this help information and exit");
+	println!("  help | -h | --help   Show this help information and exit");
 	println!("  version              Show Windmill version and exit");
 	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
 	println!();
-	println!("Configuration via environment variables (name = default):");
-	println!("  DATABASE_URL = <required>   PostgreSQL connection string");
-	println!("  NUM_WORKERS = {}            Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
-	println!("  DISABLE_SERVER = false      Disable HTTP server when true");
-	println!("  SERVER_BIND_ADDR = {}       IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
-	println!("  PORT = {}                   Server port (in server/indexer/MCP modes)", DEFAULT_PORT);
-	println!("  RUST_LOG = info             Rust logging level (e.g., trace, debug, info)");
-	println!("  OTEL_ENVIRONMENT = local    Environment tag for telemetry (defaults to base URL prefix or 'local')");
-	println!("  SKIP_MIGRATION = false      Skip DB migrations at startup");
-	println!("  BASE_INTERNAL_URL = http://localhost:{PORT}  Internal base URL (agent mode honors this)");
-	println!("  PG_LISTENER_REFRESH_PERIOD_SECS = 43200  Periodic refresh of PG listeners/settings");
+	println!("Environment variables (name = default):");
+	println!("  DATABASE_URL = <required>              The Postgres database url.");
+	println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
+	println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
+	println!("  PORT = {}                              HTTP port (server/indexer/MCP modes)", DEFAULT_PORT);
+	println!("  SERVER_BIND_ADDR = {}                  IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
+	println!("  NUM_WORKERS = {}                       Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
+	println!("  WORKER_GROUP = default                 Worker group this worker belongs to",);
+	println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
+	println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
+	println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");
+	println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
-	#[cfg(feature = "parquet")]
-	{
-		println!("  DISABLE_S3_STORE = false    Disable object store-backed logs (parquet feature)");
-	}
 	println!();
 	println!("Notes:");
-	println!("- Many advanced settings can be configured from the database and are not listed here.");
+	println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
 	println!("- At startup, Windmill logs currently set configuration keys for visibility.");
 }
 
