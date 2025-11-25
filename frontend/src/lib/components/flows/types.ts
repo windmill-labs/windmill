@@ -94,13 +94,6 @@ export type FlowEditorContext = {
 	outputPickerOpenFns: Record<string, () => void>
 }
 
-export type FlowGraphContext = {
-	selectedId: Writable<string | undefined>
-	useDataflow: Writable<boolean | undefined>
-	showAssets: Writable<boolean | undefined>
-	diffManager: ReturnType<typeof createFlowDiffManager>
-}
-
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
 	s3FilePicker: S3FilePicker | undefined
