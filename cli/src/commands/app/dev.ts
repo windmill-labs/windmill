@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { writeFileSync } from "node:fs";
+import { getDevBuildOptions } from "./bundle.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -108,24 +109,7 @@ async function dev(opts: DevOptions) {
     });
   }
 
-  const buildOptions = {
-    entryPoints: [entryPoint],
-    bundle: true,
-    outfile: "dist/bundle.js",
-    format: "iife" as const,
-    platform: "browser" as const,
-    target: "es2020",
-    jsx: "automatic" as const,
-    loader: {
-      ".css": "css" as const,
-    },
-    define: {
-      "process.env.NODE_ENV": '"development"',
-    },
-    sourcemap: true,
-    logLevel: "info" as const,
-    write: true,
-  };
+  const buildOptions = getDevBuildOptions(entryPoint);
 
   // Create esbuild context
   const ctx = await esbuild.context({
