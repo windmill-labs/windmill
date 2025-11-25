@@ -415,6 +415,10 @@ function ZipFSElement(
               };
             }
 
+            if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+              app.public = true;
+            }
+            app.policy = undefined;
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
@@ -661,30 +665,6 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
 
-  // First pass: collect all file paths to identify branch-specific files
-  const allPaths: string[] = [];
-  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (!entry.isDirectory && !entry.ignored) {
-      allPaths.push(entry.path);
-    }
-  }
-
-  const branchSpecificExists = new Set<string>();
-
-  if (specificItems) {
-    const currentBranch = getCurrentGitBranch();
-    if (currentBranch) {
-      for (const path of allPaths) {
-        if (isCurrentBranchFile(path)) {
-          const basePath = fromBranchSpecificPath(path, currentBranch);
-          if (isSpecificItem(basePath, specificItems)) {
-            branchSpecificExists.add(basePath);
-          }
-        }
-      }
-    }
-  }
-
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const path = entry.path;
@@ -873,25 +853,6 @@ async function compareDynFSElement(
         }
         if (o["is_template"] != undefined) {
           delete o["is_template"];
-        }
-      }
-      return o;
-    } else if (k.endsWith(".app.yaml")) {
-      let o: any;
-      try {
-        o = yamlParseContent(k, v);
-      } catch (error) {
-        log.error(`Failed to parse app YAML content at path: ${k}`);
-        throw error;
-      }
-      const o2 = o["policy"];
-
-      if (typeof o2 == "object") {
-        if (o2["on_behalf_of"] != undefined) {
-          delete o2["on_behalf_of"];
-        }
-        if (o2["on_behalf_of_email"] != undefined) {
-          delete o2["on_behalf_of_email"];
         }
       }
       return o;

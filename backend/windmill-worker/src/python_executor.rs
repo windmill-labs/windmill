@@ -18,6 +18,8 @@ use tokio::{
     sync::Semaphore,
     task,
 };
+use windmill_queue::MiniPulledJob;
+
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
@@ -120,7 +122,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_file, read_result,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file, read_result,
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
@@ -546,7 +548,6 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -835,9 +836,12 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut python_cmd = Command::new(&python_path);
-
         let args = vec!["-u", "-m", "wrapper"];
+
+        let mut python_cmd = build_command_with_isolation(
+            &python_path,
+            &args,
+        );
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -847,7 +851,6 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -2128,16 +2131,16 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     }
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 use crate::JobCompletedSender;
-#[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{common::build_envs_map, dedicated_worker_oss::handle_dedicated_process};
+#[cfg(feature = "private")]
 use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-use windmill_queue::MiniPulledJob;
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2150,10 +2153,12 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> error::Result<()> {
     use crate::{PyV, PyVAlias};
+    tracing::info!("script path: {}", script_path);
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2344,6 +2349,7 @@ for line in sys.stdin:
         db,
         script_path,
         "python",
+        client,
     )
     .await
 }

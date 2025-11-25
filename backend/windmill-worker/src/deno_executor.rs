@@ -7,7 +7,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
@@ -406,14 +406,17 @@ try {{
             args.push("-A");
         }
         args.push(&script_path);
-        let mut deno_cmd = Command::new(DENO_PATH.as_str());
+
+        let mut deno_cmd = build_command_with_isolation(
+            DENO_PATH.as_str(),
+            &args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
+        );
         deno_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -511,13 +514,14 @@ async fn build_import_map(
     Ok(()) as error::Result<()>
 }
 
-#[cfg(feature = "enterprise")]
-use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     inner_content: &str,
     base_internal_url: &str,
@@ -528,9 +532,10 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: windmill_common::client::AuthedClient,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -589,7 +594,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 
-console.log('start\n'); 
+console.log('start\n');
 
 const decoder = new TextDecoder();
 for await (const chunk of Deno.stdin.readable) {{
@@ -601,7 +606,7 @@ for await (const chunk of Deno.stdin.readable) {{
             break;
         }}
         try {{
-            let {{ {spread} }} = JSON.parse(line) 
+            let {{ {spread} }} = JSON.parse(line)
             {dates}
             let res: any = await main(...[ {spread} ]);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
@@ -651,6 +656,7 @@ for await (const chunk of Deno.stdin.readable) {{
         db,
         script_path,
         "deno",
+        client,
     )
     .await
 }

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.579.2
+  version: 1.584.0
   title: Windmill API
 
   contact:
@@ -5180,6 +5180,14 @@ paths:
             Accepts multiple values as a comma-separated list.
           schema:
             type: string
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+
       responses:
         "200":
           description: All scripts
@@ -6463,6 +6471,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -7692,6 +7707,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component
@@ -11998,6 +12016,33 @@ paths:
             application/json:
               schema:
                 type: boolean
+  /w/{workspace}/email_triggers/setenabled/{path}:
+    post:
+      summary: enable/disable email trigger
+      operationId: setEmailTriggerEnabled
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: email trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /groups/list:
     get:
@@ -15483,6 +15528,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    FlowNote:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
 
@@ -18612,7 +18659,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
+        enabled:
+          type: boolean
       required:
         - path
         - script_path
@@ -18774,6 +18822,8 @@ components:
           type: number
         wm_memory_usage:
           type: number
+        job_isolation:
+          type: string
       required:
         - worker
         - worker_instance

@@ -28,7 +28,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -46,11 +45,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import TextInput, {
-		inputBaseClass,
-		inputBorderClass,
-		inputSizeClasses
-	} from './text_input/TextInput.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
@@ -1054,6 +1049,8 @@
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
+							wrap
+							class="mb-4"
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
@@ -1412,45 +1409,39 @@
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}
-							<textarea
-								{autofocus}
-								rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
-								bind:this={el}
-								onfocus={(e) => {
-									dispatch('focus')
+							<TextInput
+								inputProps={{
+									autofocus,
+									onfocus: () => dispatch('focus'),
+									onblur: () => dispatch('blur'),
+									disabled,
+									onkeydown: onKeyDown,
+									placeholder: placeholder ?? defaultValue ?? '',
+									rows: extra?.['minRows'] ? extra['minRows']?.toString() : '1'
 								}}
-								onblur={(e) => {
-									dispatch('blur')
-								}}
-								use:autosize
-								onkeydown={onKeyDown}
-								{disabled}
-								class={twMerge(
-									'w-full',
-									inputBaseClass,
-									inputSizeClasses.md,
-									inputBorderClass({ error: !!error })
-								)}
-								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
-							></textarea>
+								{error}
+								unifiedHeight={false}
+								underlyingInputEl="textarea"
+							/>
 						{/key}
 					{/if}
 					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<button
-							class={twMerge(
-								'absolute opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer',
-								password || extra?.['password'] == true ? 'right-16' : 'right-1'
-							)}
-							onclick={() => {
+						<Button
+							iconOnly
+							startIcon={{ icon: DollarSign }}
+							unifiedSize="sm"
+							onClick={() => {
 								pickForField = label
 								itemPicker?.openDrawer?.()
 							}}
+							wrapperClasses={twMerge(
+								'opacity-0 group-hover:opacity-100 transition-opacity absolute bg-surface-input',
+								password || extra?.['password'] == true ? 'right-8	' : 'right-2'
+							)}
+							variant="subtle"
 							title="Insert a Variable"
-						>
-							<DollarSign class="!text-primary" size={14} />
-						</button>
+						/>
 					{/if}
 				</div>
 				{@render variableInput()}
