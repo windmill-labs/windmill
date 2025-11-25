@@ -12,7 +12,7 @@
 
 	const gitSyncContext = getGitSyncContext()
 	const repo = $derived(gitSyncContext.getRepository(idx))
-	let targetBranch = $state('main')
+	let targetBranch = $state<string | undefined>(undefined)
 
 	// Update target branch when repository changes
 	$effect(() => {
