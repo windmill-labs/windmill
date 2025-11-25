@@ -23,6 +23,7 @@ import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
 import { pushWorkspaceKey, pushWorkspaceSettings } from "./core/settings.ts";
 import { pushTrigger } from "./commands/trigger/trigger.ts";
+import { pushRawApp } from "./commands/app/raw_apps.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -66,7 +67,7 @@ export type GlobalOptions = {
 
 export function isSuperset(
   subset: Record<string, any>,
-  superset: Record<string, any>,
+  superset: Record<string, any>
 ): boolean {
   return Object.keys(subset).every((key) => {
     const eq = deepEqual(subset[key], superset[key]);
@@ -79,7 +80,7 @@ export function isSuperset(
         log.info(`Found diff for ${key}:`);
         showDiff(
           yamlStringify(sub, yamlOptions),
-          yamlStringify(supers, yamlOptions),
+          yamlStringify(supers, yamlOptions)
         );
       }
     }
@@ -142,13 +143,16 @@ export async function pushObj(
   plainSecrets: boolean,
   alreadySynced: string[],
   message?: string,
-  originalLocalPath?: string,
+  originalLocalPath?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
     const appName = p.split(".app" + SEP)[0];
     await pushApp(workspace, appName, appName + ".app", message);
+  } else if (typeEnding === "raw_app") {
+    const rawAppName = p.split(".raw_app" + SEP)[0];
+    await pushRawApp(workspace, rawAppName, rawAppName + ".raw_app", message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -193,7 +197,7 @@ export async function pushObj(
     await pushWorkspaceKey(workspace, p, befObj, newObj);
   } else {
     throw new Error(
-      `The item ${p} has an unrecognized type ending ${typeEnding}`,
+      `The item ${p} has an unrecognized type ending ${typeEnding}`
     );
   }
 }
@@ -215,7 +219,7 @@ export function parseFromFile(p: string): any {
   }
 }
 export function getTypeStrFromPath(
-  p: string,
+  p: string
 ):
   | "script"
   | "variable"

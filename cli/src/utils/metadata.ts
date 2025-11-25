@@ -182,7 +182,7 @@ export async function generateFlowLockInternal(
       log,
       folder + SEP!,
       SEP,
-      changedScripts,
+      changedScripts
       // (path: string, newPath: string) => Deno.renameSync(path, newPath),
       // (path: string) => Deno.removeSync(path)
     );
@@ -246,22 +246,17 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
-
-  const metadataWithType = await parseMetadataFile(
-    remotePath,
-    undefined,
-  );
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
-  
+
   const rrLang = languagesWithRawReqsSupport.find(
     (l) => language == l.language
   );
 
   const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
-
 
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
 
@@ -768,10 +763,9 @@ export async function parseMetadataFile(
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
         globalDeps: GlobalDeps;
-        codebases: SyncCodebase[]
+        codebases: SyncCodebase[];
       })
-    | undefined,
-
+    | undefined
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {

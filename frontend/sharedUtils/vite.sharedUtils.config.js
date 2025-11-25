@@ -5,6 +5,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
+const VERSION = '1.0.5'
 
 export default defineConfig({
 	build: {
@@ -55,10 +56,9 @@ export default defineConfig({
 					// Rename sharedUtils.d.ts to lib.d.ts
 					await execAsync('mv dist/sharedUtils/sharedUtils.d.ts dist/sharedUtils/lib.d.ts')
 
-					const version = '1.0.3'
 					const pkgJson = {
 						name: '@windmill-labs/shared-utils',
-						version: version,
+						version: VERSION,
 						type: 'module',
 						private: false,
 						main: './lib.es.js',
@@ -71,7 +71,7 @@ export default defineConfig({
 
 					const jsrJson = {
 						name: '@windmill-labs/shared-utils',
-						version: version,
+						version: VERSION,
 						license: 'MIT',
 						exports: './mod.ts'
 					}

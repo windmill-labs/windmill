@@ -26,6 +26,29 @@ export interface AppFile {
 
 const alreadySynced: string[] = [];
 
+export function replaceInlineScripts(rec: any, localPath: string) {
+  if (!rec) {
+    return;
+  }
+  if (typeof rec == "object") {
+    return Object.entries(rec).flatMap(([k, v]) => {
+      if (k == "inlineScript" && typeof v == "object") {
+        const o: Record<string, any> = v as any;
+        if (o["content"] && o["content"].startsWith("!inline")) {
+          const basePath = localPath + o["content"].split(" ")[1];
+          o["content"] = readInlinePathSync(basePath);
+        }
+        if (o["lock"] && o["lock"].startsWith("!inline")) {
+          const basePath = localPath + o["lock"].split(" ")[1];
+          o["lock"] = readInlinePathSync(basePath);
+        }
+      } else {
+        replaceInlineScripts(v, localPath);
+      }
+    });
+  }
+  return [];
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -61,31 +84,7 @@ export async function pushApp(
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
 
-  function replaceInlineScripts(rec: any) {
-    if (!rec) {
-      return;
-    }
-    if (typeof rec == "object") {
-      return Object.entries(rec).flatMap(([k, v]) => {
-        if (k == "inlineScript" && typeof v == "object") {
-          const o: Record<string, any> = v as any;
-          if (o["content"] && o["content"].startsWith("!inline")) {
-            const basePath = localPath + o["content"].split(" ")[1];
-            o["content"] = readInlinePathSync(basePath);
-          }
-          if (o["lock"] && o["lock"].startsWith("!inline")) {
-            const basePath = localPath + o["lock"].split(" ")[1];
-            o["lock"] = readInlinePathSync(basePath);
-          }
-        } else {
-          replaceInlineScripts(v);
-        }
-      });
-    }
-    return [];
-  }
-
-  replaceInlineScripts(localApp.value);
+  replaceInlineScripts(localApp.value, localPath);
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   if (app) {
     if (isSuperset(localApp, app)) {
@@ -115,7 +114,11 @@ export async function pushApp(
   }
 }
 
-async function generatingPolicy(app: any, path: string, publicApp: boolean) {
+export async function generatingPolicy(
+  app: any,
+  path: string,
+  publicApp: boolean
+) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
@@ -163,7 +166,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   await requireLogin(opts);
 
   await pushApp(workspace.workspaceId, remotePath, filePath);
-  log.info(colors.bold.underline.green("Flow pushed"));
+  log.info(colors.bold.underline.green("App pushed"));
 }
 
 const command = new Command()

@@ -442,6 +442,9 @@ function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
+            if (rawApp?.["policy"]?.["execution_mode"] == "anonymous") {
+              rawApp.public = true;
+            }
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
             let inlineScripts;
@@ -1251,21 +1254,30 @@ interface ChangeTracker {
   scripts: string[];
   flows: string[];
   apps: string[];
+  rawApps: string[];
 }
 
+const FLOW_EXT = ".flow" + SEP;
+const APP_EXT = ".app" + SEP;
+const RAW_APP_EXT = ".raw_app" + SEP;
 // deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
-    if (p.includes(".flow" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+    if (p.includes(FLOW_EXT)) {
+      const folder = p.substring(0, p.indexOf(FLOW_EXT)) + FLOW_EXT;
       if (!tracker.flows.includes(folder)) {
         tracker.flows.push(folder);
       }
-    } else if (p.includes(".app" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+    } else if (p.includes(APP_EXT)) {
+      const folder = p.substring(0, p.indexOf(APP_EXT)) + APP_EXT;
       if (!tracker.apps.includes(folder)) {
         tracker.apps.push(folder);
+      }
+    } else if (p.includes(RAW_APP_EXT)) {
+      const folder = p.substring(0, p.indexOf(RAW_APP_EXT)) + RAW_APP_EXT;
+      if (!tracker.rawApps.includes(folder)) {
+        tracker.rawApps.push(folder);
       }
     } else {
       if (!tracker.scripts.includes(p)) {
@@ -1289,6 +1301,7 @@ async function buildTracker(changes: Change[]) {
     scripts: [],
     flows: [],
     apps: [],
+    rawApps: [],
   };
   for (const change of changes) {
     if (change.name == "added" || change.name == "edited") {
@@ -1600,9 +1613,20 @@ export async function pull(
     }
     if (tracker.apps.length > 0) {
       log.info(
-        `Apps ${tracker.apps.join(
-          ", "
-        )} scripts were changed but ignoring for now`
+        colors.gray(
+          `Apps ${tracker.apps.join(
+            ", "
+          )} inline scripts were changed but ignoring metadata regeneration for now`
+        )
+      );
+    }
+    if (tracker.rawApps.length > 0) {
+      log.info(
+        colors.gray(
+          `Raw apps ${tracker.rawApps.join(
+            ", "
+          )} inline scripts were changed but ignoring metadata regeneration for now`
+        )
       );
     }
     if (opts.jsonOutput) {

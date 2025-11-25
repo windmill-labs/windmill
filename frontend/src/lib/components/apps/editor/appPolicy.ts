@@ -181,7 +181,7 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	}
 }
 
-async function processRunnable(
+export async function processRunnable(
 	id: string,
 	runnable: Runnable,
 	fields: Record<string, any>,
