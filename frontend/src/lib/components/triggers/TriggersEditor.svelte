@@ -8,9 +8,8 @@
 	import CaptureWrapper from './CaptureWrapper.svelte'
 	import { fade } from 'svelte/transition'
 	import TriggersBadge from '../graph/renderers/triggers/TriggersBadge.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, BookOpen, ExternalLink } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import TriggersWrapperV2 from './TriggersWrapper.svelte'
 	import {
@@ -283,6 +282,8 @@
 		CLOUD_DISABLED_TRIGGER_TYPES.includes(triggersState.selectedTrigger?.type ?? '') &&
 			isCloudHosted()
 	)
+
+	let leftPaneWidth = $state(0)
 </script>
 
 <div bind:clientWidth={width} class="h-full w-full">
@@ -298,15 +299,14 @@
 	<FlowCard {noEditor} noHeader>
 		<Splitpanes horizontal>
 			<Pane>
-				<div class="flex flex-row h-full">
+				<div class="flex flex-row h-full" bind:clientWidth={leftPaneWidth}>
 					<!-- Left Pane - Triggers List -->
 					{#if !useVerticalTriggerBar || !triggersState.selectedTrigger}
 						<div
-							class={twMerge(
-								'flex-shrink-0 overflow-auto p-2',
-								triggersState.selectedTrigger ? 'w-[350px]' : 'w-full'
-							)}
-							style="transition: width 0.2s ease-in-out"
+							class="overflow-auto p-2"
+							style={triggersState.selectedTrigger
+								? 'width: 350px; flex: 0 0 350px;'
+								: 'flex: 1 1 350px; min-width: 350px;'}
 						>
 							<TriggersTable
 								selectedTrigger={triggersState.selectedTriggerIndex}
@@ -319,6 +319,11 @@
 								webhookToken={$triggersCount?.webhook_count}
 								emailToken={$triggersCount?.default_email_count}
 							/>
+							{#if leftPaneWidth <= 800 && !triggersState.selectedTrigger}
+								<div class="mt-6">
+									{@render TriggerInfo()}
+								</div>
+							{/if}
 						</div>
 					{:else}
 						<div class="p-2 flex flex-col gap-2 border-r justify-start">
@@ -350,7 +355,10 @@
 					{/if}
 
 					{#if triggersState.selectedTrigger}
-						<div class="flex-grow overflow-auto py-2 px-4" style="scrollbar-gutter: stable">
+						<div
+							class="flex-grow overflow-auto py-2 px-4 transition-all duration-200 ease-in-out"
+							style="scrollbar-gutter: stable"
+						>
 							{#if loading}
 								<div
 									class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
@@ -397,6 +405,8 @@
 								{/key}
 							{/if}
 						</div>
+					{:else if leftPaneWidth > 800}
+						{@render TriggerInfo(true)}
 					{/if}
 				</div>
 			</Pane>
@@ -429,3 +439,35 @@
 		</Splitpanes>
 	</FlowCard>
 </div>
+
+{#snippet TriggerInfo(margin: boolean = false)}
+	<div class="p-4 rounded bg-surface-tertiary grow min-w-[450px] h-fit {margin ? 'm-2' : ''}">
+		<div class="flex gap-3">
+			<BookOpen size={16} class="text-secondary mt-0.5 flex-shrink-0" />
+			<div class="flex-1">
+				<div class="text-2xs font-normal text-secondary mb-2">
+					<strong class="font-semibold">Triggers</strong> automatically run your flow when events
+					happen. Select one to configure it or create a new one.
+					<a
+						href="https://www.windmill.dev/docs/getting_started/triggers"
+						target="_blank"
+						class="whitespace-nowrap">Learn more <ExternalLink size={14} class="inline-block" /></a
+					>
+				</div>
+				<ul class="text-2xs text-hint space-y-1 ml-2">
+					<li class="flex">
+						<span class="mr-2">•</span>
+						<span>Default triggers: Webhooks, email, CLI - always exist, can't be disabled</span>
+					</li>
+					<li class="flex">
+						<span class="mr-2">•</span>
+						<span
+							>Additional triggers: Setup advanced triggers, like HTTP routes, database changes,
+							message queues, cloud events, and more</span
+						>
+					</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+{/snippet}

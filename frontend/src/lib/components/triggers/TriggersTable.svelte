@@ -46,12 +46,9 @@
 				aiDescription="Add a new trigger"
 				unifiedSize="md"
 				nonCaptureEvent
-				variant="subtle"
-				btnClasses="justify-start h-8 p-0"
+				variant="accent"
+				startIcon={{ icon: Plus }}
 			>
-				<div class="center-center h-8 w-8 bg-surface-accent-primary rounded-md">
-					<Plus size={14} class="text-white" />
-				</div>
 				Add trigger
 			</Button>
 		</AddTriggersButton>
