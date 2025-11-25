@@ -8,23 +8,12 @@
 	let label = $derived.by(() => getTriggerLabel(trigger))
 </script>
 
-<span
-	class={twMerge(
-		trigger.isDraft ? 'text-hint' : 'font-normal',
-		'truncate pr-1',
-		discard ? 'line-through' : ''
-	)}
-	title={label}
->
+<span class={twMerge('truncate pr-2', discard ? 'line-through' : '')} title={label}>
 	{label}
 </span>
 
-{#if trigger.type === 'default_email'}
-	<span
-		class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100 whitespace-nowrap"
-	>
-		Default
-	</span>
+{#if trigger.type === 'default_email' || trigger.type === 'webhook' || trigger.type === 'cli'}
+	<Badge color="gray">Default</Badge>
 {/if}
 
 {#if trigger.isPrimary}
@@ -36,5 +25,5 @@
 {/if}
 
 {#if trigger.isDraft}
-	<Badge color="gray">New</Badge>
+	<Badge color="indigo">Draft</Badge>
 {/if}

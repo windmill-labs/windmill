@@ -298,109 +298,138 @@
 	<FlowCard {noEditor} noHeader>
 		<Splitpanes horizontal>
 			<Pane>
-				<div class="flex flex-row h-full">
-					<!-- Left Pane - Triggers List -->
-					{#if !useVerticalTriggerBar}
-						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
-							<TriggersTable
-								selectedTrigger={triggersState.selectedTriggerIndex}
-								{onSelect}
-								triggers={triggersState.triggers}
-								{isEditor}
-								onAddDraftTrigger={handleAddTrigger}
-								onDeleteDraft={deleteTrigger}
-								onReset={handleResetDraft}
-								webhookToken={$triggersCount?.webhook_count}
-								emailToken={$triggersCount?.default_email_count}
-							/>
-						</div>
-					{:else}
-						<div class="p-2 flex flex-col gap-2 border-r">
-							<AddTriggersButton
-								onAddDraftTrigger={handleAddTrigger}
-								class="w-fit h-fit"
-								placement="right-start"
-							>
-								<Button
-									variant="accent"
-									btnClasses="h-8 w-8 p-0"
-									nonCaptureEvent
-									startIcon={{ icon: Plus }}
-								/>
-							</AddTriggersButton>
-							<TriggersBadge
-								showOnlyWithCount={false}
-								path={initialPath || fakeInitialPath}
-								{newItem}
-								isFlow
-								selected={true}
-								small={false}
-								vertical
-								onSelect={(triggerIndex: number) => {
-									triggersState.selectedTriggerIndex = triggerIndex
-								}}
-							/>
-						</div>
-					{/if}
-
+				{#if triggersState.selectedTrigger}
 					<div
-						class={twMerge(
-							'flex-grow overflow-auto pl-2 pr-4 pb-4 pt-2',
-							useVerticalTriggerBar ? 'pl-4 pt-2' : ''
-						)}
-						style="scrollbar-gutter: stable"
+						class="flex flex-row h-full"
+						in:fade={{ duration: 200, delay: 50 }}
+						out:fade={{ duration: 150 }}
+					>
+						<!-- Left Pane - Triggers List -->
+						{#if !useVerticalTriggerBar}
+							<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
+								<TriggersTable
+									selectedTrigger={triggersState.selectedTriggerIndex}
+									{onSelect}
+									triggers={triggersState.triggers}
+									{isEditor}
+									onAddDraftTrigger={handleAddTrigger}
+									onDeleteDraft={deleteTrigger}
+									onReset={handleResetDraft}
+									webhookToken={$triggersCount?.webhook_count}
+									emailToken={$triggersCount?.default_email_count}
+								/>
+							</div>
+						{:else}
+							<div class="p-2 flex flex-col gap-2 border-r">
+								<AddTriggersButton
+									onAddDraftTrigger={handleAddTrigger}
+									class="w-fit h-fit"
+									placement="right-start"
+								>
+									<Button
+										variant="accent"
+										btnClasses="h-8 w-8 p-0"
+										nonCaptureEvent
+										startIcon={{ icon: Plus }}
+									/>
+								</AddTriggersButton>
+								<TriggersBadge
+									showOnlyWithCount={false}
+									path={initialPath || fakeInitialPath}
+									{newItem}
+									isFlow
+									selected={true}
+									small={false}
+									vertical
+									onSelect={(triggerIndex: number) => {
+										triggersState.selectedTriggerIndex = triggerIndex
+									}}
+								/>
+							</div>
+						{/if}
+
+						<div
+							class={twMerge(
+								'flex-grow overflow-auto pl-2 pr-4 pb-4 pt-2',
+								useVerticalTriggerBar ? 'pl-4 pt-2' : ''
+							)}
+							style="scrollbar-gutter: stable"
+						>
+							{#if loading}
+								<div
+									class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
+								></div>
+							{:else}
+								{#key [renderCount, triggersState.selectedTriggerIndex].join('-')}
+									<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+										<TriggersWrapperV2
+											selectedTrigger={triggersState.selectedTrigger}
+											{isFlow}
+											{initialPath}
+											{fakeInitialPath}
+											{currentPath}
+											{runnableVersion}
+											{isDeployed}
+											small={useVerticalTriggerBar}
+											{args}
+											{newItem}
+											{schema}
+											{isEditor}
+											onDelete={() => {
+												deleteTrigger(triggersState.selectedTriggerIndex)
+											}}
+											onUpdate={(path) => {
+												handleUpdate(triggersState.selectedTriggerIndex, path)
+											}}
+											onConfigChange={(cfg, canSave, updated) => {
+												if (updated) {
+													handleUpdateDraftConfig(triggersState.selectedTriggerIndex, cfg, canSave)
+												}
+											}}
+											onCaptureConfigChange={(cfg, isValidConfig) => {
+												config = cfg
+												isValid = isValidConfig
+											}}
+											onReset={() => {
+												handleResetDraft(triggersState.selectedTriggerIndex)
+											}}
+											onEmailDomain={(domain) => {
+												emailDomain = domain
+											}}
+										/>
+									</div>
+								{/key}
+							{/if}
+						</div>
+					</div>
+				{:else}
+					<!-- Full-width triggers table when no trigger is selected -->
+					<div
+						class="h-full w-full overflow-auto px-4 py-2 flex justify-start"
+						in:fade={{ duration: 200, delay: 50 }}
+						out:fade={{ duration: 150 }}
 					>
 						{#if loading}
 							<div
-								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
+								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full max-w-2xl"
 							></div>
-						{:else if triggersState.selectedTrigger}
-							{#key [renderCount, triggersState.selectedTriggerIndex].join('-')}
-								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
-									<TriggersWrapperV2
-										selectedTrigger={triggersState.selectedTrigger}
-										{isFlow}
-										{initialPath}
-										{fakeInitialPath}
-										{currentPath}
-										{runnableVersion}
-										{isDeployed}
-										small={useVerticalTriggerBar}
-										{args}
-										{newItem}
-										{schema}
-										{isEditor}
-										onDelete={() => {
-											deleteTrigger(triggersState.selectedTriggerIndex)
-										}}
-										onUpdate={(path) => {
-											handleUpdate(triggersState.selectedTriggerIndex, path)
-										}}
-										onConfigChange={(cfg, canSave, updated) => {
-											if (updated) {
-												handleUpdateDraftConfig(triggersState.selectedTriggerIndex, cfg, canSave)
-											}
-										}}
-										onCaptureConfigChange={(cfg, isValidConfig) => {
-											config = cfg
-											isValid = isValidConfig
-										}}
-										onReset={() => {
-											handleResetDraft(triggersState.selectedTriggerIndex)
-										}}
-										onEmailDomain={(domain) => {
-											emailDomain = domain
-										}}
-									/>
-								</div>
-							{/key}
 						{:else}
-							<span class="text-sm text-primary text-center mx-auto mt-2"
-								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or create a new one`}</span
-							>
+							<div class="w-full max-w-2xl">
+								<TriggersTable
+									selectedTrigger={triggersState.selectedTriggerIndex}
+									{onSelect}
+									triggers={triggersState.triggers}
+									{isEditor}
+									onAddDraftTrigger={handleAddTrigger}
+									onDeleteDraft={deleteTrigger}
+									onReset={handleResetDraft}
+									webhookToken={$triggersCount?.webhook_count}
+									emailToken={$triggersCount?.default_email_count}
+								/>
+							</div>
 						{/if}
 					</div>
-				</div>
+				{/if}
 			</Pane>
 			{#if !cloudDisabled && triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
 				{@const captureKind = triggersState.selectedTrigger

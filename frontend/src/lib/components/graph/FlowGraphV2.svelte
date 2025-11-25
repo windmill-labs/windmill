@@ -397,7 +397,7 @@
 		},
 		select: (modId) => {
 			// AI tools are not selectable by the flow. Selection has to be refactored to be simplier.
-			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool') {
+			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' || modId === 'Trigger') {
 				selectionManager.selectId(modId)
 			}
 			if (!notSelectable) {

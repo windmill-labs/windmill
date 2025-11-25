@@ -89,7 +89,7 @@
 			<DeleteTriggerButton {onDelete} {trigger} />
 		{:else if !trigger?.isDraft && trigger?.draftConfig}
 			<Button
-				size="xs"
+				unifiedSize="sm"
 				startIcon={{ icon: RotateCcw }}
 				variant="default"
 				on:click={() => {
@@ -103,7 +103,7 @@
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
 					variant="accent"
-					size="xs"
+					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
 					on:click={() => {

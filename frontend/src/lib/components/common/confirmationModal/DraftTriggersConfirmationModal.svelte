@@ -10,6 +10,7 @@
 	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
 	import { userStore } from '$lib/stores'
+	import Badge from '../badge/Badge.svelte'
 
 	interface Props {
 		open?: boolean
@@ -132,32 +133,22 @@
 													value={'discard'}
 													{item}
 													small
-													class="data-[state=on]:text-white data-[state=on]:bg-red-400 w-[54px] justify-center"
+													class="data-[state=on]:text-white data-[state=on]:bg-red-400 justify-center"
 												/>
 												<ToggleButton
 													label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
 													value={'deploy'}
 													{item}
 													small
-													class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse w-[54px] justify-center"
+													class="data-[state=on]:bg-surface-accent-primary data-[state=on]:text-white justify-center"
 												/>
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>
 								{:else if permission === 'admin-only'}
-									<div
-										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap w-[114px] text-center"
-										title="Only admins can deploy http triggers"
-									>
-										Admin only
-									</div>
+									<Badge color="red">Admin only</Badge>
 								{:else if permission === 'invalid-config'}
-									<div
-										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap w-[114px] text-center"
-										title="Invalid config"
-									>
-										Invalid config
-									</div>
+									<Badge color="red">Invalid config</Badge>
 								{/if}
 							</td>
 						</tr>

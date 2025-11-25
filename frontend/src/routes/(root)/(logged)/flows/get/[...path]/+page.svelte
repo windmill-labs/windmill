@@ -33,10 +33,10 @@
 		GitFork,
 		Play,
 		History,
-		Columns,
 		Pen,
 		Eye,
-		HistoryIcon
+		HistoryIcon,
+		LayoutDashboard
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -238,7 +238,7 @@
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
-					size: 'xs',
+					unifiedSize: 'md',
 					startIcon: GitFork
 				}
 			})
@@ -252,7 +252,7 @@
 			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
-				size: 'xs',
+				unifiedSize: 'md',
 				variant: 'subtle',
 				startIcon: Play
 			}
@@ -262,7 +262,7 @@
 			label: `History`,
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
-				size: 'xs',
+				unifiedSize: 'md',
 				variant: 'subtle',
 				startIcon: History
 			}
@@ -281,9 +281,9 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-					size: 'xs',
-					variant: 'accent',
-					startIcon: Columns
+					unifiedSize: 'md',
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -291,8 +291,8 @@
 				label: 'Edit',
 				buttonProps: {
 					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'accent-secondary',
-					size: 'xs',
+					variant: 'accent',
+					unifiedSize: 'md',
 					disabled: !can_write,
 					startIcon: Pen
 				}

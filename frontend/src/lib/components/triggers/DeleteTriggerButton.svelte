@@ -39,12 +39,12 @@
 </ConfirmationModal>
 
 <Button
-	size="xs"
+	unifiedSize={small ? 'xs' : 'sm'}
+	variant="subtle"
+	destructive
 	startIcon={{ icon: Trash }}
 	iconOnly
-	color={'light'}
 	on:click={() => {
 		confirmationModalOpen = true
 	}}
-	btnClasses={twMerge(small ? 'px-1 py-1' : '', 'bg-transparent hover:bg-red-500 hover:text-white')}
 />

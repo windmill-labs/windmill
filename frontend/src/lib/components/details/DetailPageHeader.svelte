@@ -58,7 +58,7 @@
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div
 					class={twMerge(
-						'text-lg min-w-24 font-bold truncate',
+						'text-lg min-w-24 font-semibold text-emphasis truncate',
 						$userStore?.operator ? 'pl-10' : ''
 					)}
 				>
