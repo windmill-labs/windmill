@@ -159,71 +159,6 @@
 		sendUserToast('App reporting disabled')
 	}
 
-	const appPreviewScript = `import puppeteer from 'puppeteer-core';
-import dayjs from 'dayjs';
-export async function main(
-  app_path: string,
-  startup_duration = 5,
-  kind: 'pdf' | 'png' = 'pdf',
-  customWidth: null | number,
-  customHeight: null | number,
-) {
-  let browser = null
-  try {
-  browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
-      '--no-zygote',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu'] });
-  const page = await browser.newPage();
-  await page.setCookie({
-    "name": "token",
-    "value": Bun.env["WM_TOKEN"],
-    "domain": Bun.env["BASE_URL"]?.replace(/https?:\\/\\//, '')
-  })
-  page
-    .on('console', msg =>
-      console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
-    .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
-  await page.setViewport({ width: 1200, height: 2000 });
-  await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
-	await page.waitForSelector("#app-content", { timeout: 20000 })
-  
-  const elem = await page.$('#app-content');
-  let width: null | number = customWidth || 1200
-  let height: null | number = customHeight || (await elem.boundingBox()).height
-  await page.setViewport({ width, height });
-  await new Promise((resolve, _) => {
-		setTimeout(resolve, startup_duration * 1000)
-  })
-  try {
-    await page.$eval("#sidebar", el => el.remove())
-  } catch {}
-  await page.$eval("#content", el => el.classList.remove("md:pl-12"))
-  await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
-  await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
-
-  await new Promise((resolve, _) => setTimeout(resolve, 500))
-  
-  const screenshot = kind === "pdf" ? await page.pdf({
-		printBackground: true,
-		width,
-		height
-  }) : await page.screenshot({
-		fullPage: true,
-		type: "png",
-    	captureBeyondViewport: false
-	});
-	await browser.close();
-	return Buffer.from(screenshot).toString('base64');
-  } catch (err) {
-	if (browser) {
-	  await browser.close();
-	}
-	throw err;
-  }
-}`
-
 	const notificationScripts = {
 		discord: {
 			path: hubPaths.discordReport,
@@ -347,10 +282,9 @@ export async function main(
 				{
 					id: 'a',
 					value: {
-						type: 'rawscript' as const,
-						tag: 'chromium',
-						content: appPreviewScript,
-						language: 'bun' as const,
+						type: 'script' as const,
+						tag_override: 'chromium',
+						path: hubPaths.appReport,
 						input_transforms: {
 							app_path: {
 								expr: 'flow_input.app_path',

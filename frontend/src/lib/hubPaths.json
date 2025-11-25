@@ -39,6 +39,7 @@
 	"slackReport": "hub/9084/slack",
 	"discordReport": "hub/9085/discord",
 	"smtpReport": "hub/9086/smtp",
+	"appReport": "hub/28076/app-report",
 	"cloneRepoToS3forGitRepoViewer_0": "hub/19825/clone_repo_and_upload_to_instance_storage",
 	"cloneRepoToS3forGitRepoViewer": "hub/19827/clone_repo_and_upload_to_instance_storage"
 }
