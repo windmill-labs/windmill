@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.584.0](https://github.com/windmill-labs/windmill/compare/v1.583.3...v1.584.0) (2025-11-25)
+
+
+### Features
+
+* **app:** add chat component ([#7199](https://github.com/windmill-labs/windmill/issues/7199)) ([c47669b](https://github.com/windmill-labs/windmill/commit/c47669be0bffb0821afe9d4182cc071cb3b675f0))
+
+
+### Bug Fixes
+
+* **cli:** handle better public apps ([de7739a](https://github.com/windmill-labs/windmill/commit/de7739a3ee7ef76a8eb4fe6570ef0bdfbdb92293))
+* **frontend:** forking UI issues ([#7215](https://github.com/windmill-labs/windmill/issues/7215)) ([dccee1d](https://github.com/windmill-labs/windmill/commit/dccee1dba08b4c4b170336b3f3e959fbe7bca8ce))
+* **frontend:** improve preprocessor discoverability ([#7214](https://github.com/windmill-labs/windmill/issues/7214)) ([a2d3297](https://github.com/windmill-labs/windmill/commit/a2d3297343338ba0b559481723e64db5f4acf3a7))
+* **frontend:** loading saved/history inputs when json view is on ([#7217](https://github.com/windmill-labs/windmill/issues/7217)) ([e87f814](https://github.com/windmill-labs/windmill/commit/e87f81470904578467f42598cfce5fad2249f131))
+* **frontend:** show trigger table when no trigger selected ([#7219](https://github.com/windmill-labs/windmill/issues/7219)) ([c37dde0](https://github.com/windmill-labs/windmill/commit/c37dde096c301a502c6ff2c570b91153a5717fcd))
+* list scripts without 1000 limits ([897faf0](https://github.com/windmill-labs/windmill/commit/897faf085b49ada0648594797cfe627decb50952))
+
 ## [1.583.3](https://github.com/windmill-labs/windmill/compare/v1.583.2...v1.583.3) (2025-11-24)
 
 
