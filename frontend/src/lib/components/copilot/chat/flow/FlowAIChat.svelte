@@ -150,29 +150,29 @@
 					}
 				}
 
-				// Take snapshot of current flowStore
+				// Take snapshot of current flowStore BEFORE making changes
 				const snapshot = $state.snapshot(flowStore).val
 				diffManager?.setSnapshot(snapshot)
 
-				if (!diffManager) {
-					throw new Error('DiffManager not available')
+				// Directly modify flowStore (immediate effect)
+				flowStore.val.value.modules = restoredModules
+
+				if (parsed.preprocessor_module !== undefined) {
+					flowStore.val.value.preprocessor_module = restoredPreprocessor || undefined
 				}
 
-				// Set as afterFlow (don't modify flowStore) ✓
-				diffManager.setAfterFlow({
-					modules: restoredModules,
-					failure_module: restoredFailure || undefined,
-					preprocessor_module: restoredPreprocessor || undefined,
-					skip_expr: parsed.skip_expr,
-					cache_ttl: parsed.cache_ttl
-				})
+				if (parsed.failure_module !== undefined) {
+					flowStore.val.value.failure_module = restoredFailure || undefined
+				}
 
-				// Update input schema tracking if provided
+				// Update schema if provided
 				if (parsed.schema !== undefined) {
-					diffManager.setInputSchemas(snapshot.schema, parsed.schema)
+					flowStore.val.schema = parsed.schema
 				}
 
-				// flowStore unchanged - changes only in mergedFlow for review
+				// Refresh the state store to update UI
+				// The $effect in FlowGraphV2 will detect changes and update afterFlow for diff computation
+				refreshStateStore(flowStore)
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`

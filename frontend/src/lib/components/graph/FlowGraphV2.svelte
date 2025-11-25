@@ -246,6 +246,23 @@
 		}
 	})
 
+	// Watch current flow changes and update afterFlow for diff computation
+	// This enables the diff visualization when flowStore is directly modified
+	$effect(() => {
+		// Only update if we have a snapshot (in diff mode) and no external diffBeforeFlow
+		if (diffManager.beforeFlow && !diffBeforeFlow) {
+			const afterFlowValue = {
+				modules: modules,
+				failure_module: failureModule,
+				preprocessor_module: preprocessorModule,
+				skip_expr: earlyStop ? '' : undefined,
+				cache_ttl: cache ? 300 : undefined
+			}
+			diffManager.setAfterFlow(afterFlowValue)
+			diffManager.setInputSchemas(diffManager.beforeFlow.schema, currentInputSchema)
+		}
+	})
+
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
 			triggerContext?.simplifiedPoll?.set(true)
