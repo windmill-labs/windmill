@@ -566,6 +566,62 @@ export function buildFlowTimeline(
 }
 
 /**
+ * Inserts a module into a flow at its correct position based on where it was located in the source flow.
+ * This is useful when restoring a removed module - it finds the correct parent and position.
+ *
+ * @param targetFlow - The flow to insert the module into
+ * @param moduleToInsert - The module to insert
+ * @param sourceFlow - The flow where the module originally existed (to find parent location and ordering)
+ * @param moduleId - The ID of the module being inserted
+ */
+export function insertModuleIntoFlow(
+	targetFlow: FlowValue,
+	moduleToInsert: FlowModule,
+	sourceFlow: FlowValue,
+	moduleId: string
+): void {
+	const parentLocation = findModuleParent(sourceFlow, moduleId)
+	if (!parentLocation) return
+
+	// Handle special modules
+	if (parentLocation.type === 'failure') {
+		targetFlow.failure_module = moduleToInsert
+		return
+	}
+	if (parentLocation.type === 'preprocessor') {
+		targetFlow.preprocessor_module = moduleToInsert
+		return
+	}
+
+	// Handle root level modules
+	if (parentLocation.type === 'root') {
+		const insertIndex = findBestInsertPosition(
+			targetFlow.modules ?? [],
+			sourceFlow.modules ?? [],
+			parentLocation.index,
+			moduleId
+		)
+		if (!targetFlow.modules) targetFlow.modules = []
+		targetFlow.modules.splice(insertIndex, 0, moduleToInsert)
+		return
+	}
+
+	// Handle nested modules
+	insertIntoNestedParent(targetFlow, parentLocation, moduleToInsert, sourceFlow)
+}
+
+/**
+ * Finds a module by ID anywhere in a flow (including nested modules, failure, and preprocessor)
+ *
+ * @param flow - The flow to search in
+ * @param moduleId - The ID of the module to find
+ * @returns The module if found, null otherwise
+ */
+export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule | null {
+	return findModuleById(flow, moduleId)
+}
+
+/**
  * Checks if the input schema has changed between two flow versions.
  * The input schema always exists (even if empty), so we only check for modifications.
  *

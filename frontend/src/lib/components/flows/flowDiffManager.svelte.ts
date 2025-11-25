@@ -9,7 +9,7 @@
 import type { ExtendedOpenFlow } from './types'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
-import { buildFlowTimeline } from './flowDiff'
+import { buildFlowTimeline, insertModuleIntoFlow, findModuleInFlow } from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
@@ -342,17 +342,22 @@ export function createFlowDiffManager() {
 				// Restore the removed module from beforeFlow to flowStore
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				if (oldModule && options.flowStore) {
-					// Find where to insert the module back
-					const { modules } = getIndexInNestedModules(options.flowStore.val, actualId)
-					// Add the module back - it was removed so we need to restore it
-					// Find position from beforeFlow
-					const beforeModules = beforeFlow.value.modules
-					const beforeIndex = beforeModules.findIndex((m) => m.id === actualId)
-					if (beforeIndex >= 0) {
-						modules.splice(beforeIndex, 0, $state.snapshot(oldModule))
-					} else {
-						// Fallback: add at the end
-						modules.push($state.snapshot(oldModule))
+					// Use the insertion helper which handles nested modules correctly
+					insertModuleIntoFlow(
+						options.flowStore.val.value,
+						$state.snapshot(oldModule),
+						beforeFlow.value,
+						actualId
+					)
+				}
+
+				// Also update mergedFlow - the module may have __ prefix (ID collision case)
+				if (mergedFlow) {
+					const prefixedId = `__${actualId}`
+					const moduleInMerged = findModuleInFlow(mergedFlow, prefixedId)
+					if (moduleInMerged) {
+						// Restore original ID by removing the __ prefix
+						moduleInMerged.id = actualId
 					}
 				}
 			} else if (action === 'modified') {
