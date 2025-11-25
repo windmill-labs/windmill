@@ -58,10 +58,10 @@
 		Pen,
 		ChevronUpSquare,
 		Share,
-		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -339,8 +339,8 @@
 					},
 
 					unifiedSize: 'md',
-					variant: 'accent',
-					startIcon: Table2
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -367,7 +367,7 @@
 						}`,
 						unifiedSize: 'md',
 						startIcon: Pen,
-						variant: 'accent-secondary',
+						variant: 'accent',
 						disabled: !can_write
 					}
 				})

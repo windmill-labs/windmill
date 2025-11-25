@@ -59,8 +59,11 @@
 				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer h-10 group',
-						selectedTrigger === index ? 'bg-surface-hover ' : ''
+						'cursor-pointer h-10 group',
+						trigger.isDraft ? 'text-hint' : '',
+						selectedTrigger === index
+							? 'bg-surface-accent-selected text-accent '
+							: 'hover:bg-surface-hover'
 					)}
 					onclick={() => onSelect?.(index)}
 					use:triggerableByAI={{
@@ -71,10 +74,7 @@
 				>
 					<td class="w-12 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
-							<SvelteComponent
-								size={16}
-								class={trigger.isDraft ? 'text-frost-400' : 'text-primary'}
-							/>
+							<SvelteComponent size={16} />
 
 							{#if trigger.isPrimary}
 								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
