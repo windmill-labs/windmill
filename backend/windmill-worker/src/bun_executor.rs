@@ -9,10 +9,8 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
-#[cfg(feature = "enterprise")]
-use crate::common::build_envs_map;
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 use crate::{
     common::{
@@ -37,12 +35,6 @@ use crate::SYSTEM_ROOT;
 use tokio::{fs::File, process::Command};
 
 use tokio::io::AsyncReadExt;
-
-#[cfg(feature = "enterprise")]
-use tokio::sync::mpsc::Receiver;
-
-#[cfg(feature = "enterprise")]
-use windmill_common::variables;
 
 use windmill_common::{
     error::{self, Result},
@@ -1567,10 +1559,18 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     return bun_envs;
 }
 
-#[cfg(feature = "enterprise")]
-use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "private")]
+use crate::{
+    common::build_envs_map, dedicated_worker_oss::handle_dedicated_process, JobCompletedSender,
+};
+#[cfg(feature = "private")]
+use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "private")]
+use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<String>,
     codebase: Option<String>,
@@ -1584,8 +1584,9 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
@@ -1737,6 +1738,12 @@ BigInt.prototype.toJSON = function () {{
 
 console.log('start');
 
+function getArgs(line) {{
+    let {{ {spread} }} = JSON.parse(line)
+    {dates}
+    return [ {spread} ];
+}}
+
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
@@ -1744,9 +1751,8 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         process.exit(0);
     }}
     try {{
-        let {{ {spread} }} = JSON.parse(line)
-        {dates}
-        let res = await Main.main(...[ {spread} ]);
+        const args = getArgs(line);
+        const res = await Main.main(...args);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
         console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
@@ -1812,6 +1818,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             db,
             &script_path,
             "nodejs",
+            client,
         )
         .await
     } else {
@@ -1838,6 +1845,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             db,
             script_path,
             "bun",
+            client,
         )
         .await
     }

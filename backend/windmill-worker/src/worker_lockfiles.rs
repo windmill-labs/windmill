@@ -1193,6 +1193,7 @@ async fn lock_modules<'c>(
                     skip_failures,
                     parallel,
                     parallelism,
+                    squash,
                 } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
@@ -1222,6 +1223,7 @@ async fn lock_modules<'c>(
                         skip_failures,
                         parallel,
                         parallelism,
+                        squash,
                     }
                     .into()
                 }
@@ -1258,7 +1260,7 @@ async fn lock_modules<'c>(
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
                 }
-                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
+                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures, squash } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
@@ -1284,6 +1286,7 @@ async fn lock_modules<'c>(
                         modules: nmodules,
                         modules_node,
                         skip_failures,
+                        squash,
                     }
                     .into()
                 }

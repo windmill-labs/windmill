@@ -64,7 +64,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
+    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, FlowRunners,
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
@@ -88,6 +88,8 @@ pub async fn update_flow_status_after_job_completion(
     stop_early_override: Option<bool>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    flow_runners: Option<Arc<FlowRunners>>,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
@@ -121,6 +123,8 @@ pub async fn update_flow_status_after_job_completion(
             rec.has_triggered_error_handler,
             worker_name,
             job_completed_tx.clone(),
+            flow_runners.clone(),
+            killpill_rx,
             #[cfg(feature = "benchmark")]
             bench,
         ))
@@ -147,6 +151,8 @@ pub async fn update_flow_status_after_job_completion(
                     rec.has_triggered_error_handler,
                     worker_name,
                     job_completed_tx.clone(),
+                    flow_runners.clone(),
+                    killpill_rx,
                     #[cfg(feature = "benchmark")]
                     bench,
                 ))
@@ -285,6 +291,8 @@ pub async fn update_flow_status_after_job_completion_internal(
     has_triggered_error_handler: bool,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    flow_runners: Option<Arc<FlowRunners>>,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     let mut has_triggered_error_handler = has_triggered_error_handler;
@@ -434,7 +442,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             args
         }));
 
-
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
             let args = args
                 .as_ref()
@@ -473,7 +480,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 _ => None,
                             };
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                       
+
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
@@ -742,7 +749,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
-
                         )
                         .await?;
                     }
@@ -1565,6 +1571,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
             job_completed_tx,
             worker_name,
+            flow_runners,
+            &killpill_rx,
         ))
         .warn_after_seconds(10)
         .await
@@ -2044,6 +2052,8 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: JobCompletedSender,
     worker_name: &str,
+    flow_runners: Option<Arc<FlowRunners>>,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
     let status = flow_job
@@ -2101,6 +2111,9 @@ pub async fn handle_flow(
             same_worker_tx,
             worker_dir,
             worker_name,
+            flow_runners.clone(),
+            job_completed_tx.clone(),
+            &killpill_rx,
         ))
         .warn_after_seconds(10)
         .await?;
@@ -2185,6 +2198,7 @@ struct PushNextFlowJobRec {
     flow_job: Arc<MiniPulledJob>,
     status: FlowStatus,
 }
+
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
@@ -2197,6 +2211,9 @@ async fn push_next_flow_job(
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     worker_name: &str,
+    flow_runners: Option<Arc<FlowRunners>>,
+    job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -3028,6 +3045,22 @@ async fn push_next_flow_job(
         }
     };
 
+    // only start runners if we're not already in a squash for loop
+    let start_runners = flow_runners.is_none()
+        && matches!(
+            next_status,
+            NextStatus::NextLoopIteration { start_runners: true, .. }
+        );
+
+    let do_not_pass_runners = matches!(next_status, NextStatus::NextStep { .. })
+        && flow_runners
+            .as_ref()
+            .is_some_and(|fr| fr.job_id == flow_job.id);
+
+    let continue_with_runners = (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
+        && module.suspend.is_none()
+        && module.sleep.is_none();
+
     // Also check `flow_job.same_worker` for [`JobKind::Flow`] jobs as it's no
     // more reflected to the flow value on push.
     let job_same_worker = flow_job.same_worker
@@ -3083,6 +3116,7 @@ async fn push_next_flow_job(
             NextStatus::NextLoopIteration {
                 next: ForloopNextIteration { new_args, .. },
                 simple_input_transforms,
+                ..
             } => {
                 let mut args = if let Ok(args) = nargs {
                     args.as_ref().clone()
@@ -3300,7 +3334,7 @@ async fn push_next_flow_job(
             Some(module.id.clone()),
             new_job_priority_override,
             job_perms.as_ref(),
-            false,
+            continue_with_runners,
             None,
             None,
             None,
@@ -3308,7 +3342,7 @@ async fn push_next_flow_job(
         .warn_after_seconds(2)
         .await?;
 
-        if continue_on_same_worker {
+        if continue_on_same_worker || continue_with_runners {
             let _ = sqlx::query!(
                 "UPDATE v2_job_queue SET worker = $2 WHERE id = $1",
                 uuid,
@@ -3583,7 +3617,7 @@ async fn push_next_flow_job(
     .warn_after_seconds(3)
     .await?;
 
-    if continue_on_same_worker {
+    if continue_on_same_worker || continue_with_runners {
         if !is_one_uuid {
             return Err(Error::BadRequest(
                  "Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker".to_string(),
@@ -3593,9 +3627,43 @@ async fn push_next_flow_job(
     tx.commit().warn_after_seconds(3).await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
 
-    if continue_on_same_worker {
+    if continue_on_same_worker || continue_with_runners {
+        let flow_runners = if start_runners {
+            tracing::info!(id = %flow_job.id, "starting flow runners for module {}", module.id);
+            let (new_flow_runners, new_flow_runner_handles) =
+                crate::dedicated_worker_oss::spawn_flow_module_runners(
+                    &flow_job,
+                    module,
+                    flow.failure_module.as_ref(),
+                    &killpill_rx,
+                    db,
+                    worker_dir,
+                    &client.base_internal_url,
+                    worker_name,
+                    &job_completed_tx,
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to spawn flow module runners for job: {}",
+                        flow_job.id
+                    )
+                })?;
+
+            let flow_runners = FlowRunners {
+                runners: new_flow_runners,
+                handles: new_flow_runner_handles,
+                job_id: flow_job.id,
+            };
+            Some(Arc::new(flow_runners))
+        } else if !do_not_pass_runners {
+            flow_runners
+        } else {
+            None
+        };
+
         same_worker_tx
-            .send(SameWorkerPayload { job_id: first_uuid, recoverable: true })
+            .send(SameWorkerPayload { job_id: first_uuid, recoverable: true, flow_runners })
             .warn_after_seconds(3)
             .await
             .map_err(to_anyhow)?;
@@ -3702,6 +3770,7 @@ enum NextStatus {
     NextLoopIteration {
         next: ForloopNextIteration,
         simple_input_transforms: Option<HashMap<String, InputTransform>>,
+        start_runners: bool,
     },
     AllFlowJobs {
         branchall: Option<BranchAllStatus>,
@@ -3943,7 +4012,7 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
+        FlowModuleValue::WhileloopFlow { modules, modules_node, squash, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
             let (flow_jobs, flow_jobs_success, flow_jobs_duration) = match status_module {
@@ -3960,6 +4029,8 @@ async fn compute_next_flow_transform(
                 _ => (vec![], Some(vec![]), Some(FlowJobsDuration::new(0))),
             };
             let next_loop_idx = flow_jobs.len();
+
+            let start_runners = next_loop_idx == 0 && squash.unwrap_or(false);
             next_loop_iteration(
                 flow,
                 status,
@@ -3982,11 +4053,14 @@ async fn compute_next_flow_transform(
                 db,
                 module,
                 delete_after_use,
+                start_runners,
             )
             .await
         }
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
-        FlowModuleValue::ForloopFlow { modules, modules_node, iterator, parallel, .. } => {
+        FlowModuleValue::ForloopFlow {
+            modules, modules_node, iterator, parallel, squash, ..
+        } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
                 && !parallel
@@ -4025,6 +4099,7 @@ async fn compute_next_flow_transform(
                     Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
                 }
                 ForLoopStatus::NextIteration(ns) => {
+                    let start_runners = ns.index == 0 && squash.unwrap_or(false);
                     next_loop_iteration(
                         flow,
                         status,
@@ -4036,6 +4111,7 @@ async fn compute_next_flow_transform(
                         db,
                         module,
                         delete_after_use,
+                        start_runners,
                     )
                     .await
                 }
@@ -4300,6 +4376,7 @@ async fn next_loop_iteration(
     db: &sqlx::Pool<sqlx::Postgres>,
     module: &FlowModule,
     delete_after_use: bool,
+    start_runners: bool,
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
@@ -4317,7 +4394,7 @@ async fn next_loop_iteration(
             ContinuePayload::SingleJob(
                 payload_from_simple_module(value, db, flow_job, module, inner_path()).await?,
             ),
-            NextStatus::NextLoopIteration { next: ns, simple_input_transforms },
+            NextStatus::NextLoopIteration { next: ns, simple_input_transforms, start_runners },
         ));
     }
 
@@ -4341,7 +4418,7 @@ async fn next_loop_iteration(
             timeout: None,
             on_behalf_of: None,
         }),
-        NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None },
+        NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None, start_runners },
     ))
 }
 

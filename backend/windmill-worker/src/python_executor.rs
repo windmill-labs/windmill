@@ -18,6 +18,8 @@ use tokio::{
     sync::Semaphore,
     task,
 };
+use windmill_queue::MiniPulledJob;
+
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
@@ -546,7 +548,6 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -2130,16 +2131,16 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     }
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 use crate::JobCompletedSender;
-#[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{common::build_envs_map, dedicated_worker_oss::handle_dedicated_process};
+#[cfg(feature = "private")]
 use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-use windmill_queue::MiniPulledJob;
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2152,10 +2153,12 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> error::Result<()> {
     use crate::{PyV, PyVAlias};
+    tracing::info!("script path: {}", script_path);
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2346,6 +2349,7 @@ for line in sys.stdin:
         db,
         script_path,
         "python",
+        client,
     )
     .await
 }

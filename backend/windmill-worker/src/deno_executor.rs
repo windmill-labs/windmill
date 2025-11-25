@@ -514,13 +514,14 @@ async fn build_import_map(
     Ok(()) as error::Result<()>
 }
 
-#[cfg(feature = "enterprise")]
-use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     inner_content: &str,
     base_internal_url: &str,
@@ -531,9 +532,10 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: windmill_common::client::AuthedClient,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -654,6 +656,7 @@ for await (const chunk of Deno.stdin.readable) {{
         db,
         script_path,
         "deno",
+        client,
     )
     .await
 }
