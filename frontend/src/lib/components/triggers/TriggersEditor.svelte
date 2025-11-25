@@ -405,13 +405,13 @@
 				{:else}
 					<!-- Full-width triggers table when no trigger is selected -->
 					<div
-						class="h-full w-full overflow-auto p-4 flex justify-start"
+						class="h-full w-full overflow-auto px-4 py-2 flex justify-start"
 						in:fade={{ duration: 200, delay: 50 }}
 						out:fade={{ duration: 150 }}
 					>
 						{#if loading}
 							<div
-								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full max-w-6xl"
+								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full max-w-2xl"
 							></div>
 						{:else}
 							<div class="w-full max-w-2xl">
