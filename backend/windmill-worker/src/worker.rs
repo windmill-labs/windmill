@@ -842,12 +842,28 @@ async fn extract_job_and_perms(job: NextJob, conn: &Connection) -> JobAndPerms {
     }
 }
 
-fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) -> Span {
-    let span = tracing::span!(tracing::Level::INFO, "job",
-        job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
+pub fn create_span_with_name(
+    arc_job: &MiniPulledJob,
+    worker_name: &str,
+    hostname: Option<&str>,
+    span_name: &str,
+) -> Span {
+    // The span macro requires a literal, so we use a fixed name and set otel.name dynamically
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "job",
+        job_id = %arc_job.id,
+        root_job = field::Empty,
+        workspace_id = %arc_job.workspace_id,
+        worker = %worker_name,
+        hostname = field::Empty,
+        tag = %arc_job.tag,
         language = field::Empty,
-        script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
-        otel.name = field::Empty);
+        script_path = field::Empty,
+        flow_step_id = field::Empty,
+        parent_job = field::Empty,
+        otel.name = field::Empty
+    );
 
     let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
 
@@ -855,10 +871,10 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
         span.record("language", lg.as_str());
     }
     if let Some(step_id) = arc_job.flow_step_id.as_ref() {
-        span.record("otel.name", format!("job {}", step_id).as_str());
+        span.record("otel.name", format!("{} {}", span_name, step_id).as_str());
         span.record("flow_step_id", step_id.as_str());
     } else {
-        span.record("otel.name", "job");
+        span.record("otel.name", span_name);
     }
     if let Some(parent_job) = arc_job.parent_job.as_ref() {
         span.record("parent_job", parent_job.to_string().as_str());
@@ -868,6 +884,9 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
     }
     if let Some(root_job) = arc_job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
+    }
+    if let Some(hostname) = hostname {
+        span.record("hostname", hostname);
     }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
@@ -2144,7 +2163,7 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
-                    let span = create_span(&arc_job, &worker_name, hostname);
+                    let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
 
                     let job_result = handle_queued_job(
                         arc_job.clone(),
