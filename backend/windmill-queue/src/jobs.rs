@@ -3823,50 +3823,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(db: Pool<Postgres>, workspace_id: String, email: Option<String>) {
-    tokio::task::spawn(async move {
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            // Update workspace usage
-            let workspace_result = sqlx::query!(
-                "INSERT INTO usage (id, is_workspace, month_, usage)
-                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                &workspace_id
-            )
-            .execute(&db)
-            .await;
-
-            if let Err(e) = workspace_result {
-                tracing::error!("Failed to update workspace usage for {}: {:#}", workspace_id, e);
-            }
-
-            // Update user usage if email is provided (non-premium workspaces only)
-            if let Some(ref email) = email {
-                let user_result = sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                    email
-                )
-                .execute(&db)
-                .await;
-
-                if let Err(e) = user_result {
-                    tracing::error!("Failed to update user usage for {}: {:#}", email, e);
-                }
-            }
-        })
-        .await;
-
-        if let Err(_) = result {
-            tracing::error!(
-                "Usage update timed out after 10s for workspace {} and email {:?}",
-                workspace_id,
-                email
-            );
-        }
-    });
-}
+use crate::cloud_usage::increment_usage_async;
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(

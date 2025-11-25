@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.575.4
+  version: 1.584.0
   title: Windmill API
 
   contact:
@@ -572,12 +572,12 @@ paths:
                 use_case:
                   type: string
       responses:
-        '200':
+        "200":
           description: Onboarding data submitted successfully
           content:
             application/json:
               schema:
-                type: string                
+                type: string
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -5180,6 +5180,14 @@ paths:
             Accepts multiple values as a comma-separated list.
           schema:
             type: string
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+
       responses:
         "200":
           description: All scripts
@@ -6463,6 +6471,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -7692,6 +7707,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component
@@ -10163,6 +10181,34 @@ paths:
               schema:
                 type: boolean
 
+  /w/{workspace}/http_triggers/setenabled/{path}:
+    post:
+      summary: enable/disable http trigger
+      operationId: setHttpTriggerEnabled
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: http trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/websocket_triggers/create:
     post:
       summary: create websocket trigger
@@ -11970,6 +12016,33 @@ paths:
             application/json:
               schema:
                 type: boolean
+  /w/{workspace}/email_triggers/setenabled/{path}:
+    post:
+      summary: enable/disable email trigger
+      operationId: setEmailTriggerEnabled
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: email trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /groups/list:
     get:
@@ -15085,7 +15158,7 @@ components:
       schema:
         type: integer
     JobTriggerKind:
-      name: trigger_kind 
+      name: trigger_kind
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
@@ -15266,8 +15339,7 @@ components:
 
     CreatedAfterQueue:
       name: created_after_queue
-      description:
-        filter on jobs created after X for jobs in the queue only
+      description: filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -15275,8 +15347,7 @@ components:
 
     CreatedBeforeQueue:
       name: created_before_queue
-      description:
-        filter on jobs created before X for jobs in the queue only
+      description: filter on jobs created before X for jobs in the queue only
       in: query
       schema:
         type: string
@@ -15457,6 +15528,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    FlowNote:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
 
@@ -15571,6 +15644,7 @@ components:
           groq,
           openrouter,
           togetherai,
+          aws_bedrock,
           customai,
         ]
 
@@ -16722,30 +16796,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-        python3,
-        deno,
-        go,
-        bash,
-        powershell,
-        postgresql,
-        mysql,
-        bigquery,
-        snowflake,
-        mssql,
-        oracledb,
-        graphql,
-        nativets,
-        bun,
-        php,
-        rust,
-        ansible,
-        csharp,
-        nu,
-        java,
-        ruby,
-        duckdb,
-        # for related places search: ADD_NEW_LANG
-      ]
+          python3,
+          deno,
+          go,
+          bash,
+          powershell,
+          postgresql,
+          mysql,
+          bigquery,
+          snowflake,
+          mssql,
+          oracledb,
+          graphql,
+          nativets,
+          bun,
+          php,
+          rust,
+          ansible,
+          csharp,
+          nu,
+          java,
+          ruby,
+          duckdb,
+          # for related places search: ADD_NEW_LANG
+        ]
 
     Preview:
       type: object
@@ -17222,6 +17296,8 @@ components:
           format: date-time
         is_flow:
           type: boolean
+        enabled:
+          type: boolean
       required:
         - path
         - script_path
@@ -17231,6 +17307,7 @@ components:
         - edited_by
         - edited_at
         - is_flow
+        - enabled
 
     AuthenticationMethod:
       type: string
@@ -17456,6 +17533,8 @@ components:
           type: boolean
         wrap_body:
           type: boolean
+        enabled:
+          type: boolean
         raw_string:
           type: boolean
         error_handler_path:
@@ -17581,8 +17660,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         filters:
           type: array
           items:
@@ -17613,7 +17690,6 @@ components:
 
       required:
         - url
-        - enabled
         - filters
         - can_return_message
         - can_return_error_result
@@ -17802,17 +17878,13 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
       required:
-        - enabled
         - subscribe_topics
         - mqtt_resource_path
 
@@ -17934,8 +18006,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -17946,7 +18016,6 @@ components:
         - gcp_resource_path
         - topic_id
         - subscription_id
-        - enabled
         - delivery_type
         - subscription_mode
 
@@ -18048,8 +18117,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -18060,7 +18127,6 @@ components:
       required:
         - queue_url
         - aws_resource_path
-        - enabled
         - aws_auth_resource_type
 
     LoggedWizardStatus:
@@ -18257,8 +18323,6 @@ components:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        enabled:
-          type: boolean
         postgres_resource_path:
           type: string
         publication_name:
@@ -18279,7 +18343,6 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
-        - enabled
         - postgres_resource_path
         - replication_slot_name
         - publication_name
@@ -18370,8 +18433,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -18383,7 +18444,6 @@ components:
         - kafka_resource_path
         - group_id
         - topics
-        - enabled
 
     NewKafkaTrigger:
       type: object
@@ -18475,8 +18535,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -18488,7 +18546,6 @@ components:
         - nats_resource_path
         - use_jetstream
         - subjects
-        - enabled
 
     NewNatsTrigger:
       type: object
@@ -18602,7 +18659,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
+        enabled:
+          type: boolean
       required:
         - path
         - script_path
@@ -18764,6 +18822,8 @@ components:
           type: number
         wm_memory_usage:
           type: number
+        job_isolation:
+          type: string
       required:
         - worker
         - worker_instance

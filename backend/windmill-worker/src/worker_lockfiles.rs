@@ -9,6 +9,7 @@ use crate::scoped_dependency_map::ScopedDependencyMap;
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use itertools::Itertools;
+use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
@@ -765,15 +766,16 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let mut flow = match job.runnable_id {
-        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
+    let (mut flow, notes) = match job.runnable_id {
+        Some(ScriptHash(id)) => {
+            let flow = cache::flow::fetch_version(db, id).await?;
+            (flow.value().clone(), flow.notes())
+        }
         _ => match preview_data {
-            Some(RawData::Flow(data)) => data.clone(),
+            Some(RawData::Flow(data)) => (data.value().clone(), data.notes()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
-    }
-    .value()
-    .clone();
+    };
 
     let mut tx = db.begin().await?;
 
@@ -861,7 +863,22 @@ pub async fn handle_flow_dependency_job(
         .await?;
     }
 
-    let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
+    #[derive(Debug, Clone, Serialize)]
+    struct FlowValueWithNotes<'a> {
+        #[serde(flatten)]
+        value: &'a FlowValue,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        notes: Option<Box<RawValue>>, // TODO: Make this a Vec<FlowNote>
+    }
+
+    let new_flow_value = Json(
+        serde_json::value::to_raw_value(&FlowValueWithNotes {
+            value: &flow,
+            notes: notes.and_then(|n| n.notes).map(|n| n.into()),
+        })
+        .map_err(to_anyhow)?,
+    );
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!(

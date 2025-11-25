@@ -4,12 +4,18 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
+	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
 
 	interface Props {
 		data: ModuleN['data']
 	}
 
 	let { data }: Props = $props()
+
+	// Get NoteEditor context for group note creation
+	const noteEditorContext = getNoteEditorContext()
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -35,9 +41,14 @@
 		}
 		return typ
 	})
+
+	// Define context menu items
+	const contextMenuItems: ContextMenuItem[] = $derived(
+		data.editMode ? [addGroupNoteContextMenuItem(data.id, noteEditorContext)] : []
+	)
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} {contextMenuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}

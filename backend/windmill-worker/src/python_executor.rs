@@ -122,7 +122,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_file, read_result,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file, read_result,
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
@@ -836,9 +836,12 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut python_cmd = Command::new(&python_path);
-
         let args = vec!["-u", "-m", "wrapper"];
+
+        let mut python_cmd = build_command_with_isolation(
+            &python_path,
+            &args,
+        );
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -848,7 +851,6 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

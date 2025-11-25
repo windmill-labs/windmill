@@ -26,7 +26,6 @@ impl TriggerCrud for SqsTrigger {
 
     const TABLE_NAME: &'static str = "";
     const TRIGGER_TYPE: &'static str = "";
-    const SUPPORTS_ENABLED: bool = false;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/sqs_triggers";
