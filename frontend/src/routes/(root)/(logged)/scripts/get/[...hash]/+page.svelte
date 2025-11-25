@@ -783,6 +783,9 @@
 					on:selected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
+						if (jsonView) {
+							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+						}
 					}}
 				/>
 			{/if}
