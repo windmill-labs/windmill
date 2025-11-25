@@ -766,8 +766,57 @@ To reduce token usage, rawscript content in the flow JSON you receive is replace
 **To inspect existing code:**
 - Use \`inspect_inline_script\` tool to view current code before modifying
 
-### Key Concepts
-- **input_transforms**: Map parameter names to values. Use \`results.step_id\` for previous results, \`flow_input.property\` for flow inputs, \`flow_input.iter.value\` inside loops
+### Input Transforms for Rawscripts
+
+Rawscript modules use \`input_transforms\` to map function parameters to values. Each key in \`input_transforms\` corresponds to a parameter name in your script's \`main\` function.
+
+**Transform Types:**
+- \`static\`: Fixed value passed directly
+- \`javascript\`: Dynamic expression evaluated at runtime
+
+**Available Variables in JavaScript Expressions:**
+- \`flow_input.{property}\` - Access flow input parameters
+- \`results.{step_id}\` - Access output from a previous step
+- \`flow_input.iter.value\` - Current item when inside a for-loop
+- \`flow_input.iter.index\` - Current index when inside a for-loop
+
+**Example - Rawscript using flow input and previous step result:**
+\`\`\`json
+{
+  "id": "step_b",
+  "value": {
+    "type": "rawscript",
+    "language": "bun",
+    "content": "export async function main(userId: string, data: any[]) { ... }",
+    "input_transforms": {
+      "userId": {
+        "type": "javascript",
+        "expr": "flow_input.user_id"
+      },
+      "data": {
+        "type": "javascript",
+        "expr": "results.step_a"
+      }
+    }
+  }
+}
+\`\`\`
+
+**Example - Static value:**
+\`\`\`json
+{
+  "input_transforms": {
+    "limit": {
+      "type": "static",
+      "value": 100
+    }
+  }
+}
+\`\`\`
+
+**Important:** The parameter names in \`input_transforms\` must match the function parameter names in your script. When you create or modify a rawscript, always define \`input_transforms\` to connect it to flow inputs or results from other steps.
+
+### Other Key Concepts
 - **Resources**: For flow inputs, use type "object" with format "resource-<type>". For step inputs, use "$res:path/to/resource"
 - **Module IDs**: Must be unique and valid identifiers. Used to reference results via \`results.step_id\`
 - **Module types**: Use 'bun' as default language for rawscript if unspecified
