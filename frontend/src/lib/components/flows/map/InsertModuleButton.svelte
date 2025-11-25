@@ -11,7 +11,7 @@
 	let { Icon = Plus, title, id }: Props = $props()
 </script>
 
-<button class="center-center p-2 group">
+<button class="center-center p-2 group" onclick={(e) => e.stopPropagation()}>
 	<div
 		{title}
 		{id}

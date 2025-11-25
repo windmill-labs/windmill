@@ -23,7 +23,7 @@
 		setDropdownWidthToButtonWidth = false,
 		children,
 		class: className,
-		placement = 'bottom',
+		placement = 'bottom-start',
 		isEditor = false,
 		onAddDraftTrigger,
 		onAddScheduledPoll,
