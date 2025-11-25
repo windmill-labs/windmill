@@ -421,6 +421,9 @@ function ZipFSElement(
               };
             }
 
+            if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+              app.public = true;
+            }
             app.policy = undefined;
             yield {
               isDirectory: false,

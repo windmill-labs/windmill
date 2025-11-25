@@ -19,6 +19,7 @@ import devCommand from "./dev.ts";
 
 export interface AppFile {
   value: any;
+  public?: boolean;
   summary: string;
   policy: Policy;
 }
@@ -46,6 +47,10 @@ export async function pushApp(
   } catch {
     //ignore
   }
+  if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+    app.public = true;
+  }
+  // console.log(app);
   if (app) {
     app.policy = undefined;
   }
@@ -81,7 +86,7 @@ export async function pushApp(
   }
 
   replaceInlineScripts(localApp.value);
-  await generatingPolicy(localApp, remotePath);
+  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -110,11 +115,11 @@ export async function pushApp(
   }
 }
 
-async function generatingPolicy(app: any, path: string) {
+async function generatingPolicy(app: any, path: string, publicApp: boolean) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = "publisher";
+    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;

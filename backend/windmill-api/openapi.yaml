@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.583.2
+  version: 1.584.0
   title: Windmill API
 
   contact:
@@ -7707,6 +7707,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component

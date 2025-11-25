@@ -283,6 +283,7 @@ export type AppViewerContext = {
 				invalidate?: (key: string, error: string) => void
 				validateAll?: () => void
 				clearFiles?: () => void
+				sendMessage?: (message: string) => void
 				showToast?: (message: string, error?: boolean) => void
 				recompute?: () => void
 				askNewResource?: () => void
