@@ -8121,6 +8121,29 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run_inline/preview:
+    post:
+      summary: run script preview without starting a new job
+      operationId: runScriptPreviewInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewInline"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/preview:
     post:
       summary: run script preview and wait for result
@@ -16858,6 +16881,18 @@ components:
           type: string
       required:
         - args
+
+    PreviewInline:
+      type: object
+      properties:
+        content:
+          type: string
+          description: The code to run
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+      required: [content, args, language]
 
     WorkflowTask:
       type: object

@@ -14,6 +14,8 @@ use futures::TryFutureExt;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::jobs::WorkerInternalServerInlineUtils;
+use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -3892,4 +3894,99 @@ pub fn parse_sig_of_lang(
     } else {
         None
     })
+}
+
+pub fn init_worker_internal_server_inline_utils(
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    base_internal_url: String,
+) -> windmill_common::error::Result<()> {
+    let utils = WorkerInternalServerInlineUtils {
+        base_internal_url,
+        killpill_rx: Arc::new(killpill_rx),
+        run_inline_preview_script: Arc::new(|params| {
+            let job = MiniPulledJob {
+                workspace_id: params.workspace_id,
+                id: Uuid::new_v4(),
+                args: params.args.map(Json),
+                parent_job: None,
+                created_by: params.created_by,
+                scheduled_for: chrono::Utc::now(),
+                started_at: None,
+                runnable_path: None,
+                kind: JobKind::Preview,
+                runnable_id: None,
+                canceled_reason: None,
+                canceled_by: None,
+                permissioned_as: params.permissioned_as,
+                permissioned_as_email: params.permissioned_as_email,
+                flow_status: None,
+                tag: "inline_preview".to_string(),
+                script_lang: Some(params.lang),
+                same_worker: true,
+                pre_run_error: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                flow_innermost_root_job: None,
+                root_job: None,
+                timeout: None,
+                flow_step_id: None,
+                cache_ttl: None,
+                priority: None,
+                preprocessed: None,
+                script_entrypoint_override: None,
+                trigger: None,
+                trigger_kind: None,
+                visible_to_owner: false,
+                permissioned_as_end_user_email: None,
+            };
+            Box::pin(async move {
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                handle_code_execution_job(
+                    &job,
+                    Some(Arc::new(ScriptData { code: params.content, lock: None })),
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                )
+                .await
+            })
+        }),
+    };
+    WORKER_INTERNAL_SERVER_INLINE_UTILS
+        .set(utils)
+        .map_err(|_| {
+            error::Error::InternalErr(
+                "Couldn't set WorkerInternalServerInlineUtils OnceCell".to_string(),
+            )
+        })?;
+    Ok(())
+}
+
+pub fn get_worker_internal_server_inline_utils(
+) -> windmill_common::error::Result<&'static WorkerInternalServerInlineUtils> {
+    match WORKER_INTERNAL_SERVER_INLINE_UTILS.get() {
+        Some(utils) => Ok(utils),
+        None => Err(error::Error::internal_err(
+            "worker inline functions are meant to be called from a worker's internal server",
+        )),
+    }
 }

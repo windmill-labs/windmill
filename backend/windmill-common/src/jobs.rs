@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -17,6 +18,7 @@ pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.d
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,
+    client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
@@ -850,3 +852,38 @@ pub async fn lock_debounce_key<'c>(
     .await
     .map_err(error::Error::from)
 }
+
+pub struct RunInlinePreviewScriptFnParams {
+    pub workspace_id: String,
+    pub content: String,
+    pub lang: ScriptLang,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+}
+
+#[derive(Clone)]
+pub struct WorkerInternalServerInlineUtils {
+    pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
+    pub base_internal_url: String,
+    pub run_inline_preview_script: Arc<
+        dyn Fn(
+                RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+}
+// To run a script inline, bypassing the db and job queue, windmill-api uses these functions.
+// windmill-worker sets these functions when it starts up.
+// The api cannot call the worker functions directly because they are independent crates
+pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
+    OnceCell::new();

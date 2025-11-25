@@ -1241,13 +1241,24 @@ export function datatable(name: string = "main"): DataTableSqlTemplateFunction {
       queryStr += strings[i];
       if (i !== strings.length - 1) queryStr += `$${i + 1}`;
     }
-    const args = Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v]));
+    const args = {
+      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
+      database: `datatable://${name}`,
+    };
 
     return {
       queryStr,
       args,
       query: async () => {
-        return ["results from datatable (TODO)"];
+        let result = await JobService.runScriptPreviewInline({
+          workspace: getWorkspace(),
+          requestBody: {
+            args,
+            content: queryStr,
+            language: "postgresql",
+          },
+        });
+        return result;
       },
     };
   };

@@ -28,13 +28,14 @@ use tower::ServiceBuilder;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
+use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    DynamicInput, JobTriggerKind, ENTRYPOINT_OVERRIDE,
+    DynamicInput, JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -42,6 +43,7 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
@@ -232,6 +234,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run_inline/preview", post(run_inline_preview_script))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -3555,6 +3558,13 @@ struct Preview {
     format: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct PreviewInline {
+    content: String,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
+    language: ScriptLang,
+}
+
 #[derive(Deserialize)]
 pub struct WorkflowTask {
     pub args: Option<HashMap<String, Box<JsonRawValue>>>,
@@ -5670,7 +5680,7 @@ pub async fn stream_job(
                 version,
                 run_query,
                 args,
-                None
+                None,
             )
             .await?
             .0
@@ -5937,6 +5947,39 @@ async fn run_preview_script(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_inline_preview_script(
+    authed: ApiAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(preview): Json<PreviewInline>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
+        content: preview.content,
+        args: preview.args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        lang: preview.language,
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
 }
 
 async fn run_wait_result_preview_script(
