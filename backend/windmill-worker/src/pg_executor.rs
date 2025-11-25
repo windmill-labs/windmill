@@ -31,6 +31,7 @@ use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -38,6 +39,7 @@ use windmill_parser_sql::{
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
     build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
     OccupancyMetrics, S3ModeWorkerData,
@@ -214,7 +216,26 @@ pub async fn do_postgresql(
                 .await?,
         )
     } else {
-        pg_args.get("database").cloned()
+        println!(
+            "PG ARGS BEFORE DATATABLE CHECK: {:?}",
+            pg_args.get("database")
+        );
+        match pg_args.get("database").cloned() {
+            Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
+                let db_str = db_str.trim_start_matches("datatable://");
+                Some(match conn {
+                    Connection::Http(client) => {
+                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
+                            .await?
+                    }
+                    Connection::Sql(db) => {
+                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
+                            .await?
+                    }
+                })
+            }
+            database => database,
+        }
     };
 
     let database = if let Some(db) = db_arg {

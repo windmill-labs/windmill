@@ -170,6 +170,49 @@ pub enum DataTableCatalogResourceType {
     Instance,
 }
 
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let datatable = sqlx::query_scalar!(
+        r#"
+            SELECT ws.datatable->'datatables'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?
+    .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
+    let datatable = serde_json::from_value::<DataTable>(datatable)?;
+
+    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
+    {
+        let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
+        json!({
+            "dbname": datatable.database.resource_path,
+            "host": pg_creds.host,
+            "port": pg_creds.port,
+            "user": "custom_instance_user",
+            "sslmode": pg_creds.ssl_mode,
+            "password": get_custom_pg_instance_password(&db).await?,
+        })
+    } else {
+        transform_json_unchecked(
+            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
+            w_id,
+            db,
+        )
+        .await?
+    };
+
+    Ok(db_resource)
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
