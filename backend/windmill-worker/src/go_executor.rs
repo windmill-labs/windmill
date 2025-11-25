@@ -480,9 +480,7 @@ pub async fn install_go_dependencies(
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    let (hash, go_mod_provided) = if let Some(go_mod_content) =
-        workspace_dependencies.get_one_external_only_manual(w_id, None)
-    {
+    let (hash, go_mod_provided) = if let Some(go_mod_content) = workspace_dependencies.get_go()? {
         let go_mod = if let Some(module) = go_mod_content
             .lines()
             .find(|l| l.trim_start().starts_with("module "))

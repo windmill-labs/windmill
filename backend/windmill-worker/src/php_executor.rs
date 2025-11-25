@@ -181,7 +181,7 @@ pub async fn handle_php_job(
                 conn.clone(),
             )
             .await?
-            .get_one_external_only_manual(&job.workspace_id, Some(job.runnable_path().to_owned()))
+            .get_php()?
             .or(parse_php_imports(inner_content)?),
             None,
         ),

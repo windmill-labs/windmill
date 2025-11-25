@@ -1596,7 +1596,7 @@ export async function pull(
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, opts, true);
+      await generateFlowLockInternal(change, false, workspace, opts, true, false);
     }
     if (tracker.apps.length > 0) {
       log.info(

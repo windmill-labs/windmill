@@ -25,15 +25,51 @@ impl NewWorkspaceDependencies {
     ///
     /// Archives any existing dependencies with the same name/language/workspace,
     /// then inserts the new dependencies. Triggers recomputation of dependent scripts
-    /// and rebuilds the dependency map if this is the first unnamed dependency for the language.
+    /// and rebuilds the dependency map if this is the first unnamed dependency for the workspace.
     pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
+        // Check if all workers support workspace dependencies feature
+        windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
+            .await?;
+
         let path = WorkspaceDependencies::to_path(&self.name, self.language)?;
 
         // If it is unnamed then we want to rebuild dependency map. Otherwise trigger dependents to recompute locks will not work
-        // TODO: Check db if map was already rebuilt.
         // NOTE: We rebuild first, even before creating new w deps. We want to make sure that if rebuild failed, then no new default workspace dependencies were created.
         if self.name.is_none() {
-            ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
+            // Check if we already rebuilt the map for this workspace by checking if the setting exists
+            let setting_name = format!("workspace_dependencies_map_rebuilt:{}", self.workspace_id);
+            let already_rebuilt =
+                windmill_common::global_settings::load_value_from_global_settings(
+                    db,
+                    &setting_name,
+                )
+                .await?
+                .is_some();
+
+            if !already_rebuilt {
+                tracing::info!(
+                    workspace_id = %self.workspace_id,
+                    "Rebuilding workspace dependencies map for first unnamed workspace dependencies"
+                );
+                ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
+
+                // Mark as rebuilt by creating the setting
+                windmill_common::global_settings::set_value_in_global_settings(
+                    db,
+                    &setting_name,
+                    serde_json::json!({}),
+                )
+                .await?;
+                tracing::info!(
+                    workspace_id = %self.workspace_id,
+                    "Marked workspace dependencies map as rebuilt"
+                );
+            } else {
+                tracing::info!(
+                    workspace_id = %self.workspace_id,
+                    "Skipping workspace dependencies map rebuild - already rebuilt for this workspace"
+                );
+            }
         };
 
         let mut tx = db.begin().await?;
@@ -117,9 +153,10 @@ impl NewWorkspaceDependencies {
 }
 
 // TODO:
-// -[] Fork workspaces
+// -[x] Fork workspaces
 // -[] git sync
 // -[] handle renames
+// -[] rebuild dmap only once
 // -[x] rebuild dependency map correctly
 // -[] deployment of many at the same time has proper ordering
 // -[x] cli on generate-metadata will only send diffs
@@ -138,13 +175,14 @@ impl NewWorkspaceDependencies {
 // -[] warning
 //   - [] amount is displayed correctly (even for apps and flows.)
 // -[x] store mode in lock, so when viewed one can tell difference.
-// -[] if relative import has raw requirements, should importer inherit those? - yes
+// -[x] if relative import has raw requirements, should importer inherit those? - yes
 //   - [x] python
 //   - [x] bun
 // -[] on deploy depenencies should be verified if they are resolvable or not.
 // -[] ignore hub_sync for default bun scripts
 // -[x] deleting or archiving dependencies should also trigger dependents
 // -[x](no) maybe no dmap rebuild on creation?
+// -[] # /// script
 //
 // TODO(frontend):
 // - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
@@ -155,15 +193,16 @@ impl NewWorkspaceDependencies {
 //
 // TODO(tests):
 // - [] old syntax rejection
+// - [] make sure older cli works without problems if feature is not used
 // - test apps / or disable them for now
 // - dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)
 // - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
 // - redelpoyment of dependents or new deployments build dmap (with and without relative imports)
-// - messed up rrs table will get healed
+// - [] messed up rrs table will get healed
 // - race condition with other djobs on concurrency basis
 // - what if redeployed older script version that has either outdated syntax or other rrs id/name?
-// - how are python version are treated? From lock or from content?
+// - [x] how are python version are treated? From lock or from content?
 // - benchmark bunch of stuff
 // - for other languages
 // - [] leaf's wk deps should be used for inputs to top level runnable

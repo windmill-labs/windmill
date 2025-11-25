@@ -18,9 +18,16 @@ def main():
     pass
 
 ";
-        let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
-                .await?;
+        let (r, ..) = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut vec![],
+            &mut None,
+            &None,
+        )
+        .await?;
         // println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,
@@ -52,9 +59,16 @@ def main():
     pass
 
 ";
-        let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
-                .await?;
+        let (r, ..) = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut vec![],
+            &mut None,
+            &None,
+        )
+        .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
 
@@ -76,9 +90,16 @@ def main():
 
 ";
 
-        let (r, ..) =
-            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![], &None)
-                .await?;
+        let (r, ..) = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut vec![],
+            &mut None,
+            &None,
+        )
+        .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,

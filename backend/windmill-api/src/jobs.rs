@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
+use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -39,7 +40,9 @@ use windmill_common::jobs::{
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
-use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
+use windmill_common::workspace_dependencies::{
+    RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
+};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -5671,7 +5674,7 @@ pub async fn stream_job(
                 version,
                 run_query,
                 args,
-                None
+                None,
             )
             .await?
             .0
@@ -6109,6 +6112,7 @@ pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    pub raw_deps: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -6134,6 +6138,20 @@ async fn run_dependencies_job(
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
         ));
+    }
+
+    if req.raw_deps.is_some() {
+        return Err(error::Error::MigrationNeeded {
+            feature: "cli is outdated".into(),
+            version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
+            guide_url: Url::from_str("todo")?,
+        });
+    }
+
+    // Check if workers support workspace dependencies feature
+    if req.raw_workspace_dependencies.is_some() {
+        windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
+            .await?;
     }
 
     if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
@@ -6201,6 +6219,7 @@ pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    pub raw_deps: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -6219,6 +6238,20 @@ async fn run_flow_dependencies_job(
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
         ));
+    }
+
+    if req.raw_deps.is_some() {
+        return Err(error::Error::MigrationNeeded {
+            feature: "cli is outdated".into(),
+            version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
+            guide_url: Url::from_str("todo")?,
+        });
+    }
+
+    // Check if workers support workspace dependencies feature
+    if req.raw_workspace_dependencies.is_some() {
+        windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
+            .await?;
     }
 
     // Create args HashMap with skip_flow_update and raw_workspace_dependencies if present

@@ -118,9 +118,7 @@ pub async fn gen_bun_lockfile(
 
     let mut empty_deps = false;
 
-    if let Some(package_json_content) =
-        workspace_dependencies.get_one_external_only_manual(w_id, Some(script_path.to_owned()))
-    {
+    if let Some(package_json_content) = workspace_dependencies.get_bun()? {
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {

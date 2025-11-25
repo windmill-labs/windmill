@@ -154,9 +154,9 @@ pub fn extract_referenced_paths(
                 referenced_paths.push(path);
             };
         }
-    } else if let (Some(l), false /* Only if it is not blacklisted */) = (
+    } else if let (Some(l), true /* Only if it is not blacklisted */) = (
         language,
-        WorkspaceDependenciesPrefetched::replace_blacklisted(script_path).is_some(),
+        WorkspaceDependenciesPrefetched::is_external_references_permitted(script_path),
     ) {
         // we assume all runnables without annotated dependencies reference default dependencies file.
         WorkspaceDependencies::to_path(&None, l)
@@ -2810,7 +2810,7 @@ async fn capture_dependency_job(
                 &mut Some(occupancy_metrics),
             )
             .await?;
-            if req.is_some() && wd.get_mode() != Some(Mode::manual) {
+            if req.is_some() && !wd.is_manual() {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
                     req.as_ref(),
@@ -2836,9 +2836,7 @@ async fn capture_dependency_job(
 
             #[cfg(feature = "php")]
             {
-                let composer_content = if let Some(c) =
-                    wd.get_one_external_only_manual(w_id, Some(script_path.to_owned()))
-                {
+                let composer_content = if let Some(c) = wd.get_php()? {
                     c
                 } else {
                     match parse_php_imports(job_raw_code)? {
@@ -2965,11 +2963,11 @@ async fn capture_dependency_job(
 async fn add_lock_header(
     lines: &mut Vec<String>,
     wd: WorkspaceDependenciesPrefetched,
-    language: ScriptLang,
+    _language: ScriptLang,
     _workspace_id: &str,
     _db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<()> {
-    if let Some(header) = wd.to_lock_header(language).await? {
+    if let Some(header) = wd.to_lock_header().await? {
         lines.push(header);
     }
 

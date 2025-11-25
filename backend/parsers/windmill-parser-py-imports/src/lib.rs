@@ -388,9 +388,6 @@ async fn parse_python_imports_inner(
     //     dependencies: Vec<String>,
     // }
 
-    use windmill_common::workspace_dependencies::Mode::*;
-    use WorkspaceDependenciesPrefetched::*;
-
     let mut final_imports = HashMap::new();
     tracing::debug!("Extracting workspace dependencies for workspace: {}", w_id);
     let wdp = WorkspaceDependenciesPrefetched::extract(
@@ -402,52 +399,12 @@ async fn parse_python_imports_inner(
         db.into(),
     )
     .await?;
-    tracing::debug!(
-        "Workspace dependencies extraction result: {:?}",
-        std::mem::discriminant(&wdp)
-    );
 
-    match &wdp {
-        Explicit(WorkspaceDependenciesAnnotatedRefs { inline, external, .. }) => {
-            tracing::debug!(
-                "Processing explicit workspace dependencies with inline: {}, external count: {}",
-                inline.is_some(),
-                external.len()
-            );
+    if let Some(c) = wdp.get_python()? {
+        extract_nimports_from_content(&c, &mut final_imports);
+    }
 
-            if inline.is_some() && !external.is_empty() {
-                return Err(error::Error::ExecutionErr(
-                    "Cannot use yet both inline and external workspace dependencies".to_string(),
-                ));
-            }
-
-            if external.len() > 1 {
-                return Err(error::Error::ExecutionErr(
-                    "Multiple external workspace dependencies are not yet supported".to_string(),
-                ));
-            }
-
-            inline.as_ref().inspect(|content| {
-                tracing::debug!("Processing inline workspace dependencies content");
-                *locked_v = extract_nimports_from_content(*content, &mut final_imports);
-            });
-
-            external.get(0).inspect(|wd| {
-                tracing::debug!("Processing external workspace dependency: {:?}", wd.name);
-                *locked_v = extract_nimports_from_content(&wd.content, &mut final_imports);
-            });
-        }
-        Implicit { workspace_dependencies, .. } => {
-            tracing::debug!("Processing implicit workspace dependencies");
-            *locked_v =
-                extract_nimports_from_content(&workspace_dependencies.content, &mut final_imports);
-        }
-        None => {
-            tracing::debug!("No workspace dependencies found");
-        }
-    };
-
-    if wdp.get_mode() == Some(manual) {
+    if wdp.is_manual() {
         tracing::debug!(
             "Workspace dependencies mode is Manual, returning {} imports",
             final_imports.len()

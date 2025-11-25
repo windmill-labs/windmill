@@ -267,8 +267,10 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-    // TODO(claude): implement and warn if it is not the case, say one SHOULD upgrade all workers to latest
-    pub static ref MIN_VERSION_IS_V2_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
+    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
     /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -1269,6 +1271,10 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    // Workspace dependencies feature requires minimum version across all workers
+    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
+        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
+            .unwrap();
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);

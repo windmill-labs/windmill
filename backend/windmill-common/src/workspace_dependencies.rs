@@ -10,6 +10,60 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
     // TODO: Could bad actor possibly exloit if not this?
     "g/all/setup_app/app"
 };
+
+/// Minimum Windmill version required for workspace dependencies feature
+pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.583.0";
+
+pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
+    // Check if workers support workspace dependencies feature
+    if !*crate::worker::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES
+        .read()
+        .await
+    {
+        tracing::warn!(
+            "Workspace dependencies feature will be disabled because not all workers support it (minimum version {} required)",
+            MIN_VERSION_WORKSPACE_DEPENDENCIES
+        );
+        return Err(error::Error::WorkersAreBehind {
+            feature: "Workspace dependencies".to_string(),
+            min_version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_string(),
+        });
+    } else {
+        Ok(())
+    }
+}
+
+pub type RawWorkspaceDependencies = std::collections::HashMap<String, String>;
+
+pub fn clean_lock_from_annotations(lock: &str, language: ScriptLang) -> String {
+    let mat = format!("{} workspace-dependencies", language.as_comment_lit());
+    lock.lines().filter(|l| !l.starts_with(&mat)).collect()
+}
+
+pub fn get_raw_workspace_dependencies(
+    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    name: Option<String>,
+    language: ScriptLang,
+    workspace_id: String,
+) -> Option<WorkspaceDependencies> {
+    raw_workspace_dependencies_o
+        .as_ref()
+        .zip(WorkspaceDependencies::to_path(&name, language).ok())
+        .and_then(|(hm, path)| hm.get(&path))
+        .map(|raw_content| WorkspaceDependencies {
+            // TODO: Name should be different to prevent from collisions and pg index violation
+            name,
+            workspace_id,
+            created_at: chrono::Utc::now(),
+            language,
+            content: raw_content.to_owned(),
+            ..Default::default()
+        })
+}
+
+fn map_err(e: String) -> error::Error {
+    error::Error::FeatureUnavailable(e)
+}
 // TODO: Make sure there is only one archived
 // and only one or none unnamed for given language
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, Default)]
@@ -195,70 +249,22 @@ impl WorkspaceDependencies {
     }
 }
 
-pub enum WorkspaceDependenciesPrefetched {
+#[derive(Debug)]
+pub struct WorkspaceDependenciesPrefetched {
+    language: ScriptLang,
+    runnable_path: String,
+    workspace_id: String,
+    internal: WorkspaceDependenciesPrefetchedInternal,
+}
+
+#[derive(Debug)]
+enum WorkspaceDependenciesPrefetchedInternal {
     Explicit(WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies>),
     Implicit { workspace_dependencies: WorkspaceDependencies, mode: Mode },
     None,
 }
 
 impl WorkspaceDependenciesPrefetched {
-    pub fn get_one_external_only_manual(
-        &self,
-        // just for logging
-        workspace_id: &str,
-        // just for logging
-        script_path: Option<String>,
-    ) -> Option<String> {
-        use WorkspaceDependenciesPrefetched::*;
-
-        if self.get_mode() == Some(Mode::extra) {
-            tracing::warn!(
-                workspace_id,
-                script_path,
-                "extra mode is not supported yet, this may change in future"
-            );
-            return Option::None;
-        }
-
-        match &self {
-            Explicit(WorkspaceDependenciesAnnotatedRefs { inline, external, .. }) => {
-                if inline.is_some() {
-                    tracing::warn!(workspace_id, script_path, "inline workspace dependencies are ignored, this could be implemented later");
-                }
-                if external.len() > 1 {
-                    tracing::warn!(workspace_id, script_path, "multiple external workspace dependencies found, all except first are ignored, this might be supported eventually");
-                }
-
-                external.get(0).map(|wd| wd.content.clone())
-            }
-            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
-            None => Option::None,
-        }
-    }
-    pub fn get_mode(&self) -> Option<Mode> {
-        match self {
-            WorkspaceDependenciesPrefetched::Explicit(WorkspaceDependenciesAnnotatedRefs {
-                mode,
-                ..
-            })
-            | WorkspaceDependenciesPrefetched::Implicit { mode, .. } => Some(*mode),
-            WorkspaceDependenciesPrefetched::None => Option::None,
-        }
-    }
-
-    /// Replaces with Self::None if blacklisted
-    pub fn replace_blacklisted(runnable_path: &str) -> Option<WorkspaceDependenciesPrefetched> {
-        use WorkspaceDependenciesPrefetched::*;
-        if BLACKLIST.contains(runnable_path) || runnable_path.starts_with("hub/") {
-            tracing::debug!(
-                runnable_path,
-                "skipping implicit workspace dependencies for runnable"
-            );
-            Some(None)
-        } else {
-            Option::None
-        }
-    }
     pub async fn extract<'c>(
         code: &str,
         language: ScriptLang,
@@ -267,71 +273,240 @@ impl WorkspaceDependenciesPrefetched {
         runnable_path: &str,
         conn: Connection,
     ) -> error::Result<WorkspaceDependenciesPrefetched> {
-        use WorkspaceDependenciesPrefetched::*;
+        use WorkspaceDependenciesPrefetchedInternal::*;
 
         tracing::debug!(workspace_id, ?language, "extracting workspace dependencies");
-        Ok(
-            if let Some(wdar) =
-                language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
-            {
-                tracing::debug!(workspace_id, ?language, "found explicit annotations");
 
-                Explicit(
-                    wdar.expand(language, workspace_id, raw_workspace_dependencies_o, conn)
-                        .await?,
-                )
-            // First try in raw dependencies
-            } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
-                raw_workspace_dependencies_o,
+        let r = if let Some(wdar) =
+            language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
+        {
+            tracing::debug!(workspace_id, ?language, "found explicit annotations");
+
+            let expanded = wdar
+                .expand(language, workspace_id, raw_workspace_dependencies_o, conn)
+                .await?;
+
+            Explicit(expanded)
+        // First try in raw dependencies
+        } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
+            raw_workspace_dependencies_o,
+            Option::None,
+            language,
+            workspace_id.to_owned(),
+        ) {
+            tracing::debug!(
+                workspace_id,
+                ?language,
+                dep_id = workspace_dependencies.id,
+                "using implicit raw"
+            );
+
+            // Hardcode to manual for now.
+            Implicit { workspace_dependencies, mode: Mode::manual }
+        } else if let Some(workspace_dependencies) =
+            // If not found, fetch from db
+            WorkspaceDependencies::get_latest(
                 Option::None,
                 language,
-                workspace_id.to_owned(),
-            ) {
-                tracing::debug!(
-                    workspace_id,
-                    ?language,
-                    dep_id = workspace_dependencies.id,
-                    "using implicit raw"
-                );
+                workspace_id,
+                conn,
+            )
+            .await?
+        {
+            tracing::debug!(
+                workspace_id,
+                ?language,
+                dep_id = workspace_dependencies.id,
+                "using implicit default"
+            );
 
-                // Hardcode to manual for now.
-                Self::replace_blacklisted(runnable_path)
-                    .unwrap_or(Implicit { workspace_dependencies, mode: Mode::manual })
-            } else if let Some(workspace_dependencies) =
-                // If not found, fetch from db
-                WorkspaceDependencies::get_latest(
-                    Option::None,
-                    language,
-                    workspace_id,
-                    conn,
-                )
-                .await?
-            {
-                tracing::debug!(
-                    workspace_id,
-                    ?language,
-                    dep_id = workspace_dependencies.id,
-                    "using implicit default"
-                );
+            // Hardcode to manual for now.
+            Implicit { workspace_dependencies, mode: Mode::manual }
+        } else {
+            tracing::debug!(workspace_id, ?language, "no dependencies found");
 
-                // Hardcode to manual for now.
-                Self::replace_blacklisted(runnable_path)
-                    .unwrap_or(Implicit { workspace_dependencies, mode: Mode::manual })
-            } else {
-                tracing::debug!(workspace_id, ?language, "no dependencies found");
+            None
+        };
 
-                Self::None
-            },
-        )
+        // Crucial part. It will drop all blacklisted runnables
+        WorkspaceDependenciesPrefetched {
+            internal: r,
+            language,
+            runnable_path: runnable_path.to_owned(),
+            workspace_id: workspace_id.to_owned(),
+        }
+        .preprocess()
+        .await
     }
-    pub async fn to_lock_header(&self, language: ScriptLang) -> error::Result<Option<String>> {
-        use WorkspaceDependenciesPrefetched::*;
+
+    pub fn get_python(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        Ok(match &self.internal {
+            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { inline, external, .. }) => {
+                tracing::debug!(
+                    "Processing explicit workspace dependencies with inline: {}, external count: {}",
+                    inline.is_some(),
+                    external.len()
+                );
+
+                wdar.assert_inline_or_external_or_none().map_err(map_err)?;
+                wdar.assert_external_less_than(2).map_err(map_err)?;
+                wdar.assert_no_extra_mode_for_external().map_err(map_err)?;
+                external
+                    .get(0)
+                    .map(|wd| wd.content.clone())
+                    .or(inline.to_owned())
+            }
+            Implicit { workspace_dependencies, .. } => {
+                self.internal.assert_no_extra_mode().map_err(map_err)?;
+                Some(workspace_dependencies.content.to_owned())
+            }
+            None => Option::None,
+        })
+    }
+
+    pub fn get_bun(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        self.internal.assert_no_extra_mode().map_err(map_err)?;
+        Ok(match &self.internal {
+            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
+                wdar.assert_no_inline().map_err(map_err)?;
+                wdar.assert_external_less_than(2).map_err(map_err)?;
+                external
+                    .get(0)
+                    .map(|wd| wd.content.clone())
+                    .or(Some("".to_owned()))
+            }
+            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+            None => Option::None,
+        })
+    }
+
+    pub fn get_go(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        self.internal.assert_no_extra_mode().map_err(map_err)?;
+        Ok(match &self.internal {
+            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
+                wdar.assert_no_inline().map_err(map_err)?;
+                wdar.assert_external_less_than(2).map_err(map_err)?;
+                external.get(0).map(|wd| wd.content.clone()).or(Some(
+                    "
+module mymod
+go 1.25
+require ()
+                        "
+                    .to_owned(),
+                ))
+            }
+            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+            None => Option::None,
+        })
+    }
+
+    pub fn get_php(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        self.internal.assert_no_extra_mode().map_err(map_err)?;
+        Ok(match &self.internal {
+            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
+                wdar.assert_no_inline().map_err(map_err)?;
+                wdar.assert_external_less_than(2).map_err(map_err)?;
+                external
+                    .get(0)
+                    .map(|wd| wd.content.clone())
+                    .or(Some(r#"{"require": {}}"#.to_owned()))
+            }
+            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+            None => Option::None,
+        })
+    }
+
+    /// Is the runnable permitted to have external references
+    pub fn is_external_references_permitted(runnable_path: &str) -> bool {
+        !BLACKLIST.contains(runnable_path) && !runnable_path.starts_with("hub/")
+    }
+
+    async fn preprocess(mut self) -> error::Result<WorkspaceDependenciesPrefetched> {
+        // NOTE: we should error if it is not compatible. User should either update workers or do not use incompatible feature.
+        // Check if compatible with legacy and if not check that all workers run compatible versions.
+        if let Err(feature) = self.check_legacy_compat() {
+            min_version_supports_v0_workspace_dependencies()
+                .await
+                .map_err(|_| {
+                    // TODO: Add this error is flakey, sometimes it will error, somethimes it will just ignore.
+                    error::Error::WorkersAreBehind {
+                        feature,
+                        min_version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
+                    }
+                })?;
+        }
+
+        // NOTE: if you update or add new language, add compatibility checks here.
+        // for example if you were to update lang do:
+        // if let Err(incompatible_e) = self.check_v0_python_compat() {
+        //     min_version_supports_v1_workspace_dependencies_python()
+        // ...
+        // }
+        //
+        // Where `check_v0_python_compat` describes all features of previous python
+
+        if !Self::is_external_references_permitted(&self.runnable_path) {
+            // TODO: maybe error is better?
+            self.remove_external_references();
+        }
+        Ok(self)
+    }
+
+    fn check_legacy_compat(&self) -> Result<(), String> {
+        dbg!(&self);
+        use ScriptLang::*;
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        match (self.language, &self.internal) {
+            // These languages except for python had none of this functionality
+            (Php | Bun | Bunnative | Go, wdp) => wdp.assert_no_workspace_dependencies()?,
+
+            // Python, had #(extra_)requirements:
+            // but it had no external requirements.
+            // that's why we check if it is using only inline syntax
+            (Python3, Explicit(wdar)) => wdar.assert_no_external()?,
+            (Python3, wdp) => wdp.assert_no_implicit()?,
+
+            _ => return Err(format!("language is unsupported")),
+        }
+        Ok(())
+    }
+
+    // TODO:
+    // pub fn check_v0_compat(&self) -> bool {}
+    // pub fn check_v1_compat(&self) -> bool {}
+    // pub fn check_v1_python_compat
+
+    fn remove_external_references(&mut self) {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        match self.internal {
+            Explicit(WorkspaceDependenciesAnnotatedRefs { ref mut external, .. })
+                if !external.is_empty() =>
+            {
+                external.clear();
+            }
+            // Implicit is an external reference to the default. So we just replace it to none
+            ref mut wdp @ Implicit { .. } => drop(std::mem::replace(wdp, None)),
+            // Return early not to show warning
+            _ => return,
+        }
+        tracing::warn!(
+            self.runnable_path,
+            "skipping external workspace dependencies for runnable"
+        );
+    }
+
+    pub async fn to_lock_header(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
 
         let mut header = vec![];
         let prepend_mode = |mode| {
             format!(
                 "{} workspace-dependencies-mode: {}",
-                language.as_comment_lit(),
+                self.language.as_comment_lit(),
                 mode
             )
         };
@@ -339,12 +514,12 @@ impl WorkspaceDependenciesPrefetched {
         let insert_line = |hash, name: Option<String>| {
             format!(
                 "{} workspace-dependencies: {}:{}",
-                language.as_comment_lit(),
+                self.language.as_comment_lit(),
                 name.unwrap_or("default".to_owned()),
                 hash
             )
         };
-        match self {
+        match &self.internal {
             Explicit(workspace_dependencies_annotated_refs) => {
                 // TODO: error on extra for now
                 header.push(prepend_mode(workspace_dependencies_annotated_refs.mode));
@@ -361,8 +536,13 @@ impl WorkspaceDependenciesPrefetched {
         }
         Ok(Some(header.join("\n")))
     }
+
+    pub fn is_manual(&self) -> bool {
+        self.internal.get_mode() == Some(Mode::manual)
+    }
 }
 
+#[derive(Debug)]
 pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// ```python
     /// # requirements:
@@ -378,7 +558,7 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// Can either be a [[String]] or [[WorkspaceDependencies]]
     ///
     /// The workflow is following:
-    /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info.
+    /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info (just the name).
     /// 2. You [[Self::expand]] to replace all external names with <[[WorkspaceDependencies]]>
     pub external: Vec<T::Ty>,
     pub mode: Mode,
@@ -400,42 +580,108 @@ impl Container for WorkspaceDependencies {
 /// `# extra_requirements:` - Extra
 /// `# requirements:` - Manual
 #[allow(non_camel_case_types)]
-#[derive(PartialEq, Eq, strum_macros::Display, Clone, Copy)]
+#[derive(PartialEq, Eq, strum_macros::Display, Clone, Copy, Debug)]
 pub enum Mode {
     manual,
     extra,
 }
 
-pub type RawWorkspaceDependencies = std::collections::HashMap<String, String>;
+impl WorkspaceDependenciesPrefetchedInternal {
+    fn get_mode(&self) -> Option<Mode> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        match &self {
+            Explicit(WorkspaceDependenciesAnnotatedRefs { mode, .. }) | Implicit { mode, .. } => {
+                Some(*mode)
+            }
+            None => Option::None,
+        }
+    }
 
-pub fn clean_lock_from_annotations(lock: &str, language: ScriptLang) -> String {
-    let mat = format!("{} workspace-dependencies", language.as_comment_lit());
-    lock.lines().filter(|l| !l.starts_with(&mat)).collect()
+    fn assert_no_implicit(&self) -> Result<(), String> {
+        if matches!(self, Self::Implicit { .. }) {
+            Err(format!("'default workspace dependencies'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn assert_no_workspace_dependencies(&self) -> Result<(), String> {
+        if !matches!(self, Self::None { .. }) {
+            Err(format!("'workspace dependencies'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn _assert_no_explicit(&self) -> Result<(), String> {
+        if matches!(self, Self::Explicit { .. }) {
+            Err(format!("'external workspace dependencies'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn assert_no_extra_mode(&self) -> Result<(), String> {
+        if self.get_mode() == Some(Mode::extra) {
+            Err(format!("'workspace dependencies in extra mode'"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
-pub fn get_raw_workspace_dependencies(
-    raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
-    name: Option<String>,
-    language: ScriptLang,
-    workspace_id: String,
-) -> Option<WorkspaceDependencies> {
-    raw_workspace_dependencies_o
-        .as_ref()
-        .zip(WorkspaceDependencies::to_path(&name, language).ok())
-        .and_then(|(hm, path)| hm.get(&path))
-        .map(|raw_content| WorkspaceDependencies {
-            // TODO: Name should be different to prevent from collisions and pg index violation
-            name,
-            workspace_id,
-            created_at: chrono::Utc::now(),
-            language,
-            content: raw_content.to_owned(),
-            ..Default::default()
-        })
+impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRefs<T> {
+    fn assert_no_inline(&self) -> Result<(), String> {
+        if self.inline.is_none() {
+            Ok(())
+        } else {
+            Err(format!("'inline workspace dependencies'"))
+        }
+    }
+
+    fn assert_no_extra_mode_for_external(&self) -> Result<(), String> {
+        if self.mode == Mode::extra && !self.external.is_empty() {
+            Err(format!("'external workspace dependencies in extra mode'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn assert_no_extra_mode_for_inline(&self) -> Result<(), String> {
+        if self.mode == Mode::extra && self.inline.is_some() {
+            Err(format!("'inline workspace dependencies in extra mode'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn assert_no_external(&self) -> Result<(), String> {
+        self.assert_external_less_than(1)
+            .map_err(|_e| format!("'external workspace dependencies'"))
+    }
+
+    fn assert_inline_or_external_or_none(&self) -> Result<(), String> {
+        if self.inline.is_some() && !self.external.is_empty() {
+            Err(format!(
+                "'inline and externally referenced workspace dependencies at the same time'"
+            ))
+        } else {
+            Ok(())
+        }
+    }
+    fn assert_external_less_than(&self, amount: usize) -> Result<(), String> {
+        if self.external.len() < amount {
+            Ok(())
+        } else {
+            Err(format!(
+                "'multiple external workspace dependencies referenced'",
+            ))
+        }
+    }
 }
 
 impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
-    pub async fn expand(
+    pub(super) async fn expand(
         self,
         language: ScriptLang,
         workspace_id: &str,
@@ -504,7 +750,7 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
 
         let external = {
             let next_line = lines_it.next();
-            if WorkspaceDependenciesPrefetched::replace_blacklisted(runnable_path).is_some() {
+            if !WorkspaceDependenciesPrefetched::is_external_references_permitted(runnable_path) {
                 // TODO: test for hub that it fails before submission.
                 Default::default()
                 // return Err(error::Error::BadConfig(format!(

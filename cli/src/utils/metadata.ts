@@ -116,8 +116,7 @@ export async function generateFlowLockInternal(
     defaultTs?: "bun" | "deno";
   },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean,
-  useRawWorkspaceDependencies?: boolean
+  noStaleMessage?: boolean
 ): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -129,11 +128,8 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let rawWorkspaceDependencies: Record<string, string> = {};
-  if (useRawWorkspaceDependencies) {
-    // Get out-of-sync workspace dependencies
-    rawWorkspaceDependencies = await getRawWorkspaceDependencies();
-  }
+  // Always get out-of-sync workspace dependencies
+  let rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
   let hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
 
   const conf = await readLockfile();
@@ -148,15 +144,12 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (useRawWorkspaceDependencies) {
-    log.warn(
-      "If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)"
-    );
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (${workspaceDependenciesLanguages
+        `Found workspace dependencies (${workspaceDependenciesLanguages
           .map((l) => l.filename)
-          .join("/")}) for ${folder}, using it`
+          .join("/")}) for ${folder}, using them`
       )
     );
   }

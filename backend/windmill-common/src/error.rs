@@ -90,6 +90,8 @@ pub enum Error {
         "Breaking change was introduced in v{version} ({feature}). Follow this migration guide: {guide_url}"
     )]
     MigrationNeeded { version: String, feature: String, guide_url: url::Url },
+    #[error("{0} is unavailable.")]
+    FeatureUnavailable(String),
 }
 
 impl Error {
