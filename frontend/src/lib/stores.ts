@@ -3,9 +3,11 @@ import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
+	CancelablePromise,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
+	type Workspace,
 	type WorkspaceDefaultScripts,
 	WorkspaceService
 } from './gen'
@@ -168,32 +170,40 @@ export const instanceSettingsSelectedTab = writable('Core')
 
 export const isCriticalAlertsUIOpen = writable(false)
 
+let getWorkspacePromise: CancelablePromise<Workspace> | null = null
 export const workspaceColor: Readable<string | null | undefined> = derived(
 	[workspaceStore, usersWorkspaceStore, superadmin],
 	([workspaceStore, usersWorkspaceStore, superadmin], set: (value: string | undefined) => void) => {
-		if (!workspaceStore) {
-			set(undefined)
+		if (!workspaceStore || !usersWorkspaceStore) {
 			return
 		}
 
 		// First try to get the color from usersWorkspaceStore
-		const color = usersWorkspaceStore?.workspaces.find((w) => w.id === workspaceStore)?.color
+		const workspace = usersWorkspaceStore.workspaces.find((w) => w.id === workspaceStore)
 
-		if (color) {
-			set(color)
+		if (workspace) {
+			set(workspace.color)
 			return
 		}
 
-		// If not found and user is superadmin, try to get it from superadmin list
+		// If workspace not found and user is superadmin, get it as superadmin
 		if (!superadmin) {
 			set(undefined)
 			return
 		}
 
-		WorkspaceService.listWorkspacesAsSuperAdmin().then((workspaces) => {
-			const superadminColor = workspaces.find((w) => w.id === workspaceStore)?.color
-			set(superadminColor)
+		getWorkspacePromise?.cancel()
+
+		getWorkspacePromise = WorkspaceService.getWorkspaceAsSuperAdmin({
+			workspace: workspaceStore
 		})
+
+		getWorkspacePromise
+			.then((workspace) => set(workspace.color))
+			.catch((error) => {
+				console.error('error getting workspace as superadmin', error)
+				set(undefined)
+			})
 	}
 )
 

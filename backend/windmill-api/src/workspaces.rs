@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::{handle_fork_branch_creation, handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
 use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
@@ -73,6 +73,7 @@ lazy_static::lazy_static! {
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
+        .route("/get_as_superadmin", get(get_workspace_as_superadmin))
         .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
         .route("/archive", post(archive_workspace))
@@ -163,7 +164,10 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route("/create_workspace_fork_branch", post(create_workspace_fork_branch))
+        .route(
+            "/create_workspace_fork_branch",
+            post(create_workspace_fork_branch),
+        )
         .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -706,7 +710,9 @@ async fn get_slack_oauth_config(
     .await?;
 
     // Mask the secret if it exists
-    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+    let masked_secret = settings
+        .slack_oauth_client_secret
+        .map(|_| "***".to_string());
 
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
@@ -2225,6 +2231,35 @@ async fn get_used_triggers(
     tx.commit().await?;
 
     Ok(Json(websocket_used))
+}
+
+async fn get_workspace_as_superadmin(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Workspace> {
+    require_super_admin(&db, &authed.email).await?;
+    let workspace = sqlx::query_as!(
+        Workspace,
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        WHERE workspace.id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let workspace = not_found_if_none(workspace, "workspace", w_id)?;
+
+    Ok(Json(workspace))
 }
 
 async fn list_workspaces_as_super_admin(

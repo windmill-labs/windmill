@@ -688,6 +688,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
 
+  /w/{workspace}/workspaces/get_as_superadmin:
+    get:
+      summary: get workspace as super admin (require to be super admin)
+      operationId: getWorkspaceAsSuperAdmin
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+
   /workspaces/list_as_superadmin:
     get:
       summary: list all workspaces as super admin (require to be super admin)
