@@ -3685,7 +3685,7 @@ mount {{
 
             #[cfg(feature = "php")]
             Box::pin(handle_php_job(
-                lock.as_ref(),
+                maybe_lock,
                 mem_peak,
                 canceled_by,
                 job,
