@@ -422,10 +422,12 @@
 									newConfigName = ''
 								}}
 								bind:this={newGroupPopover}
+								targetId="new-group-popover-trigger"
 							>
 								<svelte:fragment slot="trigger">
 									<div class="flex items-center gap-2">
 										<Button
+											id="new-group-popover-trigger"
 											variant="accent"
 											unifiedSize="md"
 											startIcon={{ icon: Plus }}
