@@ -154,23 +154,22 @@ impl NewWorkspaceDependencies {
 
 // TODO:
 // -[x] Fork workspaces
-// -[] git sync
-// -[] handle renames
-// -[] rebuild dmap only once
+// -[x] git sync
+// -[x] handle renames
+// -[x] rebuild dmap only once
 // -[x] rebuild dependency map correctly
-// -[] deployment of many at the same time has proper ordering
+// -[x] deployment of many at the same time has proper ordering
 // -[x] cli on generate-metadata will only send diffs
-// -[] raw requirements are on by default for flows (cli)
-// -[] if default rrs it has no entries in dmap, but they are always used unless told otherwise
-// -[] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)
+// -[x] raw requirements are on by default for flows (cli)
+// -[x] rrs is writable by everyone unless is used by priviledged runnable (editable by admin/hidden)
 // -[] docs
 // -[x](no) disable for apps (for now)
-// -[] add support for apps in cli
+// -[x] add support for apps in cli
 // -[x] Manual/Extra -> manual/extra
 // -[x] add description
 // -[] do we need min_version?
 // -[] agent workers
-// -[] rearrange pyversion with from raw req.
+// -[x] rearrange pyversion with from raw req.
 // -[x] delete should also trigger redeploy
 // -[] warning
 //   - [] amount is displayed correctly (even for apps and flows.)
@@ -179,23 +178,25 @@ impl NewWorkspaceDependencies {
 //   - [x] python
 //   - [x] bun
 // -[] on deploy depenencies should be verified if they are resolvable or not.
-// -[] ignore hub_sync for default bun scripts
+// -[x] ignore hub_sync for default bun scripts
 // -[x] deleting or archiving dependencies should also trigger dependents
 // -[x](no) maybe no dmap rebuild on creation?
-// -[] # /// script
+// -[x] # /// script
+// -[] fix go
 //
 // TODO(frontend):
-// - warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
-// - warn on creation of new one
-// - deployed runnable should show backlink to rrs.
-// - warn on rename - renaming will not be reflected in existing scripts, so the linkage will break. (Show which runnables it references). It is subject to change.
-// - deploy should scroll up to show the warning.
+// -[] warn on redeploy. (if change will affect runnables, it will warn that it will redeploy other scripts as well (which (show recursively)))
+// -[] warn on creation of new one
+// -[] deployed runnable should show backlink to rrs.
+// -[] warn on rename - renaming will not be reflected in existing scripts, so the linkage will break. (Show which runnables it references). It is subject to change.
+// -[x](outdated) deploy should scroll up to show the warning.
+// -[] cleanup
 //
 // TODO(tests):
 // - [] old syntax rejection
 // - [] make sure older cli works without problems if feature is not used
-// - test apps / or disable them for now
-// - dmap rebuild (with and without relative imports) (and for default rrs)
+// - [x] test apps / or disable them for now
+// - [x] dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)
 // - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
 // - redelpoyment of dependents or new deployments build dmap (with and without relative imports)
@@ -211,11 +212,12 @@ impl NewWorkspaceDependencies {
 //    - [] go
 //    - [] python
 //
-// cli:
-// - [] deployment of many at the same time has proper ordering
-// - [] sync push will use the version in lock? Or maybe not? If one is pushing but without deps. It should use values from raw or from synced?
-// - [] no way to exploit deployment by non admin
+// TODO(cli):
+// - [x] deployment of many at the same time has proper ordering
+// - [x] sync push will use the version in lock? Or maybe not? If one is pushing but without deps. It should use values from raw or from synced?
+// - [x] no way to exploit deployment by non admin
 // - [] verify that it is supported only from root to run commands / can I just open files realtively in cli?
+// - [] do not pull workspace dependencies as non admin
 
 // Type aliases for backward compatibility
 pub type RawRequirements = WorkspaceDependencies;
