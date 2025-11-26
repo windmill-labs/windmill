@@ -34,6 +34,7 @@
 	import {
 		canWrite,
 		classNames,
+		debounce,
 		emptySchema,
 		removeMarkdown,
 		truncate,
@@ -95,6 +96,7 @@
 		formatExtension: undefined
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
+	let resourceTypeNameExists: boolean = $state(false)
 
 	let editResourceType = $state({
 		name: '',
@@ -327,7 +329,24 @@
 	function validateResourceTypeName() {
 		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
 		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
+		checkResourceTypeNameExists.debounced()
 	}
+
+	const checkResourceTypeNameExists = debounce(() => {
+		if (!newResourceType.name) {
+			resourceTypeNameExists = false
+			return
+		}
+		const fullName = (disableCustomPrefix ? '' : 'c_') + newResourceType.name
+		resourceTypeNameExists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+	}, 300)
+
+	// Re-check when prefix setting changes
+	$effect(() => {
+		if (disableCustomPrefix !== undefined) {
+			checkResourceTypeNameExists.debounced()
+		}
+	})
 
 	function toSnakeCase() {
 		newResourceType.name = newResourceType.name
@@ -576,7 +595,7 @@
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
-				disabled={!isNewResourceTypeNameValid}>Save</Button
+				disabled={!isNewResourceTypeNameValid || resourceTypeNameExists}>Save</Button
 			>
 		{/snippet}
 		<div class="flex flex-col gap-6">
@@ -619,6 +638,10 @@
 						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
 							>Name must be snake_case!
 							<button onclick={toSnakeCase} class="text-blue-600">Fix...</button></p
+						>
+					{:else if resourceTypeNameExists}
+						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
+							>A resource type with this name already exists!</p
 						>
 					{/if}
 				{/if}
