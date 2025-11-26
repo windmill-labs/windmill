@@ -1,7 +1,7 @@
 import { getWorkspace, JobService } from "./client";
 
 export type SqlStatement = {
-  queryStr: string;
+  content: string;
   args: Record<string, any>;
   query(): Promise<any>;
 };
@@ -21,34 +21,7 @@ export interface SqlTemplateFunction {
  * `.query()
  */
 export function datatable(name: string = "main"): SqlTemplateFunction {
-  let sql: SqlTemplateFunction = (
-    strings: TemplateStringsArray,
-    ...values: any[]
-  ) => {
-    let queryStr =
-      values.map((_, i) => `-- $${i + 1} arg${i + 1}`).join("\n") + "\n";
-    for (let i = 0; i < strings.length; i++) {
-      queryStr += strings[i];
-      if (i !== strings.length - 1) queryStr += `$${i + 1}`;
-    }
-    const args = {
-      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
-      database: `datatable://${name}`,
-    };
-
-    return {
-      queryStr,
-      args,
-      query: async () => {
-        let result = await JobService.runScriptPreviewInline({
-          workspace: getWorkspace(),
-          requestBody: { args, content: queryStr, language: "postgresql" },
-        });
-        return result;
-      },
-    } satisfies SqlStatement;
-  };
-  return sql;
+  return sqlProviderImpl(name, "datatable");
 }
 
 /**
@@ -62,24 +35,45 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
  * `.query()
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
+  return sqlProviderImpl(name, "ducklake");
+}
+
+function sqlProviderImpl(
+  name: string,
+  provider: "datatable" | "ducklake"
+): SqlTemplateFunction {
   let sql: SqlTemplateFunction = (
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
-    let queryStr = values.map((_, i) => `-- $arg${i + 1}`).join("\n") + "\n";
+    let formatArg = {
+      datatable: (i: number) => `-- $${i + 1} arg${i + 1}`,
+      ducklake: (i: number) => `-- $arg${i + 1}`,
+    }[provider];
+    let content = values.map((_, i) => formatArg(i)).join("\n") + "\n";
     for (let i = 0; i < strings.length; i++) {
-      queryStr += strings[i];
-      if (i !== strings.length - 1) queryStr += `$${i + 1}`;
+      content += strings[i];
+      if (i !== strings.length - 1) content += `$${i + 1}`;
     }
-    queryStr += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
-    const args = Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v]));
+    if (provider === "ducklake")
+      content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+
+    const args = {
+      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
+      ...(provider === "datatable" ? { database: `datatable://${name}` } : {}),
+    };
+    const language = {
+      datatable: "postgresql" as const,
+      ducklake: "duckdb" as const,
+    }[provider];
+
     return {
-      queryStr,
+      content,
       args,
       query: async () => {
         let result = await JobService.runScriptPreviewInline({
           workspace: getWorkspace(),
-          requestBody: { args, content: queryStr, language: "duckdb" },
+          requestBody: { args, content, language },
         });
         return result;
       },
