@@ -27,7 +27,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import { getContext, onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
@@ -36,13 +36,12 @@
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 
-	let workers: WorkerPing[] | undefined = undefined
-	let workerGroups: Record<string, any> | undefined = undefined
-	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
+	let workers: WorkerPing[] | undefined = $state(undefined)
+	let workerGroups: Record<string, any> | undefined = $state(undefined)
+	let groupedWorkers = $derived.by(() => groupWorkers(workers, workerGroups))
 	let intervalId: number | undefined
 	const splitter = '_%%%_'
-	let customTags: string[] | undefined = undefined
-	$: groupedWorkers = groupWorkers(workers, workerGroups)
+	let customTags: string[] | undefined = $state(undefined)
 
 	function groupWorkers(
 		workers: WorkerPing[] | undefined,
@@ -69,7 +68,7 @@
 		})
 		return grouped
 	}
-	let timeSinceLastPing = 0
+	let timeSinceLastPing = $state(0)
 
 	async function loadWorkers(): Promise<void> {
 		try {
@@ -99,8 +98,8 @@
 		}
 	}
 
-	let defaultTagPerWorkspace: boolean | undefined = undefined
-	let defaultTagWorkspaces: string[] = []
+	let defaultTagPerWorkspace: boolean | undefined = $state(undefined)
+	let defaultTagWorkspaces: string[] = $state([])
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
@@ -125,7 +124,6 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	$: ($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -136,7 +134,7 @@
 		}
 	})
 
-	let newConfigName = ''
+	let newConfigName = $state('')
 
 	async function addConfig() {
 		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
@@ -144,9 +142,9 @@
 		loadWorkerGroups()
 	}
 
-	let importConfigDrawer: Drawer | undefined = undefined
-	let importConfigCode = ''
-	let tag: string = ''
+	let importConfigDrawer: Drawer | undefined = $state(undefined)
+	let importConfigCode = $state('')
+	let tag: string = $state('')
 	async function importSingleWorkerConfig(c: any) {
 		if (typeof c === 'object' && c !== null) {
 			if (!c.name || typeof c.name !== 'string') {
@@ -196,23 +194,20 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: QueueMetricsDrawer
-	let selectedTab: string = 'default'
-
-	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
+	let selectedTab: string = $state('default')
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
-		if (selectedTab == 'default' && !groupedWorkers.some((x) => x[0] == 'default')) {
-			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
+		if (
+			selectedTab == 'default' &&
+			!groupedWorkers.some((x) => x[0] == 'default') &&
+			Object.keys(workerGroups ?? {})[0]
+		) {
+			selectedTab = Object.keys(workerGroups ?? {})[0]
 		}
 	}
 
-	let search: string = ''
-
-	$: worker_group = filterWorkerGroupByNames(
-		groupedWorkers?.find((x) => x?.[0] == selectedTab),
-		search
-	)
+	let search: string = $state('')
 
 	function filterWorkerGroupByNames(
 		worker_group: [string, [string, WorkerPing[]][]] | undefined,
@@ -258,14 +253,30 @@
 
 		return Math.ceil(occupancy_rate * 100) + '%'
 	}
-	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
-	let replForWorkerDrawer: Drawer | undefined = undefined
+	let newHttpAgentWorkerDrawer: Drawer | undefined = $state(undefined)
+	let replForWorkerDrawer: Drawer | undefined = $state(undefined)
 
 	function isWorkerMaybeAlive(last_ping: number | undefined): boolean | undefined {
 		return last_ping != undefined ? last_ping < 60 : undefined
 	}
 
-	let newGroupPopover: Popover | undefined = undefined
+	let newGroupPopover: Popover | undefined = $state(undefined)
+
+	$effect(() => {
+		;($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
+	})
+
+	$effect(() => {
+		groupedWorkers &&
+			selectedTab == 'default' &&
+			untrack(() => updateSelectedTabIfDefaultDoesNotExist())
+	})
+	let worker_group = $derived(
+		filterWorkerGroupByNames(
+			groupedWorkers?.find((x) => x?.[0] == selectedTab),
+			search
+		)
+	)
 </script>
 
 {#if $superadmin || $devopsRole}
@@ -424,7 +435,7 @@
 								bind:this={newGroupPopover}
 								targetId="new-group-popover-trigger"
 							>
-								<svelte:fragment slot="trigger">
+								{#snippet trigger()}
 									<div class="flex items-center gap-2">
 										<Button
 											id="new-group-popover-trigger"
@@ -470,8 +481,8 @@
 											</Tooltip>
 										</Button>
 									</div>
-								</svelte:fragment>
-								<svelte:fragment slot="content">
+								{/snippet}
+								{#snippet content()}
 									<div class="flex flex-col gap-2 p-4">
 										<input
 											class="mr-2 h-full"
@@ -495,7 +506,7 @@
 											Create
 										</Button>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</Popover>
 						</div>
 					{/if}</div
