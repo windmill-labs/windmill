@@ -91,32 +91,43 @@ export async function pushRawApp(
   }
   const path = localPath + "raw_app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
-  replaceInlineScripts(localApp.runnables, localPath);
+  replaceInlineScripts(localApp.runnables, localPath + SEP + "runnables/");
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   const files = await collectAppFiles(localPath);
+  async function createBundleRaw() {
+    log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
+    const entryPoint = localPath + "index.tsx";
+    return await createBundle({
+      entryPoint: entryPoint,
+      production: true,
+      minify: true,
+    });
+  }
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
       return;
     }
+    const { js, css } = await createBundleRaw();
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await wmill.updateApp({
+    await wmill.updateAppRaw({
       workspace,
       path: remotePath,
-      requestBody: {
-        deployment_message: message,
-        value: { runnables: localApp.runnables, files },
-        summary: localApp.summary,
-        policy: localApp.policy,
-      },
-    });
+      formData: {
+        app: {
+          value: { runnables: localApp.runnables, files },
+          path: remotePath,
+          summary: localApp.summary,
+          policy: localApp.policy,
+          deployment_message: message,
+          custom_path: localApp.custom_path,
+        },
+        js,
+        css,
+      }},
+    );
   } else {
-    log.info(colors.yellow.bold("Creating new app..."));
-    const { js, css } = await createBundle({
-      entryPoint: localPath + "index.tsx",
-      production: true,
-      minify: true,
-    });
+    const { js, css } = await createBundleRaw();
     await wmill.createAppRaw({
       workspace,
       formData: {
