@@ -345,6 +345,12 @@ declare function validateAll(id: string): void;
  */
 declare function clearFiles(id: string): void;
 
+/** Send a message to a chat component
+ * @param id component's id
+ * @param message message to send
+ */
+declare function sendMessage(id: string, message: string): void;
+
 /**  Display a toast message
  * @param message message to display
  */

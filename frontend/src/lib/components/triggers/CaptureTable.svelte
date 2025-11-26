@@ -71,7 +71,7 @@
 			kind: 'main' | 'preprocessor'
 			args: Record<string, any> | undefined
 		}
-		addPreprocessor: null
+		addPreprocessor: { args: Record<string, any> } | undefined
 		updateSchema: {
 			payloadData: any
 			redirect: boolean

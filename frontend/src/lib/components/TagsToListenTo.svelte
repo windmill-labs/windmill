@@ -29,6 +29,9 @@
 	{disabled}
 	class={disabled ? 'border-0' : ''}
 	allowClear={!disabled}
-	onCreateItem={(c) => worker_tags.push(c)}
+	onCreateItem={(c) => {
+		worker_tags.push(c)
+		dispatch('dirty')
+	}}
 	createText="Press Enter to use this tag"
 />

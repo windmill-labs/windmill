@@ -14,12 +14,13 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -86,7 +87,7 @@
 
 			{#if mod.value.type === 'whileloopflow'}
 				<div class="flex flex-row gap-8 mt-2 mb-6">
-					<div>
+					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold"
 							>Skip failures <Tooltip
 								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
@@ -100,6 +101,32 @@
 							options={{
 								right: 'Skip failures'
 							}}
+						/>
+					</div>
+					<div class="flex-shrink-0">
+						<div class="mb-2 text-sm font-bold"
+							>Squash
+
+							<Badge
+								>Beta <Tooltip documentationLink="https://www.windmill.dev/docs/flows/while_loops">
+									<span class="font-semibold"
+										>This can result in unexpected behavior, use at your own risk for now.</span
+									><br />
+									Squashing a for loop runs all iterations on the same worker, using a single runner
+									per step for the entire loop. This eliminates cold starts between iterations for supported
+									languages (Bun, Deno, and Python).
+								</Tooltip>
+							</Badge>
+						</div>
+						<Toggle
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as WhileloopFlow).squash = detail
+							}}
+							options={{
+								right: 'Squash'
+							}}
+							class="whitespace-nowrap"
 						/>
 					</div>
 				</div>

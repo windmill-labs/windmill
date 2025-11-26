@@ -430,6 +430,8 @@ pub struct ListableScript {
     pub starred: bool,
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub has_draft: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
@@ -569,6 +571,7 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct ListScriptQuery {
+    pub without_description: Option<bool>,
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
     pub created_by: Option<String>,

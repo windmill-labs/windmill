@@ -18,12 +18,16 @@ import { readInlinePathSync } from "../../utils/utils.ts";
 
 export interface AppFile {
   value: any;
+  public?: boolean;
   summary: string;
   policy: Policy;
 }
 
 const alreadySynced: string[] = [];
 
+export function isExecutionModeAnonymous(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "anonymous";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -45,7 +49,13 @@ export async function pushApp(
   } catch {
     //ignore
   }
-  app.policy = undefined;
+  if (isExecutionModeAnonymous(app)) {
+    app.public = true;
+  }
+  // console.log(app);
+  if (app) {
+    app.policy = undefined;
+  }
 
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
@@ -78,7 +88,9 @@ export async function pushApp(
   }
 
   replaceInlineScripts(localApp.value);
-  await generatingPolicy(localApp, remotePath);
+  // console.log(localApp, localApp?.["policy"]);
+  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? (localApp.policy ? isExecutionModeAnonymous(localApp) : false));
+  // console.log(localApp, localApp?.["policy"]);
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -107,11 +119,11 @@ export async function pushApp(
   }
 }
 
-async function generatingPolicy(app: any, path: string) {
+async function generatingPolicy(app: any, path: string, publicApp: boolean) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = "publisher";
+    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;

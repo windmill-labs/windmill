@@ -39,15 +39,15 @@
 </script>
 
 <div class="flex flex-col space-y-2 w-full">
-	<div class="w-full">
+	<div class="w-full flex justify-start">
 		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
 				aiId="add-trigger"
 				aiDescription="Add a new trigger"
-				size="xs"
-				startIcon={{ icon: Plus }}
+				unifiedSize="md"
 				nonCaptureEvent
 				variant="accent"
+				startIcon={{ icon: Plus }}
 			>
 				Add trigger
 			</Button>
@@ -59,8 +59,11 @@
 				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer h-10 group',
-						selectedTrigger === index ? 'bg-surface-hover ' : ''
+						'cursor-pointer h-8 group',
+						trigger.isDraft ? 'text-hint' : '',
+						selectedTrigger === index
+							? 'bg-surface-accent-selected text-accent '
+							: 'hover:bg-surface-hover'
 					)}
 					onclick={() => onSelect?.(index)}
 					use:triggerableByAI={{
@@ -69,12 +72,9 @@
 						callback: () => onSelect?.(index)
 					}}
 				>
-					<td class="w-12 text-center py-2 px-2">
+					<td class="w-8 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
-							<SvelteComponent
-								size={16}
-								class={trigger.isDraft ? 'text-frost-400' : 'text-primary'}
-							/>
+							<SvelteComponent size={14} />
 
 							{#if trigger.isPrimary}
 								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />

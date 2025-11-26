@@ -75,6 +75,7 @@ lazy_static::lazy_static! {
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
+        .route("/get_as_superadmin", get(get_workspace_as_superadmin))
         .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
         .route("/archive", post(archive_workspace))
@@ -2236,6 +2237,35 @@ async fn get_used_triggers(
     Ok(Json(websocket_used))
 }
 
+async fn get_workspace_as_superadmin(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Workspace> {
+    require_super_admin(&db, &authed.email).await?;
+    let workspace = sqlx::query_as!(
+        Workspace,
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        WHERE workspace.id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let workspace = not_found_if_none(workspace, "workspace", w_id)?;
+
+    Ok(Json(workspace))
+}
+
 async fn list_workspaces_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2578,9 +2608,14 @@ async fn update_workspace_settings(
         WorkspaceGitSyncSettings::default()
     };
 
-    // We only keep the first git sync repo, since it is considered the main one
+    // We only keep the first git sync repo that is sync mode (use_individual_branch = false), since it is considered the main one
     // Context: see WIN-1559
-    git_sync_settings.repositories.truncate(1);
+    git_sync_settings.repositories = git_sync_settings
+        .repositories
+        .into_iter()
+        .filter(|r| !r.use_individual_branch.unwrap_or(false))
+        .take(1)
+        .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;

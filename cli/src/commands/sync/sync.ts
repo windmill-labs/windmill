@@ -67,6 +67,7 @@ import {
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { isExecutionModeAnonymous } from "../app/apps.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -419,6 +420,9 @@ function ZipFSElement(
               };
             }
 
+            if (isExecutionModeAnonymous(app)) {
+              app.public = true;
+            }
             app.policy = undefined;
             yield {
               isDirectory: false,
