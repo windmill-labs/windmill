@@ -10,7 +10,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     scripts::ScriptLang,
-    utils::StripPath,
+    utils::{require_admin, StripPath},
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
@@ -39,19 +39,17 @@ async fn create(
     Json(nwd): Json<NewWorkspaceDependencies>,
 ) -> error::Result<(StatusCode, String)> {
     tracing::info!(workspace_id = %nwd.workspace_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
-    // TODO: Check that it is an admin
+    require_admin(authed.is_admin, &authed.username)?;
     Ok((StatusCode::CREATED, format!("{}", nwd.create(&db).await?)))
 }
 
 #[axum::debug_handler]
 async fn list(
-    authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<WorkspaceDependencies>> {
     tracing::info!(workspace_id = %w_id, "list workspace dependencies");
-    // TODO: Check that it is an admin
     Ok(Json(WorkspaceDependencies::list(&w_id, &db).await?))
 }
 
@@ -62,14 +60,11 @@ struct NameQuery {
 
 #[axum::debug_handler]
 async fn get_latest(
-    authed: ApiAuthed,
-    // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, language)): Path<(String, ScriptLang)>,
     Query(params): Query<NameQuery>,
 ) -> JsonResult<Option<WorkspaceDependencies>> {
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "get latest workspace dependencies");
-    // TODO: Check that it is an admin
     Ok(Json(
         WorkspaceDependencies::get_latest(params.name, language, &w_id, db.into()).await?,
     ))
@@ -77,15 +72,15 @@ async fn get_latest(
 
 #[axum::debug_handler]
 async fn archive(
-    // authed: ApiAuthed,
+    authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, language)): Path<(String, ScriptLang)>,
     Query(params): Query<NameQuery>,
 ) -> error::Result<()> {
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "archive workspace dependencies");
+    require_admin(authed.is_admin, &authed.username)?;
     let db = &db;
-    // TODO: Check that it is an admin
     WorkspaceDependencies::archive(params.name.clone(), language, &w_id, db).await?;
 
     trigger_dependents_to_recompute_dependencies(
@@ -109,15 +104,15 @@ async fn archive(
 
 #[axum::debug_handler]
 async fn delete(
-    // authed: ApiAuthed,
+    authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, language)): Path<(String, ScriptLang)>,
     Query(params): Query<NameQuery>,
 ) -> error::Result<()> {
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "delete workspace dependencies");
+    require_admin(authed.is_admin, &authed.username)?;
     let db = &db;
-    // TODO: Check that it is an admin
     WorkspaceDependencies::delete(params.name.clone(), language, &w_id, db).await?;
 
     trigger_dependents_to_recompute_dependencies(
