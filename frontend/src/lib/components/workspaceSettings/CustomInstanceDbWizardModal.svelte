@@ -19,6 +19,7 @@
 	import type DBManagerDrawer from '../DBManagerDrawer.svelte'
 	import { ArrowRight } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
+	import { truncate } from '$lib/utils'
 
 	type Props = {
 		customInstanceDbs: ResourceReturn<GetCustomInstanceDbsResponse>
@@ -184,7 +185,7 @@
 					{:else if status?.error}
 						Try again
 					{:else}
-						Setup {dbname}
+						Setup {truncate(dbname, 24)}
 					{/if}
 				</Button>
 			</div>

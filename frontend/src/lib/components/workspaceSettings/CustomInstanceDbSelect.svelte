@@ -47,13 +47,21 @@
 <div class="flex relative items-center {className}">
 	<Select
 		class="flex-1"
-		inputClass="pr-20"
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="PostgreSQL database name"
 		items={onlySelectedTags}
 		disabled={!$isCustomInstanceDbEnabled}
-	/>
+		itemButtonWrapperClasses="flex items-center justify-between gap-2"
+	>
+		{#snippet endSnippet({ item })}
+			{#if !customInstanceDbs.current?.[item.value]?.success}
+				<div class="w-1.5 h-1.5 rounded-full bg-red-400"></div>
+			{:else}
+				<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+			{/if}
+		{/snippet}
+	</Select>
 
 	<Button
 		spacingSize="xs2"
