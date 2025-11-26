@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr_to_group (workspace_id, group_, usr)\n         SELECT $2, group_, usr\n         FROM usr_to_group\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f9004b5542afaaef40942a3ca8889ea164d9cfb4962997650d922d82f000df9"
+}

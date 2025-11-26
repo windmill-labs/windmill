@@ -2678,6 +2678,17 @@ async fn clone_groups(
     .execute(&mut **tx)
     .await?;
 
+    sqlx::query!(
+        "INSERT INTO usr_to_group (workspace_id, group_, usr)
+         SELECT $2, group_, usr
+         FROM usr_to_group
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
