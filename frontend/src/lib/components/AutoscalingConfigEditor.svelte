@@ -19,17 +19,12 @@
 	interface Props {
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
-		onDirty?: () => void
 	}
 
-	let { config = $bindable(), worker_tags, onDirty }: Props = $props()
+	let { config = $bindable(), worker_tags }: Props = $props()
 	let test_input: number = $state(3)
 	let healthCheckLoading: boolean = $state(false)
 	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
-
-	function handleChange() {
-		onDirty?.()
-	}
 
 	function validateMinMax(): string | undefined {
 		if (config?.min_workers && config?.max_workers && config.min_workers > config.max_workers) {
@@ -78,7 +73,6 @@
 				checked={config?.enabled ?? false}
 				options={{ right: 'Enabled' }}
 				on:change={(e) => {
-					handleChange()
 					if (e.detail) {
 						collapsed = false
 						if (!config) {
@@ -115,7 +109,6 @@
 					min="1"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50 disabled:bg-surface-disabled disabled:border-transparent disabled:text-disabled"
 					bind:value={config.min_workers}
-					oninput={handleChange}
 				/>
 				{#if validateMinMax()}
 					<div class="text-2xs text-red-500 font-normal mt-1">
@@ -134,7 +127,6 @@
 					min="1"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50 disabled:bg-surface-disabled disabled:border-transparent disabled:text-disabled"
 					bind:value={config.max_workers}
-					oninput={handleChange}
 				/>
 			{:else}
 				<input type="number" disabled placeholder="10" />
@@ -146,7 +138,7 @@
 		<span class="text-xs text-secondary">Choose how to autoscale your worker group</span>
 		{#if config?.integration}
 			<div class="flex flex-col gap-2">
-				<ToggleButtonGroup on:selected={handleChange} bind:selected={config.integration.type}>
+				<ToggleButtonGroup bind:selected={config.integration.type}>
 					{#snippet children({ item })}
 						<ToggleButton
 							value="dryrun"
@@ -176,7 +168,7 @@
 										() => config?.integration?.['path'] ?? undefined,
 										(v) => {
 											if (!config || !config.integration) return
-											handleChange()
+
 											if (!v || v === '') {
 												delete config.integration['path']
 											} else {
@@ -227,7 +219,6 @@
 										} else {
 											config.integration['tags'] = v
 										}
-										handleChange()
 									}
 								}
 								items={safeSelectItems(worker_tags)}
@@ -345,7 +336,6 @@
 					placeholder="300"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50"
 					bind:value={config.cooldown_seconds}
-					oninput={handleChange}
 				/>
 			{:else}
 				<input type="number" disabled />
@@ -364,7 +354,6 @@
 					placeholder="1500"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50"
 					bind:value={config.full_scale_cooldown_seconds}
-					oninput={handleChange}
 				/>
 			{:else}
 				<input
@@ -377,12 +366,7 @@
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<Label label="Num jobs waiting to trigger an incremental scale-out">
 			{#if config !== undefined}
-				<input
-					oninput={() => handleChange()}
-					type="number"
-					bind:value={config.inc_scale_num_jobs_waiting}
-					placeholder="1"
-				/>
+				<input type="number" bind:value={config.inc_scale_num_jobs_waiting} placeholder="1" />
 			{:else}
 				<input type="number" disabled />
 			{/if}
@@ -396,7 +380,6 @@
 		>
 			{#if config !== undefined}
 				<input
-					oninput={() => handleChange()}
 					type="number"
 					placeholder="max workers"
 					bind:value={config.full_scale_jobs_waiting}
@@ -419,7 +402,6 @@
 				>
 				{#if config !== undefined}
 					<input
-						oninput={() => handleChange()}
 						type="number"
 						step="1"
 						min="0"
@@ -444,7 +426,6 @@
 				>
 				{#if config !== undefined}
 					<input
-						oninput={() => handleChange()}
 						type="number"
 						step="1"
 						min="0"
@@ -466,7 +447,6 @@
 		>
 			{#if config !== undefined}
 				<input
-					oninput={() => handleChange()}
 					type="number"
 					step="1"
 					min="1"
@@ -492,7 +472,6 @@
 						() => config?.custom_tags ?? [],
 						(v) => {
 							config && (config.custom_tags = v.length ? v : undefined)
-							handleChange()
 						}
 					}
 					items={safeSelectItems(worker_tags)}

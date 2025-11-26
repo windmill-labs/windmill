@@ -18,7 +18,13 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString, pluralize } from '$lib/utils'
+	import {
+		emptyString,
+		pluralize,
+		cleanValueProperties,
+		orderedJsonStringify,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
 	import { enterpriseLicense, superadmin, devopsRole } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
@@ -177,7 +183,19 @@
 		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
 	}
-	let dirty = $state(false)
+
+	let hasChanges = $derived.by(() => {
+		if (!config && !nconfig) return false
+		if (!config || !nconfig) return true
+
+		const cleaned1 = cleanValueProperties(config)
+		const cleaned2 = cleanValueProperties(nconfig)
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(cleaned2))
+		)
+	})
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
@@ -252,7 +270,6 @@
 				{selected}
 				disabled={!$superadmin}
 				on:selected={(e) => {
-					dirty = true
 					if (nconfig == undefined) {
 						nconfig = {}
 					}
@@ -313,8 +330,6 @@
 											defaultTagPerWorkspace && workspaceTag
 												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
 												: defaultTags.concat(nativeTags)
-
-										dirty = true
 									}
 								}}
 								dropdownItems={dropdownResetToAllTags}
@@ -342,9 +357,7 @@
 				{/snippet}
 				{#if nconfig?.worker_tags != undefined}
 					<TagsToListenTo
-						on:dirty={() => {
-							dirty = true
-						}}
+						on:dirty={() => {}}
 						on:deletePriorityTag={(e) => {
 							const tag = e.detail
 							if (nconfig.priority_tags) {
@@ -375,7 +388,6 @@
 							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 							(v) => {
 								nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
-								dirty = true
 							}
 						}
 						items={safeSelectItems(nconfig?.worker_tags)}
@@ -395,7 +407,6 @@
 						on:change={(ev) => {
 							if (nconfig !== undefined) {
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
-								dirty = true
 							}
 						}}
 						disabled={!$enterpriseLicense}
@@ -409,9 +420,6 @@
 								disabled={!$enterpriseLicense}
 								min="1"
 								bind:value={nconfig.min_alive_workers_alert_threshold}
-								onchange={(ev) => {
-									dirty = true
-								}}
 							/>
 						</div>
 					{/if}
@@ -438,9 +446,7 @@
 							disabled={!($superadmin || $devopsRole)}
 							placeholder="<workspace>:<script path>"
 							type="text"
-							onchange={() => {
-								dirty = true
-							}}
+							onchange={() => {}}
 							bind:value={nconfig.dedicated_worker}
 						/></div
 					>
@@ -462,16 +468,13 @@
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
-							onkeypress={(e) => {
-								dirty = true
-							}}
+							onkeypress={(e) => {}}
 						/>
 						<ToggleButtonGroup
 							disabled={!($superadmin || $devopsRole)}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
-								dirty = true
 								if (e.detail === 'dynamic') {
 									envvar.value = undefined
 								}
@@ -508,7 +511,6 @@
 									}
 									customEnvVars.splice(i, 1)
 									customEnvVars = [...customEnvVars]
-									dirty = true
 								}}
 								startIcon={{ icon: Trash }}
 								iconOnly
@@ -526,7 +528,6 @@
 							on:click={() => {
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
-								dirty = true
 							}}
 						>
 							Add environment variable
@@ -553,7 +554,6 @@
 							})
 							if (updated) {
 								customEnvVars = [...customEnvVars]
-								dirty = true
 							}
 						}}
 					>
@@ -580,7 +580,6 @@
 							})
 							if (updated) {
 								customEnvVars = [...customEnvVars]
-								dirty = true
 							}
 						}}
 					>
@@ -591,11 +590,7 @@
 		</Label>
 		<div class="mt-8"></div>
 
-		<AutoscalingConfigEditor
-			onDirty={() => (dirty = true)}
-			worker_tags={config?.worker_tags}
-			bind:config={nconfig.autoscaling}
-		/>
+		<AutoscalingConfigEditor worker_tags={config?.worker_tags} bind:config={nconfig.autoscaling} />
 
 		<div class="mt-8"></div>
 		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
@@ -626,7 +621,6 @@
 										}
 										nconfig.additional_python_paths.splice(i, 1)
 										nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-										dirty = true
 									}}
 								>
 									<X size={14} />
@@ -647,7 +641,6 @@
 								}
 								nconfig.additional_python_paths.push('')
 								nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-								dirty = true
 							}}
 						>
 							Add additional Python path
@@ -681,7 +674,6 @@
 										}
 										nconfig.pip_local_dependencies.splice(i, 1)
 										nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-										dirty = true
 									}}
 								>
 									<X size={14} />
@@ -702,7 +694,6 @@
 								}
 								nconfig.pip_local_dependencies.push('')
 								nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-								dirty = true
 							}}
 						>
 							Add PIP local dependency
@@ -756,7 +747,6 @@
 								code={config?.init_bash ?? ''}
 								on:change={(e) => {
 									if (config) {
-										dirty = true
 										const code = e.detail
 										if (code != '') {
 											nconfig.init_bash = code?.replace(/\r\n/g, '\n')
@@ -796,9 +786,7 @@
 								placeholder="3600"
 								class="!w-24 text-center"
 								bind:value={nconfig.periodic_script_interval_seconds}
-								onchange={() => {
-									dirty = true
-								}}
+								onchange={() => {}}
 							/>
 							<span class="text-xs text-hint">Minimum: 60 seconds</span>
 						</div>
@@ -814,7 +802,6 @@
 								code={config?.periodic_script_bash ?? ''}
 								on:change={(e) => {
 									if (config) {
-										dirty = true
 										const code = e.detail
 										if (code != '') {
 											nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
@@ -832,9 +819,6 @@
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
-					{#if dirty}
-						<div class="text-red-500 text-xs whitespace-nowrap">Non applied changes</div>
-					{/if}
 					<Button
 						variant="accent"
 						on:click={async () => {
@@ -887,9 +871,8 @@
 							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
 							sendUserToast('Configuration set')
 							dispatch('reload')
-							dirty = false
 						}}
-						disabled={(!dirty && nconfig?.dedicated_worker == undefined) ||
+						disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) ||
 							!$enterpriseLicense ||
 							!($superadmin || $devopsRole)}
 					>
@@ -1011,7 +994,6 @@
 					variant="accent"
 					unifiedSize="md"
 					on:click={() => {
-						dirty = false
 						loadNConfig()
 						drawer?.openDrawer()
 					}}
