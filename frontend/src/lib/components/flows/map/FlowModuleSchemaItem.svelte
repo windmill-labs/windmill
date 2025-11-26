@@ -22,7 +22,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowGraphContext } from '../types'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
@@ -44,6 +44,7 @@
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 	import DiffActionBar from './DiffActionBar.svelte'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		selected?: boolean
@@ -128,7 +129,7 @@
 	const flowInputsStore = flowEditorContext?.flowInputsStore
 	const flowStore = flowEditorContext?.flowStore
 
-	const flowGraphContext = getContext<FlowGraphContext | undefined>('FlowGraphContext')
+	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
 
 	// Disable delete/move operations when there are pending changes
