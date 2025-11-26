@@ -81,7 +81,7 @@
 		Database: 'The database where the data is stored.'
 	}
 
-	let tempSettings: DataTableSettingsType = $derived(dataTableSettings)
+	let tempSettings: DataTableSettingsType = $state($state.snapshot(dataTableSettings))
 
 	function removeDataTable(index: number) {
 		tempSettings.dataTables.splice(index, 1)
@@ -224,9 +224,7 @@
 						</div>
 					</div>
 				</Cell>
-				<Cell class="w-12">
-					<!-- Explore button -->
-				</Cell>
+				<Cell class="w-12"></Cell>
 				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
 				</Cell>
