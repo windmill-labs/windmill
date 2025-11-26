@@ -497,24 +497,6 @@
 		}
 	})
 
-	// This enables the diff visualization when flowStore is directly modified
-	// TODO: check if this is needed
-	$effect(() => {
-		// Only update if we have a snapshot (in diff mode) and no external diffBeforeFlow
-		diffManager.setEditMode(editMode)
-		if (diffManager.beforeFlow && !diffBeforeFlow) {
-			const afterFlowValue = {
-				modules: modules,
-				failure_module: failureModule,
-				preprocessor_module: preprocessorModule,
-				skip_expr: earlyStop ? '' : undefined,
-				cache_ttl: cache ? 300 : undefined
-			}
-			diffManager.setAfterFlow(afterFlowValue)
-			diffManager.setInputSchemas(diffManager.beforeFlow.schema, currentInputSchema)
-		}
-	})
-
 	// Use diffManager state for rendering
 	let effectiveModuleActions = $derived(diffManager.moduleActions)
 
