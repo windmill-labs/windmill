@@ -79,10 +79,11 @@
 					</div>
 				{/each}
 			</div>
+			<div class="mt-4 flex">
+				<Button color="light" size="xs2" on:click={() => (limit = limit + 25)}>Show more</Button>
+			</div>
 		{/if}
-		<div class="mt-4 flex">
-			<Button color="light" size="xs2" on:click={() => (limit = limit + 25)}>Show more</Button>
-		</div>
+
 		{#if limit > 50}
 			<div class="mt-4 flex text-xs text-primary">
 				Note that autoscaling events are only stored for the last 30 days.

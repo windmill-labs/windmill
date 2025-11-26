@@ -41,6 +41,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Subsection from './Subsection.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Dropdown from './DropdownV2.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -161,6 +162,7 @@
 		customTags: string[] | undefined
 		workers: [string, WorkerPing[]][]
 		defaultTagPerWorkspace?: boolean | undefined
+		width: number
 	}
 
 	let {
@@ -169,7 +171,8 @@
 		activeWorkers,
 		customTags,
 		workers,
-		defaultTagPerWorkspace = undefined
+		defaultTagPerWorkspace = undefined,
+		width = 0
 	}: Props = $props()
 
 	let workspaces: Workspace[] = $state([])
@@ -941,55 +944,89 @@
 		</div>
 		<div class="flex gap-2 items-center justify-end flex-row">
 			{#if $superadmin}
-				{#if config}
+				{#if width > 1000}
+					{#if config}
+						<Button
+							unifiedSize="md"
+							variant="subtle"
+							on:click={() => {
+								if (!$enterpriseLicense) {
+									sendUserToast('Worker Management UI is an EE feature', true)
+								} else {
+									openDelete = true
+								}
+							}}
+							startIcon={{ icon: Trash }}
+							destructive
+						>
+							Delete config
+						</Button>
+					{/if}
+
 					<Button
 						unifiedSize="md"
 						variant="subtle"
 						on:click={() => {
-							if (!$enterpriseLicense) {
-								sendUserToast('Worker Management UI is an EE feature', true)
-							} else {
-								openDelete = true
-							}
+							loadNConfig()
+							openClean = true
 						}}
-						startIcon={{ icon: Trash }}
+						startIcon={{ icon: RefreshCcwIcon }}
 						destructive
 					>
-						Delete config
+						Clean cache
 					</Button>
+
+					<Button
+						unifiedSize="md"
+						variant="subtle"
+						on:click={() => {
+							navigator.clipboard.writeText(
+								YAML.stringify({
+									name,
+									...config
+								})
+							)
+							sendUserToast('Worker config copied to clipboard as YAML')
+						}}
+						startIcon={{ icon: Copy }}
+					>
+						Copy config
+					</Button>
+				{:else}
+					<Dropdown
+						items={[
+							{
+								displayName: 'Copy config',
+								action: () => {
+									navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
+									sendUserToast('Worker config copied to clipboard as YAML')
+								},
+								disabled: !config
+							},
+							{
+								displayName: 'Clean cache',
+								action: () => {
+									loadNConfig()
+									openClean = true
+								},
+								disabled: !config,
+								type: 'delete'
+							},
+							{
+								displayName: 'Delete config',
+								action: () => {
+									if (!$enterpriseLicense) {
+										sendUserToast('Worker Management UI is an EE feature', true)
+									} else {
+										openDelete = true
+									}
+								},
+								disabled: !config,
+								type: 'delete'
+							}
+						]}
+					/>
 				{/if}
-
-				<Button
-					unifiedSize="md"
-					variant="subtle"
-					on:click={() => {
-						loadNConfig()
-
-						openClean = true
-					}}
-					startIcon={{ icon: RefreshCcwIcon }}
-					destructive
-				>
-					Clean cache
-				</Button>
-
-				<Button
-					unifiedSize="md"
-					variant="subtle"
-					on:click={() => {
-						navigator.clipboard.writeText(
-							YAML.stringify({
-								name,
-								...config
-							})
-						)
-						sendUserToast('Worker config copied to clipboard as YAML')
-					}}
-					startIcon={{ icon: Copy }}
-				>
-					Copy config
-				</Button>
-
 				<Button
 					variant="accent"
 					unifiedSize="md"
