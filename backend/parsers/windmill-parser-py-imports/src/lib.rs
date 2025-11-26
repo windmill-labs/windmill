@@ -401,7 +401,7 @@ async fn parse_python_imports_inner(
     .await?;
 
     if let Some(c) = wdp.get_python()? {
-        extract_nimports_from_content(&c, &mut final_imports);
+        *locked_v = extract_nimports_from_content(&c, &mut final_imports);
     }
 
     if wdp.is_manual() {
