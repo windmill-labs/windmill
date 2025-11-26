@@ -43,7 +43,9 @@
 	}
 
 	function hasWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): boolean {
-		return workers.some(([_, pings]) => pings.some((w) => !w.job_isolation || w.job_isolation === 'none'))
+		return workers.some(([_, pings]) =>
+			pings.some((w) => !w.job_isolation || w.job_isolation === 'none')
+		)
 	}
 
 	function getWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): WorkerPing[] {
@@ -261,7 +263,7 @@
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
-			<Section label="Tags to listen to">
+			<Label label="Tags to listen to">
 				{#if nconfig?.worker_tags != undefined}
 					<TagsToListenTo
 						on:dirty={() => {
@@ -279,8 +281,7 @@
 
 					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
 						<Button
-							variant="contained"
-							color="light"
+							variant="subtle"
 							size="xs"
 							on:click={() => {
 								if (nconfig != undefined) {
@@ -379,7 +380,7 @@
 						{/if}
 					</div>
 				{/if}
-			</Section>
+			</Label>
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
 				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
@@ -909,76 +910,92 @@
 </Drawer>
 
 <div class="flex flex-col gap-2">
-	{#if hasWorkersWithoutIsolation(workers)}
-		{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
-		<div class="flex justify-end">
-			<Popover
-				placement="bottom"
-				closeButton
-				containerClasses="border rounded-lg shadow-lg bg-surface"
-			>
-				{#snippet trigger()}
-					<Button
-						nonCaptureEvent
-						startIcon={{ icon: AlertTriangle, classes: 'text-yellow-600' }}
-						unifiedSize="md"
-						variant="subtle"
-						btnClasses="text-3xs"
-					>
-						Workers without isolation
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex flex-col gap-2 text-sm max-w-md p-4">
-						<div class="font-semibold">Workers without job isolation</div>
-						<p class="text-secondary">
-							{unsafeWorkers.length}
-							{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
-							{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
-						</p>
-						<div class="flex flex-wrap gap-1">
-							{#each unsafeWorkers as worker}
-								<Badge color="orange" verySmall={true}>
-									{worker.worker}
-								</Badge>
-							{/each}
-						</div>
-						<a
-							href="https://www.windmill.dev/docs/advanced/security_isolation"
-							target="_blank"
-							class="text-blue-600 hover:underline text-xs"
-						>
-							Learn more about job isolation →
-						</a>
-					</div>
-				{/snippet}
-			</Popover>
-		</div>
-	{/if}
-
-	<div class="flex items-center justify-between">
-		<div class="text-xs"
+	<div class="flex items-center justify-between mt-2">
+		<div class="text-xs flex flex-row gap-2 items-center"
 			>{pluralize(activeWorkers, 'worker')}
 			{#if vcpus_memory?.vcpus}
 				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
 			{#if vcpus_memory?.memory}
-				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}</div
-		>
+				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
+			{#if hasWorkersWithoutIsolation(workers)}
+				{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
+				<div class="flex justify-end">
+					<Popover
+						placement="bottom"
+						closeButton
+						containerClasses="border rounded-lg shadow-lg bg-surface"
+					>
+						{#snippet trigger()}
+							<Button
+								nonCaptureEvent
+								startIcon={{ icon: AlertTriangle, classes: 'text-yellow-600' }}
+								unifiedSize="md"
+								variant="subtle"
+								btnClasses="text-3xs"
+							>
+								Workers without isolation
+							</Button>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-2 text-sm max-w-md p-4">
+								<div class="font-semibold">Workers without job isolation</div>
+								<p class="text-secondary">
+									{unsafeWorkers.length}
+									{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
+									{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
+								</p>
+								<div class="flex flex-wrap gap-1">
+									{#each unsafeWorkers as worker}
+										<Badge color="orange" verySmall={true}>
+											{worker.worker}
+										</Badge>
+									{/each}
+								</div>
+								<a
+									href="https://www.windmill.dev/docs/advanced/security_isolation"
+									target="_blank"
+									class="text-blue-600 hover:underline text-xs"
+								>
+									Learn more about job isolation →
+								</a>
+							</div>
+						{/snippet}
+					</Popover>
+				</div>
+			{/if}
+		</div>
 		<div class="flex gap-2 items-center justify-end flex-row">
 			{#if $superadmin}
+				{#if config}
+					<Button
+						unifiedSize="md"
+						variant="subtle"
+						on:click={() => {
+							if (!$enterpriseLicense) {
+								sendUserToast('Worker Management UI is an EE feature', true)
+							} else {
+								openDelete = true
+							}
+						}}
+						startIcon={{ icon: Trash }}
+						destructive
+					>
+						Delete config
+					</Button>
+				{/if}
+
 				<Button
-					variant="subtle"
 					unifiedSize="md"
+					variant="subtle"
 					on:click={() => {
-						dirty = false
 						loadNConfig()
-						drawer?.openDrawer()
+
+						openClean = true
 					}}
-					startIcon={{ icon: config == undefined ? Plus : Settings }}
+					startIcon={{ icon: RefreshCcwIcon }}
+					destructive
 				>
-					<div class="flex flex-row gap-1 items-center">
-						{config == undefined ? 'Create' : 'Edit'} config
-					</div>
+					Clean cache
 				</Button>
 
 				<Button
@@ -998,36 +1015,19 @@
 					Copy config
 				</Button>
 
-				{#if config}
-					<Button
-						unifiedSize="md"
-						variant="subtle"
-						on:click={() => {
-							if (!$enterpriseLicense) {
-								sendUserToast('Worker Management UI is an EE feature', true)
-							} else {
-								openDelete = true
-							}
-						}}
-						startIcon={{ icon: Trash }}
-						btnClasses="text-red-400"
-					>
-						Delete config
-					</Button>
-				{/if}
-
 				<Button
+					variant="accent"
 					unifiedSize="md"
-					variant="subtle"
 					on:click={() => {
+						dirty = false
 						loadNConfig()
-
-						openClean = true
+						drawer?.openDrawer()
 					}}
-					btnClasses="text-red-400"
-					startIcon={{ icon: RefreshCcwIcon }}
+					startIcon={{ icon: config == undefined ? Plus : Settings }}
 				>
-					Clean cache
+					<div class="flex flex-row gap-1 items-center">
+						{config == undefined ? 'Create' : 'Edit'} config
+					</div>
 				</Button>
 			{:else if config}
 				<Button

@@ -574,10 +574,10 @@
 									{/if}
 								</tr>
 							</Head>
-							<tbody class="divide-y">
-								{#each worker_group[1] as [section, workers]}
+							<tbody>
+								{#each worker_group[1] as [section, workers], groupIdx}
 									{@const hostname = section?.split(splitter)?.[0]}
-									<tr class="border-t">
+									<tr>
 										<Cell
 											first
 											colspan={(!config || config?.dedicated_worker == undefined) &&
@@ -585,18 +585,18 @@
 												? 12
 												: 9}
 											scope="colgroup"
-											class="bg-surface-secondary/30 border-b !text-xs"
+											class="!text-xs {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
 										>
-											<div class="flex flex-row w-full">
+											<div class="flex flex-row w-full text-2xs text-hint">
 												<div class="min-w-64">
 													Host:
-													<span class="font-semibold">{hostname}</span>
+													<span class="">{hostname}</span>
 												</div>
 												<span class="ml-4">IP: </span>
-												<span class="font-semibold">{workers[0].ip}</span>
+												<span class="">{workers[0].ip}</span>
 
 												{#if workers?.length > 1}
-													<span class="font-semibold ml-8">{workers?.length} Workers</span>
+													<span class="ml-8">{workers?.length} Workers</span>
 												{/if}
 											</div>
 										</Cell>
@@ -604,8 +604,8 @@
 									{#if workers}
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
-											<tr>
-												<Cell class="py-6 text-secondary" first>
+											<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
+												<Cell class="py-6 text-primary" first>
 													{@const underscorePos = worker.search('_')}
 													{#if underscorePos === -1}
 														{worker}
@@ -690,7 +690,7 @@
 												{#if $superadmin || $devopsRole}
 													<Cell class="text-secondary">
 														<Button
-															size="xs"
+															unifiedSize="sm"
 															color="light"
 															on:click={() => {
 																if (isWorkerAlive === false) {
