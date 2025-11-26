@@ -167,8 +167,8 @@ impl NewWorkspaceDependencies {
 // -[x] add support for apps in cli
 // -[x] Manual/Extra -> manual/extra
 // -[x] add description
-// -[] do we need min_version?
-// -[] agent workers
+// -[x] do we need min_version?
+// -[x] agent workers
 // -[x] rearrange pyversion with from raw req.
 // -[x] delete should also trigger redeploy
 // -[] warning
@@ -190,17 +190,20 @@ impl NewWorkspaceDependencies {
 // -[] deployed runnable should show backlink to rrs.
 // -[] warn on rename - renaming will not be reflected in existing scripts, so the linkage will break. (Show which runnables it references). It is subject to change.
 // -[x](outdated) deploy should scroll up to show the warning.
-// -[] cleanup
+// -[x] cleanup
 //
 // TODO(tests):
-// - [] old syntax rejection
-// - [] make sure older cli works without problems if feature is not used
+// - [x] old cli rejection
+// - [x] make sure older cli works without problems if feature is not used
+//   - [x] scripts
+//   - [x] flows
+//   - [x] apps
 // - [x] test apps / or disable them for now
 // - [x] dmap rebuild (with and without relative imports) (and for default rrs)
 // - redeployment of raw reqs redeploy all dependents (recursively)
 // - redeployment of relative imports will not capture djob, but it will propagete recursively AND it will create new versions.
 // - redelpoyment of dependents or new deployments build dmap (with and without relative imports)
-// - [] messed up rrs table will get healed
+// - [x] messed up rrs table will get healed
 // - race condition with other djobs on concurrency basis
 // - what if redeployed older script version that has either outdated syntax or other rrs id/name?
 // - [x] how are python version are treated? From lock or from content?
@@ -217,7 +220,8 @@ impl NewWorkspaceDependencies {
 // - [x] sync push will use the version in lock? Or maybe not? If one is pushing but without deps. It should use values from raw or from synced?
 // - [x] no way to exploit deployment by non admin
 // - [] verify that it is supported only from root to run commands / can I just open files realtively in cli?
-// - [] do not pull workspace dependencies as non admin
+// - [x] do not pull workspace dependencies as non admin
+//   - [] and test
 
 // Type aliases for backward compatibility
 pub type RawRequirements = WorkspaceDependencies;

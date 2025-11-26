@@ -525,8 +525,15 @@ require ()
         );
     }
 
-    pub fn to_lock_header(&self) -> Option<String> {
+    pub async fn to_lock_header(&self) -> Option<String> {
         use WorkspaceDependenciesPrefetchedInternal::*;
+
+        if min_version_supports_v0_workspace_dependencies()
+            .await
+            .is_err()
+        {
+            return Option::None;
+        }
 
         let mut header = vec![];
         let prepend_mode = |mode| {

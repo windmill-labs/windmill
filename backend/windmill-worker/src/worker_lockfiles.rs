@@ -2959,7 +2959,7 @@ async fn add_lock_header(
     _workspace_id: &str,
     _db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<()> {
-    if let Some(header) = wd.to_lock_header() {
+    if let Some(header) = wd.to_lock_header().await {
         lines.push(header);
     }
 

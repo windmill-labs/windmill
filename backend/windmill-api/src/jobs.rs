@@ -6126,6 +6126,7 @@ pub struct RunDependenciesRequest {
     pub entrypoint: String,
     #[serde(default)]
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    #[serde(default)]
     pub raw_deps: Option<String>,
 }
 
@@ -6158,7 +6159,7 @@ async fn run_dependencies_job(
         return Err(error::Error::MigrationNeeded {
             feature: "cli is outdated".into(),
             version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
-            guide_url: Url::from_str("todo")?,
+            guide_url: Url::from_str("https://windmill.dev/docs/todo")?,
         });
     }
 
@@ -6184,8 +6185,8 @@ async fn run_dependencies_job(
 
     let mut hm = HashMap::new();
     // TODO: check if npm_mode works correctly
-    req.raw_workspace_dependencies
-        .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
+    // req.raw_workspace_dependencies
+    //     .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
@@ -6234,6 +6235,7 @@ pub struct RunFlowDependenciesRequest {
     pub flow_value: FlowValue,
     #[serde(default)]
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    #[serde(default)]
     pub raw_deps: Option<HashMap<String, String>>,
 }
 
@@ -6259,7 +6261,7 @@ async fn run_flow_dependencies_job(
         return Err(error::Error::MigrationNeeded {
             feature: "cli is outdated".into(),
             version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
-            guide_url: Url::from_str("todo")?,
+            guide_url: Url::from_str("https://windmill.dev/docs/todo")?,
         });
     }
 
