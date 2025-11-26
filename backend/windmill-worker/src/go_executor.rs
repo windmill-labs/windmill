@@ -115,22 +115,22 @@ pub async fn handle_go_job(
     let (cache, cache_logs) =
         windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
+    let (skip_go_mod, skip_tidy) = if cache {
+        (true, true)
+    } else if let Some(lock) = maybe_lock.get_lock() {
+        gen_go_mod(inner_content, job_dir, &lock).await?
+    } else {
+        (false, false)
+    };
+
     let cache_logs = if !cache {
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
-        dbg!("BEFORE");
-
-        let (skip_go_mod, skip_tidy) = if let MaybeLock::Resolved { ref lock } = maybe_lock {
-            gen_go_mod(inner_content, job_dir, lock).await?
-        } else {
-            (false, false)
-        };
-
-        dbg!("AFTER");
 
         install_go_dependencies(
             &job.id,
             inner_content,
+            maybe_lock,
             mem_peak,
             canceled_by,
             job_dir,
@@ -138,7 +138,6 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
-            maybe_lock.get_workspace_dependencies(),
             worker_name,
             &job.workspace_id,
             occupation_metrics,
@@ -445,19 +444,10 @@ async fn gen_go_mod(inner_content: &str, job_dir: &str, lock: &str) -> error::Re
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
-fn get_go_mod(
-    workspace_dependencies_o: Option<&WorkspaceDependenciesPrefetched>,
-) -> error::Result<Option<String>> {
-    if let Some(wd) = workspace_dependencies_o {
-        wd.get_go()
-    } else {
-        Ok(None)
-    }
-}
-
 pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
+    maybe_lock: MaybeLock,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -465,83 +455,87 @@ pub async fn install_go_dependencies(
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
-    workspace_dependencies_o: Option<&WorkspaceDependenciesPrefetched>,
     worker_name: &str,
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    let (hash, go_mod_provided) = if let Some(go_mod) = get_go_mod(workspace_dependencies_o)? {
-        dbg!("WRITE");
-        fs::write(format!("{job_dir}/go.mod"), &go_mod).await?;
-        dbg!("WRITE AFTER");
-        (calculate_hash(&go_mod), true)
-    } else {
-        if !skip_go_mod {
-            gen_go_mymod(code, job_dir).await?;
-            let mut child_cmd = Command::new(GO_PATH.as_str());
-            child_cmd
-                .current_dir(job_dir)
-                .env_clear()
-                .args(vec!["mod", "init", "mymod"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+    let (mut new_lockfile, mut skip_tidy) = (false, has_sum);
 
-            #[cfg(windows)]
-            child_cmd.env("GOPATH", windows_gopath());
-            #[cfg(unix)]
-            child_cmd.env("GOPATH", GO_CACHE_DIR);
+    let hash_input = match maybe_lock {
+        MaybeLock::Resolved { ref lock } => lock.clone(),
+        MaybeLock::Unresolved { ref workspace_dependencies } => {
+            if let Some(go_mod) = workspace_dependencies.get_go()? {
+                if !skip_go_mod {
+                    gen_go_mymod(code, job_dir).await?;
+                    fs::write(format!("{job_dir}/go.mod"), &go_mod).await?;
+                }
 
-            #[cfg(windows)]
-            set_windows_env_vars(&mut child_cmd);
-            let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
+                skip_tidy = true;
+                go_mod
+            } else {
+                if !skip_go_mod {
+                    gen_go_mymod(code, job_dir).await?;
+                    let mut child_cmd = Command::new(GO_PATH.as_str());
+                    child_cmd
+                        .current_dir(job_dir)
+                        .env_clear()
+                        .args(vec!["mod", "init", "mymod"])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
 
-            handle_child(
-                job_id,
-                conn,
-                mem_peak,
-                canceled_by,
-                child_process,
-                false,
-                worker_name,
-                w_id,
-                "go init",
-                None,
-                false,
-                &mut Some(occupation_metrics),
-                None,
-                None,
-            )
-            .await?;
+                    #[cfg(windows)]
+                    child_cmd.env("GOPATH", windows_gopath());
+                    #[cfg(unix)]
+                    child_cmd.env("GOPATH", GO_CACHE_DIR);
 
-            for x in REQUIRE_PARSE.captures_iter(code) {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .append(true)
-                    .open(format!("{job_dir}/go.mod"))
-                    .unwrap();
+                    #[cfg(windows)]
+                    set_windows_env_vars(&mut child_cmd);
+                    let child_process =
+                        start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
-                writeln!(file, "require {}\n", &x[1])?;
+                    handle_child(
+                        job_id,
+                        conn,
+                        mem_peak,
+                        canceled_by,
+                        child_process,
+                        false,
+                        worker_name,
+                        w_id,
+                        "go init",
+                        None,
+                        false,
+                        &mut Some(occupation_metrics),
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                    for x in REQUIRE_PARSE.captures_iter(code) {
+                        let mut file = OpenOptions::new()
+                            .write(true)
+                            .append(true)
+                            .open(format!("{job_dir}/go.mod"))
+                            .unwrap();
+
+                        writeln!(file, "require {}\n", &x[1])?;
+                    }
+                }
+                if !has_sum {
+                    calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
+                } else {
+                    "".to_owned()
+                }
             }
         }
-
-        (
-            if !has_sum {
-                calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
-            } else {
-                "".to_owned()
-            },
-            false,
-        )
     };
+
     let hash = format!(
         "go{}-{}",
         if anns.go1_22_compat { "1.22" } else { "" },
-        hash
+        calculate_hash(&hash_input)
     );
-
-    let mut new_lockfile = false;
-    let mut skip_tidy = has_sum;
 
     if !has_sum {
         if let Some(db) = conn.as_sql() {
@@ -563,10 +557,9 @@ pub async fn install_go_dependencies(
         }
     }
 
-    let mod_command = if skip_tidy ||
+    let mod_command = if skip_tidy
         // If there is go.mod provided we want to use `download` only.
         // Unlike `tidy` it does not modify local go.mod
-        go_mod_provided
     {
         "download"
     } else {

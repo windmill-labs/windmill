@@ -2751,6 +2751,7 @@ async fn capture_dependency_job(
             install_go_dependencies(
                 job_id,
                 job_raw_code,
+                MaybeLock::Unresolved { workspace_dependencies: workspace_dependencies.clone() },
                 mem_peak,
                 canceled_by,
                 job_dir,
@@ -2758,7 +2759,6 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
-                Some(&workspace_dependencies),
                 worker_name,
                 w_id,
                 occupancy_metrics,
