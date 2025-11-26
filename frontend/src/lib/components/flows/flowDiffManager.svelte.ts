@@ -63,6 +63,9 @@ export function createFlowDiffManager() {
 	// State: whether to mark removed modules as shadowed (for side-by-side view)
 	let markRemovedAsShadowed = $state(false)
 
+	// State: whether to allow accepting/rejecting changes to the flow
+	let editMode = $state(false)
+
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
 
@@ -84,7 +87,7 @@ export function createFlowDiffManager() {
 			}
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
-				markAsPending: true
+				markAsPending: editMode
 			})
 
 			// Store the merged flow for rendering
@@ -99,7 +102,7 @@ export function createFlowDiffManager() {
 				if (schemaChanged) {
 					newActions['Input'] = {
 						action: 'modified',
-						pending: true
+						pending: editMode
 					}
 				}
 			}
@@ -157,6 +160,13 @@ export function createFlowDiffManager() {
 	 */
 	function setMarkRemovedAsShadowed(value: boolean) {
 		markRemovedAsShadowed = value
+	}
+
+	/**
+	 * Set whether to edit the flow
+	 */
+	function setEditMode(value: boolean) {
+		editMode = value
 	}
 
 	/**
@@ -391,6 +401,8 @@ export function createFlowDiffManager() {
 	 */
 	function acceptAll(options: AcceptModuleOptions) {
 		const ids = Object.keys(moduleActions)
+		console.log('HERE acceptAll', ids)
+		console.log('HERE moduleActions', moduleActions)
 		for (const id of ids) {
 			if (moduleActions[id]?.pending) {
 				acceptModule(id, options)
@@ -492,12 +504,16 @@ export function createFlowDiffManager() {
 		get afterInputSchema() {
 			return afterInputSchema
 		},
+		get editModeEnabled() {
+			return editMode
+		},
 
 		// Snapshot management
 		setSnapshot,
 		setAfterFlow,
 		setInputSchemas,
 		setMarkRemovedAsShadowed,
+		setEditMode,
 		clearSnapshot,
 		getSnapshot,
 

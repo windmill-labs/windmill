@@ -474,6 +474,7 @@
 	$effect(() => {
 		if (diffBeforeFlow) {
 			// Set snapshot from diffBeforeFlow
+			diffManager.setEditMode(editMode)
 			diffManager.setSnapshot(diffBeforeFlow)
 			diffManager.setInputSchemas(diffBeforeFlow.schema, currentInputSchema)
 			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
@@ -496,10 +497,11 @@
 		}
 	})
 
-	// Watch current flow changes and update afterFlow for diff computation
 	// This enables the diff visualization when flowStore is directly modified
+	// TODO: check if this is needed
 	$effect(() => {
 		// Only update if we have a snapshot (in diff mode) and no external diffBeforeFlow
+		diffManager.setEditMode(editMode)
 		if (diffManager.beforeFlow && !diffBeforeFlow) {
 			const afterFlowValue = {
 				modules: modules,
