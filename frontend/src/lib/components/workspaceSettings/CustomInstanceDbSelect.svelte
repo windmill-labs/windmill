@@ -33,6 +33,15 @@
 	let openedDbNameWizard = $state(false)
 
 	let status = $derived(customInstanceDbs.current?.[value ?? ''])
+
+	let onlySelectedTags = $derived(
+		safeSelectItems(
+			Object.entries(customInstanceDbs.current ?? {})
+				.filter(([_, db]) => !tag || db.tag === tag)
+				.map(([name, _]) => name)
+		)
+	)
+	let currentIsAlreadyUsedElsewhere = $derived(tag && status && status.tag !== tag)
 </script>
 
 <div class="flex relative items-center {className}">
@@ -42,20 +51,23 @@
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="PostgreSQL database name"
-		items={safeSelectItems(Object.keys(customInstanceDbs.current ?? {}))}
+		items={onlySelectedTags}
 		disabled={!$isCustomInstanceDbEnabled}
 	/>
 
 	<Button
 		spacingSize="xs2"
 		variant="default"
-		wrapperClasses={'absolute right-1.5 h-6'}
+		wrapperClasses={'absolute right-1.5 h-6 bg-surface-input'}
 		onClick={() => (openedDbNameWizard = true)}
+		disabled={currentIsAlreadyUsedElsewhere}
 	>
 		{#if !status}
 			<span class="text-yellow-600 dark:text-yellow-400">
 				Setup <ArrowRight class="inline" size={14} />
 			</span>
+		{:else if currentIsAlreadyUsedElsewhere}
+			<span class="text-red-400 flex gap-1">Used as {tag}</span>
 		{:else if !status.success}
 			<span class="text-red-400 flex gap-1">
 				Error <TriangleAlert class="inline" size={16} />
@@ -73,10 +85,7 @@
 	{tag}
 	bottomHint={wizardBottomHint}
 	bind:opened={
-		() =>
-			openedDbNameWizard
-				? { dbname: value ?? '', status: customInstanceDbs.current?.[value ?? ''] }
-				: undefined,
+		() => (openedDbNameWizard ? { dbname: value ?? '', status: status! } : undefined),
 		(v) => !v && (openedDbNameWizard = false)
 	}
 />

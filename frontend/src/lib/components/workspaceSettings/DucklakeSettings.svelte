@@ -72,7 +72,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { clone, filterObject } from '$lib/utils'
+	import { clone } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -125,9 +125,7 @@
 		)
 	)
 
-	const customInstanceDbs = resource([], async () =>
-		filterObject(await SettingService.getCustomInstanceDbs(), (_, v) => v.tag === 'ducklake')
-	)
+	const customInstanceDbs = resource([], SettingService.getCustomInstanceDbs)
 
 	async function onSave() {
 		try {
