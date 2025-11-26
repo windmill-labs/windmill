@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { OpenFlow } from '$lib/gen'
@@ -91,6 +91,14 @@
 				throw new Error('Module not found')
 			}
 			if (module.value.type === 'rawscript') {
+				// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
+				if (!diffManager?.beforeFlow) {
+					const snapshot = $state.snapshot(flowStore).val
+					diffManager?.setSnapshot(snapshot)
+					diffManager?.setEditMode(true)
+				}
+
+				// 2. Apply the code change
 				module.value.content = code
 				const { input_transforms, schema } = await loadSchemaFromModule(module)
 				module.value.input_transforms = input_transforms
@@ -103,13 +111,29 @@
 						schema
 					}
 				}
+
+				// 3. Update afterFlow (needed for diff viewer)
+				diffManager?.setAfterFlow({
+					modules: flowStore.val.value.modules,
+					preprocessor_module: flowStore.val.value.preprocessor_module,
+					failure_module: flowStore.val.value.failure_module
+				})
+
+				// 4. Manually add to moduleActions, preserving existing action types
+				const currentAction = diffManager?.moduleActions[id]
+				if (!currentAction) {
+					diffManager?.setModuleActions({
+						...diffManager?.moduleActions,
+						[id]: { action: 'modified', pending: true }
+					})
+				}
+				// If already tracked (e.g., 'added' from setFlowJson), keep that status
 			} else {
 				throw new Error('Module is not a rawscript or script')
 			}
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
 			}
-			// Note: No need to manually track status - timeline will compute diff automatically
 		},
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
@@ -205,6 +229,29 @@
 			}
 		}
 	}
+
+	$effect(() => {
+		if (
+			$currentEditor?.type === 'script' &&
+			selectedId &&
+			diffManager?.moduleActions[selectedId]?.pending &&
+			$currentEditor.editor.getAiChatEditorHandler()
+		) {
+			const moduleLastSnapshot = getModule(selectedId, diffManager.beforeFlow)
+			const content =
+				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
+			if (content.length > 0) {
+				untrack(() =>
+					$currentEditor.editor.reviewAppliedCode(content, {
+						onFinishedReview: () => {
+							diffManager?.acceptModule(selectedId, { flowStore })
+							$currentEditor.hideDiffMode()
+						}
+					})
+				)
+			}
+		}
+	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
