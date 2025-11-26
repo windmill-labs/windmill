@@ -31,20 +31,21 @@ async function collectAppFiles(
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 
-  async function readDirRecursive(dir: string, basePath: string = "") {
+  async function readDirRecursive(dir: string, basePath: string = "/") {
     for await (const entry of Deno.readDir(dir)) {
       const fullPath = dir + entry.name;
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory) {
-        // Skip the runnables subfolder
-        if (entry.name === "runnables") {
+        // Skip the runnables and node_modules subfolders
+        if (entry.name === "runnables" || entry.name === "node_modules") {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
       } else if (entry.isFile) {
         // Skip raw_app.yaml as it's metadata, not an app file
-        if (relativePath === "raw_app.yaml") {
+        // Skip node_modules and package-lock.json as they are generated
+        if (relativePath === "raw_app.yaml" || relativePath === "package-lock.json") {
           continue;
         }
         const content = await Deno.readTextFile(fullPath);

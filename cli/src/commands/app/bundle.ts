@@ -54,6 +54,24 @@ export async function createBundle(
     );
   }
 
+  // Check if node_modules exists in the app directory, if not run npm install
+  const appDir = path.dirname(entryPoint);
+  const nodeModulesPath = path.join(appDir, "node_modules");
+  if (!fs.existsSync(nodeModulesPath)) {
+    log.info(colors.yellow("📦 node_modules not found, running npm install..."));
+    const npmInstall = new Deno.Command("npm", {
+      args: ["install"],
+      cwd: appDir,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const { code } = await npmInstall.output();
+    if (code !== 0) {
+      throw new Error(`npm install failed with exit code ${code}`);
+    }
+    log.info(colors.green("✅ npm install completed"));
+  }
+
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
   if (!fs.existsSync(distDir)) {
