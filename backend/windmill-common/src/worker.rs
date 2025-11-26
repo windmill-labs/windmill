@@ -512,7 +512,10 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+    let mut file = File::create(&path).map_err(|e| {
+        tracing::error!("Failed to create file at {path}: {:?}", &e);
+        e
+    })?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)

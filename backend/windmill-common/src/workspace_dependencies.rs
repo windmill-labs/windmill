@@ -249,7 +249,7 @@ impl WorkspaceDependencies {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkspaceDependenciesPrefetched {
     language: ScriptLang,
     runnable_path: String,
@@ -257,7 +257,7 @@ pub struct WorkspaceDependenciesPrefetched {
     internal: WorkspaceDependenciesPrefetchedInternal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum WorkspaceDependenciesPrefetchedInternal {
     Explicit(WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies>),
     Implicit { workspace_dependencies: WorkspaceDependencies, mode: Mode },
@@ -389,7 +389,7 @@ impl WorkspaceDependenciesPrefetched {
             Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
                 wdar.assert_no_inline().map_err(map_err)?;
                 wdar.assert_external_less_than(2).map_err(map_err)?;
-                external.get(0).map(|wd| wd.content.clone()).or(Some(
+                external.get(0).map(|wd| dbg!(wd.content.clone())).or(Some(
                     "
 module mymod
 go 1.25
@@ -400,7 +400,17 @@ require ()
             }
             Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
             None => Option::None,
-        })
+        }
+        .map(|go_mod_content| {
+            if let Some(module) = go_mod_content
+                .lines()
+                .find(|l| l.trim_start().starts_with("module "))
+            {
+                go_mod_content.replace(module, "module mymod")
+            } else {
+                format!("module mymod\n{go_mod_content}")
+            }
+        }))
     }
 
     pub fn get_php(&self) -> error::Result<Option<String>> {
@@ -542,7 +552,7 @@ require ()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// ```python
     /// # requirements:

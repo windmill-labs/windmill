@@ -19,11 +19,13 @@ use windmill_common::flows::Step;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
+use windmill_common::utils::calculate_hash;
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
     CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
+use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
@@ -629,10 +631,7 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
-pub fn build_command_with_isolation(
-    program: &str,
-    args: &[&str],
-) -> Command {
+pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
     if *crate::ENABLE_UNSHARE_PID {
@@ -1369,5 +1368,37 @@ pub fn s3_mode_args_to_worker_data(
             s3_mode_extension(s3.format)
         ),
         workspace_id: job.workspace_id.clone(),
+    }
+}
+
+#[derive(Debug)]
+pub enum MaybeLock {
+    /// Deployed Scripts
+    Resolved { lock: String },
+    /// Previews
+    Unresolved { workspace_dependencies: WorkspaceDependenciesPrefetched },
+}
+
+impl MaybeLock {
+    pub fn map_unresolved<B, F>(&self, mut f: F) -> Option<B>
+    where
+        Self: Sized,
+        F: FnMut(&WorkspaceDependenciesPrefetched) -> B,
+    {
+        self.get_workspace_dependencies().map(|wd| f(wd))
+    }
+
+    pub fn get_workspace_dependencies(&self) -> Option<&WorkspaceDependenciesPrefetched> {
+        match self {
+            MaybeLock::Resolved { .. } => None,
+            MaybeLock::Unresolved { ref workspace_dependencies } => Some(workspace_dependencies),
+        }
+    }
+
+    pub fn get_lock(&self) -> Option<&String> {
+        match self {
+            MaybeLock::Resolved { ref lock } => Some(lock),
+            MaybeLock::Unresolved { .. } => None,
+        }
     }
 }

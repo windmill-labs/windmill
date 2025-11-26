@@ -20,6 +20,7 @@ use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
 use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
+use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -107,6 +108,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::MaybeLock;
 use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
@@ -3248,6 +3250,23 @@ async fn handle_code_execution_job(
         ),
     };
 
+    let maybe_lock = if let Some(lock) = lock.clone() {
+        MaybeLock::Resolved { lock }
+    } else {
+        MaybeLock::Unresolved {
+            workspace_dependencies: WorkspaceDependenciesPrefetched::extract(
+                code,
+                ScriptLang::Go,
+                &job.workspace_id,
+                // TODO: implement
+                &None,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?,
+        }
+    };
+
     try_validate_schema(
         job,
         conn,
@@ -3612,12 +3631,12 @@ mount {{
                 parent_runnable_path,
                 &code,
                 job_dir,
-                lock.as_ref(),
                 &shared_mount,
                 base_internal_url,
                 worker_name,
                 envs,
                 occupancy_metrics,
+                maybe_lock,
             ))
             .await
         }

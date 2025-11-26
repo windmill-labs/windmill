@@ -122,7 +122,7 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
-        let _ = write_file(
+        write_file(
             &job_dir,
             "build.js",
             &format!(
@@ -214,16 +214,7 @@ pub async fn gen_bun_lockfile(
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
             let mut buf = String::default();
             file.read_to_string(&mut buf).await?;
-            // if raw_deps.is_some() {
-            //     let mut json_map: HashMap<String, Box<RawValue>> = serde_json::from_str(&buf)?;
-            //     json_map.insert(
-            //         "generatedFromPackageJson".to_string(),
-            //         to_raw_value(&"true".to_string()),
-            //     );
-            //     content = serde_json::to_string_pretty(&json_map)?;
-            // } else {
             content = buf;
-            // }
         }
         if !npm_mode {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -709,7 +700,7 @@ fn extract_saved_codebase(
 
 pub async fn prebundle_bun_script(
     inner_content: &str,
-    lockfile: Option<&String>,
+    lock: &str,
     script_path: &str,
     job_id: &Uuid,
     w_id: &str,
@@ -721,7 +712,7 @@ pub async fn prebundle_bun_script(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let (local_path, remote_path) =
-        compute_bundle_local_and_remote_path(inner_content, lockfile, script_path, db, w_id).await;
+        compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -785,16 +776,12 @@ async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) ->
 
 pub async fn compute_bundle_local_and_remote_path(
     inner_content: &str,
-    requirements_o: Option<&String>,
+    lock: &str,
     script_path: &str,
     db: Option<&DB>,
     w_id: &str,
 ) -> (String, String) {
-    let mut input_src = format!(
-        "{}{}",
-        inner_content,
-        requirements_o.as_ref().map(|x| x.as_str()).unwrap_or("")
-    );
+    let mut input_src = format!("{inner_content}{lock}",);
 
     if let Some(db) = db {
         let relative_imports = crate::worker_lockfiles::extract_relative_imports(
@@ -871,16 +858,15 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if requirements_o.is_some()
-        && !annotation.nobundling
-        && !*DISABLE_BUNDLING
-        && codebase.is_none()
-    {
+    let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
+        requirements_o,
+        !annotation.nobundling && !*DISABLE_BUNDLING && codebase.is_none(),
+    ) {
         let (local_path, remote_path) = match conn {
             Connection::Sql(db) => {
                 compute_bundle_local_and_remote_path(
                     inner_content,
-                    requirements_o,
+                    lock,
                     job.runnable_path(),
                     Some(db),
                     &job.workspace_id,

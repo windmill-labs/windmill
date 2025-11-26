@@ -2522,8 +2522,9 @@ async fn clone_workspace_data(
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
-    // Clone workspace dependencies
-    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    // TODO: Enable when git sync is implemented for workspace dependencies.
+    // // Clone workspace dependencies
+    // clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
     Ok(())
 }
 

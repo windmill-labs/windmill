@@ -1,4 +1,4 @@
-use crate::PROXY_ENVS;
+use crate::{common::MaybeLock, PROXY_ENVS};
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
@@ -95,12 +95,12 @@ pub async fn handle_go_job(
     parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
     occupation_metrics: &mut OccupancyMetrics,
+    maybe_lock: MaybeLock,
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -109,30 +109,24 @@ pub async fn handle_go_job(
         .create(&job_dir)
         .expect("could not create go job dir");
 
-    let hash = calculate_hash(&format!(
-        "{}{}v2",
-        inner_content,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
-    ));
+    let hash = calculate_hash(&format!("{}{:?}v2", inner_content, &maybe_lock));
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) =
         windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
-    let (skip_go_mod, skip_tidy) = if cache {
-        (true, true)
-    } else if let Some(requirements) = requirements_o {
-        gen_go_mod(inner_content, job_dir, &requirements).await?
-    } else {
-        (false, false)
-    };
-
     let cache_logs = if !cache {
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+        dbg!("BEFORE");
+
+        let (skip_go_mod, skip_tidy) = if let MaybeLock::Resolved { ref lock } = maybe_lock {
+            gen_go_mod(inner_content, job_dir, lock).await?
+        } else {
+            (false, false)
+        };
+
+        dbg!("AFTER");
 
         install_go_dependencies(
             &job.id,
@@ -144,16 +138,7 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
-            &WorkspaceDependenciesPrefetched::extract(
-                inner_content,
-                ScriptLang::Go,
-                &job.workspace_id,
-                // TODO: This has no chance of having raw dependencies, right?
-                &None,
-                job.runnable_path(),
-                conn.clone(),
-            )
-            .await?,
+            maybe_lock.get_workspace_dependencies(),
             worker_name,
             &job.workspace_id,
             occupation_metrics,
@@ -443,26 +428,32 @@ func Run(req Req) (interface{{}}, error){{
     read_result(job_dir, handle_result.result_stream).await
 }
 
-async fn gen_go_mod(
-    inner_content: &str,
-    job_dir: &str,
-    requirements: &str,
-) -> error::Result<(bool, bool)> {
+async fn gen_go_mod(inner_content: &str, job_dir: &str, lock: &str) -> error::Result<(bool, bool)> {
     gen_go_mymod(inner_content, job_dir).await?;
 
-    let md = requirements.split_once(GO_REQ_SPLITTER);
+    let md = lock.split_once(GO_REQ_SPLITTER);
     if let Some((req, sum)) = md {
         write_file(job_dir, "go.mod", &req)?;
         write_file(job_dir, "go.sum", &sum)?;
         Ok((true, true))
     } else {
-        write_file(job_dir, "go.mod", &requirements)?;
+        write_file(job_dir, "go.mod", &lock)?;
         Ok((true, false))
     }
 }
 
 use std::fs::OpenOptions;
 use std::io::prelude::*;
+
+fn get_go_mod(
+    workspace_dependencies_o: Option<&WorkspaceDependenciesPrefetched>,
+) -> error::Result<Option<String>> {
+    if let Some(wd) = workspace_dependencies_o {
+        wd.get_go()
+    } else {
+        Ok(None)
+    }
+}
 
 pub async fn install_go_dependencies(
     job_id: &Uuid,
@@ -474,23 +465,16 @@ pub async fn install_go_dependencies(
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
-    workspace_dependencies: &WorkspaceDependenciesPrefetched,
+    workspace_dependencies_o: Option<&WorkspaceDependenciesPrefetched>,
     worker_name: &str,
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    let (hash, go_mod_provided) = if let Some(go_mod_content) = workspace_dependencies.get_go()? {
-        let go_mod = if let Some(module) = go_mod_content
-            .lines()
-            .find(|l| l.trim_start().starts_with("module "))
-        {
-            go_mod_content.replace(module, "module mymod")
-        } else {
-            format!("module mymod\n{go_mod_content}")
-        };
+    let (hash, go_mod_provided) = if let Some(go_mod) = get_go_mod(workspace_dependencies_o)? {
+        dbg!("WRITE");
         fs::write(format!("{job_dir}/go.mod"), &go_mod).await?;
-
+        dbg!("WRITE AFTER");
         (calculate_hash(&go_mod), true)
     } else {
         if !skip_go_mod {
@@ -647,6 +631,7 @@ pub async fn install_go_dependencies(
     )
     .await?;
 
+    // TODO: What? What is it used for?
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());
     }

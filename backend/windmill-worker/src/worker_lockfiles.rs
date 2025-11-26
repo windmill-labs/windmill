@@ -58,7 +58,7 @@ lazy_static::lazy_static! {
     );
 }
 
-use crate::common::OccupancyMetrics;
+use crate::common::{MaybeLock, OccupancyMetrics};
 use crate::csharp_executor::generate_nuget_lockfile;
 
 #[cfg(feature = "java")]
@@ -2637,7 +2637,7 @@ async fn capture_dependency_job(
     // let workspace_dependencies_refs =
     //     job_language.extract_workspace_dependencies_annotated_refs(job_raw_code);
 
-    let wd = WorkspaceDependenciesPrefetched::extract(
+    let workspace_dependencies = WorkspaceDependenciesPrefetched::extract(
         job_raw_code,
         *job_language,
         w_id,
@@ -2758,7 +2758,7 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
-                &wd,
+                Some(&workspace_dependencies),
                 worker_name,
                 w_id,
                 occupancy_metrics,
@@ -2789,11 +2789,9 @@ async fn capture_dependency_job(
             let npm_mode = npm_mode.unwrap_or_else(|| {
                 windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm
             });
-            // todo!()
-            // if wd.get_mode() != Some(Mode::Manual) {
+            // TODO: move inside gen_bun_lockfile
             write_file(job_dir, "main.ts", job_raw_code)?;
-            // }
-            let req = gen_bun_lockfile(
+            if let Some(lock) = gen_bun_lockfile(
                 mem_peak,
                 canceled_by,
                 job_id,
@@ -2805,15 +2803,15 @@ async fn capture_dependency_job(
                 base_internal_url,
                 worker_name,
                 true,
-                &wd,
+                &workspace_dependencies,
                 npm_mode,
                 &mut Some(occupancy_metrics),
             )
-            .await?;
-            if req.is_some() && !wd.is_manual() {
+            .await?
+            {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
-                    req.as_ref(),
+                    &lock,
                     script_path,
                     job_id,
                     w_id,
@@ -2825,8 +2823,11 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                 )
                 .await?;
+
+                lock
+            } else {
+                Default::default()
             }
-            req.unwrap_or_else(String::new)
         }
         ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
@@ -2836,7 +2837,7 @@ async fn capture_dependency_job(
 
             #[cfg(feature = "php")]
             {
-                let composer_content = if let Some(c) = wd.get_php()? {
+                let composer_content = if let Some(c) = workspace_dependencies.get_php()? {
                     c
                 } else {
                     match parse_php_imports(job_raw_code)? {
@@ -2951,7 +2952,7 @@ async fn capture_dependency_job(
     };
     {
         let mut lines = vec![];
-        add_lock_header(&mut lines, wd, *job_language, w_id, db).await?;
+        add_lock_header(&mut lines, workspace_dependencies, *job_language, w_id, db).await?;
         Ok(if lines.is_empty() {
             lock
         } else {
