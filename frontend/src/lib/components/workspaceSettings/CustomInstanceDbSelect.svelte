@@ -9,25 +9,28 @@
 	import { ArrowRight, TriangleAlert } from 'lucide-svelte'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import DBManagerDrawer from '../DBManagerDrawer.svelte'
+	import type { Snippet } from 'svelte'
 
 	type Props = {
 		value: string | undefined
-		instanceCatalogStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
+		customInstanceDbStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
+		wizardBottomHint?: Snippet | undefined
 		class?: string
 	}
 	let {
 		value = $bindable(),
-		instanceCatalogStatuses,
+		customInstanceDbStatuses,
 		confirmationModal,
 		dbManagerDrawer,
+		wizardBottomHint,
 		class: className
 	}: Props = $props()
 
 	let openedDbNameWizard = $state(false)
 
-	let status = $derived(instanceCatalogStatuses.current?.[value ?? ''])
+	let status = $derived(customInstanceDbStatuses.current?.[value ?? ''])
 </script>
 
 <div class="flex relative items-center {className}">
@@ -37,7 +40,7 @@
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="PostgreSQL database name"
-		items={safeSelectItems(Object.keys(instanceCatalogStatuses.current ?? {}))}
+		items={safeSelectItems(Object.keys(customInstanceDbStatuses.current ?? {}))}
 		disabled={!$isCustomInstanceDbEnabled}
 	/>
 
@@ -62,13 +65,14 @@
 </div>
 
 <CustomInstanceDbWizardModal
-	{instanceCatalogStatuses}
+	{customInstanceDbStatuses}
 	{confirmationModal}
 	{dbManagerDrawer}
+	bottomHint={wizardBottomHint}
 	bind:opened={
 		() =>
 			openedDbNameWizard
-				? { dbname: value ?? '', status: instanceCatalogStatuses.current?.[value ?? ''] }
+				? { dbname: value ?? '', status: customInstanceDbStatuses.current?.[value ?? ''] }
 				: undefined,
 		(v) => !v && (openedDbNameWizard = false)
 	}

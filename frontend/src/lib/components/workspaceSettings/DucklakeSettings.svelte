@@ -125,7 +125,7 @@
 		)
 	)
 
-	const instanceCatalogStatuses = resource([], SettingService.getCustomInstanceDbStatus)
+	const customInstanceDbStatuses = resource([], SettingService.getCustomInstanceDbStatus)
 
 	async function onSave() {
 		try {
@@ -134,7 +134,7 @@
 				ducklakeSettings.ducklakes.some(
 					(d) =>
 						d.catalog.resource_type === 'instance' &&
-						!instanceCatalogStatuses.current?.[d.catalog.resource_path ?? '']?.success
+						!customInstanceDbStatuses.current?.[d.catalog.resource_path ?? '']?.success
 				)
 			) {
 				let confirm = await confirmationModal.ask({
@@ -276,10 +276,17 @@
 								<CustomInstanceDbSelect
 									class="flex-1"
 									bind:value={ducklake.catalog.resource_path}
-									{instanceCatalogStatuses}
+									{customInstanceDbStatuses}
 									{confirmationModal}
 									{dbManagerDrawer}
-								/>
+								>
+									{#snippet wizardBottomHint()}
+										Note: the 'Manage' button below is different from the Manage Ducklake button.
+										This will show you the content of the PostgreSQL database used as a catalog,
+										while the other button shows you the actual content of the ducklake (the parquet
+										files).
+									{/snippet}
+								</CustomInstanceDbSelect>
 							{/if}
 						</div>
 					</div>

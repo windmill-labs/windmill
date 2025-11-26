@@ -16,22 +16,26 @@
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import type DBManagerDrawer from '../DBManagerDrawer.svelte'
+	import { ArrowRight } from 'lucide-svelte'
+	import type { Snippet } from 'svelte'
 
 	type Props = {
-		instanceCatalogStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
+		customInstanceDbStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
+		bottomHint?: Snippet | undefined
 		opened: { status: CustomInstanceDbStatus | undefined; dbname: string } | undefined
 	}
 
 	let {
-		instanceCatalogStatuses,
+		customInstanceDbStatuses,
 		confirmationModal,
 		dbManagerDrawer,
+		bottomHint,
 		opened = $bindable()
 	}: Props = $props()
 
-	let instanceCatalogSetupIsRunning = $state(false)
+	let customInstanceDbSetupIsRunning = $state(false)
 	let preventClose = false
 </script>
 
@@ -46,7 +50,7 @@
 	{#if opened}
 		{@const status = opened?.status}
 		{@const dbname = opened?.dbname}
-		{@const showManageCatalogButton =
+		{@const enableManageButton =
 			status?.logs.created_database === 'OK' || status?.logs.created_database === 'SKIP'}
 		{#if !status}
 			<div class="mb-4 text-secondary text-sm">
@@ -56,7 +60,7 @@
 
 		{#if status?.error}
 			<div transition:slide={{ duration: 200 }} class="mb-4">
-				<Alert title="Error setting up ducklake instance catalog" type="error">
+				<Alert title="Error setting up custom instance database" type="error">
 					{status.error}
 				</Alert>
 			</div>
@@ -70,7 +74,7 @@
 						title: 'Super admin required',
 						status: status?.logs.super_admin,
 						description:
-							'You need to be a super admin to setup an instance catalog, as it requires creating a new database in the Windmill PostgreSQL instance'
+							'You need to be a super admin to create a new database in the Windmill PostgreSQL instance'
 					},
 					{
 						title: 'Retrieve and parse database credentials',
@@ -79,10 +83,10 @@
 							'Windmill uses the DATABASE_URL or DATABASE_URL_FILE environment variable to connect to the PostgreSQL instance. Make sure it is correctly set'
 					},
 					{
-						title: 'Catalog name is valid',
+						title: 'Database name is valid',
 						status: status?.logs.valid_dbname,
 						description:
-							'The catalog name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
+							'The database name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
 					},
 					{
 						title:
@@ -101,7 +105,7 @@
 						title: 'Grant permissions to custom_instance_user',
 						status: status?.logs.grant_permissions,
 						description:
-							'Gives custom_instance_user the required permissions to use the database as a Ducklake catalog. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
+							'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
 							`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 							'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
 							'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
@@ -113,20 +117,28 @@
 			)}
 		/>
 		<div class="mt-auto pt-6">
-			{#if showManageCatalogButton}
-				<div class="text-primary text-xs">
-					Note: the 'Manage catalog' button below is different from the Manage Ducklake button. This
-					will show you the content of the PostgreSQL database used as a catalog, while the other
-					button shows you the actual content of the ducklake (the parquet files).
+			{#if bottomHint}
+				<div class="text-primary text-xs mb-2">
+					{@render bottomHint()}
 				</div>
 			{/if}
-			<div class="flex gap-2 mt-2">
+			<div class="flex gap-2">
+				<ExploreAssetButton
+					class="flex-1"
+					asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
+					_resourceMetadata={{ resource_type: 'postgresql' }}
+					{dbManagerDrawer}
+					disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
+					onClick={() => (opened = undefined)}
+				/>
 				<Button
 					wrapperClasses="flex-1"
 					size="sm"
+					variant={!status?.success ? 'accent' : 'default'}
+					endIcon={status?.success ? undefined : { icon: ArrowRight }}
 					disabled={!$isCustomInstanceDbEnabled}
 					onClick={async () => {
-						if (instanceCatalogSetupIsRunning) return
+						if (customInstanceDbSetupIsRunning) return
 
 						let wasAlreadySuccessful = status?.success ?? false
 						if (status?.logs.created_database != 'OK' && status?.logs.created_database != 'SKIP') {
@@ -134,16 +146,16 @@
 							let confirm = await confirmationModal.ask({
 								title: 'Confirm setup',
 								children: `This will create a new database ${dbname} in the Windmill PostgreSQL instance`,
-								confirmationText: 'Setup catalog'
+								confirmationText: 'Setup database'
 							})
 							preventClose = false
 							if (!confirm) return
 						}
 
 						try {
-							instanceCatalogSetupIsRunning = true
+							customInstanceDbSetupIsRunning = true
 							let result = await SettingService.setupCustomInstanceDb({ name: dbname })
-							await instanceCatalogStatuses.refetch()
+							await customInstanceDbStatuses.refetch()
 							if (result.success) {
 								if (!wasAlreadySuccessful) sendUserToast('Setup successful')
 								else sendUserToast('Check successful')
@@ -152,15 +164,15 @@
 							}
 						} catch (e) {
 							sendUserToast('Unexpected error, check console for details', true)
-							console.error('Error setting up ducklake instance catalog', e)
+							console.error('Error setting up custom instance database', e)
 						} finally {
-							instanceCatalogSetupIsRunning = false
+							customInstanceDbSetupIsRunning = false
 						}
 					}}
-					loading={instanceCatalogSetupIsRunning}
+					loading={customInstanceDbSetupIsRunning}
 				>
 					{#if !$isCustomInstanceDbEnabled}
-						Only superadmins can setup instance catalogs
+						Only superadmins can setup custom instance databases
 					{:else if status?.success}
 						Check again
 					{:else if status?.error}
@@ -169,16 +181,6 @@
 						Setup {dbname}
 					{/if}
 				</Button>
-				{#if showManageCatalogButton}
-					<ExploreAssetButton
-						class="flex-1"
-						asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
-						_resourceMetadata={{ resource_type: 'postgresql' }}
-						{dbManagerDrawer}
-						disabled={!$isCustomInstanceDbEnabled}
-						onClick={() => (opened = undefined)}
-					/>
-				{/if}
 			</div>
 		</div>
 	{/if}
