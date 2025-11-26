@@ -70,8 +70,8 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route(
-            "/get_custom_instance_pg_databases_status",
-            post(get_custom_instance_pg_databases_status),
+            "/get_custom_instance_pg_databases",
+            post(get_custom_instance_pg_databases),
         )
         .route(
             "/setup_custom_instance_pg_database/:name",
@@ -583,15 +583,16 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
 }
 
 #[derive(Deserialize, Debug, Serialize)]
-struct CustomInstanceDbStatus {
-    logs: CustomInstanceDbStatusLogs, // (Step, Message)[]
+struct CustomInstanceDb {
+    logs: CustomInstanceDbLogs, // (Step, Message)[]
     success: bool,
     error: Option<String>,
+    tag: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
 #[serde(default)]
-struct CustomInstanceDbStatusLogs {
+struct CustomInstanceDbLogs {
     super_admin: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     database_credentials: String,
@@ -605,39 +606,45 @@ struct CustomInstanceDbStatusLogs {
     grant_permissions: String,
 }
 
-async fn get_custom_instance_pg_databases_status(
+async fn get_custom_instance_pg_databases(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
-) -> JsonResult<HashMap<String, CustomInstanceDbStatus>> {
+) -> JsonResult<HashMap<String, CustomInstanceDb>> {
     let result = sqlx::query_scalar!(
-        r#"SELECT value->'status' FROM global_settings WHERE name = 'custom_instance_pg_databases'"#,
+        r#"SELECT value->'databases' FROM global_settings WHERE name = 'custom_instance_pg_databases'"#,
     )
     .fetch_one(&db)
     .await?
     .ok_or_else(|| error::Error::ExecutionErr("Couldn't find custom_instance_pg_databases".to_string()))?;
     let result = serde_json::from_value(result).map_err(|e| {
         error::Error::ExecutionErr(format!(
-            "couldn't parse custom_instance_pg_databases.status : {}",
+            "couldn't parse custom_instance_pg_databases.databases : {}",
             e.to_string()
         ))
     })?;
     return Ok(Json(result));
 }
 
+#[derive(Deserialize)]
+struct SetupCustomInstanceDbBody {
+    tag: Option<String>,
+}
+
 async fn setup_custom_instance_pg_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
-) -> JsonResult<CustomInstanceDbStatus> {
-    let mut logs = CustomInstanceDbStatusLogs::default();
+    Json(body): Json<SetupCustomInstanceDbBody>,
+) -> JsonResult<CustomInstanceDb> {
+    let mut logs = CustomInstanceDbLogs::default();
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status = CustomInstanceDbStatus { logs, success, error };
+    let status = CustomInstanceDb { logs, success, error, tag: body.tag };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{status}', (COALESCE(value->'status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
         json!({ dbname: status_json })
     ).execute(&db).await?;
 
@@ -648,7 +655,7 @@ async fn setup_custom_instance_pg_database_inner(
     authed: ApiAuthed,
     db: &DB,
     dbname: &str,
-    logs: &mut CustomInstanceDbStatusLogs,
+    logs: &mut CustomInstanceDbLogs,
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();

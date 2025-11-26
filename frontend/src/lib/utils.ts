@@ -1655,3 +1655,12 @@ export function getCssColor(
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
+
+export function filterObject<Key extends string, Value>(
+	obj: Record<Key, Value>,
+	f: (k: Key, v: Value) => boolean
+): Record<Key, Value> {
+	return Object.fromEntries(
+		Object.entries(obj).filter(([k, v]) => f(k as Key, v as Value))
+	) as Record<Key, Value>
+}

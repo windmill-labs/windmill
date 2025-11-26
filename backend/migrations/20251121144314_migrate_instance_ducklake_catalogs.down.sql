@@ -1,4 +1,17 @@
--- Add up migration script here
+UPDATE global_settings
+SET value = jsonb_build_object(
+    'status', (
+        SELECT jsonb_object_agg(
+            key,
+            value - 'tag'
+        )
+        FROM jsonb_each(value->'databases')
+    ),
+    'user_pwd', value->'user_pwd'
+)
+WHERE name = 'custom_instance_pg_databases';
+
+
 UPDATE global_settings
 SET name = 'ducklake_settings',
     value = jsonb_build_object(

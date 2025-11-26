@@ -12,3 +12,16 @@ SET name = 'custom_instance_pg_databases',
         'status', value->'instance_catalog_db_status'
     )
 WHERE name = 'ducklake_settings';
+
+UPDATE global_settings
+SET value = jsonb_build_object(
+    'databases', (
+        SELECT jsonb_object_agg(
+            key,
+            value || jsonb_build_object('tag', 'ducklake')
+        )
+        FROM jsonb_each(value->'status')
+    ),
+    'user_pwd', value->'user_pwd'
+)
+WHERE name = 'custom_instance_pg_databases';

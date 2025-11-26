@@ -72,7 +72,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { clone } from '$lib/utils'
+	import { clone, filterObject } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -125,7 +125,9 @@
 		)
 	)
 
-	const customInstanceDbStatuses = resource([], SettingService.getCustomInstanceDbStatus)
+	const customInstanceDbs = resource([], async () =>
+		filterObject(await SettingService.getCustomInstanceDbs(), (_, v) => v.tag === 'ducklake')
+	)
 
 	async function onSave() {
 		try {
@@ -134,7 +136,7 @@
 				ducklakeSettings.ducklakes.some(
 					(d) =>
 						d.catalog.resource_type === 'instance' &&
-						!customInstanceDbStatuses.current?.[d.catalog.resource_path ?? '']?.success
+						!customInstanceDbs.current?.[d.catalog.resource_path ?? '']?.success
 				)
 			) {
 				let confirm = await confirmationModal.ask({
@@ -276,9 +278,10 @@
 								<CustomInstanceDbSelect
 									class="flex-1"
 									bind:value={ducklake.catalog.resource_path}
-									{customInstanceDbStatuses}
+									{customInstanceDbs}
 									{confirmationModal}
 									{dbManagerDrawer}
+									tag="ducklake"
 								>
 									{#snippet wizardBottomHint()}
 										Note: the 'Manage' button below is different from the Manage Ducklake button.

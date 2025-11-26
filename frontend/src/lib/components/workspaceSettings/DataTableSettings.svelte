@@ -97,7 +97,8 @@
 			}
 		})
 	}
-	const instanceCatalogStatuses = resource([], SettingService.getCustomInstanceDbStatus)
+
+	const instanceDbs = resource([], SettingService.getCustomInstanceDbs)
 
 	async function onSave() {
 		try {
@@ -106,7 +107,7 @@
 				dataTableSettings.dataTables.some(
 					(d) =>
 						d.database.resource_type === 'instance' &&
-						!instanceCatalogStatuses.current?.[d.database.resource_path ?? '']?.success
+						!instanceDbs.current?.[d.database.resource_path ?? '']?.success
 				)
 			) {
 				let confirm = await confirmationModal.ask({

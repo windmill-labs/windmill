@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GetCustomInstanceDbStatusResponse } from '$lib/gen'
+	import type { CustomInstanceDbTag, GetCustomInstanceDbsResponse } from '$lib/gen'
 	import type { ResourceReturn } from 'runed'
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -13,24 +13,26 @@
 
 	type Props = {
 		value: string | undefined
-		customInstanceDbStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
+		customInstanceDbs: ResourceReturn<GetCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
 		wizardBottomHint?: Snippet | undefined
 		class?: string
+		tag?: CustomInstanceDbTag
 	}
 	let {
 		value = $bindable(),
-		customInstanceDbStatuses,
+		customInstanceDbs,
 		confirmationModal,
 		dbManagerDrawer,
 		wizardBottomHint,
-		class: className
+		class: className,
+		tag
 	}: Props = $props()
 
 	let openedDbNameWizard = $state(false)
 
-	let status = $derived(customInstanceDbStatuses.current?.[value ?? ''])
+	let status = $derived(customInstanceDbs.current?.[value ?? ''])
 </script>
 
 <div class="flex relative items-center {className}">
@@ -40,7 +42,7 @@
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="PostgreSQL database name"
-		items={safeSelectItems(Object.keys(customInstanceDbStatuses.current ?? {}))}
+		items={safeSelectItems(Object.keys(customInstanceDbs.current ?? {}))}
 		disabled={!$isCustomInstanceDbEnabled}
 	/>
 
@@ -65,14 +67,15 @@
 </div>
 
 <CustomInstanceDbWizardModal
-	{customInstanceDbStatuses}
+	{customInstanceDbs}
 	{confirmationModal}
 	{dbManagerDrawer}
+	{tag}
 	bottomHint={wizardBottomHint}
 	bind:opened={
 		() =>
 			openedDbNameWizard
-				? { dbname: value ?? '', status: customInstanceDbStatuses.current?.[value ?? ''] }
+				? { dbname: value ?? '', status: customInstanceDbs.current?.[value ?? ''] }
 				: undefined,
 		(v) => !v && (openedDbNameWizard = false)
 	}

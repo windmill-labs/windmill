@@ -1,8 +1,9 @@
 <script lang="ts">
 	import {
 		SettingService,
-		type CustomInstanceDbStatus,
-		type GetCustomInstanceDbStatusResponse
+		type CustomInstanceDb,
+		type CustomInstanceDbTag,
+		type GetCustomInstanceDbsResponse
 	} from '$lib/gen'
 	import { slide } from 'svelte/transition'
 	import Modal2 from '../common/modal/Modal2.svelte'
@@ -20,19 +21,21 @@
 	import type { Snippet } from 'svelte'
 
 	type Props = {
-		customInstanceDbStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
+		customInstanceDbs: ResourceReturn<GetCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
 		bottomHint?: Snippet | undefined
-		opened: { status: CustomInstanceDbStatus | undefined; dbname: string } | undefined
+		opened: { status: CustomInstanceDb | undefined; dbname: string } | undefined
+		tag?: CustomInstanceDbTag
 	}
 
 	let {
-		customInstanceDbStatuses,
+		customInstanceDbs,
 		confirmationModal,
 		dbManagerDrawer,
 		bottomHint,
-		opened = $bindable()
+		opened = $bindable(),
+		tag
 	}: Props = $props()
 
 	let customInstanceDbSetupIsRunning = $state(false)
@@ -154,8 +157,11 @@
 
 						try {
 							customInstanceDbSetupIsRunning = true
-							let result = await SettingService.setupCustomInstanceDb({ name: dbname })
-							await customInstanceDbStatuses.refetch()
+							let result = await SettingService.setupCustomInstanceDb({
+								name: dbname,
+								requestBody: { tag }
+							})
+							await customInstanceDbs.refetch()
 							if (result.success) {
 								if (!wasAlreadySuccessful) sendUserToast('Setup successful')
 								else sendUserToast('Check successful')

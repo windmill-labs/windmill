@@ -831,10 +831,10 @@ paths:
               schema:
                 type: boolean
 
-  /settings/get_custom_instance_pg_databases_status:
+  /settings/get_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
-      operationId: getCustomInstanceDbStatus
+      operationId: getCustomInstanceDbs
       tags:
         - setting
       responses:
@@ -845,7 +845,7 @@ paths:
               schema:
                 type: object
                 additionalProperties:
-                  $ref: "#/components/schemas/CustomInstanceDbStatus"
+                  $ref: "#/components/schemas/CustomInstanceDb"
 
   /settings/setup_custom_instance_pg_database/{name}:
     post:
@@ -853,6 +853,15 @@ paths:
       operationId: setupCustomInstanceDb
       tags:
         - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
       parameters:
         - in: path
           name: name
@@ -866,7 +875,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CustomInstanceDbStatus"
+                $ref: "#/components/schemas/CustomInstanceDb"
 
   /settings/global/{key}:
     get:
@@ -18181,7 +18190,7 @@ components:
         - SKIP
         - FAIL
 
-    CustomInstanceDbStatusLogs:
+    CustomInstanceDbLogs:
       type: object
       properties:
         super_admin:
@@ -18192,20 +18201,25 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         created_database:
           $ref: "#/components/schemas/LoggedWizardStatus"
-          description: Created database status log
         db_connect:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
 
-    CustomInstanceDbStatus:
+    CustomInstanceDbTag:
+      type: string
+      enum:
+        - ducklake
+        - datatable
+
+    CustomInstanceDb:
       type: object
       required:
         - logs
         - success
       properties:
         logs:
-          $ref: "#/components/schemas/CustomInstanceDbStatusLogs"
+          $ref: "#/components/schemas/CustomInstanceDbLogs"
         success:
           type: boolean
           description: Whether the operation completed successfully
@@ -18215,6 +18229,8 @@ components:
           nullable: true
           description: Error message if the operation failed
           example: "Connection timeout"
+        tag:
+          $ref: "#/components/schemas/CustomInstanceDbTag"
 
     NewSqsTrigger:
       type: object
