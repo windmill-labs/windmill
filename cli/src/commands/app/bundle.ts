@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { log, colors } from "../../../deps.ts";
-
+import { windmillUtils } from "../../../deps.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -47,6 +47,7 @@ export async function createBundle(
   const minify = options.minify ?? true;
   const production = options.production ?? true;
 
+
   // Verify entry point exists
   if (!fs.existsSync(entryPoint)) {
     throw new Error(
@@ -80,6 +81,36 @@ export async function createBundle(
 
   const outfile = path.join(outDir, "bundle.js");
 
+  // log.info("FOO")
+  // log.info("wmillTs" + JSON.stringify(wmillTs));
+  // Plugin to provide /wmill.ts as a virtual module
+  const wmillTs = windmillUtils.wmillTsRaw.default;
+
+  const wmillPlugin = {
+    name: "wmill-virtual",
+    setup(build: any) {
+
+
+      // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
+      build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
+        log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
+        return {
+          path: args.path,
+          namespace: "wmill-virtual",
+        };
+      });
+
+      // Provide the virtual module content
+      build.onLoad({ filter: /.*/, namespace: "wmill-virtual" }, (args: any) => {
+        log.info(colors.yellow(`[wmill-virtual] Loading virtual module: ${args.path}`));
+        return {
+          contents: wmillTs,
+          loader: "ts",
+        };
+      });
+    },
+  };
+
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
     entryPoints: [entryPoint],
@@ -89,6 +120,7 @@ export async function createBundle(
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
+    plugins: [wmillPlugin],
   };
 
   log.info(colors.blue("📦 Building bundle..."));

@@ -7,14 +7,23 @@ import {
   open,
   windmillUtils,
   yamlParseFile,
+  SEP,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
+import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
+import { WebSocketServer, WebSocket } from "npm:ws@8.18.0";
 import { getDevBuildOptions } from "./bundle.ts";
+import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
+import * as wmill from "../../../gen/services.gen.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
+import { replaceInlineScripts } from "./apps.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -72,6 +81,19 @@ interface DevOptions extends GlobalOptions {
 }
 
 async function dev(opts: DevOptions) {
+  GLOBAL_CONFIG_OPT.noCdToRoot = true;
+  // Resolve workspace and authenticate
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const workspaceId = workspace.workspaceId;
+
+  // Load app path from raw_app.yaml
+  const rawAppPath = path.join(process.cwd(), "raw_app.yaml");
+  const rawApp = fs.existsSync(rawAppPath)
+    ? ((await yamlParseFile(rawAppPath)) as any)
+    : {};
+  const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
+
   // Dynamically import esbuild only when the dev command is called
   const esbuild = await import("npm:esbuild@0.24.2");
 
@@ -111,6 +133,32 @@ async function dev(opts: DevOptions) {
 
   const buildOptions = getDevBuildOptions(entryPoint);
 
+
+  const wmillPlugin = {
+    name: "wmill-virtual",
+    setup(build: any) {
+
+
+      // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
+      build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
+        log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
+        return {
+          path: args.path,
+          namespace: "wmill-virtual",
+        };
+      });
+
+      // Provide the virtual module content
+      build.onLoad({ filter: /.*/, namespace: "wmill-virtual" }, (args: any) => {
+        log.info(colors.yellow(`[wmill-virtual] Loading virtual module: ${args.path}`));
+        return {
+          contents: wmillTs(port),
+          loader: "ts",
+        };
+      });
+    },
+  };
+
   // Create esbuild context
   const ctx = await esbuild.context({
     ...buildOptions,
@@ -133,6 +181,7 @@ async function dev(opts: DevOptions) {
           });
         },
       },
+      wmillPlugin,
     ],
   });
 
@@ -280,9 +329,134 @@ async function dev(opts: DevOptions) {
     res.end(createHTML("/dist/bundle.js", "/dist/bundle.css"));
   });
 
+  // Create WebSocket server on the same HTTP server
+  const wss = new WebSocketServer({ server });
+
+  wss.on("connection", (ws: WebSocket) => {
+    log.info(colors.cyan("[WebSocket] Client connected"));
+
+    ws.on("message", async (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString());
+        log.info(colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`));
+
+        const { type, reqId, runnable_id, v, jobId } = message;
+
+        // Helper to send response
+        const respond = (responseType: string, result: any, error: boolean) => {
+          ws.send(JSON.stringify({ type: responseType, reqId, result, error }));
+        };
+
+        // Helper to execute and wait for result
+        const runAndWaitForResult = async (runnableId: string, args: any): Promise<{ uuid: string; result: any }> => {
+          const runnables = await loadRunnables();
+          const runnable = runnables[runnableId];
+
+          if (!runnable) {
+            throw new Error(`Runnable not found: ${runnableId}`);
+          }
+
+          const uuid = await executeRunnable(runnable, workspaceId, appPath, runnableId, args);
+          log.info(colors.gray(`[runBg] Job started: ${uuid}`));
+
+          const result = await waitForJob(workspaceId, uuid);
+          return { uuid, result };
+        };
+
+        switch (type) {
+          case "runBg": {
+            // Run a runnable synchronously and wait for result
+            log.info(colors.blue(`[runBg] Running runnable: ${runnable_id}`));
+            try {
+              const { result } = await runAndWaitForResult(runnable_id, v);
+              respond("runBgRes", result, false);
+            } catch (error: any) {
+              log.error(colors.red(`[runBg] Error: ${error.message}`));
+              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+            }
+            break;
+          }
+
+          case "runBgAsync": {
+            // Run a runnable asynchronously and return job ID immediately
+            log.info(colors.blue(`[runBgAsync] Running runnable async: ${runnable_id}`));
+            try {
+              const runnables = await loadRunnables();
+              const runnable = runnables[runnable_id];
+
+              if (!runnable) {
+                throw new Error(`Runnable not found: ${runnable_id}`);
+              }
+
+              const uuid = await executeRunnable(runnable, workspaceId, appPath, runnable_id, v);
+              log.info(colors.gray(`[runBgAsync] Job started: ${uuid}`));
+
+              // Return job ID immediately
+              respond("runBgAsyncRes", uuid, false);
+
+              // Wait for result in the background and send it when done
+              waitForJob(workspaceId, uuid)
+                .then((result) => {
+                  respond("runBgRes", result, false);
+                })
+                .catch((error: any) => {
+                  respond("runBgRes", { message: error.message, stack: error.stack }, true);
+                });
+            } catch (error: any) {
+              log.error(colors.red(`[runBgAsync] Error: ${error.message}`));
+              respond("runBgAsyncRes", { message: error.message, stack: error.stack }, true);
+            }
+            break;
+          }
+
+          case "waitJob": {
+            // Wait for a job to complete and return its result
+            log.info(colors.blue(`[waitJob] Waiting for job: ${jobId}`));
+            try {
+              const result = await waitForJob(workspaceId, jobId);
+              respond("runBgRes", result, false);
+            } catch (error: any) {
+              log.error(colors.red(`[waitJob] Error: ${error.message}`));
+              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+            }
+            break;
+          }
+
+          case "getJob": {
+            // Get the current status/result of a job
+            log.info(colors.blue(`[getJob] Getting job status: ${jobId}`));
+            try {
+              const result = await getJobStatus(workspaceId, jobId);
+              respond("runBgRes", result, false);
+            } catch (error: any) {
+              log.error(colors.red(`[getJob] Error: ${error.message}`));
+              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+            }
+            break;
+          }
+
+          default:
+            log.warn(colors.yellow(`[WebSocket] Unknown message type: ${type}`));
+            respond("error", { message: `Unknown message type: ${type}` }, true);
+        }
+      } catch (error: any) {
+        log.error(colors.red(`[WebSocket] Failed to parse message: ${error.message}`));
+      }
+    });
+
+    ws.on("close", () => {
+      log.info(colors.cyan("[WebSocket] Client disconnected"));
+    });
+
+    ws.on("error", (error: Error) => {
+      log.error(colors.red(`[WebSocket] Error: ${error.message}`));
+    });
+  });
+
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
+    log.info(colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`));
     log.info(colors.gray(`📦 Serving files from: ${process.cwd()}`));
     log.info(colors.gray(`🔄 Live reload enabled\n`));
 
@@ -346,6 +520,157 @@ async function genRunnablesTs() {
     path.join(process.cwd(), "raw_app.yaml")
   )) as any;
   const runnables = rawApp?.["value"]?.["runnables"] as any;
+  try {
   const newWmillTs = windmillUtils.genWmillTs(runnables);
   writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);
+  } catch (error: any) {
+    log.error(colors.red(`Failed to generate wmill.d.ts: ${error.message}`));
+  }
+}
+
+// ============================================================================
+// Runnable Execution Helpers
+// ============================================================================
+
+interface Runnable {
+  name: string;
+  type?: "runnableByName" | "runnableByPath";
+  path?: string;
+  runType?: "script" | "flow" | "hubscript";
+  inlineScript?: {
+    content: string;
+    language: string;
+    lock?: string;
+    cache_ttl?: number;
+    id?: number;
+  };
+  fields?: Record<string, any>;
+}
+
+async function loadRunnables(): Promise<Record<string, Runnable>> {
+  try {
+    const localPath = process.cwd();
+    const rawApp = (await yamlParseFile(path.join(localPath, "raw_app.yaml"))) as any;
+    replaceInlineScripts(rawApp.runnables, path.join(localPath, "runnables/"));
+
+    return rawApp?.runnables ?? {};
+  } catch (error: any) {
+    log.error(colors.red(`Failed to load runnables: ${error.message}`));
+    return {};
+  }
+}
+
+async function executeRunnable(
+  runnable: Runnable,
+  workspace: string,
+  appPath: string,
+  runnableId: string,
+  args: any
+): Promise<string> {
+  const requestBody: any = {
+    component: runnableId,
+    args,
+    force_viewer_static_fields: {},
+    force_viewer_one_of_fields: {},
+    force_viewer_allow_user_resources: [],
+  };
+
+  // Handle static fields
+  if (runnable.fields) {
+    for (const [key, field] of Object.entries(runnable.fields)) {
+      if (field?.type === "static") {
+        requestBody.force_viewer_static_fields[key] = field.value;
+      }
+      if (field?.type === "user" && field?.allowUserResources) {
+        requestBody.force_viewer_allow_user_resources.push(key);
+      }
+    }
+  }
+
+  if (runnable.type === "runnableByName" && runnable.inlineScript) {
+    const inlineScript = runnable.inlineScript;
+    if (inlineScript.id !== undefined) {
+      requestBody.id = inlineScript.id;
+    }
+    requestBody.raw_code = {
+      content: inlineScript.id === undefined ? inlineScript.content : "",
+      language: inlineScript.language ?? "",
+      path: `${appPath}/${runnableId}`,
+      lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
+      cache_ttl: inlineScript.cache_ttl,
+    };
+  } else if (runnable.type === "runnableByPath" && runnable.path) {
+    const runType = runnable.runType ?? "script";
+    requestBody.path =
+      runType !== "hubscript"
+        ? `${runType}/${runnable.path}`
+        : `script/${runnable.path}`;
+  }
+
+  const uuid = await wmill.executeComponent({
+    workspace,
+    path: appPath,
+    requestBody,
+  });
+
+  return uuid;
+}
+
+const ITERATIONS_BEFORE_SLOW_REFRESH = 10;
+const ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100;
+
+async function waitForJob(workspace: string, jobId: string): Promise<any> {
+  if (!jobId) {
+    throw new Error("Job ID is required");
+  }
+
+  let syncIteration = 0;
+
+  return new Promise((resolve, reject) => {
+    async function checkJob() {
+      try {
+        const maybeJob = await wmill.getCompletedJobResultMaybe({
+          workspace,
+          id: jobId,
+          getStarted: false,
+        });
+
+        if (maybeJob.completed) {
+          if (
+            !maybeJob.success &&
+            typeof maybeJob.result === "object" &&
+            maybeJob.result !== null &&
+            "error" in maybeJob.result
+          ) {
+            reject((maybeJob.result as any).error);
+          } else {
+            resolve(maybeJob.result);
+          }
+          return;
+        }
+      } catch (err: any) {
+        log.error(colors.red(`Error checking job ${jobId}: ${err.message}`));
+      }
+
+      syncIteration++;
+
+      let nextIteration = 50;
+      if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
+        nextIteration = 2000;
+      } else if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
+        nextIteration = 500;
+      }
+
+      setTimeout(checkJob, nextIteration);
+    }
+
+    checkJob();
+  });
+}
+
+async function getJobStatus(workspace: string, jobId: string): Promise<any> {
+  return await wmill.getJob({
+    workspace,
+    id: jobId,
+  });
 }

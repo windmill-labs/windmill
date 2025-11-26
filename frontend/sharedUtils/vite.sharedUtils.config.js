@@ -1,11 +1,11 @@
 import { defineConfig } from 'vite'
 import { resolve } from 'path'
-import { copyFileSync, writeFileSync } from 'fs'
+import { writeFileSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
-const VERSION = '1.0.5'
+const VERSION = '1.0.6'
 
 export default defineConfig({
 	build: {

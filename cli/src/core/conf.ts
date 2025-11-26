@@ -115,6 +115,7 @@ function getGitRepoRoot(): string | null {
   }
 }
 
+export const GLOBAL_CONFIG_OPT = { noCdToRoot: false };
 function findWmillYaml(): string | null {
   const startDir = resolve(Deno.cwd());
   const isInGitRepo = isGitRepository();
@@ -153,7 +154,7 @@ function findWmillYaml(): string | null {
   }
 
   // If wmill.yaml was found in a parent directory, warn the user and change working directory
-  if (foundPath && resolve(dirname(foundPath)) !== resolve(startDir)) {
+  if (!GLOBAL_CONFIG_OPT.noCdToRoot && foundPath && resolve(dirname(foundPath)) !== resolve(startDir)) {
     const configDir = dirname(foundPath);
     const relativePath = relative(startDir, foundPath);
     log.warn(`⚠️  wmill.yaml found in parent directory: ${relativePath}`);
