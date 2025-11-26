@@ -81,11 +81,6 @@
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
 	const effectiveSchema = $derived(diffManager?.afterInputSchema ?? flowStore.val.schema)
 
-	// When in diff mode with pending Input changes, treat as disabled to prevent editing
-	const effectiveDisabled = $derived(
-		disabled || (diffManager?.moduleActions['Input']?.pending ?? false)
-	)
-
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
@@ -531,7 +526,7 @@
 
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
-		{#if !effectiveDisabled}
+		{#if !disabled}
 			<Toggle
 				size="sm"
 				checked={chatInputEnabled}
@@ -547,7 +542,7 @@
 			/>
 		{/if}
 	{/snippet}
-	{#if !effectiveDisabled}
+	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">

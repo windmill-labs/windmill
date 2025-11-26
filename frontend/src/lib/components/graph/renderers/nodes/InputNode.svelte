@@ -43,7 +43,7 @@
 			}}
 			startIcon={{ icon: DiffIcon }}>Diff</Button
 		>
-		{#if diffManager.beforeFlow}
+		{#if diffManager.editModeEnabled}
 			<Button
 				size="xs"
 				color="green"
