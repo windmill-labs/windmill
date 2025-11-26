@@ -18,7 +18,7 @@ export interface SqlTemplateFunction {
  * await sql`
  *   SELECT * FROM friends
  *     WHERE name = ${name}
- *     LIMIT ${age}::int
+ *       AND age = ${age}::int
  * `.query()
  */
 export function datatable(name: string = "main"): SqlTemplateFunction {
