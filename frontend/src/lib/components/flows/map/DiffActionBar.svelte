@@ -11,13 +11,18 @@
 		moduleAction: ModuleActionInfo | undefined
 		diffManager: FlowDiffManager | undefined
 		flowStore: StateStore<OpenFlow> | undefined
+		placement?: 'top' | 'bottom'
 	}
 
-	let { moduleId, moduleAction, diffManager, flowStore }: Props = $props()
+	let { moduleId, moduleAction, diffManager, flowStore, placement = 'top' }: Props = $props()
 </script>
 
 {#if moduleAction && diffManager}
-	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
+	<div
+		class="absolute right-0 left-0 {placement === 'top'
+			? 'top-0 -translate-y-full'
+			: 'bottom-0 translate-y-full'} flex justify-start gap-1 z-50"
+	>
 		<!-- Diff button shows if action is 'modified' -->
 		{#if moduleAction.action === 'modified' && diffManager.beforeFlow}
 			<Button

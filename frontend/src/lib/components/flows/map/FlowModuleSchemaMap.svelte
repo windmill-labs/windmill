@@ -295,6 +295,7 @@
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
+	let diffManager = $derived(graph?.getDiffManager())
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
 	}
@@ -419,6 +420,7 @@
 			{toggleAiChat}
 			{noteMode}
 			{toggleNoteMode}
+			{diffManager}
 		/>
 	</div>
 
