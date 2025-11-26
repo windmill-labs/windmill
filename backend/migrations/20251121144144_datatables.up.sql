@@ -1,4 +1,4 @@
--- Add up migration script here
+ALTER TYPE asset_kind ADD VALUE 'datatable';
 
 ALTER TABLE workspace_settings
 ADD COLUMN datatable JSONB;

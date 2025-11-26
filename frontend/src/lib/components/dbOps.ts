@@ -16,11 +16,7 @@ import { stringifySchema } from './copilot/lib'
 import { assert } from '$lib/utils'
 
 export type DbInput =
-	| {
-			type: 'database'
-			resourceType: DbType
-			resourcePath: string
-	  }
+	| { type: 'database'; resourceType: DbType; resourcePath: string }
 	| { type: 'ducklake'; ducklake: string }
 
 export type IDbTableOps = {
@@ -58,7 +54,7 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+	const dbArg = getDatabaseArg(input)
 	return {
 		dbType,
 		tableKey,
@@ -139,7 +135,7 @@ export function dbDeleteTableActionWithPreviewScript({
 	workspace: string
 	input: DbInput
 }): DbTableActionFactory {
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+	const dbArg = getDatabaseArg(input)
 
 	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
@@ -223,4 +219,15 @@ export function getDbType(input: DbInput): DbType {
 export function wrapDucklakeQuery(query: string, ducklake: string): string {
 	let attach = `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n`
 	return query.replace(/^(--.*\n)*/, (match) => match + attach)
+}
+
+export function getDatabaseArg(input: DbInput | undefined) {
+	if (input?.type === 'database') {
+		if (input.resourcePath.startsWith('datatable://')) {
+			return { database: 'datatable://' + input.resourcePath }
+		} else {
+			return { database: '$res:' + input.resourcePath }
+		}
+	}
+	return {}
 }

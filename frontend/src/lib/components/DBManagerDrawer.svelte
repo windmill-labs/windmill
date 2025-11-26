@@ -17,6 +17,7 @@
 	import {
 		dbDeleteTableActionWithPreviewScript,
 		dbTableOpsWithPreviewScripts,
+		getDatabaseArg,
 		getDucklakeSchema,
 		wrapDucklakeQuery,
 		type DbInput
@@ -202,8 +203,7 @@
 							dbType,
 							previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
 							async onConfirm(values) {
-								const dbArg =
-									input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+								const dbArg = getDatabaseArg(input)
 								const language = getLanguageByResourceType(dbType)
 								let query = makeCreateTableQuery(values, dbType, selectedSchemaKey)
 								if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)

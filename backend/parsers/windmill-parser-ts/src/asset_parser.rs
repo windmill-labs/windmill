@@ -74,26 +74,35 @@ impl AssetsFinder {
             Some(Expr::Member(MemberExpr { prop: MemberProp::Ident(i), .. })) => i.sym.as_str(),
             _ => return Err(()),
         };
-        let (kind, access_type, arg_pos) = match ident {
-            "loadS3File" => (AssetKind::S3Object, Some(R), 0),
-            "loadS3FileStream" => (AssetKind::S3Object, Some(R), 0),
-            "writeS3File" => (AssetKind::S3Object, Some(W), 0),
-            "getResource" => (AssetKind::Resource, None, 0),
-            "setResource" => (AssetKind::Resource, Some(W), 1),
-            "databaseUrlFromResource" => (AssetKind::Resource, None, 0),
-            "denoS3LightClientSettings" => (AssetKind::Resource, None, 0),
-            "duckdbConnectionSettings" => (AssetKind::Resource, None, 0),
-            "polarsConnectionSettings" => (AssetKind::Resource, None, 0),
+        let (kind, access_type, arg_pos, default) = match ident {
+            "loadS3File" => (AssetKind::S3Object, Some(R), 0, None),
+            "loadS3FileStream" => (AssetKind::S3Object, Some(R), 0, None),
+            "writeS3File" => (AssetKind::S3Object, Some(W), 0, None),
+            "getResource" => (AssetKind::Resource, None, 0, None),
+            "setResource" => (AssetKind::Resource, Some(W), 1, None),
+            "databaseUrlFromResource" => (AssetKind::Resource, None, 0, None),
+            "denoS3LightClientSettings" => (AssetKind::Resource, None, 0, None),
+            "duckdbConnectionSettings" => (AssetKind::Resource, None, 0, None),
+            "polarsConnectionSettings" => (AssetKind::Resource, None, 0, None),
+            "datatable" => (AssetKind::DataTable, None, 0, Some("main")),
+            "ducklake" => (AssetKind::DataTable, None, 0, Some("main")),
             _ => return Err(()),
         };
 
         let arg_value = node.args.get(arg_pos);
 
-        match arg_value.map(|e| e.expr.as_ref()) {
-            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => {
+        match (arg_value.map(|e| e.expr.as_ref()), default) {
+            (Some(Expr::Lit(Lit::Str(Str { value, .. }))), _) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+            }
+            (None, Some(default)) => {
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: default.to_string(),
+                    access_type,
+                });
             }
             _ => return Err(()),
         }

@@ -9,7 +9,7 @@ import {
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
-import type { DbInput } from '$lib/components/dbOps'
+import { getDatabaseArg, type DbInput } from '$lib/components/dbOps'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -69,7 +69,7 @@ export async function loadTableMetaData(
 		requestBody: {
 			language,
 			content,
-			args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+			args: getDatabaseArg(input)
 		}
 	})
 
@@ -118,7 +118,7 @@ export async function loadAllTablesMetaData(
 			requestBody: {
 				language,
 				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
-				args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+				args: getDatabaseArg(input)
 			}
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
@@ -562,7 +562,9 @@ export async function getDbSchemas(
 				language: scripts[resourceType].lang as Preview['language'],
 				content: scripts[resourceType].code,
 				args: {
-					[scripts[resourceType].argName]: '$res:' + resourcePath
+					[scripts[resourceType].argName]: resourcePath.startsWith('datatable://')
+						? resourcePath
+						: '$res:' + resourcePath
 				}
 			}
 		})

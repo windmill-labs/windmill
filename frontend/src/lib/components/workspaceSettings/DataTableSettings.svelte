@@ -68,6 +68,9 @@
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import DBManagerDrawer from '../DBManagerDrawer.svelte'
+	import { Popover } from '../meltComponents'
+	import ExploreAssetButton from '../ExploreAssetButton.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -134,6 +137,16 @@
 
 	let confirmationModal = createAsyncConfirmationModal()
 	let dbManagerDrawer: DBManagerDrawer | undefined = $state()
+	let dirtyMap = $derived.by(() => {
+		const map: Record<string, boolean> = {}
+		for (let i = 0; i < tempSettings.dataTables.length; i++) {
+			let temp = tempSettings.dataTables[i]
+			let dt = dataTableSettings.dataTables.find((d) => d.name === temp.name)
+			console.log('Comparing', temp, dt, deepEqual(dt, temp))
+			map[temp.name] = !deepEqual(dt, temp)
+		}
+		return map
+	})
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -224,7 +237,31 @@
 						</div>
 					</div>
 				</Cell>
-				<Cell class="w-12"></Cell>
+				<Cell class="w-12">
+					{#if dirtyMap[dataTable.name]}
+						<Popover
+							openOnHover
+							contentClasses="p-2 text-sm text-secondary italic"
+							class="cursor-not-allowed"
+						>
+							<svelte:fragment slot="trigger">
+								<ExploreAssetButton
+									class="h-9"
+									asset={{ kind: 'datatable', path: dataTable.name }}
+									{dbManagerDrawer}
+									disabled
+								/>
+							</svelte:fragment>
+							<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+						</Popover>
+					{:else}
+						<ExploreAssetButton
+							class="h-9"
+							asset={{ kind: 'datatable', path: dataTable.name }}
+							{dbManagerDrawer}
+						/>
+					{/if}
+				</Cell>
 				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
 				</Cell>

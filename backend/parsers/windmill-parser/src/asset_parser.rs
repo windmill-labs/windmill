@@ -16,6 +16,7 @@ pub enum AssetKind {
     S3Object,
     Resource,
     Ducklake,
+    DataTable,
 }
 
 #[derive(Serialize)]
@@ -66,6 +67,8 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
         Some((AssetKind::Resource, &s[5..]))
     } else if s.starts_with("ducklake://") {
         Some((AssetKind::Ducklake, &s[11..]))
+    } else if s.starts_with("datatable://") {
+        Some((AssetKind::DataTable, &s[11..]))
     } else {
         None
     }
