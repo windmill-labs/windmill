@@ -216,10 +216,6 @@ pub async fn do_postgresql(
                 .await?,
         )
     } else {
-        println!(
-            "PG ARGS BEFORE DATATABLE CHECK: {:?}",
-            pg_args.get("database")
-        );
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
                 let db_str = db_str.trim_start_matches("datatable://");
