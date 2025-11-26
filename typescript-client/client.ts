@@ -17,7 +17,7 @@ import {
   type S3Object,
 } from "./s3Types";
 
-export { datatable } from "./sqlUtils";
+export { datatable, ducklake } from "./sqlUtils";
 
 export {
   AdminService,

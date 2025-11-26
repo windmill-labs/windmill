@@ -17,8 +17,7 @@ export interface SqlTemplateFunction {
  * let age = 21
  * await sql`
  *   SELECT * FROM friends
- *     WHERE name = ${name}
- *       AND age = ${age}::int
+ *     WHERE name = ${name} AND age = ${age}::int
  * `.query()
  */
 export function datatable(name: string = "main"): SqlTemplateFunction {
@@ -43,11 +42,44 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
       query: async () => {
         let result = await JobService.runScriptPreviewInline({
           workspace: getWorkspace(),
-          requestBody: {
-            args,
-            content: queryStr,
-            language: "postgresql",
-          },
+          requestBody: { args, content: queryStr, language: "postgresql" },
+        });
+        return result;
+      },
+    } satisfies SqlStatement;
+  };
+  return sql;
+}
+
+/**
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql`
+ *   SELECT * FROM friends
+ *     WHERE name = ${name} AND age = ${age}
+ * `.query()
+ */
+export function ducklake(name: string = "main"): SqlTemplateFunction {
+  let sql: SqlTemplateFunction = (
+    strings: TemplateStringsArray,
+    ...values: any[]
+  ) => {
+    let queryStr = values.map((_, i) => `-- $arg${i + 1}`).join("\n") + "\n";
+    for (let i = 0; i < strings.length; i++) {
+      queryStr += strings[i];
+      if (i !== strings.length - 1) queryStr += `$${i + 1}`;
+    }
+    queryStr += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+    const args = Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v]));
+    return {
+      queryStr,
+      args,
+      query: async () => {
+        let result = await JobService.runScriptPreviewInline({
+          workspace: getWorkspace(),
+          requestBody: { args, content: queryStr, language: "duckdb" },
         });
         return result;
       },
