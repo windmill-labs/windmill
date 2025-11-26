@@ -38,7 +38,7 @@
 		collapsable = false,
 		collapsed = $bindable(true),
 		headless = false,
-		animate = true,
+		animate = false,
 		breakAll = false,
 		class: clazz = undefined,
 		description = undefined,
@@ -67,11 +67,7 @@
 						{@render labelExtra?.()}
 						<ChevronRight
 							size={14}
-							class={twMerge(
-								'transition',
-								collapsed ? '' : 'rotate-90',
-								animate ? 'duration-200' : 'duration-0'
-							)}
+							class={twMerge('transition duration-200', collapsed ? '' : 'rotate-90')}
 						/>
 					</button>
 				{:else}
@@ -99,7 +95,10 @@
 		</div>
 	{/if}
 	{#if !collapsable || !collapsed}
-		<div class={'grow min-h-0'} transition:slide={animate ? { duration: 200 } : { duration: 0 }}>
+		<div
+			class={'grow min-h-0'}
+			transition:slide={animate || collapsable ? { duration: 200 } : { duration: 0 }}
+		>
 			<div class="flex flex-col gap-2 h-full">
 				{#if description}
 					<span class="text-xs text-secondary mb-2">{description}</span>
