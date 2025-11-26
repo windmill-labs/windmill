@@ -25,6 +25,9 @@ export interface AppFile {
 
 const alreadySynced: string[] = [];
 
+export function isExecutionModeAnonymous(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "anonymous";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -46,7 +49,7 @@ export async function pushApp(
   } catch {
     //ignore
   }
-  if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+  if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
   // console.log(app);
@@ -85,7 +88,9 @@ export async function pushApp(
   }
 
   replaceInlineScripts(localApp.value);
-  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
+  // console.log(localApp, localApp?.["policy"]);
+  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? (localApp.policy ? isExecutionModeAnonymous(localApp) : false));
+  // console.log(localApp, localApp?.["policy"]);
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
