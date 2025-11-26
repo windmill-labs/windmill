@@ -209,9 +209,9 @@ export function createFlowDiffManager() {
 	 * Helper to get a module from a flow by ID
 	 */
 	function getModuleFromFlow(id: string, flow: ExtendedOpenFlow): FlowModule | undefined {
-		if (id === 'preprocessor') {
+		if (flow.value.preprocessor_module?.id === id) {
 			return flow.value.preprocessor_module
-		} else if (id === 'failure') {
+		} else if (flow.value.failure_module?.id === id) {
 			return flow.value.failure_module
 		} else {
 			return dfs(id, flow, false)[0]
@@ -228,12 +228,11 @@ export function createFlowDiffManager() {
 	) {
 		selectNextIdFn?.(id)
 
-		if (id === 'preprocessor') {
+		if (flowStore.val.value.preprocessor_module?.id === id) {
 			flowStore.val.value.preprocessor_module = undefined
-		} else if (id === 'failure') {
+		} else if (flowStore.val.value.failure_module?.id === id) {
 			flowStore.val.value.failure_module = undefined
 		} else {
-			console.log('HERE deleteModuleFromFlow', id, flowStore.val)
 			const { modules } = getIndexInNestedModules(flowStore.val, id)
 			const index = modules.findIndex((m) => m.id === id)
 			if (index >= 0) {
@@ -345,10 +344,19 @@ export function createFlowDiffManager() {
 
 				// ALSO remove from merged flow for immediate visual update
 				if (mergedFlow) {
-					const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
-					const index = modules.findIndex((m) => m.id === actualId)
-					if (index >= 0) {
-						modules.splice(index, 1)
+					if (mergedFlow.preprocessor_module?.id === actualId) {
+						mergedFlow.preprocessor_module = undefined
+					} else if (mergedFlow.failure_module?.id === actualId) {
+						mergedFlow.failure_module = undefined
+					} else {
+						const { modules } = getIndexInNestedModules(
+							{ value: mergedFlow, summary: '' },
+							actualId
+						)
+						const index = modules.findIndex((m) => m.id === actualId)
+						if (index >= 0) {
+							modules.splice(index, 1)
+						}
 					}
 				}
 			} else if (action === 'removed') {
