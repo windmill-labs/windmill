@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { AlertTriangle, Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		Copy,
+		Plus,
+		RefreshCcwIcon,
+		RotateCcw,
+		Settings,
+		Trash,
+		X
+	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
 	import Popover from './meltComponents/Popover.svelte'
@@ -25,6 +34,7 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import Subsection from './Subsection.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -236,34 +246,100 @@
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
-			<div class="pb-4"></div>
 		{/if}
+		<Label label="Workers assignment">
+			<ToggleButtonGroup
+				{selected}
+				disabled={!$superadmin}
+				on:selected={(e) => {
+					dirty = true
+					if (nconfig == undefined) {
+						nconfig = {}
+					}
+					if (e.detail == 'dedicated') {
+						nconfig.dedicated_worker = ''
+						nconfig.worker_tags = undefined
+					} else {
+						nconfig.dedicated_worker = undefined
+						nconfig.worker_tags = []
+					}
+				}}
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
+					<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
 
-		<ToggleButtonGroup
-			{selected}
-			disabled={!$superadmin}
-			on:selected={(e) => {
-				dirty = true
-				if (nconfig == undefined) {
-					nconfig = {}
-				}
-				if (e.detail == 'dedicated') {
-					nconfig.dedicated_worker = ''
-					nconfig.worker_tags = undefined
-				} else {
-					nconfig.dedicated_worker = undefined
-					nconfig.worker_tags = []
-				}
-			}}
-			class="mb-4"
-		>
-			{#snippet children({ item })}
-				<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
-				<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
-			{/snippet}
-		</ToggleButtonGroup>
+		<div class="mt-8"></div>
 		{#if selected == 'normal'}
 			<Label label="Tags to listen to">
+				{#snippet action()}
+					{#if nconfig?.worker_tags != undefined}
+						{@const dropdownResetToAllTags = [
+							{
+								label: 'Reset to all tags minus native ones',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = defaultTags.concat(nativeTags)
+									}
+								},
+								tooltip: (defaultTagPerWorkspace
+									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+									: defaultTags
+								).join(', ')
+							},
+							{
+								label: 'Reset to native tags',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = nativeTags
+									}
+								},
+								tooltip: (defaultTagPerWorkspace && workspaceTag
+									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+									: nativeTags
+								).join(', ')
+							}
+						]}
+						<div class="flex flex-wrap items-center gap-1">
+							<Button
+								variant="default"
+								unifiedSize="sm"
+								on:click={() => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
+
+										dirty = true
+									}
+								}}
+								dropdownItems={dropdownResetToAllTags}
+								dropdownWidth={300}
+								startIcon={{ icon: RotateCcw }}
+							>
+								Reset to all tags <Tooltip
+									>{(defaultTagPerWorkspace && workspaceTag
+										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+										: defaultTags.concat(nativeTags)
+									).join(', ')}</Tooltip
+								>
+							</Button>
+
+							{#if defaultTagPerWorkspace}
+								<Select
+									bind:value={workspaceTag}
+									items={workspaces.map((w) => ({ value: w.id }))}
+									onCreateItem={(c) => (workspaceTag = c)}
+									placeholder="Workspace ID"
+								/>
+							{/if}
+						</div>
+					{/if}
+				{/snippet}
 				{#if nconfig?.worker_tags != undefined}
 					<TagsToListenTo
 						on:dirty={() => {
@@ -278,112 +354,38 @@
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
 					/>
-
-					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
-						<Button
-							variant="subtle"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
-
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags <Tooltip
-								>{(defaultTagPerWorkspace && workspaceTag
-									? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-									: defaultTags.concat(nativeTags)
-								).join(', ')}</Tooltip
-							>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags minus native ones <Tooltip
-								>{(defaultTagPerWorkspace
-									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-									: defaultTags
-								).join(', ')}</Tooltip
-							>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to native tags <Tooltip
-								>{(defaultTagPerWorkspace && workspaceTag
-									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-									: nativeTags
-								).join(', ')}</Tooltip
-							>
-						</Button>
-
-						{#if defaultTagPerWorkspace}
-							<Select
-								bind:value={workspaceTag}
-								items={workspaces.map((w) => ({ value: w.id }))}
-								onCreateItem={(c) => (workspaceTag = c)}
-								placeholder="Workspace ID"
-							/>
-						{/if}
-					</div>
-					<div class="max-w mt-2 items-center gap-1 pt-2">
-						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
-							<Label label="High-priority tags">
-								{#snippet header()}
-									<Tooltip>
-										Jobs with the following high-priority tags will be picked up in priority by this
-										worker.
-										{#if !enterpriseLicense}
-											This is a feature only available in enterprise edition.
-										{/if}
-									</Tooltip>
-								{/snippet}
-								<MultiSelect
-									disabled={!$enterpriseLicense}
-									bind:value={
-										() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
-										(v) => {
-											nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
-											dirty = true
-										}
-									}
-									items={safeSelectItems(nconfig?.worker_tags)}
-								/>
-							</Label>
-						{/if}
-					</div>
 				{/if}
 			</Label>
+
+			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
+				<div class="mt-8"></div>
+				<Label label="High-priority tags">
+					{#snippet header()}
+						<Tooltip>
+							Jobs with the following high-priority tags will be picked up in priority by this
+							worker.
+							{#if !enterpriseLicense}
+								This is a feature only available in enterprise edition.
+							{/if}
+						</Tooltip>
+					{/snippet}
+					<MultiSelect
+						disabled={!$enterpriseLicense}
+						bind:value={
+							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
+							(v) => {
+								nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
+								dirty = true
+							}
+						}
+						items={safeSelectItems(nconfig?.worker_tags)}
+					/>
+				</Label>
+			{/if}
+
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
-				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels">
 					<Toggle
 						size="sm"
 						options={{
@@ -399,23 +401,21 @@
 						disabled={!$enterpriseLicense}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
-						<div class="flex flex-row items-center justify-between">
-							<div class="flex flex-row items-center text-sm gap-2">
-								<p>Triggered when number of workers in group is lower than</p>
-								<input
-									type="number"
-									class="!w-14 text-center"
-									disabled={!$enterpriseLicense}
-									min="1"
-									bind:value={nconfig.min_alive_workers_alert_threshold}
-									onchange={(ev) => {
-										dirty = true
-									}}
-								/>
-							</div>
+						<div class="flex flex-row items-center text-xs gap-2">
+							<p>Triggered when number of workers in group is lower than</p>
+							<input
+								type="number"
+								class="!w-14 text-center"
+								disabled={!$enterpriseLicense}
+								min="1"
+								bind:value={nconfig.min_alive_workers_alert_threshold}
+								onchange={(ev) => {
+									dirty = true
+								}}
+							/>
 						</div>
 					{/if}
-				</Section>
+				</Label>
 			{/if}
 		{:else if selected == 'dedicated'}
 			<div class="flex flex-col gap-2">
@@ -430,7 +430,7 @@
 				{/if}
 				{#if nconfig?.dedicated_worker != undefined}
 					<div
-						><p class="text-xs mb-2"
+						><p class="text-xs text-secondary mb-2"
 							>Workers will get killed upon detecting changes. It is assumed they are in an
 							environment where the supervisor will restart them.</p
 						>
@@ -450,12 +450,11 @@
 
 		<div class="mt-8"></div>
 
-		<Section
+		<Label
 			label="Environment variables passed to jobs"
-			collapsable={true}
 			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
 		>
-			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
+			<div class="flex flex-col gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
@@ -483,19 +482,22 @@
 								<ToggleButton value="static" label="Static" {item} />
 							{/snippet}
 						</ToggleButtonGroup>
-						<input
-							type="text"
-							disabled={!($superadmin || $devopsRole) || envvar.type === 'dynamic'}
-							placeholder={envvar.type === 'dynamic'
-								? 'value read from worker env var'
-								: 'static value'}
+						<TextInput
+							inputProps={{
+								type: 'text',
+								disabled: !($superadmin || $devopsRole) || envvar.type === 'dynamic',
+								placeholder:
+									envvar.type === 'dynamic' ? 'value read from worker env var' : 'static value'
+							}}
 							bind:value={envvar.value}
 						/>
 						{#if $superadmin || $devopsRole}
-							<button
-								class="rounded-full bg-surface/60 hover:bg-gray-200"
+							<Button
+								wrapperClasses="ml-2"
+								variant="subtle"
+								unifiedSize="md"
 								aria-label="Clear"
-								onclick={() => {
+								onClick={() => {
 									if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
 										delete nconfig.env_vars_static[envvar.key]
 									}
@@ -508,9 +510,10 @@
 									customEnvVars = [...customEnvVars]
 									dirty = true
 								}}
-							>
-								<X size={14} />
-							</button>
+								startIcon={{ icon: Trash }}
+								iconOnly
+								destructive
+							/>
 						{/if}
 					</div>
 				{/each}
@@ -535,7 +538,7 @@
 				<div class="flex flex-wrap items-center gap-1 pt-2">
 					<Button
 						variant="subtle"
-						size="xs"
+						unifiedSize="md"
 						on:click={() => {
 							let updated = false
 							aws_env_vars_preset.forEach((envvar) => {
@@ -562,7 +565,7 @@
 					</Button>
 					<Button
 						variant="subtle"
-						size="xs"
+						unifiedSize="md"
 						on:click={() => {
 							let updated = false
 							ssl_env_vars_preset.forEach((envvar) => {
@@ -585,140 +588,129 @@
 					</Button>
 				</div>
 			{/if}
-		</Section>
+		</Label>
 		<div class="mt-8"></div>
 
-		<Section label="Autoscaling" collapsable>
-			{#snippet header()}
-				<div class="ml-4 flex flex-row gap-2 items-center">
-					<Badge>Beta</Badge>
-					{#if nconfig.autoscaling?.enabled}
-						<Badge color="green">Enabled</Badge>
-					{/if}
-				</div>
-			{/snippet}
-			<AutoscalingConfigEditor
-				on:dirty={() => (dirty = true)}
-				worker_tags={config?.worker_tags}
-				bind:config={nconfig.autoscaling}
-			/>
-		</Section>
+		<AutoscalingConfigEditor
+			onDirty={() => (dirty = true)}
+			worker_tags={config?.worker_tags}
+			bind:config={nconfig.autoscaling}
+		/>
 
 		<div class="mt-8"></div>
-		<Section label="Python dependencies overrides" collapsable={true}>
-			<div class="flex flex-col gap-3 gap-y-6 pb-2 max-w">
-				<Subsection
-					label="Additional Python Paths"
-					tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
-				>
-					{#if nconfig.additional_python_paths}
-						{#each nconfig.additional_python_paths as _, i}
-							<div class="flex gap-1 items-center">
-								<input
-									type="text"
-									disabled={!($superadmin || $devopsRole)}
-									placeholder="/path/to/python3.X/site-packages"
-									bind:value={nconfig.additional_python_paths![i]}
-								/>
-								{#if $superadmin || $devopsRole}
-									<button
-										class="rounded-full bg-surface/60 hover:bg-gray-200"
-										aria-label="Clear"
-										onclick={() => {
-											if (
-												nconfig.additional_python_paths === undefined ||
-												nconfig.additional_python_paths.length == 0
-											) {
-												return
-											}
-											nconfig.additional_python_paths.splice(i, 1)
-											nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-											dirty = true
-										}}
-									>
-										<X size={14} />
-									</button>
-								{/if}
-							</div>
-						{/each}
-					{/if}
-					{#if $superadmin || $devopsRole}
-						<div class="flex">
-							<Button
-								variant="accent"
-								size="xs"
-								startIcon={{ icon: Plus }}
-								on:click={() => {
-									if (nconfig.additional_python_paths === undefined) {
-										nconfig.additional_python_paths = []
-									}
-									nconfig.additional_python_paths.push('')
-									nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-									dirty = true
-								}}
-							>
-								Add additional Python path
-							</Button>
+		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
+			<Label
+				label="Additional Python paths"
+				tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
+				class="mt-2"
+			>
+				{#if nconfig.additional_python_paths}
+					{#each nconfig.additional_python_paths as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								type="text"
+								disabled={!($superadmin || $devopsRole)}
+								placeholder="/path/to/python3.X/site-packages"
+								bind:value={nconfig.additional_python_paths![i]}
+							/>
+							{#if $superadmin || $devopsRole}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-surface-hover"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.additional_python_paths === undefined ||
+											nconfig.additional_python_paths.length == 0
+										) {
+											return
+										}
+										nconfig.additional_python_paths.splice(i, 1)
+										nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+										dirty = true
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
 						</div>
-					{/if}
-				</Subsection>
-				<Subsection
-					label="Local dependencies import names to skip during resolution"
-					tooltip="uv will not try to resolve dependencies for these packages, useful if you have packages pre-installed on the workers at a given path."
-				>
-					{#if nconfig.pip_local_dependencies}
-						{#each nconfig.pip_local_dependencies as _, i}
-							<div class="flex gap-1 items-center">
-								<input
-									disabled={!($superadmin || $devopsRole)}
-									type="text"
-									placeholder="httpx"
-									bind:value={nconfig.pip_local_dependencies[i]}
-								/>
-								{#if $superadmin || $devopsRole}
-									<button
-										class="rounded-full bg-surface/60 hover:bg-gray-200"
-										aria-label="Clear"
-										onclick={() => {
-											if (
-												nconfig.pip_local_dependencies === undefined ||
-												nconfig.pip_local_dependencies.length == 0
-											) {
-												return
-											}
-											nconfig.pip_local_dependencies.splice(i, 1)
-											nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-											dirty = true
-										}}
-									>
-										<X size={14} />
-									</button>
-								{/if}
-							</div>
-						{/each}
-					{/if}
-					{#if $superadmin || $devopsRole}
-						<div class="flex">
-							<Button
-								variant="accent"
-								size="xs"
-								startIcon={{ icon: Plus }}
-								on:click={() => {
-									if (nconfig.pip_local_dependencies === undefined) {
-										nconfig.pip_local_dependencies = []
-									}
-									nconfig.pip_local_dependencies.push('')
-									nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-									dirty = true
-								}}
-							>
-								Add PIP local dependency
-							</Button>
+					{/each}
+				{/if}
+				{#if $superadmin || $devopsRole}
+					<div class="flex">
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								if (nconfig.additional_python_paths === undefined) {
+									nconfig.additional_python_paths = []
+								}
+								nconfig.additional_python_paths.push('')
+								nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+								dirty = true
+							}}
+						>
+							Add additional Python path
+						</Button>
+					</div>
+				{/if}
+			</Label>
+			<Label
+				label="Local dependencies import names to skip during resolution"
+				tooltip="uv will not try to resolve dependencies for these packages, useful if you have packages pre-installed on the workers at a given path."
+			>
+				{#if nconfig.pip_local_dependencies}
+					{#each nconfig.pip_local_dependencies as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								disabled={!($superadmin || $devopsRole)}
+								type="text"
+								placeholder="httpx"
+								bind:value={nconfig.pip_local_dependencies[i]}
+							/>
+							{#if $superadmin || $devopsRole}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-surface-hover"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.pip_local_dependencies === undefined ||
+											nconfig.pip_local_dependencies.length == 0
+										) {
+											return
+										}
+										nconfig.pip_local_dependencies.splice(i, 1)
+										nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+										dirty = true
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
 						</div>
-					{/if}
-				</Subsection>
-			</div></Section
-		>
+					{/each}
+				{/if}
+				{#if $superadmin || $devopsRole}
+					<div class="flex">
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								if (nconfig.pip_local_dependencies === undefined) {
+									nconfig.pip_local_dependencies = []
+								}
+								nconfig.pip_local_dependencies.push('')
+								nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+								dirty = true
+							}}
+						>
+							Add PIP local dependency
+						</Button>
+					</div>
+				{/if}
+			</Label>
+		</Section>
 
 		<div class="mt-8"></div>
 
@@ -728,7 +720,7 @@
 		>
 			{#if $superadmin || $devopsRole}
 				<div class="mb-4">
-					<Alert size="xs" type="info" title="Worker Restart Required">
+					<Alert size="xs" type="info" title="Worker restart required">
 						Workers will get killed upon detecting any changes in this section (scripts or
 						interval). It is assumed they are in an environment where the supervisor will restart
 						them.
@@ -738,7 +730,7 @@
 
 			<div class="space-y-6">
 				<div>
-					<div class="text-sm text-secondary mb-1">
+					<div class="text-xs text-secondary mb-1">
 						Run at start of the workers. More lightweight than requiring custom worker images.
 					</div>
 					<Subsection
@@ -778,7 +770,7 @@
 					</Subsection>
 				</div>
 				<div>
-					<div class="text-sm mb-1 text-secondary">
+					<div class="text-xs text-secondary mb-1">
 						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
 						disk space.
 					</div>
@@ -808,7 +800,7 @@
 									dirty = true
 								}}
 							/>
-							<span class="text-xs text-gray-500">Minimum: 60 seconds</span>
+							<span class="text-xs text-hint">Minimum: 60 seconds</span>
 						</div>
 
 						<div class="border w-full h-40">
@@ -838,10 +830,10 @@
 			</div>
 		</Section>
 		{#snippet actions()}
-			<div class="flex gap-4 items-center mr-10">
+			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
 					{#if dirty}
-						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>
+						<div class="text-red-500 text-xs whitespace-nowrap">Non applied changes</div>
 					{/if}
 					<Button
 						variant="accent"
@@ -954,7 +946,7 @@
 								<a
 									href="https://www.windmill.dev/docs/advanced/security_isolation"
 									target="_blank"
-									class="text-blue-600 hover:underline text-xs"
+									class="text-accent hover:underline text-xs"
 								>
 									Learn more about job isolation →
 								</a>

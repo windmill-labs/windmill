@@ -19,10 +19,12 @@
 		animate?: boolean
 		breakAll?: boolean
 		class?: string | undefined
+		description?: string | undefined
 		header?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		badge?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		labelExtra?: import('svelte').Snippet
 	}
 
 	let {
@@ -36,13 +38,15 @@
 		collapsable = false,
 		collapsed = $bindable(true),
 		headless = false,
-		animate = false,
+		animate = true,
 		breakAll = false,
 		class: clazz = undefined,
+		description = undefined,
 		header,
 		action,
 		badge,
-		children
+		children,
+		labelExtra
 	}: Props = $props()
 </script>
 
@@ -59,18 +63,20 @@
 			>
 				{#if collapsable}
 					<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
+						{label}
+						{@render labelExtra?.()}
 						<ChevronRight
-							size={16}
+							size={14}
 							class={twMerge(
 								'transition',
 								collapsed ? '' : 'rotate-90',
 								animate ? 'duration-200' : 'duration-0'
 							)}
 						/>
-						{label}
 					</button>
 				{:else}
 					{label}
+					{@render labelExtra?.()}
 				{/if}
 
 				{@render header?.()}
@@ -93,11 +99,15 @@
 		</div>
 	{/if}
 	{#if !collapsable || !collapsed}
-		<div
-			class={twMerge('grow min-h-0', clazz)}
-			transition:slide={animate ? { duration: 200 } : { duration: 0 }}
-		>
-			{@render children?.()}
+		<div class={'grow min-h-0'} transition:slide={animate ? { duration: 200 } : { duration: 0 }}>
+			<div class="flex flex-col gap-2 h-full">
+				{#if description}
+					<span class="text-xs text-secondary mb-2">{description}</span>
+				{/if}
+				<div class={twMerge('grow min-h-0', clazz)}>
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

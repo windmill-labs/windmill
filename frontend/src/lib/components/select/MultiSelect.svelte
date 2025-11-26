@@ -32,6 +32,7 @@
 		allowClear = true,
 		hideMainClearBtn = false,
 		size = 'md',
+		id,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -56,6 +57,7 @@
 		allowClear?: boolean
 		hideMainClearBtn?: boolean
 		size?: keyof typeof inputSizeClasses
+		id?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -118,6 +120,7 @@
 	{style}
 	onpointerup={() => (open = true)}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
+	{id}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
