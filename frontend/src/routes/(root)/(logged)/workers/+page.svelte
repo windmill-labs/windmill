@@ -135,11 +135,40 @@
 	})
 
 	let newConfigName = $state('')
+	let shouldAutoOpenDrawer = $state('')
+
+	function handleWorkerGroupDeleted(deletedGroupName: string) {
+		// If the deleted group was the currently selected one, select another group
+		if (selectedTab === deletedGroupName) {
+			// After deletion, we need to wait for loadWorkerGroups to update the workerGroups state
+			// So we'll use the current groupedWorkers to find available groups
+			const availableGroups = groupedWorkers
+				.map(group => group[0])
+				.filter(group => group !== deletedGroupName)
+
+			if (availableGroups.length > 0) {
+				// Prioritize 'default' group if available, otherwise pick the first one
+				selectedTab = availableGroups.includes('default') ? 'default' : availableGroups[0]
+			} else {
+				// No groups left, fall back to 'default'
+				selectedTab = 'default'
+			}
+		}
+	}
 
 	async function addConfig() {
-		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
-		newGroupPopover?.close()
-		loadWorkerGroups()
+		const configName = newConfigName
+		try {
+			await ConfigService.updateConfig({ name: 'worker__' + configName, requestBody: {} })
+			newGroupPopover?.close()
+			await loadWorkerGroups()
+			// Select the new worker group and signal it should auto-open drawer
+			selectedTab = configName
+			shouldAutoOpenDrawer = configName
+			sendUserToast(`Worker group ${configName} created`)
+		} catch (err) {
+			sendUserToast(`Could not create worker group: ${err}`, true)
+		}
 	}
 
 	let importConfigDrawer: Drawer | undefined = $state(undefined)
@@ -558,6 +587,11 @@
 							activeWorkers={activeWorkers?.length ?? 0}
 							{defaultTagPerWorkspace}
 							{width}
+							shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
+							onDrawerOpened={() => {
+								shouldAutoOpenDrawer = ''
+							}}
+							onDeleted={handleWorkerGroupDeleted}
 						/>
 
 						<div class="flex flex-row items-center gap-2 relative my-2">
@@ -770,6 +804,11 @@
 								config={worker_group[1]}
 								activeWorkers={0}
 								{width}
+								shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
+								onDrawerOpened={() => {
+									shouldAutoOpenDrawer = ''
+								}}
+								onDeleted={handleWorkerGroupDeleted}
 							/>
 							<div class="text-xs text-primary"> No workers currently in this worker group </div>
 						{/if}

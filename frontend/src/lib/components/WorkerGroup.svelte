@@ -163,6 +163,9 @@
 		workers: [string, WorkerPing[]][]
 		defaultTagPerWorkspace?: boolean | undefined
 		width: number
+		shouldAutoOpenDrawer?: boolean
+		onDrawerOpened?: () => void
+		onDeleted?: (deletedGroupName: string) => void
 	}
 
 	let {
@@ -172,7 +175,10 @@
 		customTags,
 		workers,
 		defaultTagPerWorkspace = undefined,
-		width = 0
+		width = 0,
+		shouldAutoOpenDrawer = false,
+		onDrawerOpened = () => {},
+		onDeleted = () => {}
 	}: Props = $props()
 
 	let workspaces: Workspace[] = $state([])
@@ -185,6 +191,7 @@
 	async function deleteWorkerGroup() {
 		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
+		onDeleted(name)
 	}
 
 	let hasChanges = $derived.by(() => {
@@ -207,6 +214,15 @@
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
+	})
+
+	$effect(() => {
+		if (shouldAutoOpenDrawer) {
+			loadNConfig()
+			drawer?.openDrawer()
+			// Dispatch event to parent to clear the signal
+			onDrawerOpened()
+		}
 	})
 </script>
 
