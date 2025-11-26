@@ -75,7 +75,7 @@
 				Setup <ArrowRight class="inline" size={14} />
 			</span>
 		{:else if currentIsAlreadyUsedElsewhere}
-			<span class="text-red-400 flex gap-1">Used as {tag}</span>
+			<span class="text-red-400 flex gap-1">Already used as {tag}</span>
 		{:else if !status.success}
 			<span class="text-red-400 flex gap-1">
 				Error <TriangleAlert class="inline" size={16} />

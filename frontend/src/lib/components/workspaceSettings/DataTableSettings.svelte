@@ -66,6 +66,8 @@
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
+	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
+	import DBManagerDrawer from '../DBManagerDrawer.svelte'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -98,7 +100,7 @@
 		})
 	}
 
-	const instanceDbs = resource([], SettingService.getCustomInstanceDbs)
+	const customInstanceDbs = resource([], SettingService.getCustomInstanceDbs)
 
 	async function onSave() {
 		try {
@@ -107,11 +109,11 @@
 				dataTableSettings.dataTables.some(
 					(d) =>
 						d.database.resource_type === 'instance' &&
-						!instanceDbs.current?.[d.database.resource_path ?? '']?.success
+						!customInstanceDbs.current?.[d.database.resource_path ?? '']?.success
 				)
 			) {
 				let confirm = await confirmationModal.ask({
-					title: 'Some instance catalogs are not setup',
+					title: 'Some databases are not setup',
 					children: 'Are you sure you want to save without setting them up ?',
 					confirmationText: 'Save anyway'
 				})
@@ -129,7 +131,9 @@
 			console.error('Error saving data table settings', e)
 		}
 	}
+
 	let confirmationModal = createAsyncConfirmationModal()
+	let dbManagerDrawer: DBManagerDrawer | undefined = $state()
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -203,19 +207,18 @@
 						<div class="flex items-center gap-1 w-80 relative">
 							{#if dataTable.database.resource_type !== 'instance'}
 								<ResourcePicker
+									class="flex-1"
 									bind:value={dataTable.database.resource_path}
 									resourceType={dataTable.database.resource_type}
 								/>
 							{:else}
-								<!-- TODO -->
-								<Select
+								<CustomInstanceDbSelect
 									class="flex-1"
-									inputClass="pr-20"
+									{confirmationModal}
+									{dbManagerDrawer}
+									{customInstanceDbs}
 									bind:value={dataTable.database.resource_path}
-									onCreateItem={(i) => (dataTable.database.resource_path = i)}
-									placeholder="PostgreSQL database name"
-									items={[] as { value: string; label: string }[]}
-									disabled={!$isCustomInstanceDbEnabled}
+									tag="datatable"
 								/>
 							{/if}
 						</div>
@@ -244,3 +247,4 @@
 <Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave}>Save</Button>
 
 <ConfirmationModal {...confirmationModal.props} />
+<DBManagerDrawer bind:this={dbManagerDrawer} />
