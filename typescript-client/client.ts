@@ -17,6 +17,8 @@ import {
   type S3Object,
 } from "./s3Types";
 
+export { datatable } from "./sqlUtils";
+
 export {
   AdminService,
   AuditService,
@@ -1222,46 +1224,6 @@ export async function requestInteractiveTeamsApproval({
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
-}
-
-export type DataTableStatement = {
-  query(): Promise<any>;
-};
-
-export type DataTableSqlTemplateFunction = (
-  strings: TemplateStringsArray,
-  ...values: any[]
-) => DataTableStatement;
-
-export function datatable(name: string = "main"): DataTableSqlTemplateFunction {
-  return (strings, ...values) => {
-    let queryStr =
-      values.map((_, i) => `-- $${i + 1} arg${i + 1}`).join("\n") + "\n";
-    for (let i = 0; i < strings.length; i++) {
-      queryStr += strings[i];
-      if (i !== strings.length - 1) queryStr += `$${i + 1}`;
-    }
-    const args = {
-      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
-      database: `datatable://${name}`,
-    };
-
-    return {
-      queryStr,
-      args,
-      query: async () => {
-        let result = await JobService.runScriptPreviewInline({
-          workspace: getWorkspace(),
-          requestBody: {
-            args,
-            content: queryStr,
-            language: "postgresql",
-          },
-        });
-        return result;
-      },
-    };
-  };
 }
 
 async function getMockedApi(): Promise<MockedApi | undefined> {

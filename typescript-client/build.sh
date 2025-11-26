@@ -36,6 +36,7 @@ fi
 
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
+cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"

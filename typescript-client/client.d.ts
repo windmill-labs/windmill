@@ -158,14 +158,3 @@ export declare function uint8ArrayToBase64(arrayBuffer: Uint8Array): string;
  * @returns email address
  */
 export declare function usernameToEmail(username: string): Promise<string>;
-
-export type DataTableStatement = {
-  query(): Promise<any>;
-};
-
-export type DataTableSqlTemplateFunction = (
-  strings: TemplateStringsArray,
-  ...values: any[]
-) => DataTableStatement;
-
-export declare function datatable(name: string): DataTableSqlTemplateFunction;
