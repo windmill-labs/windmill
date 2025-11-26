@@ -676,6 +676,7 @@
 			document.documentElement.classList.remove('dark')
 		}
 		$darkMode = newDarkMode ?? globalDarkMode
+		$app.darkMode = newDarkMode
 	}
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')
