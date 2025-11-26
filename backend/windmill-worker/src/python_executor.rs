@@ -121,8 +121,8 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics, StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
+        read_result, start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
@@ -837,10 +837,7 @@ mount {{
     } else {
         let args = vec!["-u", "-m", "wrapper"];
 
-        let mut python_cmd = build_command_with_isolation(
-            &python_path,
-            &args,
-        );
+        let mut python_cmd = build_command_with_isolation(&python_path, &args);
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -2155,7 +2152,7 @@ pub async fn start_worker(
     jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
-    use crate::{PyV, PyVAlias};
+    use crate::PyV;
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2314,7 +2311,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        PyV::parse_from_requirements(&split_requirements(requirements.as_str()))
+        PyV::parse_from_requirements(&split_python_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVAlias::Py311.into()

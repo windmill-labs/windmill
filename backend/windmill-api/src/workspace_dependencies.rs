@@ -54,12 +54,12 @@ async fn list(
 }
 
 #[derive(Deserialize)]
-struct NameQuery {
+pub(super) struct NameQuery {
     name: Option<String>,
 }
 
 #[axum::debug_handler]
-async fn get_latest(
+pub(super) async fn get_latest(
     Extension(db): Extension<DB>,
     Path((w_id, language)): Path<(String, ScriptLang)>,
     Query(params): Query<NameQuery>,

@@ -44,6 +44,7 @@ use axum::{
 use http::HeaderName;
 use itertools::Itertools;
 
+use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::{
     db::UserDB,
@@ -557,7 +558,9 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if include_workspace_dependencies.unwrap_or(false) {
+    if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
         tracing::info!("Including workspace dependencies in tarball export");
         let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
         tracing::info!(

@@ -241,6 +241,15 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+  // Filter workspace dependencies to only include those matching the script's language
+  const filteredRawWorkspaceDependencies: Record<string, string> = {};
+  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
+    if (depInfo && depInfo.language === language) {
+      filteredRawWorkspaceDependencies[depPath] = depContent;
+    }
+  }
+
   const metadataWithType = await parseMetadataFile(
     remotePath,
     undefined,
@@ -251,7 +260,7 @@ export async function generateScriptMetadataInternal(
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
   
   // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
-  let hash = await generateScriptHash(rawWorkspaceDependencies, scriptContent, metadataContent);
+  let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
 
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
@@ -292,7 +301,7 @@ export async function generateScriptMetadataInternal(
         language,
         remotePath,
         metadataParsedContent,
-        rawWorkspaceDependencies
+        filteredRawWorkspaceDependencies
       );
     } else {
       metadataParsedContent.lock = "";
@@ -311,7 +320,7 @@ export async function generateScriptMetadataInternal(
   const metadataContentUsedForHash = newMetadataContent;
 
   hash = await generateScriptHash(
-    rawWorkspaceDependencies,
+    filteredRawWorkspaceDependencies,
     scriptContent,
     metadataContentUsedForHash
   );
@@ -367,17 +376,9 @@ async function updateScriptLock(
     return;
   }
 
-  // Filter workspace dependencies to only include those matching the script's language
-  const filteredWorkspaceDependencies: Record<string, string> = {};
-  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
-    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
-    if (depInfo && depInfo.language === language) {
-      filteredWorkspaceDependencies[depPath] = depContent;
-    }
-  }
 
-  if (Object.keys(filteredWorkspaceDependencies).length > 0) {
-    const dependencyPaths = Object.keys(filteredWorkspaceDependencies).join(', ');
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+    const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
     log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
   
@@ -401,9 +402,8 @@ async function updateScriptLock(
             script_path: remotePath,
           },
         ],
-        raw_workspace_dependencies: Object.keys(filteredWorkspaceDependencies).length > 0 
-          ? filteredWorkspaceDependencies
-          : null,
+        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+          ? rawWorkspaceDependencies : null,
         entrypoint: remotePath,
       }),
     }

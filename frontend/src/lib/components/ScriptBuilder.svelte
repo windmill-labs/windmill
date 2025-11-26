@@ -13,7 +13,6 @@
 		CaptureService,
 		type ScriptLang,
 		WorkerService,
-		WorkspaceDependenciesService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -57,7 +56,6 @@
 		Calendar,
 		CheckCircle,
 		Code,
-		FileText,
 		Pen,
 		Plus,
 		Rocket,
@@ -99,8 +97,6 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import WorkspaceDependenciesViewer from './WorkspaceDependenciesViewer.svelte'
-	import WorkspaceDependenciesEditor from './WorkspaceDependenciesEditor.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -161,8 +157,6 @@
 	let args: Record<string, any> = $state(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
-	let workspaceDependenciesViewer: WorkspaceDependenciesViewer | undefined = $state()
-	let workspaceDependenciesEditor: WorkspaceDependenciesEditor | undefined = $state()
 
 	let metadataOpen = $state(
 		!neverShowMeta &&
@@ -196,63 +190,6 @@
 	)
 	const simplifiedPoll = writable(false)
 	
-	// Reactive state for workspace dependencies
-	let hasWorkspaceDependencies = $state(false)
-	let workspaceDependencies = $state(undefined)
-	
-	// Check for workspace dependencies when script language changes
-	$effect(async () => {
-		if (!script.language || !$workspaceStore) {
-			hasWorkspaceDependencies = false
-			workspaceDependencies = undefined
-			return
-		}
-		
-		try {
-			// Check if this language supports workspace dependencies
-			const dependenciesPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(null, script.language)
-			if (!dependenciesPath) {
-				hasWorkspaceDependencies = false
-				workspaceDependencies = undefined
-				return
-			}
-			
-			// Try to get workspace dependencies for this language (default)
-			const deps = await WorkspaceDependenciesService.getLatestWorkspaceDependencies({
-				workspace: $workspaceStore!,
-				language: script.language,
-				name: undefined // Get default workspace dependencies
-			})
-
-			console.log(deps);
-			console.log(deps);
-			console.log(deps);
-			console.log(deps);
-			
-			hasWorkspaceDependencies = !!deps
-			workspaceDependencies = deps
-		} catch (error) {
-			// If no dependencies found or error, hide the button
-			hasWorkspaceDependencies = false
-			workspaceDependencies = undefined
-		}
-	})
-
-	async function showRequirements() {
-		if (!workspaceDependencies || !script.language) return
-		
-		const displayPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(null, script.language) || 'dependencies'
-		
-		workspaceDependenciesViewer?.openViewer(
-			displayPath,
-			workspaceDependencies.content,
-			script.language,
-			workspaceDependencies.description || `Workspace dependencies for ${script.language}`,
-			workspaceDependencies.id,
-			workspaceDependencies.name
-		)
-	}
-
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -1818,18 +1755,6 @@
 						</div>
 					{/if}
 					
-					{#if hasWorkspaceDependencies}
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: FileText }}
-							variant="border"
-							color="light"
-							size="xs"
-							on:click={showRequirements}
-						>
-							Requirements
-						</Button>
-					{/if}
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
@@ -1923,6 +1848,3 @@
 {:else}
 	Script Builder not available to operators
 {/if}
-
-<WorkspaceDependenciesViewer bind:this={workspaceDependenciesViewer} />
-<WorkspaceDependenciesEditor bind:this={workspaceDependenciesEditor} />

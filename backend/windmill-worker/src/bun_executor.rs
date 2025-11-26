@@ -18,7 +18,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary, OccupancyMetrics, StreamNotifier,
+        write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
@@ -837,7 +837,7 @@ async fn write_lock(splitted_lockb_2: &str, job_dir: &str, is_binary: bool) -> R
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
-    requirements_o: Option<&String>,
+    maybe_lock: MaybeLock,
     codebase: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -859,7 +859,7 @@ pub async fn handle_bun_job(
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
-        requirements_o,
+        maybe_lock.get_lock(),
         !annotation.nobundling && !*DISABLE_BUNDLING && codebase.is_none(),
     ) {
         let (local_path, remote_path) = match conn {
@@ -932,68 +932,70 @@ pub async fn handle_bun_job(
         if pulled_codebase.is_esm {
             format = BundleFormat::Esm;
         }
-    } else if let Some(reqs) = requirements_o.as_ref() {
-        let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
-
-        if lock.is_none() && !annotation.npm {
-            return Err(error::Error::ExecutionErr(
-                format!("Invalid requirements, expected to find //bun.lock{} split pattern in reqs. Found: |{reqs}|", if is_binary {"b"} else {""})
-            ));
-        }
-
-        let _ = write_file(job_dir, "package.json", pkg)?;
-        let lock = if annotation.npm { "" } else { lock.unwrap() };
-        if !empty {
-            if !annotation.npm {
-                let _ = write_lock(lock, job_dir, is_binary).await?;
-            }
-
-            install_bun_lockfile(
-                mem_peak,
-                canceled_by,
-                &job.id,
-                &job.workspace_id,
-                Some(conn),
-                job_dir,
-                worker_name,
-                common_bun_proc_envs.clone(),
-                annotation.npm,
-                &mut Some(occupancy_metrics),
-            )
-            .await?;
-        }
     } else {
-        // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
-        let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
-        gen_bun_lockfile(
-            mem_peak,
-            canceled_by,
-            &job.id,
-            &job.workspace_id,
-            Some(conn),
-            &client.token,
-            job.runnable_path(),
-            job_dir,
-            base_internal_url,
-            worker_name,
-            false,
-            &WorkspaceDependenciesPrefetched::extract(
-                inner_content,
-                ScriptLang::Bun,
-                &job.workspace_id,
-                // TODO: Unless there is some sort of "local execution"
-                &None,
-                job.runnable_path(),
-                conn.clone(),
-            )
-            .await?, // TODO: what about bunnative?
-            annotation.npm,
-            &mut Some(occupancy_metrics),
-        )
-        .await?;
+        match &maybe_lock {
+            MaybeLock::Resolved { lock } => {
+                let (package_json, bun_lock, empty, is_binary) = split_lockfile(lock);
 
-        // }
+                if bun_lock.is_none() && !annotation.npm {
+                    return Err(error::Error::ExecutionErr(
+                        format!("Invalid requirements, expected to find //bun.lock{} split pattern in reqs. Found: |{lock}|", if is_binary {"b"} else {""})
+                    ));
+                }
+
+                write_file(job_dir, "package.json", package_json)?;
+
+                let bun_lock = if annotation.npm {
+                    ""
+                } else {
+                    bun_lock.unwrap()
+                };
+
+                if !empty {
+                    if !annotation.npm {
+                        write_lock(bun_lock, job_dir, is_binary).await?;
+                    }
+
+                    install_bun_lockfile(
+                        mem_peak,
+                        canceled_by,
+                        &job.id,
+                        &job.workspace_id,
+                        Some(conn),
+                        job_dir,
+                        worker_name,
+                        common_bun_proc_envs.clone(),
+                        annotation.npm,
+                        &mut Some(occupancy_metrics),
+                    )
+                    .await?;
+                }
+            }
+            MaybeLock::Unresolved { ref workspace_dependencies } => {
+                // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+                let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+                append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+                gen_bun_lockfile(
+                    mem_peak,
+                    canceled_by,
+                    &job.id,
+                    &job.workspace_id,
+                    Some(conn),
+                    &client.token,
+                    job.runnable_path(),
+                    job_dir,
+                    base_internal_url,
+                    worker_name,
+                    false,
+                    workspace_dependencies,
+                    annotation.npm,
+                    &mut Some(occupancy_metrics),
+                )
+                .await?;
+
+                // }
+            }
+        }
     }
 
     if codebase.is_some() && format == BundleFormat::Cjs {
@@ -1185,7 +1187,7 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
-        && (requirements_o.is_some() || annotation.native);
+        && (maybe_lock.get_lock().is_some() || annotation.native);
 
     let write_loader_f = async {
         if build_cache {
@@ -1681,7 +1683,15 @@ pub async fn start_worker(
             base_internal_url,
             worker_name,
             false,
-            None,
+            &WorkspaceDependenciesPrefetched::extract(
+                inner_content,
+                ScriptLang::Bun,
+                w_id,
+                &None,
+                &script_path,
+                db.into(),
+            )
+            .await?,
             annotation.npm,
             &mut None,
         )

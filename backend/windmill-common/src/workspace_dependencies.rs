@@ -96,6 +96,10 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         e: impl PgExecutor<'c>,
     ) -> error::Result<()> {
+        if language.as_dependencies_filename().is_none() {
+            return Ok(());
+        }
+
         sqlx::query!(
             "
             UPDATE workspace_dependencies
@@ -118,6 +122,10 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         e: impl PgExecutor<'c>,
     ) -> error::Result<()> {
+        if language.as_dependencies_filename().is_none() {
+            return Ok(());
+        }
+
         sqlx::query!(
             "
             DELETE
@@ -156,6 +164,11 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         conn: Connection,
     ) -> error::Result<Option<Self>> {
+        dbg!(&name, language, &workspace_id);
+        if language.as_dependencies_filename().is_none() {
+            return Ok(None);
+        }
+
         match conn {
             Connection::Sql(db) => sqlx::query_as!(
                 Self,
@@ -176,7 +189,7 @@ impl WorkspaceDependencies {
             // TODO: Check it works for non admin when endpoint is admin only.
             Connection::Http(http_client) => http_client
                 .get::<Option<WorkspaceDependencies>>(&format!(
-                    "/api/w/{workspace_id}/workspace_dependencies/get_latest/{}{}",
+                    "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
                     language.as_str(),
                     if let Some(name) = name {
                         format!("?name={name}")
@@ -218,6 +231,9 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         e: impl PgExecutor<'c>,
     ) -> error::Result<Vec<i64>> {
+        if language.as_dependencies_filename().is_none() {
+            return Ok(vec![]);
+        }
         sqlx::query_scalar!(
             r#"
             SELECT id FROM workspace_dependencies
@@ -509,7 +525,7 @@ require ()
         );
     }
 
-    pub async fn to_lock_header(&self) -> error::Result<Option<String>> {
+    pub fn to_lock_header(&self) -> Option<String> {
         use WorkspaceDependenciesPrefetchedInternal::*;
 
         let mut header = vec![];
@@ -542,9 +558,9 @@ require ()
                 header.push(prepend_mode(*mode));
                 header.push(insert_line(wd.hash(), Option::None));
             }
-            None => return Ok(Option::None),
+            None => return Option::None,
         }
-        Ok(Some(header.join("\n")))
+        Some(header.join("\n"))
     }
 
     pub fn is_manual(&self) -> bool {
@@ -714,7 +730,6 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
                 language,
                 workspace_id.to_owned(),
             ) {
-                // TODO: Test description is correct.
                 res.external.push(wd);
 
             // If not found, fetch from db

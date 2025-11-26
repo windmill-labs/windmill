@@ -270,8 +270,6 @@ pub async fn handle_dependency_job(
         base_internal_url,
         token,
         script_path,
-        None,
-        npm_mode,
         occupancy_metrics,
         &raw_workspace_dependencies_o,
     )
@@ -1528,8 +1526,6 @@ async fn lock_modules<'c>(
                 "{}/flow",
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
-            None,
-            None,
             occupancy_metrics,
             raw_workspace_dependencies_o,
         )
@@ -2044,8 +2040,6 @@ async fn lock_modules_app(
                                 base_internal_url,
                                 token,
                                 &format!("{}/app", job.runnable_path()),
-                                None,
-                                None,
                                 occupancy_metrics,
                                 // TODO:
                                 &None,
@@ -2626,9 +2620,6 @@ async fn capture_dependency_job(
     base_internal_url: &str,
     token: &str,
     script_path: &str,
-    // TODO:
-    raw_deps: Option<HashMap<String, String>>,
-    npm_mode: Option<bool>,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<String> {
@@ -2786,9 +2777,6 @@ async fn capture_dependency_job(
             .await?
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
-            let npm_mode = npm_mode.unwrap_or_else(|| {
-                windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm
-            });
             // TODO: move inside gen_bun_lockfile
             write_file(job_dir, "main.ts", job_raw_code)?;
             if let Some(lock) = gen_bun_lockfile(
@@ -2804,7 +2792,7 @@ async fn capture_dependency_job(
                 worker_name,
                 true,
                 &workspace_dependencies,
-                npm_mode,
+                windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm,
                 &mut Some(occupancy_metrics),
             )
             .await?
@@ -2968,7 +2956,7 @@ async fn add_lock_header(
     _workspace_id: &str,
     _db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<()> {
-    if let Some(header) = wd.to_lock_header().await? {
+    if let Some(header) = wd.to_lock_header() {
         lines.push(header);
     }
 

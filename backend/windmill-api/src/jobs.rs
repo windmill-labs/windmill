@@ -6111,6 +6111,7 @@ async fn run_bundle_preview_script(
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
+    #[serde(default)]
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
     pub raw_deps: Option<String>,
 }
@@ -6218,6 +6219,7 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
+    #[serde(default)]
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
     pub raw_deps: Option<HashMap<String, String>>,
 }
