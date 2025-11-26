@@ -474,8 +474,8 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
-          ? JSON.stringify(rawWorkspaceDependencies)
+          raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+          ? rawWorkspaceDependencies
           : null,
         }),
       }
