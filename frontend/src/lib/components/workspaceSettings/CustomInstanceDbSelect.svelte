@@ -15,12 +15,14 @@
 		instanceCatalogStatuses: ResourceReturn<GetCustomInstanceDbStatusResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
+		class?: string
 	}
 	let {
 		value = $bindable(),
 		instanceCatalogStatuses,
 		confirmationModal,
-		dbManagerDrawer
+		dbManagerDrawer,
+		class: className
 	}: Props = $props()
 
 	let openedDbNameWizard = $state(false)
@@ -28,34 +30,36 @@
 	let status = $derived(instanceCatalogStatuses.current?.[value ?? ''])
 </script>
 
-<Select
-	class="flex-1"
-	inputClass="pr-20"
-	bind:value
-	onCreateItem={(i) => (value = i)}
-	placeholder="PostgreSQL database name"
-	items={safeSelectItems(Object.keys(instanceCatalogStatuses.current ?? {}))}
-	disabled={!$isCustomInstanceDbEnabled}
-/>
+<div class="flex relative items-center {className}">
+	<Select
+		class="flex-1"
+		inputClass="pr-20"
+		bind:value
+		onCreateItem={(i) => (value = i)}
+		placeholder="PostgreSQL database name"
+		items={safeSelectItems(Object.keys(instanceCatalogStatuses.current ?? {}))}
+		disabled={!$isCustomInstanceDbEnabled}
+	/>
 
-<Button
-	spacingSize="xs2"
-	variant="default"
-	wrapperClasses={'absolute right-1.5 h-6'}
-	onClick={() => (openedDbNameWizard = true)}
->
-	{#if !status}
-		<span class="text-yellow-600 dark:text-yellow-400">
-			Setup <ArrowRight class="inline" size={14} />
-		</span>
-	{:else if !status.success}
-		<span class="text-red-400 flex gap-1">
-			Error <TriangleAlert class="inline" size={16} />
-		</span>
-	{:else}
-		<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-	{/if}
-</Button>
+	<Button
+		spacingSize="xs2"
+		variant="default"
+		wrapperClasses={'absolute right-1.5 h-6'}
+		onClick={() => (openedDbNameWizard = true)}
+	>
+		{#if !status}
+			<span class="text-yellow-600 dark:text-yellow-400">
+				Setup <ArrowRight class="inline" size={14} />
+			</span>
+		{:else if !status.success}
+			<span class="text-red-400 flex gap-1">
+				Error <TriangleAlert class="inline" size={16} />
+			</span>
+		{:else}
+			<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+		{/if}
+	</Button>
+</div>
 
 <CustomInstanceDbWizardModal
 	{instanceCatalogStatuses}

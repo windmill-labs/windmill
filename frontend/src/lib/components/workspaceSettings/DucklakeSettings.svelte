@@ -265,14 +265,16 @@
 								class="w-28"
 							/>
 						</div>
-						<div class="flex items-center gap-1 w-80 relative">
+						<div class="flex flex-1">
 							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
+									class="flex-1"
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
 								/>
 							{:else}
 								<CustomInstanceDbSelect
+									class="flex-1"
 									bind:value={ducklake.catalog.resource_path}
 									{instanceCatalogStatuses}
 									{confirmationModal}
