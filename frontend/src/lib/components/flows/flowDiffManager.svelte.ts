@@ -17,6 +17,8 @@ import { dfs } from './previousResults'
 import { getAllSubmodules } from './flowExplorer'
 import type DiffDrawer from '../DiffDrawer.svelte'
 
+export type FlowDiffManager = ReturnType<typeof createFlowDiffManager>
+
 /**
  * Options for accepting a module action (simplified)
  */
@@ -85,6 +87,7 @@ export function createFlowDiffManager() {
 				console.log('HERE: [flowDiffManager $effect] hasPendingChanges', hasPendingChanges)
 				return
 			}
+			console.log('HERE: [flowDiffManager $effect] beforeFlow', beforeFlow, editMode)
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: editMode

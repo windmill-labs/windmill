@@ -500,10 +500,6 @@
 	// Use diffManager state for rendering
 	let effectiveModuleActions = $derived(diffManager.moduleActions)
 
-	let effectiveInputSchemaModified = $derived(
-		effectiveModuleActions['Input']?.action === 'modified'
-	)
-
 	// Use merged flow when in diff mode (includes removed modules), otherwise use raw modules
 	let effectiveModules = $derived(diffManager.mergedFlow?.modules ?? modules)
 
@@ -733,7 +729,6 @@
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
 				moduleActions: untrack(() => effectiveModuleActions),
-				inputSchemaModified: untrack(() => effectiveInputSchemaModified),
 				selectedId: untrack(() => selectedId),
 				path,
 				newFlow,

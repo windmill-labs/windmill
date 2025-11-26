@@ -6,11 +6,11 @@
 
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import DiffActionBar from '$lib/components/flows/map/DiffActionBar.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import { MessageSquare, DiffIcon } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { MessageSquare } from 'lucide-svelte'
 	import { getGraphContext } from '../../graphContext'
 	import FunnelCog from '$lib/components/icons/FunnelCog.svelte'
 
@@ -34,39 +34,12 @@
 	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
 
-{#if data.inputSchemaModified && diffManager}
-	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
-		<Button
-			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-			onClick={() => {
-				diffManager?.showModuleDiff('Input')
-			}}
-			startIcon={{ icon: DiffIcon }}>Diff</Button
-		>
-		{#if diffManager.editModeEnabled}
-			<Button
-				size="xs"
-				color="green"
-				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-				onClick={() => {
-					diffManager?.acceptModule('Input', { flowStore: flowEditorContext?.flowStore })
-				}}
-			>
-				✓ Accept
-			</Button>
-			<Button
-				size="xs"
-				color="red"
-				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-				onClick={() => {
-					diffManager?.rejectModule('Input', { flowStore: flowEditorContext?.flowStore })
-				}}
-			>
-				✗ Reject
-			</Button>
-		{/if}
-	</div>
-{/if}
+<DiffActionBar
+	moduleId="Input"
+	moduleAction={data.moduleAction}
+	{diffManager}
+	flowStore={flowEditorContext?.flowStore}
+/>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
@@ -121,7 +94,7 @@
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
-			action={data.inputSchemaModified ? 'modified' : undefined}
+			action={data.moduleAction?.action}
 			onEditInput={data.eventHandlers.editInput}
 			onTestFlow={() => {
 				data.eventHandlers.testFlow()

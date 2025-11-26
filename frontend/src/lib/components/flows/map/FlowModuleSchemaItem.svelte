@@ -18,7 +18,6 @@
 		Loader2,
 		TriangleAlert,
 		Timer,
-		DiffIcon,
 		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -44,6 +43,7 @@
 	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
+	import DiffActionBar from './DiffActionBar.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -283,42 +283,8 @@
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
 	>
-		{#if moduleAction && moduleAction.pending && id}
-			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
-				{#if moduleAction?.action === 'modified' && diffManager}
-					<Button
-						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-						onClick={() => {
-							diffManager?.showModuleDiff(id)
-						}}
-						startIcon={{ icon: DiffIcon }}
-					>
-						Diff
-					</Button>
-				{/if}
-				{#if diffManager?.beforeFlow && moduleAction?.pending}
-					<Button
-						size="xs"
-						color="green"
-						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-						onClick={() => {
-							if (id && flowStore) diffManager?.acceptModule(id, { flowStore })
-						}}
-					>
-						✓ Accept
-					</Button>
-					<Button
-						size="xs"
-						color="red"
-						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-						onClick={() => {
-							if (id && flowStore) diffManager?.rejectModule(id, { flowStore })
-						}}
-					>
-						✗ Reject
-					</Button>
-				{/if}
-			</div>
+		{#if id}
+			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}

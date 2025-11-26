@@ -185,7 +185,15 @@
 				// Update schema if provided
 				if (parsed.schema !== undefined) {
 					flowStore.val.schema = parsed.schema
+					diffManager?.setInputSchemas(snapshot.schema, parsed.schema)
 				}
+
+				diffManager?.setEditMode(true)
+				diffManager?.setAfterFlow({
+					modules: restoredModules,
+					preprocessor_module: restoredPreprocessor || undefined,
+					failure_module: restoredFailure || undefined
+				})
 
 				// Refresh the state store to update UI
 				// The $effect in FlowGraphV2 will detect changes and update afterFlow for diff computation

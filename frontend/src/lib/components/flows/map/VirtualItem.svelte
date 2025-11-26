@@ -95,7 +95,7 @@
 	{selectable}
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
-	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	className={action ? aiModuleActionToBgColor(action) : ''}
 	{colorClasses}
 	on:select
 >

@@ -128,7 +128,7 @@ export type InputN = {
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
-		inputSchemaModified?: boolean
+		moduleAction?: ModuleActionInfo
 		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
@@ -369,7 +369,6 @@ export function graphBuilder(
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
 		moduleActions?: Record<string, ModuleActionInfo>
-		inputSchemaModified?: boolean
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -562,7 +561,7 @@ export function graphBuilder(
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
-				inputSchemaModified: extra.inputSchemaModified,
+				moduleAction: extra.moduleActions?.['Input'],
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
