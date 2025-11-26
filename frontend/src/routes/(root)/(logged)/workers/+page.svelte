@@ -141,9 +141,9 @@
 		}
 
 		try {
-			const licenseKey = await SettingService.getGlobal({
+			const licenseKey = (await SettingService.getGlobal({
 				key: 'license_key'
-			}) as string
+			})) as string
 
 			if (!licenseKey) {
 				return
@@ -154,16 +154,18 @@
 			if (!valid && expiration) {
 				// License is expired
 				sendUserToast(
-					`⚠️ Enterprise license key expired on ${expiration.toLocaleDateString()}. Please renew your license.`,
+					`⚠️ Enterprise license key expired on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
 					true
 				)
 			} else if (expiration) {
 				// Check if expires within 7 days
-				const daysUntilExpiration = Math.floor((expiration.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+				const daysUntilExpiration = Math.floor(
+					(expiration.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+				)
 
 				if (daysUntilExpiration <= 7 && daysUntilExpiration >= 0) {
 					sendUserToast(
-						`⚠️ Enterprise license key expires in ${daysUntilExpiration} day${daysUntilExpiration !== 1 ? 's' : ''} on ${expiration.toLocaleDateString()}. Please renew your license soon.`,
+						`⚠️ Enterprise license key expires in ${daysUntilExpiration} day${daysUntilExpiration !== 1 ? 's' : ''} on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
 						true
 					)
 				}
