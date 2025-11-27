@@ -67,6 +67,7 @@ import {
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
+import { isExecutionModeAnonymous } from "../app/apps.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -421,7 +422,7 @@ function ZipFSElement(
               };
             }
 
-            if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+            if (isExecutionModeAnonymous(app)) {
               app.public = true;
             }
             app.policy = undefined;

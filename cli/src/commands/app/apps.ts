@@ -49,6 +49,9 @@ export function replaceInlineScripts(rec: any, localPath: string) {
   }
   return [];
 }
+export function isExecutionModeAnonymous(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "anonymous";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -70,7 +73,7 @@ export async function pushApp(
   } catch {
     //ignore
   }
-  if (app?.["policy"]?.["execution_mode"] == "anonymous") {
+  if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
   // console.log(app);

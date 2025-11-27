@@ -13,8 +13,8 @@ import {
   blueColor,
   clearGlobalLock,
   updateMetadataGlobalLock,
-  findClosestRawReqs,
   inferSchema,
+  findClosestRawReqs,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
 import {

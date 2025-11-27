@@ -8,9 +8,8 @@
 	import CaptureWrapper from './CaptureWrapper.svelte'
 	import { fade } from 'svelte/transition'
 	import TriggersBadge from '../graph/renderers/triggers/TriggersBadge.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, BookOpen, ExternalLink } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import TriggersWrapperV2 from './TriggersWrapper.svelte'
 	import {
@@ -283,6 +282,8 @@
 		CLOUD_DISABLED_TRIGGER_TYPES.includes(triggersState.selectedTrigger?.type ?? '') &&
 			isCloudHosted()
 	)
+
+	let leftPaneWidth = $state(0)
 </script>
 
 <div bind:clientWidth={width} class="h-full w-full">
@@ -298,61 +299,64 @@
 	<FlowCard {noEditor} noHeader>
 		<Splitpanes horizontal>
 			<Pane>
-				{#if triggersState.selectedTrigger}
-					<div
-						class="flex flex-row h-full"
-						in:fade={{ duration: 200, delay: 50 }}
-						out:fade={{ duration: 150 }}
-					>
-						<!-- Left Pane - Triggers List -->
-						{#if !useVerticalTriggerBar}
-							<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
-								<TriggersTable
-									selectedTrigger={triggersState.selectedTriggerIndex}
-									{onSelect}
-									triggers={triggersState.triggers}
-									{isEditor}
-									onAddDraftTrigger={handleAddTrigger}
-									onDeleteDraft={deleteTrigger}
-									onReset={handleResetDraft}
-									webhookToken={$triggersCount?.webhook_count}
-									emailToken={$triggersCount?.default_email_count}
-								/>
-							</div>
-						{:else}
-							<div class="p-2 flex flex-col gap-2 border-r">
-								<AddTriggersButton
-									onAddDraftTrigger={handleAddTrigger}
-									class="w-fit h-fit"
-									placement="right-start"
-								>
-									<Button
-										variant="accent"
-										btnClasses="h-8 w-8 p-0"
-										nonCaptureEvent
-										startIcon={{ icon: Plus }}
-									/>
-								</AddTriggersButton>
-								<TriggersBadge
-									showOnlyWithCount={false}
-									path={initialPath || fakeInitialPath}
-									{newItem}
-									isFlow
-									selected={true}
-									small={false}
-									vertical
-									onSelect={(triggerIndex: number) => {
-										triggersState.selectedTriggerIndex = triggerIndex
-									}}
-								/>
-							</div>
-						{/if}
-
+				<div class="flex flex-row h-full" bind:clientWidth={leftPaneWidth}>
+					<!-- Left Pane - Triggers List -->
+					{#if !useVerticalTriggerBar || !triggersState.selectedTrigger}
 						<div
-							class={twMerge(
-								'flex-grow overflow-auto pl-2 pr-4 pb-4 pt-2',
-								useVerticalTriggerBar ? 'pl-4 pt-2' : ''
-							)}
+							class="overflow-auto p-2"
+							style={triggersState.selectedTrigger
+								? 'width: 350px; flex: 0 0 350px;'
+								: 'flex: 1 1 350px; min-width: 350px;'}
+						>
+							<TriggersTable
+								selectedTrigger={triggersState.selectedTriggerIndex}
+								{onSelect}
+								triggers={triggersState.triggers}
+								{isEditor}
+								onAddDraftTrigger={handleAddTrigger}
+								onDeleteDraft={deleteTrigger}
+								onReset={handleResetDraft}
+								webhookToken={$triggersCount?.webhook_count}
+								emailToken={$triggersCount?.default_email_count}
+							/>
+							{#if leftPaneWidth <= 800 && !triggersState.selectedTrigger}
+								<div class="mt-6">
+									{@render TriggerInfo()}
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<div class="p-2 flex flex-col gap-2 border-r justify-start">
+							<AddTriggersButton
+								onAddDraftTrigger={handleAddTrigger}
+								class="w-fit h-fit"
+								placement="right-start"
+							>
+								<Button
+									variant="accent"
+									btnClasses="h-8 w-8 p-0"
+									nonCaptureEvent
+									startIcon={{ icon: Plus }}
+								/>
+							</AddTriggersButton>
+							<TriggersBadge
+								showOnlyWithCount={false}
+								path={initialPath || fakeInitialPath}
+								{newItem}
+								isFlow
+								selected={true}
+								small={false}
+								vertical
+								onSelect={(triggerIndex: number) => {
+									triggersState.selectedTriggerIndex = triggerIndex
+								}}
+							/>
+						</div>
+					{/if}
+
+					{#if triggersState.selectedTrigger}
+						<div
+							class="flex-grow overflow-auto py-2 px-4 transition-all duration-200 ease-in-out"
 							style="scrollbar-gutter: stable"
 						>
 							{#if loading}
@@ -401,35 +405,10 @@
 								{/key}
 							{/if}
 						</div>
-					</div>
-				{:else}
-					<!-- Full-width triggers table when no trigger is selected -->
-					<div
-						class="h-full w-full overflow-auto px-4 py-2 flex justify-start"
-						in:fade={{ duration: 200, delay: 50 }}
-						out:fade={{ duration: 150 }}
-					>
-						{#if loading}
-							<div
-								class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full max-w-2xl"
-							></div>
-						{:else}
-							<div class="w-full max-w-2xl">
-								<TriggersTable
-									selectedTrigger={triggersState.selectedTriggerIndex}
-									{onSelect}
-									triggers={triggersState.triggers}
-									{isEditor}
-									onAddDraftTrigger={handleAddTrigger}
-									onDeleteDraft={deleteTrigger}
-									onReset={handleResetDraft}
-									webhookToken={$triggersCount?.webhook_count}
-									emailToken={$triggersCount?.default_email_count}
-								/>
-							</div>
-						{/if}
-					</div>
-				{/if}
+					{:else if leftPaneWidth > 800}
+						{@render TriggerInfo(true)}
+					{/if}
+				</div>
 			</Pane>
 			{#if !cloudDisabled && triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
 				{@const captureKind = triggersState.selectedTrigger
@@ -460,3 +439,35 @@
 		</Splitpanes>
 	</FlowCard>
 </div>
+
+{#snippet TriggerInfo(margin: boolean = false)}
+	<div class="p-4 rounded bg-surface-tertiary grow min-w-[450px] h-fit {margin ? 'm-2' : ''}">
+		<div class="flex gap-3">
+			<BookOpen size={16} class="text-secondary mt-0.5 flex-shrink-0" />
+			<div class="flex-1">
+				<div class="text-2xs font-normal text-secondary mb-2">
+					<strong class="font-semibold">Triggers</strong> automatically run your flow when events
+					happen. Select one to configure it or create a new one.
+					<a
+						href="https://www.windmill.dev/docs/getting_started/triggers"
+						target="_blank"
+						class="whitespace-nowrap">Learn more <ExternalLink size={14} class="inline-block" /></a
+					>
+				</div>
+				<ul class="text-2xs text-hint space-y-1 ml-2">
+					<li class="flex">
+						<span class="mr-2">•</span>
+						<span>Default triggers: Webhooks, email, CLI - always exist, can't be disabled</span>
+					</li>
+					<li class="flex">
+						<span class="mr-2">•</span>
+						<span
+							>Additional triggers: Setup advanced triggers, like HTTP routes, database changes,
+							message queues, cloud events, and more</span
+						>
+					</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+{/snippet}
