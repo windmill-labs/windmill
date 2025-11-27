@@ -20,22 +20,6 @@ import type DiffDrawer from '../DiffDrawer.svelte'
 export type FlowDiffManager = ReturnType<typeof createFlowDiffManager>
 
 /**
- * Options for accepting a module action (simplified)
- */
-export type AcceptModuleOptions = {
-	/** The current flow store (used for applying changes) */
-	flowStore?: StateStore<ExtendedOpenFlow>
-}
-
-/**
- * Options for rejecting a module action (simplified)
- */
-export type RejectModuleOptions = {
-	/** The current flow store (used for reverting changes) */
-	flowStore?: StateStore<ExtendedOpenFlow>
-}
-
-/**
  * Options for computing diff
  */
 export type ComputeDiffOptions = {
@@ -283,7 +267,7 @@ export function createFlowDiffManager() {
 	 * Accept a module action (keep the changes)
 	 * Removes the action from tracking after acceptance
 	 */
-	function acceptModule(id: string, options: AcceptModuleOptions = {}) {
+	function acceptModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>) {
 		if (!beforeFlow) {
 			throw new Error('Cannot accept module without a beforeFlow snapshot')
 		}
@@ -293,7 +277,7 @@ export function createFlowDiffManager() {
 
 		// Handle removed modules: delete them from mergedFlow if present
 		// (flowStore already has the module removed since changes are applied directly)
-		if (info.action === 'removed' && options.flowStore) {
+		if (info.action === 'removed' && flowStore) {
 			const actualId = id.startsWith('__') ? id.substring(2) : id
 			// delete from merged flow
 			if (mergedFlow) {
@@ -320,7 +304,7 @@ export function createFlowDiffManager() {
 	 * Reject a module action (revert the changes)
 	 * Removes the action from tracking after rejection
 	 */
-	function rejectModule(id: string, options: RejectModuleOptions = {}) {
+	function rejectModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>) {
 		if (!beforeFlow) {
 			throw new Error('Cannot reject module without a beforeFlow snapshot')
 		}
@@ -333,14 +317,14 @@ export function createFlowDiffManager() {
 		const action = info.action
 
 		// Only perform revert operations if flowStore is provided
-		if (options.flowStore) {
+		if (flowStore) {
 			// Handle different action types
 			if (id === 'Input') {
 				// Revert input schema changes
-				options.flowStore.val.schema = beforeFlow.schema
+				flowStore.val.schema = beforeFlow.schema
 			} else if (action === 'added') {
 				// Remove the added module from flowStore
-				deleteModuleFromFlow(actualId, options.flowStore)
+				deleteModuleFromFlow(actualId, flowStore)
 
 				// ALSO remove from merged flow for immediate visual update
 				if (mergedFlow) {
@@ -362,10 +346,10 @@ export function createFlowDiffManager() {
 			} else if (action === 'removed') {
 				// Restore the removed module from beforeFlow to flowStore
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
-				if (oldModule && options.flowStore) {
+				if (oldModule && flowStore) {
 					// Use the insertion helper which handles nested modules correctly
 					insertModuleIntoFlow(
-						options.flowStore.val.value,
+						flowStore.val.value,
 						$state.snapshot(oldModule),
 						beforeFlow.value,
 						actualId
@@ -384,7 +368,7 @@ export function createFlowDiffManager() {
 			} else if (action === 'modified') {
 				// Revert to the old module state in flowStore
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
-				const newModule = getModuleFromFlow(actualId, options.flowStore.val)
+				const newModule = getModuleFromFlow(actualId, flowStore.val)
 
 				if (oldModule && newModule) {
 					// Restore the old module state
@@ -393,7 +377,7 @@ export function createFlowDiffManager() {
 				}
 			}
 
-			refreshStateStore(options.flowStore)
+			refreshStateStore(flowStore)
 		}
 
 		// Remove the action from tracking (no longer needs user decision)
@@ -410,13 +394,11 @@ export function createFlowDiffManager() {
 	/**
 	 * Accept all pending module actions
 	 */
-	function acceptAll(options: AcceptModuleOptions) {
+	function acceptAll(flowStore?: StateStore<ExtendedOpenFlow>) {
 		const ids = Object.keys(moduleActions)
-		console.log('HERE acceptAll', ids)
-		console.log('HERE moduleActions', moduleActions)
 		for (const id of ids) {
 			if (moduleActions[id]?.pending) {
-				acceptModule(id, options)
+				acceptModule(id, flowStore)
 			}
 		}
 	}
@@ -424,12 +406,12 @@ export function createFlowDiffManager() {
 	/**
 	 * Reject all pending module actions (in reverse order for nested modules)
 	 */
-	function rejectAll(options: RejectModuleOptions) {
+	function rejectAll(flowStore?: StateStore<ExtendedOpenFlow>) {
 		const ids = Object.keys(moduleActions)
 		// Process in reverse to handle nested modules correctly
 		for (let i = ids.length - 1; i >= 0; i--) {
 			if (moduleActions[ids[i]]?.pending) {
-				rejectModule(ids[i], options)
+				rejectModule(ids[i], flowStore)
 			}
 		}
 	}

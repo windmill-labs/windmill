@@ -141,10 +141,10 @@
 
 		// accept/reject operations (via flowDiffManager)
 		acceptAllModuleActions: () => {
-			diffManager?.acceptAll({ flowStore })
+			diffManager?.acceptAll(flowStore)
 		},
 		rejectAllModuleActions: () => {
-			diffManager?.rejectAll({ flowStore })
+			diffManager?.rejectAll(flowStore)
 		},
 		hasPendingChanges: () => {
 			return diffManager?.hasPendingChanges ?? false
@@ -244,7 +244,7 @@
 				untrack(() =>
 					$currentEditor.editor.reviewAppliedCode(content, {
 						onFinishedReview: () => {
-							diffManager?.acceptModule(selectedId, { flowStore })
+							diffManager?.acceptModule(selectedId, flowStore)
 							$currentEditor.hideDiffMode()
 						}
 					})

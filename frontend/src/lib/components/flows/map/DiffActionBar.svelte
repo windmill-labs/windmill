@@ -42,7 +42,7 @@
 				color="green"
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 				onClick={() => {
-					if (flowStore) diffManager?.acceptModule(moduleId, { flowStore })
+					if (flowStore) diffManager?.acceptModule(moduleId, flowStore)
 				}}
 			>
 				✓ Accept
@@ -52,7 +52,7 @@
 				color="red"
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
 				onClick={() => {
-					if (flowStore) diffManager?.rejectModule(moduleId, { flowStore })
+					if (flowStore) diffManager?.rejectModule(moduleId, flowStore)
 				}}
 			>
 				✗ Reject
