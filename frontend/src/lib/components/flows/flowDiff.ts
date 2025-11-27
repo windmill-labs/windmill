@@ -3,6 +3,9 @@ import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 
+/** Prefix added to module IDs when the original module coexists with a replacement */
+export const DUPLICATE_MODULE_PREFIX = 'old__'
+
 /**
  * The complete diff result with action maps and merged flow
  */
@@ -312,10 +315,10 @@ function reconstructMergedFlow(
 
 		// Check for ID collision - this happens when a module type changed
 		// In this case, the new module is already in the merged flow as 'added'
-		// We need to prepend "__" to the removed module's ID so both can coexist
+		// We prepend the duplicate prefix to the removed module's ID so both can coexist
 		const existingIds = getAllModuleIds(merged)
 		if (existingIds.has(clonedModule.id)) {
-			clonedModule = prependModuleId(clonedModule, '__')
+			clonedModule = prependModuleId(clonedModule, DUPLICATE_MODULE_PREFIX)
 		}
 
 		// Insert based on parent location
@@ -505,12 +508,12 @@ function adjustActionsForDisplay(
 	}
 
 	// Add entries for prefixed IDs (modules that had type changes or were removed)
-	// These are the old versions that got "__" prepended to their ID
+	// These are the old versions that got the duplicate prefix prepended to their ID
 	const allMergedIds = getAllModuleIds(mergedFlow)
 	for (const id of allMergedIds) {
-		if (id.startsWith('__') && !adjusted[id]) {
+		if (id.startsWith(DUPLICATE_MODULE_PREFIX) && !adjusted[id]) {
 			// This is a prefixed ID for a module that was removed
-			const originalId = id.substring(2)
+			const originalId = id.substring(DUPLICATE_MODULE_PREFIX.length)
 			// Check beforeActions to see if this module was removed
 			if (beforeActions[originalId]?.action === 'removed') {
 				adjusted[id] = {

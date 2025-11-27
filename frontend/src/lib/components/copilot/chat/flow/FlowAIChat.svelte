@@ -211,7 +211,7 @@
 				// Update schema if provided
 				if (parsed.schema !== undefined) {
 					flowStore.val.schema = parsed.schema
-					diffManager?.setInputSchemas(diffManager?.beforeFlow?.schema, parsed.schema)
+					diffManager?.setAfterInputSchema(parsed.schema)
 				}
 
 				diffManager?.setEditMode(true)

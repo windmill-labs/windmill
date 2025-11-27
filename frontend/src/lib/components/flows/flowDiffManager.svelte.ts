@@ -9,7 +9,12 @@
 import type { ExtendedOpenFlow } from './types'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from '../copilot/chat/flow/core'
-import { buildFlowTimeline, insertModuleIntoFlow, findModuleInFlow } from './flowDiff'
+import {
+	buildFlowTimeline,
+	insertModuleIntoFlow,
+	findModuleInFlow,
+	DUPLICATE_MODULE_PREFIX
+} from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
@@ -42,8 +47,7 @@ export function createFlowDiffManager() {
 	// State: merged flow containing both original and modified/removed modules
 	let mergedFlow = $state<FlowValue | undefined>(undefined)
 
-	// State: input schemas for tracking schema changes
-	let beforeInputSchema = $state<Record<string, any> | undefined>(undefined)
+	// State: input schema after changes (beforeInputSchema is just beforeFlow?.schema)
 	let afterInputSchema = $state<Record<string, any> | undefined>(undefined)
 
 	// State: whether to mark removed modules as shadowed (for side-by-side view)
@@ -55,26 +59,15 @@ export function createFlowDiffManager() {
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
 
-	$inspect('HERE: [flowDiffManager] moduleActions', moduleActions)
-
-	// State: reference to DiffDrawer component for showing module diffs
-	let diffDrawer = $state<DiffDrawer | undefined>(undefined)
+	// Reference to DiffDrawer component for showing module diffs (not reactive)
+	let diffDrawer: DiffDrawer | undefined = undefined
 
 	// Derived: whether there are any pending changes
 	const hasPendingChanges = $derived(Object.values(moduleActions).some((info) => info.pending))
 
-	// onChange callback for notifying listeners when moduleActions change
-	let onChangeCallback: ((actions: Record<string, ModuleActionInfo>) => void) | undefined
-
 	// Auto-compute diff when beforeFlow or afterFlow changes
 	$effect(() => {
-		console.log('HERE: [flowDiffManager $effect] beforeFlow', beforeFlow, afterFlow)
 		if (beforeFlow && afterFlow) {
-			// if (hasPendingChanges) {
-			// 	console.log('HERE: [flowDiffManager $effect] hasPendingChanges', hasPendingChanges)
-			// 	return
-			// }
-			console.log('HERE: [flowDiffManager $effect] beforeFlow', beforeFlow, editMode)
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: editMode
@@ -87,8 +80,9 @@ export function createFlowDiffManager() {
 			const newActions = { ...timeline.afterActions }
 
 			// Check for input schema changes
-			if (beforeInputSchema && afterInputSchema) {
-				const schemaChanged = JSON.stringify(beforeInputSchema) !== JSON.stringify(afterInputSchema)
+			if (beforeFlow.schema && afterInputSchema) {
+				const schemaChanged =
+					JSON.stringify(beforeFlow.schema) !== JSON.stringify(afterInputSchema)
 				if (schemaChanged) {
 					newActions['Input'] = {
 						action: 'modified',
@@ -110,9 +104,6 @@ export function createFlowDiffManager() {
 	 */
 	function updateModuleActions(newActions: Record<string, ModuleActionInfo>) {
 		moduleActions = newActions
-		console.log('updateModuleActions', newActions)
-		console.log('onChangeCallback', onChangeCallback)
-		onChangeCallback?.(newActions)
 	}
 
 	/**
@@ -120,11 +111,6 @@ export function createFlowDiffManager() {
 	 */
 	function setSnapshot(flow: ExtendedOpenFlow | undefined) {
 		beforeFlow = flow
-		if (flow) {
-			beforeInputSchema = flow.schema
-		} else {
-			beforeInputSchema = undefined
-		}
 	}
 
 	/**
@@ -135,14 +121,10 @@ export function createFlowDiffManager() {
 	}
 
 	/**
-	 * Set input schemas for tracking schema changes
+	 * Set the after input schema for tracking schema changes
 	 */
-	function setInputSchemas(
-		before: Record<string, any> | undefined,
-		after: Record<string, any> | undefined
-	) {
-		beforeInputSchema = before
-		afterInputSchema = after
+	function setAfterInputSchema(schema: Record<string, any> | undefined) {
+		afterInputSchema = schema
 	}
 
 	/**
@@ -166,7 +148,6 @@ export function createFlowDiffManager() {
 		beforeFlow = undefined
 		afterFlow = undefined
 		mergedFlow = undefined
-		beforeInputSchema = undefined
 		afterInputSchema = undefined
 		updateModuleActions({})
 	}
@@ -245,7 +226,9 @@ export function createFlowDiffManager() {
 		// Get the module from the flow to find children
 		const flow = mergedFlow ? { value: mergedFlow, summary: '' } : beforeFlow
 		if (flow) {
-			const actualId = id.startsWith('__') ? id.substring(2) : id
+			const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
+			? id.substring(DUPLICATE_MODULE_PREFIX.length)
+			: id
 			const module = getModuleFromFlow(actualId, flow as ExtendedOpenFlow)
 
 			if (module) {
@@ -257,8 +240,8 @@ export function createFlowDiffManager() {
 				// Remove all children from tracking
 				childIds.forEach((childId) => {
 					delete newActions[childId]
-					// Also try with __ prefix in case it's a shadowed/removed module
-					delete newActions[`__${childId}`]
+					// Also try with duplicate prefix in case it's a shadowed/removed module
+					delete newActions[`${DUPLICATE_MODULE_PREFIX}${childId}`]
 				})
 			}
 		}
@@ -281,7 +264,9 @@ export function createFlowDiffManager() {
 		// Handle removed modules: delete them from mergedFlow if present
 		// (flowStore already has the module removed since changes are applied directly)
 		if (info.action === 'removed' && flowStore) {
-			const actualId = id.startsWith('__') ? id.substring(2) : id
+			const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
+			? id.substring(DUPLICATE_MODULE_PREFIX.length)
+			: id
 			// delete from merged flow
 			if (mergedFlow) {
 				const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
@@ -312,7 +297,9 @@ export function createFlowDiffManager() {
 			throw new Error('Cannot reject module without a beforeFlow snapshot')
 		}
 
-		const actualId = id.startsWith('__') ? id.substring(2) : id
+		const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
+			? id.substring(DUPLICATE_MODULE_PREFIX.length)
+			: id
 		const info = moduleActions[id]
 
 		if (!info) return
@@ -359,12 +346,12 @@ export function createFlowDiffManager() {
 					)
 				}
 
-				// Also update mergedFlow - the module may have __ prefix (ID collision case)
+				// Also update mergedFlow - the module may have duplicate prefix (ID collision case)
 				if (mergedFlow) {
-					const prefixedId = `__${actualId}`
+					const prefixedId = `${DUPLICATE_MODULE_PREFIX}${actualId}`
 					const moduleInMerged = findModuleInFlow(mergedFlow, prefixedId)
 					if (moduleInMerged) {
-						// Restore original ID by removing the __ prefix
+						// Restore original ID by removing the duplicate prefix
 						moduleInMerged.id = actualId
 					}
 				}
@@ -515,7 +502,7 @@ export function createFlowDiffManager() {
 		// Snapshot management
 		setSnapshot,
 		setAfterFlow,
-		setInputSchemas,
+		setAfterInputSchema,
 		setMarkRemovedAsShadowed,
 		setEditMode,
 		clearSnapshot,

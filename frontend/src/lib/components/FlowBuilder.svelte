@@ -164,20 +164,20 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
-	// function hasAIChanges(): boolean {
-	// 	return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
-	// }
+	function hasAIChanges(): boolean {
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
+	}
 
 	function withAIChangesWarning(callback: () => void) {
-		// if (hasAIChanges()) {
-		// 	aiChangesConfirmCallback = () => {
-		// 		aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
-		// 		callback()
-		// 	}
-		// 	aiChangesWarningOpen = true
-		// } else {
-		callback()
-		// }
+		if (hasAIChanges()) {
+			aiChangesConfirmCallback = () => {
+				aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+				callback()
+			}
+			aiChangesWarningOpen = true
+		} else {
+			callback()
+		}
 	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -899,10 +899,10 @@
 	$effect.pre(() => {
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
-	// $effect.pre(() => {
-	// 	const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
-	// 	customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
-	// })
+	$effect.pre(() => {
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
+		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
+	})
 
 	export async function loadFlowState() {
 		await stepHistoryLoader.loadIndividualStepsStates(

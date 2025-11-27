@@ -476,7 +476,7 @@
 			// Set snapshot from diffBeforeFlow
 			diffManager.setEditMode(editMode)
 			diffManager.setSnapshot(diffBeforeFlow)
-			diffManager.setInputSchemas(diffBeforeFlow.schema, currentInputSchema)
+			diffManager.setAfterInputSchema(currentInputSchema)
 			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
 
 			// Set afterFlow from current modules
