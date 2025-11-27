@@ -38,6 +38,7 @@ pub async fn do_duckdb(
     #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> Result<Box<RawValue>> {
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy =
@@ -182,19 +183,23 @@ pub async fn do_duckdb(
         Ok(result)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await;
+    let result = if run_inline {
+        result_f.await
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await
+    };
 
     match result {
         Ok(result) => Ok(result),

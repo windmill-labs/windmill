@@ -51,12 +51,12 @@ function sqlProviderImpl(
       ducklake: (i: number) => `-- $arg${i + 1}`,
     }[provider];
     let content = values.map((_, i) => formatArg(i)).join("\n") + "\n";
+    if (provider === "ducklake")
+      content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
     for (let i = 0; i < strings.length; i++) {
       content += strings[i];
       if (i !== strings.length - 1) content += `$${i + 1}`;
     }
-    if (provider === "ducklake")
-      content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
 
     const args = {
       ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
