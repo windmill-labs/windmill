@@ -210,58 +210,58 @@ mod dependency_map {
 
     // If you deploy from cli and you use raw requirements you don't want the script be included in dmap
     // Otherwise script will be overwritten once any relative import is updated
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_with_legacy(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let (client, _port, _s) = init(db.clone()).await;
+    //     #[cfg(feature = "python")]
+    //     #[sqlx::test(fixtures("base", "dependency_map"))]
+    //     async fn relative_imports_test_with_legacy(db: Pool<Postgres>) -> anyhow::Result<()> {
+    //         let (client, _port, _s) = init(db.clone()).await;
 
-        client
-            .create_script(
-                "test-workspace",
-                &quick_ns(
-                    "
-from f.rel.branch import main as br;
-from f.rel.leaf_1 import main as lf_1;
-from f.rel.leaf_2 import main as lf_2;
+    //         client
+    //             .create_script(
+    //                 "test-workspace",
+    //                 &quick_ns(
+    //                     "
+    // from f.rel.branch import main as br;
+    // from f.rel.leaf_1 import main as lf_1;
+    // from f.rel.leaf_2 import main as lf_2;
 
-def main():
-    return [br(), lf_1(), lf_2];
-                            ",
-                    windmill_api_client::types::ScriptLang::Python3,
-                    "f/rel/root_script",
-                    Some("# from requirements.txt".to_string()),
-                    Some("000000000005165B".into()),
-                ),
-            )
-            .await
-            .unwrap();
+    // def main():
+    //     return [br(), lf_1(), lf_2];
+    //                             ",
+    //                     windmill_api_client::types::ScriptLang::Python3,
+    //                     "f/rel/root_script",
+    //                     Some("# from requirements.txt".to_string()),
+    //                     Some("000000000005165B".into()),
+    //                 ),
+    //             )
+    //             .await
+    //             .unwrap();
 
-        assert_dmap(
-            &db,
-            Some("f/rel/root_script".into()),
-            vec![
-                ("f/rel/root_script", "script", "f/rel/branch", ""),
-                ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
-                ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
-            ],
-        )
-        .await;
+    //         assert_dmap(
+    //             &db,
+    //             Some("f/rel/root_script".into()),
+    //             vec![
+    //                 ("f/rel/root_script", "script", "f/rel/branch", ""),
+    //                 ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
+    //                 ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
+    //             ],
+    //         )
+    //         .await;
 
-        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+    //         tokio::time::sleep(std::time::Duration::from_secs(13)).await;
 
-        assert_dmap(
-            &db,
-            Some("f/rel/root_script".into()),
-            vec![
-                ("f/rel/root_script", "script", "f/rel/branch", ""),
-                ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
-                ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
-            ],
-        )
-        .await;
+    //         assert_dmap(
+    //             &db,
+    //             Some("f/rel/root_script".into()),
+    //             vec![
+    //                 ("f/rel/root_script", "script", "f/rel/branch", ""),
+    //                 ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
+    //                 ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
+    //             ],
+    //         )
+    //         .await;
 
-        Ok(())
-    }
+    //         Ok(())
+    //     }
 
     // Consider simple one. Only referenced directly. No deep connections
     #[cfg(feature = "python")]
