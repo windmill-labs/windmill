@@ -1018,6 +1018,9 @@ class Windmill:
     def datatable(self, name: str = "main"):
         return DataTableClient(self, name)
 
+    def ducklake(self, name: str = "main"):
+        return DucklakeClient(self, name)
+
 
 
 def init_global_client(f):
@@ -1575,7 +1578,7 @@ def datatable(name: str = "main"):
 
 @init_global_client
 def ducklake(name: str = "main"):
-    return _client.datatable(name)
+    return _client.ducklake(name)
 
 def task(*args, **kwargs):
     from inspect import signature
@@ -1690,4 +1693,22 @@ class DataTableClient:
             content=sql,
             language="postgresql",
             args={"database": f"datatable://{self.name}", **args_dict},
+        )
+
+class DucklakeClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def fetch(self, sql: str, *args):
+        args_dict = {}
+        args_def = ""
+        for i, arg in enumerate(args):
+            args_dict[f"arg{i+1}"] = arg
+            args_def += f"-- $arg{i+1}\n"
+        attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
+        sql = args_def + attach + sql
+        return self.client.run_inline_script_preview(
+            content=sql,
+            language="duckdb",
+            args=args_dict,
         )
