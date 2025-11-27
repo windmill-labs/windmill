@@ -2250,7 +2250,6 @@ pub struct PulledJob {
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
 
-// TODO: test Agent workers for workspace dependencies. 
 // NOTE:
 // Precomputed by the server
 // Used to offload work from agent workers to server

@@ -290,7 +290,6 @@ SELECT importer_node_id, imported_path
         w_id: &str,
         db: &sqlx::Pool<sqlx::Postgres>,
     ) -> Result<String> {
-        // TODO: triplecheck logic and stuff
         // Scripts
         tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
         for r in sqlx::query!(

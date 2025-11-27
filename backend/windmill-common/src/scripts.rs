@@ -139,7 +139,6 @@ impl ScriptLang {
         use ScriptLang::*;
         match self {
             // TODO: Maybe use regex
-            // TODO: Doublecheck these
             Bun | Bunnative => {
                 WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code, runnable_path)
             }

@@ -449,6 +449,8 @@ pub async fn install_go_dependencies(
     job_dir: &str,
     conn: &Connection,
     non_dep_job: bool,
+    // NOTE: this is impossible for skip_go_mod be `false` and maybe_lock be `Resolved`.
+    // TODO: make it comptime gurantee
     skip_go_mod: bool,
     has_sum: bool,
     worker_name: &str,
@@ -615,7 +617,6 @@ pub async fn install_go_dependencies(
     )
     .await?;
 
-    // TODO: What? What is it used for?
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());
     }

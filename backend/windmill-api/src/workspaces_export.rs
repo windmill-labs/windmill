@@ -312,7 +312,6 @@ pub(crate) async fn tarball_workspace(
         include_groups,
         include_settings,
         include_key,
-        // TODO(push/pull): Only if admin
         include_workspace_dependencies,
         default_ts,
     }): Query<ArchiveQueryParams>,

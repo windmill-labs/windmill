@@ -1190,7 +1190,6 @@ async fn handle_python_deps(
                         db,
                         &mut version_specifiers,
                         &mut locked_v,
-                        // TODO: pretty sure this is fine.
                         &None,
                     ))
                     .await?;
@@ -1213,7 +1212,6 @@ async fn handle_python_deps(
                     (v, r, h)
                 }
 
-                // TODO: handle agent workers.
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python {
                         requirements,

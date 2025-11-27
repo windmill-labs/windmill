@@ -653,7 +653,6 @@ fn extract_nimports_from_content(
     let lines = split_python_requirements(content);
     let locked_version = try_parse_locked_python_version_from_requirements(&lines);
     for requirement in lines {
-        // TODO: test if `#` vs ` #`
         let key = extract_pkg_name(&requirement);
         hm.insert(
             key.clone(),

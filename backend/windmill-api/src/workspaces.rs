@@ -3654,7 +3654,6 @@ async fn get_dependents_amounts(
         "API: Getting dependents amounts for imported paths"
     );
 
-    // TODO: Add index on (workspace_id, imported_path) to speed up this query
     let results = sqlx::query_as!(
         DependentsAmount,
         r#"

@@ -2596,11 +2596,6 @@ async fn capture_dependency_job(
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
 ) -> error::Result<String> {
-    // TODO: what's the point in this?
-    // let wdi = WorkspaceDependenciesInput::from(*job_language, job_raw_code, w_id, db).await?;
-    // let workspace_dependencies_refs =
-    //     job_language.extract_workspace_dependencies_annotated_refs(job_raw_code);
-
     let workspace_dependencies = WorkspaceDependenciesPrefetched::extract(
         job_raw_code,
         *job_language,
@@ -2619,11 +2614,6 @@ async fn capture_dependency_job(
             ));
             #[cfg(feature = "python")]
             {
-                // TODO: Multiple python versions:
-                // TODO: test ansible still works
-                // 1. in inline
-                // 2. in external
-                // 3. in file inline
                 let annotations = PythonAnnotations::parse(job_raw_code);
 
                 let (pyv, reqs) = {
@@ -2678,7 +2668,6 @@ async fn capture_dependency_job(
                 .await?
             }
         }
-        // TODO: Test workspace dependencies with ansible.
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
             return Err(Error::internal_err(
@@ -2687,11 +2676,6 @@ async fn capture_dependency_job(
 
             #[cfg(feature = "python")]
             {
-                // if raw_deps {
-                //     return Err(Error::ExecutionErr(
-                //         "Raw dependencies not supported for ansible".to_string(),
-                //     ));
-                // }
                 let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
 
                 ansible_dep(
@@ -2730,11 +2714,6 @@ async fn capture_dependency_job(
             .await?
         }
         ScriptLang::Deno => {
-            // if raw_deps {
-            //     return Err(Error::ExecutionErr(
-            //         "Raw dependencies not supported for deno".to_string(),
-            //     ));
-            // }
             generate_deno_lock(
                 job_id,
                 job_raw_code,
@@ -2823,12 +2802,6 @@ async fn capture_dependency_job(
             }
         }
         ScriptLang::Rust => {
-            // if raw_deps {
-            //     return Err(Error::ExecutionErr(
-            //         "Raw dependencies not supported for rust".to_string(),
-            //     ));
-            // }
-
             #[cfg(not(feature = "rust"))]
             return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
@@ -2852,12 +2825,6 @@ async fn capture_dependency_job(
             lockfile
         }
         ScriptLang::CSharp => {
-            // if raw_deps {
-            //     return Err(Error::ExecutionErr(
-            //         "Raw dependencies not supported for C#".to_string(),
-            //     ));
-            // }
-
             generate_nuget_lockfile(
                 job_id,
                 job_raw_code,
@@ -2873,12 +2840,6 @@ async fn capture_dependency_job(
         }
         #[cfg(feature = "java")]
         ScriptLang::Java => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for Java".to_string(),
-                ));
-            }
-
             java_executor::resolve(
                 job_id,
                 job_raw_code,
@@ -2890,12 +2851,6 @@ async fn capture_dependency_job(
         }
         #[cfg(feature = "ruby")]
         ScriptLang::Ruby => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for Ruby".to_string(),
-                ));
-            }
-
             ruby_executor::resolve(
                 job_id,
                 job_raw_code,
