@@ -274,7 +274,8 @@ export function extractInlineScriptsForApps(
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
         const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);
+        const basePath = basePathO.replaceAll(SEP, "/");
         const r = [];
         if (o["content"]) {
           const content = o["content"];

@@ -34,6 +34,7 @@ export function replaceInlineScripts(rec: any, localPath: string) {
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
+
         if (o["content"] && o["content"].startsWith("!inline")) {
           const basePath = localPath + o["content"].split(" ")[1];
           o["content"] = readInlinePathSync(basePath);

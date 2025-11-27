@@ -27,7 +27,11 @@ import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { AppFile } from "./raw_apps.ts";
 import { replaceInlineScripts } from "./apps.ts";
-import { getLanguageExtension, SupportedLanguage } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import {
+  getLanguageExtension,
+  newPathAssigner,
+  SupportedLanguage,
+} from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 const TOP_HASH = "__app_hash";
 
@@ -179,7 +183,6 @@ export async function generateAppLocksInternal(
         opts.defaultTs
       );
 
-
       // Write the updated app file
       writeIfChanged(
         appFilePath,
@@ -221,6 +224,7 @@ async function updateAppRunnables(
     // Folder may already exist
   }
 
+  const pathAssigner = newPathAssigner(defaultTs);
   for (const [runnableId, runnable] of Object.entries(runnables)) {
     // Only process inline scripts (runnableByName with inlineScript)
     if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
@@ -255,7 +259,9 @@ async function updateAppRunnables(
 
     log.info(
       colors.gray(
-        `Generating lock for runnable ${runnableId} (${language})${langRawDeps ? " with raw deps" : ""}`
+        `Generating lock for runnable ${runnableId} (${language})${
+          langRawDeps ? " with raw deps" : ""
+        }`
       )
     );
 
@@ -269,10 +275,10 @@ async function updateAppRunnables(
       );
 
       // Determine file extension for this language
-      const ext = getLanguageExtension(language, defaultTs);
-      const baseName = `${runnableId}.inline_script`;
-      const contentPath = path.join(runnablesFolder, `${baseName}.${ext}`);
-      const lockPath = path.join(runnablesFolder, `${baseName}.lock`);
+      const [basePathO, ext] = pathAssigner.assignPath(runnable.name, language);
+      const basePath = basePathO.replaceAll(SEP, "/");
+      const contentPath = path.join(runnablesFolder, `${basePath}${ext}`);
+      const lockPath = path.join(runnablesFolder, `${basePath}lock`);
 
       // Write content to file
       writeIfChanged(contentPath, content);
@@ -283,8 +289,9 @@ async function updateAppRunnables(
       }
 
       // Update the runnable with !inline references (preserve existing schema)
-      const inlineContentRef = `!inline ${baseName}.${ext}`;
-      const inlineLockRef = lock && lock !== "" ? `!inline ${baseName}.lock` : "";
+      const inlineContentRef = `!inline ${basePath}${ext}`;
+      const inlineLockRef =
+        lock && lock !== "" ? `!inline ${basePath}lock` : "";
 
       updatedRunnables[runnableId] = {
         ...runnable,
@@ -297,7 +304,7 @@ async function updateAppRunnables(
 
       log.info(
         colors.gray(
-          `  Written ${baseName}.${ext}${lock ? ` and ${baseName}.lock` : ""}`
+          `  Written ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
         )
       );
     } catch (error: any) {
@@ -399,7 +406,8 @@ export interface InferredSchemaResult {
  */
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
-  runnableFilePath: string
+  runnableFilePath: string,
+  runnableId: string
 ): Promise<InferredSchemaResult | undefined> {
   // Extract runnable ID from file path (e.g., "myRunnable.inline_script.ts" -> "myRunnable")
   const fileName = path.basename(runnableFilePath);
@@ -415,18 +423,18 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  const runnableId = match[1];
+  const basePath = match[1];
 
   // Read the app file to get the language
   const appFilePath = path.join(appFolder, "raw_app.yaml");
   const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
-  if (!appFile.runnables?.[runnableId]) {
-    log.warn(colors.yellow(`Runnable ${runnableId} not found in raw_app.yaml`));
+  if (!appFile.runnables?.[basePath]) {
+    log.warn(colors.yellow(`Runnable ${basePath} not found in raw_app.yaml`));
     return undefined;
   }
 
-  const runnable = appFile.runnables[runnableId];
+  const runnable = appFile.runnables[basePath];
 
   // Only process inline scripts
   if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
@@ -460,18 +468,18 @@ export async function inferRunnableSchemaFromFile(
       language as ScriptLanguage,
       content,
       currentSchema,
-      `${remotePath}/${runnableId}`
+      `${remotePath}/${basePath}`
     );
 
-    log.info(colors.green(`  Inferred schema for ${runnableId}`));
+    log.info(colors.green(`  Inferred schema for ${basePath}`));
     return {
-      runnableId,
+      runnableId: basePath,
       schema: schemaResult.schema,
     };
   } catch (schemaError: any) {
     log.warn(
       colors.yellow(
-        `Failed to infer schema for ${runnableId}: ${schemaError.message}`
+        `Failed to infer schema for ${basePath}: ${schemaError.message}`
       )
     );
     return undefined;

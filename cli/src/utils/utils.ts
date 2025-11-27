@@ -15,7 +15,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (Array.isArray(a)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0;) {
+      for (i = length; i-- !== 0; ) {
         if (!deepEqual(a[i], b[i])) return false;
       }
       return true;
@@ -43,7 +43,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0;) {
+      for (i = length; i-- !== 0; ) {
         if (a[i] !== b[i]) return false;
       }
       return true;
@@ -66,11 +66,11 @@ export function deepEqual<T>(a: T, b: T): boolean {
     length = keys.length;
     if (length !== Object.keys(b).length) return false;
 
-    for (i = length; i-- !== 0;) {
+    for (i = length; i-- !== 0; ) {
       if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
     }
 
-    for (i = length; i-- !== 0;) {
+    for (i = length; i-- !== 0; ) {
       const key = keys[i];
       if (!deepEqual(a[key], b[key])) return false;
     }
@@ -86,10 +86,10 @@ export function getHeaders(): Record<string, string> | undefined {
   const headers = Deno.env.get("HEADERS");
   if (headers) {
     const parsedHeaders = Object.fromEntries(
-      headers.split(",").map((h) => h.split(":").map((s) => s.trim())),
+      headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
     );
     log.debug(
-      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders)),
+      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders))
     );
     return parsedHeaders;
   } else {
@@ -116,7 +116,7 @@ export async function generateHash(content: string): Promise<string> {
 }
 
 export async function generateHashFromBuffer(
-  content: BufferSource,
+  content: BufferSource
 ): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", content);
   return encodeHex(hashBuffer);
@@ -127,7 +127,12 @@ export async function generateHashFromBuffer(
 // }
 
 export function readInlinePathSync(path: string): string {
-  return Deno.readTextFileSync(path.replaceAll("/", SEP));
+  try {
+    return Deno.readTextFileSync(path.replaceAll("/", SEP));
+  } catch (error) {
+    log.warn(`Error reading inline path: ${path}, ${error}`);
+    return "";
+  }
 }
 
 export function sleep(ms: number) {
@@ -151,9 +156,8 @@ export function isRawAppFile(path: string): boolean {
 
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
   let bytesWritten = 0;
-  const bytes = typeof input === "string"
-    ? new TextEncoder().encode(input)
-    : input;
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
   while (bytesWritten < bytes.length) {
     bytesWritten += to.writeSync(bytes.subarray(bytesWritten));
   }
@@ -167,7 +171,7 @@ export interface Repository {
 // Shared repository selection logic
 export async function selectRepository<T extends Repository>(
   repositories: T[],
-  operation?: string,
+  operation?: string
 ): Promise<T> {
   if (repositories.length === 0) {
     throw new Error("No git-sync repositories configured in workspace");
@@ -176,7 +180,7 @@ export async function selectRepository<T extends Repository>(
   if (repositories.length === 1) {
     const repoPath = repositories[0].git_repo_resource_path.replace(
       /^\$res:/,
-      "",
+      ""
     );
     log.info(colors.cyan(`Auto-selected repository: ${colors.bold(repoPath)}`));
     return repositories[0];
@@ -190,9 +194,9 @@ export async function selectRepository<T extends Repository>(
       r.git_repo_resource_path.replace(/^\$res:/, "")
     );
     throw new Error(
-      `Multiple repositories found: ${
-        repoPaths.join(", ")
-      }. Use --repository to specify which one to ${operation || "use"}.`,
+      `Multiple repositories found: ${repoPaths.join(
+        ", "
+      )}. Use --repository to specify which one to ${operation || "use"}.`
     );
   }
 
@@ -202,7 +206,7 @@ export async function selectRepository<T extends Repository>(
   console.log(
     `\nMultiple repositories found. Please select which repository to ${
       operation || "use"
-    }:\n`,
+    }:\n`
   );
 
   const selectedRepo = await Select.prompt({
