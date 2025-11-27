@@ -6175,7 +6175,6 @@ async fn run_dependencies_job(
         ));
     }
 
-    dbg!(&req);
     let RawScriptForDependencies {
         // unwrap
         script_path,
@@ -6184,9 +6183,8 @@ async fn run_dependencies_job(
     } = req.raw_scripts[0].clone();
 
     let mut hm = HashMap::new();
-    // TODO: check if npm_mode works correctly
-    // req.raw_workspace_dependencies
-    //     .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
+    req.raw_workspace_dependencies
+        .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,

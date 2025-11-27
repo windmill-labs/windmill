@@ -122,7 +122,6 @@ impl ScriptLang {
 
     pub fn as_comment_lit(&self) -> String {
         use ScriptLang::*;
-        // TODO: Go is fucked up a bit
         match self {
             Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
             Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
@@ -132,14 +131,6 @@ impl ScriptLang {
         }
         .to_owned()
     }
-
-    // pub fn as_lock_comment_lit(&self) -> String {
-    //     use ScriptLang::*;
-    //     // TODO: Go is fucked up a bit
-    //     match self {
-    //         l => l.as_comment_lit(),
-    //     }
-    // }
 
     pub fn extract_workspace_dependencies_annotated_refs(
         &self,

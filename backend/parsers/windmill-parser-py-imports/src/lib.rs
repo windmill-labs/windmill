@@ -31,10 +31,7 @@ use windmill_common::{
         split_python_requirements, try_parse_locked_python_version_from_requirements,
         PythonAnnotations,
     },
-    workspace_dependencies::{
-        RawWorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
-        WorkspaceDependenciesPrefetched,
-    },
+    workspace_dependencies::{RawWorkspaceDependencies, WorkspaceDependenciesPrefetched},
 };
 
 fn replace_import(x: String) -> String {
@@ -420,7 +417,6 @@ async fn parse_python_imports_inner(
         find_requirements.is_some()
     );
 
-    // TODO: test this syntax
     if let Some((pos, item)) = find_requirements {
         tracing::debug!("Found script metadata block at position {}: {}", pos, item);
         let mut requirements = HashMap::new();
