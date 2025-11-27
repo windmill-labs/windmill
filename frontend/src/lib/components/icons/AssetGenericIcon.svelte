@@ -4,6 +4,7 @@
 	import AssetResIcon from './AssetResIcon.svelte'
 	import AssetS3Icon from './AssetS3Icon.svelte'
 	import AssetDucklakeIcon from './AssetDucklakeIcon.svelte'
+	import AssetDatabaseIcon from './AssetDatabaseIcon.svelte'
 
 	interface Props {
 		size?: string
@@ -19,6 +20,8 @@
 	<AssetS3Icon {fill} width={size} height={size} class={className} />
 {:else if assetKind == 'resource'}
 	<AssetResIcon {fill} width={size} height={size} class={className} />
+{:else if assetKind == 'datatable'}
+	<AssetDatabaseIcon {fill} width={size} height={size} class={className} />
 {:else if assetKind == 'ducklake'}
 	<AssetDucklakeIcon {fill} width={size} height={size} class={className} />
 {:else}
