@@ -182,7 +182,7 @@ mod workspace_dependencies_tests {
                     description: None,
                     content: "global:rev1".to_owned(),
                 }
-                .create(&db)
+                .create("", "", "", &db)
                 .await
                 .unwrap(),
                 1
@@ -196,7 +196,7 @@ mod workspace_dependencies_tests {
                     description: None,
                     content: "rrs1:rev1".to_owned(),
                 }
-                .create(&db)
+                .create("", "", "", &db)
                 .await
                 .unwrap(),
                 2
@@ -209,7 +209,7 @@ mod workspace_dependencies_tests {
                 name: None,
                 content: "".to_owned(),
             }
-            .create(&db)
+            .create("", "", "", &db)
             .await
             .is_err());
 
@@ -222,7 +222,7 @@ mod workspace_dependencies_tests {
                     name: Some("rrs1".to_owned()),
                     content: "rrs1:rev2".to_owned(),
                 }
-                .create(&db)
+                .create("", "", "", &db)
                 .await
                 .unwrap(),
                 // It will just increment id
