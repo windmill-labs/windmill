@@ -99,7 +99,7 @@
 	}
 
 	let workspaceDependenciesName: string = $state('')
-	let workspaceDependenciesType: 'workspace' | 'named' = $state('workspace')
+	let workspaceDependenciesType = $state<'workspace' | 'named'>('workspace')
 	
 	// Language options for workspace dependencies - only supported languages
 	const LANGUAGE_OPTIONS = [
