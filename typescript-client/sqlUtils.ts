@@ -3,7 +3,7 @@ import { getWorkspace, JobService } from "./client";
 export type SqlStatement = {
   content: string;
   args: Record<string, any>;
-  query(): Promise<any>;
+  fetch(): Promise<any>;
 };
 
 export interface SqlTemplateFunction {
@@ -18,7 +18,7 @@ export interface SqlTemplateFunction {
  * await sql`
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
- * `.query()
+ * `.fetch()
  */
 export function datatable(name: string = "main"): SqlTemplateFunction {
   return sqlProviderImpl(name, "datatable");
@@ -32,7 +32,7 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
  * await sql`
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}
- * `.query()
+ * `.fetch()
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
   return sqlProviderImpl(name, "ducklake");
@@ -70,7 +70,7 @@ function sqlProviderImpl(
     return {
       content,
       args,
-      query: async () => {
+      fetch: async () => {
         let result = await JobService.runScriptPreviewInline({
           workspace: getWorkspace(),
           requestBody: { args, content, language },
