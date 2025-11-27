@@ -224,12 +224,12 @@
 
 			{/if}
 		</div>
-		
-		{#snippet actions()}
+
+		<svelte:fragment slot="actions">
 			<Button size="sm" color="warning" on:click={handleConfirm}>
 				{confirmText}
 			</Button>
-		{/snippet}
+		</svelte:fragment>
 </Modal>
 
 {#snippet DependencyNode({ node, level }: { node: DependencyNode, level: number })}

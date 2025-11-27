@@ -185,7 +185,7 @@ numpy>=1.24.0
 	let editorReady = $state(false)
 	
 	// Calculate when deploy button should be disabled
-	let isDisabled = $derived(!can_write || !valid || (workspaceDependenciesType == 'named' && workspaceDependenciesName.trim() === ''))
+	let isDisabled = $derived(!can_write || !valid || (workspaceDependenciesType === 'named' && workspaceDependenciesName.trim() === ''))
 	
 	$effect(() => {
 		if (editor && !editorReady) {
