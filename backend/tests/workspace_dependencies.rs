@@ -10,13 +10,13 @@ mod workspace_dependencies {
     use windmill_worker::workspace_dependencies::NewWorkspaceDependencies;
     mod deps {
         pub const REQUIREMENTS_IN: &'static str = "tiny==0.1.3";
-        pub const GO_MOD: &'static str = r##"
-    module example.com/project
+        //     pub const GO_MOD: &'static str = r##"
+        // module example.com/project
 
-    go 1.20
+        // go 1.20
 
-    require github.com/gin-gonic/gin v1.8.1
-    "##;
+        // require github.com/gin-gonic/gin v1.8.1
+        // "##;
 
         pub const PACKAGE_JSON: &'static str = r##"
     {
