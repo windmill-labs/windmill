@@ -600,7 +600,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             .await?
             {
                 Some(version) => {
-                    tracing::debug!("Handling flow dependency update for: {}", importer_path);
+                    tracing::debug!("Handling app dependency update for: {}", importer_path);
 
                     args.insert(
                         "components_to_relock".to_string(),

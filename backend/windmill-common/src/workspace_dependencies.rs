@@ -12,7 +12,11 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
 };
 
 /// Minimum Windmill version required for workspace dependencies feature
+#[cfg(not(test))]
 pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.586.0";
+// for tests we will use older version
+#[cfg(test)]
+pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.0.0";
 
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
@@ -35,6 +39,9 @@ pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<(
 
 pub type RawWorkspaceDependencies = std::collections::HashMap<String, String>;
 
+/// Removes workspace dependencies annotation comments from lock files.
+/// This is used when passing locks to resolver expect no comments (looking at you, json).
+/// IMPORTANT: lock is expected to start with annotations
 pub fn clean_lock_from_annotations(lock: &str, language: ScriptLang) -> String {
     let mat = format!("{} workspace-dependencies", language.as_comment_lit());
     lock.lines().filter(|l| !l.starts_with(&mat)).collect()
@@ -51,7 +58,6 @@ pub fn get_raw_workspace_dependencies(
         .zip(WorkspaceDependencies::to_path(&name, language).ok())
         .and_then(|(hm, path)| hm.get(&path))
         .map(|raw_content| WorkspaceDependencies {
-            // TODO: Name should be different to prevent from collisions and pg index violation
             name,
             workspace_id,
             created_at: chrono::Utc::now(),
@@ -64,11 +70,9 @@ pub fn get_raw_workspace_dependencies(
 fn map_err(e: String) -> error::Error {
     error::Error::FeatureUnavailable(e)
 }
-// TODO: Make sure there is only one archived
-// and only one or none unnamed for given language
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorkspaceDependencies {
-    /// Global id (accross all workspaces)
+    /// Global id (across all workspaces)
     id: i64,
     archived: bool,
     /// If not set becomes default for given language
@@ -81,8 +85,10 @@ pub struct WorkspaceDependencies {
 }
 
 impl WorkspaceDependencies {
-    // TODO: Make sure it all starts with 1
     pub fn hash(&self) -> String {
+        // non-raw workspace dependencies will start with index 1.
+        // so if we see index 0, it is either default or default and raw deps
+        // if so we will use it's content as baseline
         if self.id == 0 {
             calculate_hash(&self.content)
         } else {
@@ -185,7 +191,6 @@ impl WorkspaceDependencies {
             .await
             .map_err(error::Error::from),
 
-            // TODO: Check it works for non admin when endpoint is admin only.
             Connection::Http(http_client) => http_client
                 .get::<Option<WorkspaceDependencies>>(&format!(
                     "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
@@ -465,7 +470,7 @@ impl WorkspaceDependenciesPrefetched {
             min_version_supports_v0_workspace_dependencies()
                 .await
                 .map_err(|_| {
-                    // TODO: Add this error is flakey, sometimes it will error, somethimes it will just ignore.
+                    // NOTE: this error is flakey, sometimes it will error, somethimes it will just ignore.
                     error::Error::WorkersAreBehind {
                         feature,
                         min_version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
@@ -483,7 +488,6 @@ impl WorkspaceDependenciesPrefetched {
         // Where `check_v0_python_compat` describes all features of previous python
 
         if !Self::is_external_references_permitted(&self.runnable_path) {
-            // TODO: maybe error is better?
             self.remove_external_references();
         }
         Ok(self)
@@ -560,14 +564,12 @@ impl WorkspaceDependenciesPrefetched {
         };
         match &self.internal {
             Explicit(workspace_dependencies_annotated_refs) => {
-                // TODO: error on extra for now
                 header.push(prepend_mode(workspace_dependencies_annotated_refs.mode));
                 for wd in &workspace_dependencies_annotated_refs.external {
                     header.push(insert_line(wd.hash(), wd.name.clone()));
                 }
             }
             Implicit { workspace_dependencies: wd, mode } => {
-                // TODO: error on extra for now
                 header.push(prepend_mode(*mode));
                 header.push(insert_line(wd.hash(), Option::None));
             }
@@ -777,10 +779,8 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         }
         Ok(res)
     }
-    // TODO: manual should take precendence over extra
     // TODO: Maybe implemented by our Annotations macro
-    // TODO: BREAKING: Note this will include all seqsequent lines as long as they start with comment.
-    // TODO: What sep should be? ':' or '='?
+    // TODO: Add sep config ':' or '='?
     pub fn parse(comment: &str, keyword: &str, code: &str, runnable_path: &str) -> Option<Self> {
         let (extra_deps, manual_deps) = (format!("extra_{keyword}:"), format!("{keyword}:"));
 
@@ -800,7 +800,11 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
         let external = {
             let next_line = lines_it.next();
             if !WorkspaceDependenciesPrefetched::is_external_references_permitted(runnable_path) {
-                // TODO: test for hub that it fails before submission.
+                tracing::warn!(
+                    runnable_path,
+                    "skipping external workspace dependencies for runnable"
+                );
+
                 Default::default()
                 // return Err(error::Error::BadConfig(format!(
                 //     "{runnable_path} should not include external Workspace Dependencies"
