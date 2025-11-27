@@ -104,7 +104,7 @@ jobs:
               }
             }
           claude_args: |
-            --allowedTools "Bash"
+            --allowedTools "Bash,WebFetch,WebSearch"
             --system-prompt "## IMPORTANT INSTRUCTIONS
             - Your branch name should be a short description of the requested changes.
             - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
