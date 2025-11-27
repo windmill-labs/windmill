@@ -409,7 +409,7 @@ async fn create_snapshot_script(
         if name == "script" {
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
-
+            let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             let (new_hash, ntx, hdm) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -419,8 +419,14 @@ async fn create_snapshot_script(
                 webhook.clone(),
             )
             .await?;
-            let nh = new_hash.to_string();
-            script_hash = Some(if is_tar { format!("{nh}.tar") } else { nh });
+            let mut nh = new_hash.to_string();
+            if use_esm {
+                nh = format!("{nh}.esm");
+            }
+            if is_tar {
+                nh = format!("{nh}.tar");
+            }
+            script_hash = Some(nh);
             tx = Some(ntx);
             handle_deployment_metadata = hdm;
         }
