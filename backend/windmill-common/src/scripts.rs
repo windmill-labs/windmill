@@ -26,6 +26,7 @@ use anyhow::Context;
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 use itertools::Itertools;
+use regex::Regex;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -137,19 +138,33 @@ impl ScriptLang {
         runnable_path: &str,
     ) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
         use ScriptLang::*;
+        lazy_static::lazy_static! {
+            static ref RE_PYTHON: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
+        }
         match self {
             // TODO: Maybe use regex
-            Bun | Bunnative => {
-                WorkspaceDependenciesAnnotatedRefs::parse("//", "package_json", code, runnable_path)
+            Bun | Bunnative => WorkspaceDependenciesAnnotatedRefs::parse(
+                "//",
+                "package_json",
+                code,
+                None,
+                runnable_path,
+            ),
+            Python3 => WorkspaceDependenciesAnnotatedRefs::parse(
+                "#",
+                "requirements",
+                code,
+                Some(&RE_PYTHON),
+                runnable_path,
+            ),
+            Go => {
+                WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, None, runnable_path)
             }
-            Python3 => {
-                WorkspaceDependenciesAnnotatedRefs::parse("#", "requirements", code, runnable_path)
-            }
-            Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, runnable_path),
             Php => WorkspaceDependenciesAnnotatedRefs::parse(
                 "//",
                 "composer_json",
                 code,
+                None,
                 runnable_path,
             ),
             _ => return None,

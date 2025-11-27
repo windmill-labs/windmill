@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 
@@ -19,7 +20,7 @@ pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.586.0";
 
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
-    if !*WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES 
+    if !*WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES
         && !*crate::worker::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES
             .read()
             .await
@@ -781,7 +782,13 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
     }
     // TODO: Maybe implemented by our Annotations macro
     // TODO: Add sep config ':' or '='?
-    pub fn parse(comment: &str, keyword: &str, code: &str, runnable_path: &str) -> Option<Self> {
+    pub fn parse(
+        comment: &str,
+        keyword: &str,
+        code: &str,
+        validity_re_o: Option<&Regex>,
+        runnable_path: &str,
+    ) -> Option<Self> {
         let (extra_deps, manual_deps) = (format!("extra_{keyword}:"), format!("{keyword}:"));
 
         let Some((pos, mat)) = code.lines().find_position(|l| {
@@ -834,12 +841,17 @@ impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
 
         let inline_deps = lines_it
             .map_while(|l| {
-                if !l.starts_with(comment) {
-                    None
-                } else {
-                    // Skip comment
-                    // If it fails (None) iteration is just finished.
-                    l.get(comment.len()..)
+                match validity_re_o {
+                    Some(re) => re.captures(l).and_then(|c| c.get(1).map(|m| m.as_str())),
+                    None => {
+                        if !l.starts_with(comment) {
+                            None
+                        } else {
+                            // Skip comment
+                            // If it fails (None) iteration is just finished.
+                            l.get(comment.len()..)
+                        }
+                    }
                 }
             })
             .join("\n");
@@ -873,9 +885,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(
             result.external,
@@ -897,9 +914,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::extra));
         assert_eq!(result.external, vec!["utils".to_owned()]);
         assert_eq!(result.inline.as_ref().unwrap(), "numpy>=1.24.0");
@@ -918,9 +940,14 @@ def main():
 export function main() {}
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "//",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["utils".to_owned(), "base".to_owned()]);
         let expected_inline = r#"{
@@ -939,9 +966,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["no_space".to_owned()]);
         assert!(result.inline.is_none());
@@ -955,9 +987,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["with_space".to_owned()]);
         assert!(result.inline.is_none());
@@ -974,7 +1011,8 @@ func main() {}
 "#;
 
         let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "go_mod", code, "").unwrap();
+            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "go_mod", code, None, "")
+                .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["base".to_owned()]);
         assert_eq!(
@@ -992,9 +1030,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["default".to_owned()]);
         assert!(result.inline.is_none());
@@ -1011,9 +1054,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert!(result.external.is_empty());
         assert_eq!(
@@ -1029,8 +1077,13 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "");
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        );
         assert!(result.is_none());
     }
 
@@ -1048,9 +1101,14 @@ def main():
 function main() {}
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("//", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "//",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert_eq!(result.external, vec!["composer".to_owned()]);
         let expected_inline = r#"{
@@ -1070,9 +1128,14 @@ def main():
     pass
 "#;
 
-        let result =
-            WorkspaceDependenciesAnnotatedRefs::<String>::parse("#", "requirements", code, "")
-                .unwrap();
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
         assert!(matches!(result.mode, Mode::manual));
         assert!(result.external.is_empty());
         assert!(result.inline.is_none());
@@ -1090,6 +1153,7 @@ def main():
             "#",
             "requirements",
             code,
+            None,
             "u/admin/hub_sync",
         )
         .unwrap();
