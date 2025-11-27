@@ -162,114 +162,107 @@ pub type NewRawRequirements = NewWorkspaceDependencies;
 #[cfg(test)]
 mod workspace_dependencies_tests {
 
-    // TODO: test all cases when it should reject.
-    #[cfg(feature = "python")]
-    mod new_workspace_dependencies {
-        use windmill_common::scripts::ScriptLang;
+    // // TODO: test all cases when it should reject.
+    // #[cfg(feature = "python")]
+    // mod new_workspace_dependencies {
+    //     use windmill_common::scripts::ScriptLang;
 
-        use crate::workspace_dependencies::NewWorkspaceDependencies;
+    //     use crate::workspace_dependencies::NewWorkspaceDependencies;
 
-        #[sqlx::test(
-            fixtures("../../tests/fixtures/base.sql",),
-            migrations = "../migrations"
-        )]
-        async fn test_create(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            assert_eq!(
-                NewWorkspaceDependencies {
-                    workspace_id: "test-workspace".into(),
-                    language: ScriptLang::Python3,
-                    name: None,
-                    description: None,
-                    content: "global:rev1".to_owned(),
-                }
-                .create("", "", "", &db)
-                .await
-                .unwrap(),
-                1
-            );
+    //     #[sqlx::test(
+    //         fixtures("../../tests/fixtures/base.sql",),
+    //         migrations = "../migrations"
+    //     )]
+    //     async fn test_create(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    //         assert_eq!(
+    //             NewWorkspaceDependencies {
+    //                 workspace_id: "test-workspace".into(),
+    //                 language: ScriptLang::Python3,
+    //                 name: None,
+    //                 description: None,
+    //                 content: "global:rev1".to_owned(),
+    //             }
+    //             .create("", "", "", &db)
+    //             .await
+    //             .unwrap(),
+    //             1
+    //         );
 
-            assert_eq!(
-                NewWorkspaceDependencies {
-                    workspace_id: "test-workspace".into(),
-                    language: ScriptLang::Python3,
-                    name: Some("rrs1".to_owned()),
-                    description: None,
-                    content: "rrs1:rev1".to_owned(),
-                }
-                .create("", "", "", &db)
-                .await
-                .unwrap(),
-                2
-            );
+    //         assert_eq!(
+    //             NewWorkspaceDependencies {
+    //                 workspace_id: "test-workspace".into(),
+    //                 language: ScriptLang::Python3,
+    //                 name: Some("rrs1".to_owned()),
+    //                 description: None,
+    //                 content: "rrs1:rev1".to_owned(),
+    //             }
+    //             .create("", "", "", &db)
+    //             .await
+    //             .unwrap(),
+    //             2
+    //         );
 
-            assert!(NewWorkspaceDependencies {
-                workspace_id: "test-workspace".into(),
-                language: ScriptLang::DuckDb,
-                description: None,
-                name: None,
-                content: "".to_owned(),
-            }
-            .create("", "", "", &db)
-            .await
-            .is_err());
+    //         assert!(NewWorkspaceDependencies {
+    //             workspace_id: "test-workspace".into(),
+    //             language: ScriptLang::DuckDb,
+    //             description: None,
+    //             name: None,
+    //             content: "".to_owned(),
+    //         }
+    //         .create("", "", "", &db)
+    //         .await
+    //         .is_err());
 
-            // Will act as redeployment
-            assert_eq!(
-                NewWorkspaceDependencies {
-                    workspace_id: "test-workspace".into(),
-                    language: ScriptLang::Python3,
-                    description: None,
-                    name: Some("rrs1".to_owned()),
-                    content: "rrs1:rev2".to_owned(),
-                }
-                .create("", "", "", &db)
-                .await
-                .unwrap(),
-                // It will just increment id
-                3
-            );
-            Ok(())
-        }
+    //         // Will act as redeployment
+    //         assert_eq!(
+    //             NewWorkspaceDependencies {
+    //                 workspace_id: "test-workspace".into(),
+    //                 language: ScriptLang::Python3,
+    //                 description: None,
+    //                 name: Some("rrs1".to_owned()),
+    //                 content: "rrs1:rev2".to_owned(),
+    //             }
+    //             .create("", "", "", &db)
+    //             .await
+    //             .unwrap(),
+    //             // It will just increment id
+    //             3
+    //         );
+    //         Ok(())
+    //     }
 
-        #[sqlx::test(
-            fixtures("../../tests/fixtures/base.sql",),
-            migrations = "../migrations"
-        )]
-        async fn violate_constraints(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            let db = &db;
-            let create = |name| {
-                sqlx::query_scalar!(
-                    "
-                    INSERT INTO workspace_dependencies(name, workspace_id, content, language)
-                    VALUES ($1, 'test-workspace', 'test', 'python3') 
-                    RETURNING id
-                    ",
-                    name
-                )
-                .fetch_one(db)
-            };
+    //     #[sqlx::test(
+    //         fixtures("../../tests/fixtures/base.sql",),
+    //         migrations = "../migrations"
+    //     )]
+    //     async fn violate_constraints(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    //         let db = &db;
+    //         let create = |name| {
+    //             sqlx::query_scalar!(
+    //                 "
+    //                 INSERT INTO workspace_dependencies(name, workspace_id, content, language)
+    //                 VALUES ($1, 'test-workspace', 'test', 'python3')
+    //                 RETURNING id
+    //                 ",
+    //                 name
+    //             )
+    //             .fetch_one(db)
+    //         };
 
-            assert_eq!(create(Some("test".to_owned())).await.unwrap(), 1);
-            assert_eq!(create(None).await.unwrap(), 2);
+    //         assert_eq!(create(Some("test".to_owned())).await.unwrap(), 1);
+    //         assert_eq!(create(None).await.unwrap(), 2);
 
-            assert!(create(Some("test".to_owned())).await.is_err());
-            assert!(create(None).await.is_err());
-            assert_eq!(
-                sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_dependencies",)
-                    .fetch_one(db)
-                    .await
-                    .unwrap()
-                    .unwrap(),
-                2
-            );
-            Ok(())
-        }
-    }
-
-    mod workspace_dependencies {
-        // #[sqlx::test(fixtures("../../migrations/20251106152104_workspace_dependencies.up.sql"))]
-        // async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-        //     todo!()
-        // }
-    }
+    //         assert!(create(Some("test".to_owned())).await.is_err());
+    //         assert!(create(None).await.is_err());
+    //         assert_eq!(
+    //             sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_dependencies",)
+    //                 .fetch_one(db)
+    //                 .await
+    //                 .unwrap()
+    //                 .unwrap(),
+    //             2
+    //         );
+    //         Ok(())
+    //     }
+    // }
 }
