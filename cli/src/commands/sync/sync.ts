@@ -275,7 +275,7 @@ export function extractInlineScriptsForApps(
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const name = toId(k, v);
+        const name = toId(key ?? "", rec);
         const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);
         const basePath = basePathO.replaceAll(SEP, "/");
         const r = [];
@@ -298,7 +298,7 @@ export function extractInlineScriptsForApps(
         o.schema = undefined;
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner, toId);
+        return extractInlineScriptsForApps(k, v, pathAssigner, toId);
       }
     });
   }
@@ -404,9 +404,10 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
+                undefined,
                 app?.["value"],
                 newPathAssigner(defaultTs),
-                (o) => o["name"]
+                (_, val) => val["name"]
               );
             } catch (error) {
               log.error(
@@ -457,8 +458,10 @@ function ZipFSElement(
             const value = rawApp?.["value"];
             try {
               inlineScripts = extractInlineScriptsForApps(
+                undefined,
                 value,
-                newPathAssigner(defaultTs)
+                newPathAssigner(defaultTs),
+                (key, val_) => key 
               );
             } catch (error) {
               log.error(

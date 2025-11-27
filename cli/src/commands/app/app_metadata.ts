@@ -407,7 +407,6 @@ export interface InferredSchemaResult {
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
   runnableFilePath: string,
-  runnableId: string
 ): Promise<InferredSchemaResult | undefined> {
   // Extract runnable ID from file path (e.g., "myRunnable.inline_script.ts" -> "myRunnable")
   const fileName = path.basename(runnableFilePath);
@@ -423,18 +422,18 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  const basePath = match[1];
+  const runnableId = match[1];
 
   // Read the app file to get the language
   const appFilePath = path.join(appFolder, "raw_app.yaml");
   const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
-  if (!appFile.runnables?.[basePath]) {
-    log.warn(colors.yellow(`Runnable ${basePath} not found in raw_app.yaml`));
+  if (!appFile.runnables?.[runnableId]) {
+    log.warn(colors.yellow(`Runnable ${runnableId} not found in raw_app.yaml`));
     return undefined;
   }
 
-  const runnable = appFile.runnables[basePath];
+  const runnable = appFile.runnables[runnableId];
 
   // Only process inline scripts
   if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
@@ -468,18 +467,18 @@ export async function inferRunnableSchemaFromFile(
       language as ScriptLanguage,
       content,
       currentSchema,
-      `${remotePath}/${basePath}`
+      `${remotePath}/${runnableId}`
     );
 
-    log.info(colors.green(`  Inferred schema for ${basePath}`));
+    log.info(colors.green(`  Inferred schema for ${runnableId}`));
     return {
-      runnableId: basePath,
+      runnableId: runnableId,
       schema: schemaResult.schema,
     };
   } catch (schemaError: any) {
     log.warn(
       colors.yellow(
-        `Failed to infer schema for ${basePath}: ${schemaError.message}`
+        `Failed to infer schema for ${runnableId}: ${schemaError.message}`
       )
     );
     return undefined;
