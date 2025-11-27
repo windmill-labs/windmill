@@ -192,8 +192,10 @@
 				}
 
 				// Take snapshot of current flowStore BEFORE making changes
-				const snapshot = $state.snapshot(flowStore).val
-				diffManager?.setSnapshot(snapshot)
+				if (!diffManager?.hasPendingChanges) {
+					const snapshot = $state.snapshot(flowStore).val
+					diffManager?.setSnapshot(snapshot)
+				}
 
 				// Directly modify flowStore (immediate effect)
 				flowStore.val.value.modules = restoredModules
@@ -209,7 +211,7 @@
 				// Update schema if provided
 				if (parsed.schema !== undefined) {
 					flowStore.val.schema = parsed.schema
-					diffManager?.setInputSchemas(snapshot.schema, parsed.schema)
+					diffManager?.setInputSchemas(diffManager?.beforeFlow?.schema, parsed.schema)
 				}
 
 				diffManager?.setEditMode(true)
@@ -218,6 +220,7 @@
 					preprocessor_module: restoredPreprocessor || undefined,
 					failure_module: restoredFailure || undefined
 				})
+				console.log('HERE: [setFlowJson] afterFlow', diffManager?.afterFlow)
 
 				// Refresh the state store to update UI
 				// The $effect in FlowGraphV2 will detect changes and update afterFlow for diff computation

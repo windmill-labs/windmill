@@ -66,11 +66,12 @@ export function createFlowDiffManager() {
 
 	// Auto-compute diff when beforeFlow or afterFlow changes
 	$effect(() => {
+		console.log('HERE: [flowDiffManager $effect] beforeFlow', beforeFlow, afterFlow)
 		if (beforeFlow && afterFlow) {
-			if (hasPendingChanges) {
-				console.log('HERE: [flowDiffManager $effect] hasPendingChanges', hasPendingChanges)
-				return
-			}
+			// if (hasPendingChanges) {
+			// 	console.log('HERE: [flowDiffManager $effect] hasPendingChanges', hasPendingChanges)
+			// 	return
+			// }
 			console.log('HERE: [flowDiffManager $effect] beforeFlow', beforeFlow, editMode)
 			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
