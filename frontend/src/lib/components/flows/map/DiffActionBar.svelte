@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { DiffIcon } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { DiffIcon, Check, X } from 'lucide-svelte'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import type { StateStore } from '$lib/utils'
 	import type { OpenFlow } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		moduleId: string
@@ -17,46 +17,46 @@
 	let { moduleId, moduleAction, diffManager, flowStore, placement = 'top' }: Props = $props()
 </script>
 
-{#if moduleAction && diffManager}
+{#if moduleAction?.pending && diffManager}
 	<div
-		class="absolute right-0 left-0 {placement === 'top'
-			? 'top-0 -translate-y-full'
-			: 'bottom-0 translate-y-full'} flex justify-start gap-1 z-50"
+		class={twMerge(
+			'absolute right-0 left-0 flex flex-row',
+			placement === 'top' ? 'top-0 -translate-y-full' : 'bottom-0 translate-y-full',
+			moduleAction.action === 'modified' ? 'justify-between' : 'justify-end'
+		)}
 	>
-		<!-- Diff button shows if action is 'modified' -->
 		{#if moduleAction.action === 'modified' && diffManager.beforeFlow}
-			<Button
+			<button
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-				onClick={() => {
+				onclick={() => {
 					diffManager?.showModuleDiff(moduleId)
 				}}
-				startIcon={{ icon: DiffIcon }}
 			>
-				Diff
-			</Button>
+				<DiffIcon size={14} /> Diff
+			</button>
 		{/if}
-		<!-- Accept/Reject buttons show if pending (editMode was true when diff computed) -->
-		{#if moduleAction.pending}
-			<Button
-				size="xs"
-				color="green"
-				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-				onClick={() => {
+		<div
+			class={twMerge(
+				'flex flex-row bg-surface overflow-hidden',
+				placement === 'top' ? 'rounded-t-md' : 'rounded-b-md'
+			)}
+		>
+			<button
+				class="p-1 bg-green-500 text-white hover:bg-green-600 text-3xs font-normal flex flex-row items-center gap-1"
+				onclick={() => {
 					if (flowStore) diffManager?.acceptModule(moduleId, flowStore)
 				}}
 			>
-				✓ Accept
-			</Button>
-			<Button
-				size="xs"
-				color="red"
-				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
-				onClick={() => {
+				<Check size={14} /> Accept
+			</button>
+			<button
+				class="p-1 hover:bg-red-500 hover:text-white text-3xs font-normal flex flex-row items-center gap-1"
+				onclick={() => {
 					if (flowStore) diffManager?.rejectModule(moduleId, flowStore)
 				}}
 			>
-				✗ Reject
-			</Button>
-		{/if}
+				<X size={14} /> Reject
+			</button>
+		</div>
 	</div>
 {/if}
