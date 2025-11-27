@@ -1,6 +1,7 @@
 mod common;
 use windmill_api_client::types::NewScript;
 
+#[cfg(feature = "test_job_debouncing")]
 fn quick_ns(
     content: &str,
     language: windmill_api_client::types::ScriptLang,

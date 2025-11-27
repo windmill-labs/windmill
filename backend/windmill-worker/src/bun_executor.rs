@@ -27,7 +27,7 @@ use windmill_common::{
     client::AuthedClient,
     s3_helpers::BundleFormat,
     scripts::{id_to_codebase_info, CodebaseInfo},
-    workspace_dependencies::{WorkspaceDependenciesAnnotatedRefs, WorkspaceDependenciesPrefetched},
+    workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
 
 #[cfg(windows)]
@@ -41,7 +41,7 @@ use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
     scripts::ScriptLang,
-    worker::{exists_in_cache, save_cache, to_raw_value, write_file, Connection, DISABLE_BUNDLING},
+    worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
 

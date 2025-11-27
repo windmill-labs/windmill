@@ -268,6 +268,7 @@ impl WorkspaceDependencies {
 pub struct WorkspaceDependenciesPrefetched {
     language: ScriptLang,
     runnable_path: String,
+    #[allow(dead_code)]
     workspace_id: String,
     internal: WorkspaceDependenciesPrefetchedInternal,
 }
@@ -651,7 +652,8 @@ impl WorkspaceDependenciesPrefetchedInternal {
         }
     }
 
-    fn _assert_no_explicit(&self) -> Result<(), String> {
+    #[allow(dead_code)]
+    fn assert_no_explicit(&self) -> Result<(), String> {
         if matches!(self, Self::Explicit { .. }) {
             Err(format!("'external workspace dependencies'"))
         } else {
@@ -667,6 +669,7 @@ impl WorkspaceDependenciesPrefetchedInternal {
         }
     }
 
+    #[allow(dead_code)]
     fn assert_no_manual_mode(&self) -> Result<(), String> {
         if self.get_mode() == Some(Mode::manual) {
             Err(format!("'workspace dependencies in manual mode'"))
@@ -693,6 +696,7 @@ impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRef
         }
     }
 
+    #[allow(dead_code)]
     fn assert_no_extra_mode_for_inline(&self) -> Result<(), String> {
         if self.mode == Mode::extra && self.inline.is_some() {
             Err(format!("'inline workspace dependencies in extra mode'"))

@@ -11,7 +11,7 @@ use windmill_common::{
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::{extract_referenced_paths, extract_relative_imports};
+use crate::worker_lockfiles::extract_referenced_paths;
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {

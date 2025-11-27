@@ -17,7 +17,6 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    worker::PythonAnnotations,
     workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };

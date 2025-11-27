@@ -1,11 +1,8 @@
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 use windmill_common::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies};
 
 use crate::{
-    scoped_dependency_map::{DependencyDependent, ScopedDependencyMap},
-    trigger_dependents_to_recompute_dependencies,
+    scoped_dependency_map::ScopedDependencyMap, trigger_dependents_to_recompute_dependencies,
 };
 
 #[derive(sqlx::FromRow, Clone, Serialize, Deserialize, Hash, Debug)]
@@ -231,12 +228,12 @@ pub type NewRawRequirements = NewWorkspaceDependencies;
 mod workspace_dependencies_tests {
 
     // TODO: test all cases when it should reject.
+    #[cfg(feature = "python")]
     mod new_workspace_dependencies {
         use windmill_common::scripts::ScriptLang;
 
         use crate::workspace_dependencies::NewWorkspaceDependencies;
 
-        #[cfg(feature = "python")]
         #[sqlx::test(
             fixtures("../../tests/fixtures/base.sql",),
             migrations = "../migrations"

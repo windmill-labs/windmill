@@ -6,10 +6,7 @@ use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
-use serde::{
-    de::{DeserializeOwned, Visitor},
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{

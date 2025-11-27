@@ -11,12 +11,8 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    scripts::ScriptLang,
     utils::calculate_hash,
     worker::{save_cache, write_file, Connection, GoAnnotations},
-    workspace_dependencies::{
-        WorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs, WorkspaceDependenciesPrefetched,
-    },
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};

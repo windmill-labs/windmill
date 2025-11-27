@@ -27,8 +27,7 @@ use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 use windmill_common::workspace_dependencies::{
-    Mode, RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesAnnotatedRefs,
-    WorkspaceDependenciesPrefetched,
+    RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
@@ -198,25 +197,6 @@ pub async fn handle_dependency_job(
     );
     let script_path = job.runnable_path();
 
-    let npm_mode = if job
-        .script_lang
-        .as_ref()
-        .map(|v| v == &ScriptLang::Bun)
-        .unwrap_or(false)
-    {
-        Some(
-            job.args
-                .as_ref()
-                .map(|x| {
-                    x.get("npm_mode")
-                        .is_some_and(|y| y.to_string().as_str() == "true")
-                })
-                .unwrap_or(false),
-        )
-    } else {
-        None
-    };
-
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
@@ -337,7 +317,6 @@ pub async fn handle_dependency_job(
                 &job.permissioned_as_email,
                 &job.created_by,
                 &job.permissioned_as,
-                None,
             )
             .await?;
 
@@ -390,11 +369,8 @@ pub async fn process_relative_imports(
     permissioned_as_email: &str,
     created_by: &str,
     permissioned_as: &str,
-    lock: Option<String>,
 ) -> error::Result<()> {
     // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
-    // TODO: Test if works without relative imports.
-    // TODO: Can it ever take raw reqs as input?
     {
         let mut tx = db.begin().await?;
         let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(

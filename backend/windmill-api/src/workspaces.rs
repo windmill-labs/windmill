@@ -3056,6 +3056,7 @@ async fn clone_workspace_runnable_dependencies(
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn clone_workspace_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
