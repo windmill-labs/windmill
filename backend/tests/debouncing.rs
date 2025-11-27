@@ -1,4 +1,6 @@
 mod common;
+
+#[cfg(feature = "test_job_debouncing")]
 use windmill_api_client::types::NewScript;
 
 #[cfg(feature = "test_job_debouncing")]

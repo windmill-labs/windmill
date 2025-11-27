@@ -41,8 +41,6 @@ mod workspace_dependencies {
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "workspace_dependencies_leafs"))]
     async fn basic_manual_named(db: Pool<Postgres>) -> anyhow::Result<()> {
-        use crate::common::RunJob;
-
         let ((_client, port, _s), db, mut completed) = (
             init_client(db.clone()).await,
             &db,
@@ -66,7 +64,7 @@ mod workspace_dependencies {
                 name: Some("test".to_owned()),
                 description: None,
             }
-            .create(db)
+            .create("", "", "", db)
             .await
             .unwrap();
 
@@ -126,12 +124,11 @@ mod workspace_dependencies {
 
         // Verify built-in fixtures exist
         // Check that the setup_app exists
-        let app_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE path = 'g/all/setup_app')"
-        )
-        .fetch_one(db)
-        .await
-        .unwrap();
+        let app_exists =
+            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM app WHERE path = 'g/all/setup_app')")
+                .fetch_one(db)
+                .await
+                .unwrap();
         assert!(app_exists.unwrap(), "Expected g/all/setup_app to exist");
 
         // Check that hub_sync script exists and is a Bun script
@@ -141,7 +138,11 @@ mod workspace_dependencies {
         .fetch_one(db)
         .await
         .unwrap();
-        assert_eq!(hub_sync_lang, ScriptLang::Bun, "Expected hub_sync to be a Bun script");
+        assert_eq!(
+            hub_sync_lang,
+            ScriptLang::Bun,
+            "Expected hub_sync to be a Bun script"
+        );
 
         // Create unnamed (default) workspace dependencies for Bun
         let _id = NewWorkspaceDependencies {
@@ -151,7 +152,7 @@ mod workspace_dependencies {
             name: None, // No name = default workspace dependencies
             description: None,
         }
-        .create(db)
+        .create("", "", "", db)
         .await
         .unwrap();
 

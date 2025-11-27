@@ -9,7 +9,7 @@ use windmill_common::{
     error::{self, to_anyhow, Result},
     scripts::ScriptLang,
     worker::{write_file, Connection},
-    workspace_dependencies::{clean_lock_from_annotations, WorkspaceDependenciesPrefetched},
+    workspace_dependencies::clean_lock_from_annotations,
 };
 use windmill_queue::MiniPulledJob;
 
