@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.583.1
+  version: 1.585.1
   title: Windmill API
 
   contact:
@@ -687,6 +687,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
+
+  /w/{workspace}/workspaces/get_as_superadmin:
+    get:
+      summary: get workspace as super admin (require to be super admin)
+      operationId: getWorkspaceAsSuperAdmin
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
 
   /workspaces/list_as_superadmin:
     get:
@@ -7707,6 +7723,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component

@@ -1741,7 +1741,7 @@ pub struct ListableCompletedJob {
     pub labels: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct RunJobQuery {
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_in_secs: Option<i64>,
@@ -3955,18 +3955,31 @@ async fn set_flow_memory_id(
     memory_id: Uuid,
 ) -> error::Result<()> {
     sqlx::query!(
-        "UPDATE v2_job_status 
-            SET flow_status = jsonb_set(
-                flow_status,
-                '{memory_id}',
-                to_jsonb($2::uuid)
-            )
-            WHERE id = $1",
+        "UPDATE v2_job_status
+         SET flow_status = jsonb_set(
+             flow_status,
+             '{memory_id}',
+             to_jsonb($2::uuid)
+         )
+         WHERE id = $1",
         job_id,
         memory_id
     )
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// Apply flow-specific query parameters after job creation
+pub async fn process_flow_run_query_params(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    run_query: &RunJobQuery,
+) -> error::Result<()> {
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(tx, job_id, memory_id).await?;
+    }
     Ok(())
 }
 

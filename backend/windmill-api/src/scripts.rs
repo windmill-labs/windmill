@@ -41,11 +41,11 @@ use windmill_audit::ActionKind;
 use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
+    assets::{AssetUsageKind, AssetWithAltAccessType, clear_asset_usage, insert_asset_usage},
     error::to_anyhow,
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
-    utils::WarnAfterExt,
+    utils::{WarnAfterExt, paginate_without_limits},
     worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
 
@@ -61,7 +61,7 @@ use windmill_common::{
     },
     users::username_to_permissioned_as,
     utils::{
-        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
+        not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
     worker::to_raw_value,
     HUB_BASE_URL,
@@ -193,7 +193,7 @@ async fn list_search_scripts(
 ) -> JsonResult<Vec<SearchScript>> {
     let mut tx = user_db.begin(&authed).await?;
     #[cfg(feature = "enterprise")]
-    let n = 1000;
+    let n = 10000;
 
     #[cfg(not(feature = "enterprise"))]
     let n = 10;
@@ -219,7 +219,7 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
-    let (per_page, offset) = paginate(pagination);
+    let (per_page, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
