@@ -9,7 +9,8 @@ import type {
 	ToolUnion,
 	ToolUseBlockParam,
 	Tool as AnthropicTool,
-	Message
+	Message,
+	MessageStreamEvent
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
@@ -61,14 +62,63 @@ export async function parseAnthropicCompletion(
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
-	let tempToolId: string | undefined = undefined
 
-	// When we receive a JSON input, we need to show a temporary tool call in loading state
-	completion.on('inputJson', (_: string) => {
-		if (!tempToolId) {
-			callbacks.onMessageEnd()
-			tempToolId = `temp-${generateRandomString(12)}`
-			callbacks.setToolStatus(tempToolId, { isLoading: true, content: 'Calling tool...' })
+	// Track current streaming tool state (minimal data needed)
+	let currentStreamingTool: { tempId: string; shouldStream: boolean } | undefined = undefined
+
+	// Accumulate JSON string manually (SDK's jsonSnapshot is empty)
+	let accumulatedJson = ''
+
+	// Capture content_block_start for tool name/id BEFORE arguments arrive
+	completion.on('streamEvent', (event: MessageStreamEvent, _snapshot: Message) => {
+		if (event.type === 'content_block_start') {
+			const block = event.content_block
+			if (block.type === 'tool_use') {
+				const toolName = block.name
+
+				const tool = tools.find((t) => t.def.function.name === toolName)
+				const shouldStream = tool?.streamArguments ?? false
+
+				callbacks.onMessageEnd()
+				const tempId = `temp-${generateRandomString(12)}`
+
+				// Reset accumulated JSON for new tool
+				accumulatedJson = ''
+				currentStreamingTool = { tempId, shouldStream }
+
+				callbacks.setToolStatus(tempId, {
+					isLoading: true,
+					content: `Calling ${toolName}...`,
+					toolName,
+					isStreamingArguments: shouldStream,
+					showDetails: shouldStream
+				})
+			}
+		}
+	})
+
+	// Stream arguments by accumulating partialJson (jsonSnapshot is empty)
+	completion.on('inputJson', (partialJson: string, _jsonSnapshot: unknown) => {
+		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
+			// Accumulate the partial JSON
+			accumulatedJson += partialJson
+
+			// Try to parse and display
+			try {
+				const parsed = JSON.parse(accumulatedJson)
+				callbacks.setToolStatus(currentStreamingTool.tempId, {
+					parameters: parsed,
+					isStreamingArguments: true,
+					isLoading: true
+				})
+			} catch {
+				// JSON incomplete, display as raw string
+				callbacks.setToolStatus(currentStreamingTool.tempId, {
+					parameters: accumulatedJson,
+					isStreamingArguments: true,
+					isLoading: true
+				})
+			}
 		}
 	})
 
@@ -87,8 +137,8 @@ export async function parseAnthropicCompletion(
 				callbacks.onMessageEnd()
 			} else if (block.type === 'tool_use') {
 				// Remove temp display if it exists
-				if (tempToolId) {
-					callbacks.removeToolStatus(tempToolId)
+				if (currentStreamingTool?.tempId) {
+					callbacks.removeToolStatus(currentStreamingTool.tempId)
 				}
 
 				// Convert Anthropic tool calls to OpenAI format for compatibility
@@ -109,14 +159,14 @@ export async function parseAnthropicCompletion(
 		}
 
 		// Clear temp tracking after processing
-		tempToolId = undefined
+		currentStreamingTool = undefined
 	})
 
 	// Handle errors
 	completion.on('error', (e: any) => {
-		if (tempToolId) {
-			callbacks.removeToolStatus(tempToolId)
-			tempToolId = undefined
+		if (currentStreamingTool?.tempId) {
+			callbacks.removeToolStatus(currentStreamingTool.tempId)
+			currentStreamingTool = undefined
 		}
 		console.error('Anthropic stream error:', e)
 		error = e

@@ -217,6 +217,8 @@ export type ToolDisplayMessage = {
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
+	isStreamingArguments?: boolean
+	toolName?: string
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -358,6 +360,7 @@ export interface Tool<T> {
 	requiresConfirmation?: boolean
 	confirmationMessage?: string
 	showDetails?: boolean
+	streamArguments?: boolean
 }
 
 export interface ToolCallbacks {

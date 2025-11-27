@@ -8,9 +8,18 @@
 		loading?: boolean
 		showCopy?: boolean
 		showWhileLoading?: boolean
+		streaming?: boolean
 	}
 
-	let { title, content, error, loading, showCopy = true, showWhileLoading = true }: Props = $props()
+	let {
+		title,
+		content,
+		error,
+		loading,
+		showCopy = true,
+		showWhileLoading = true,
+		streaming = false
+	}: Props = $props()
 	let copied = $state(false)
 
 	const hasContent = $derived(content !== undefined && content !== null)
@@ -49,13 +58,13 @@
 	}
 </script>
 
-{#if showWhileLoading || (!loading && hasContent)}
+{#if showWhileLoading || (!loading && hasContent) || streaming}
 	<div class="space-y-2">
 		<div class="flex items-center justify-between">
 			<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
 				{title}:
 			</span>
-			{#if showCopy && hasContent}
+			{#if showCopy && hasContent && !streaming}
 				<button
 					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-colors"
 					onclick={copyToClipboard}
@@ -70,7 +79,7 @@
 			{/if}
 		</div>
 
-		{#if loading}
+		{#if loading && !streaming && !hasContent}
 			<div
 				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-primary"
 			>

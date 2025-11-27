@@ -12,7 +12,11 @@
 
 	let { message }: Props = $props()
 
-	let isExpanded = $derived(message.showDetails || (message.isLoading && message.needsConfirmation))
+	let isExpanded = $derived(
+		message.showDetails ||
+			message.isStreamingArguments ||
+			(message.isLoading && message.needsConfirmation)
+	)
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
@@ -29,10 +33,10 @@
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
 		onclick={() => (isExpanded = !isExpanded)}
-		disabled={!message.showDetails}
+		disabled={!message.showDetails && !message.isStreamingArguments}
 	>
 		<div class="flex items-center gap-2 flex-1">
-			{#if message.showDetails}
+			{#if message.showDetails || message.isStreamingArguments}
 				{#if isExpanded}
 					<ChevronDown class="w-3 h-3 text-secondary" />
 				{:else}
@@ -58,7 +62,11 @@
 		<div class="p-3 bg-surface space-y-3">
 			<!-- Parameters Section -->
 			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
-				<ToolContentDisplay title="Parameters" content={message.parameters} />
+				<ToolContentDisplay
+					title="Parameters"
+					content={message.parameters}
+					streaming={message.isStreamingArguments}
+				/>
 			</div>
 
 			<!-- Confirmation Footer -->

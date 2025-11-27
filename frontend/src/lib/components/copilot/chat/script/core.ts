@@ -897,6 +897,7 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
+	streamArguments: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -963,6 +964,7 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 export const editCodeTool: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL,
+	streamArguments: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
