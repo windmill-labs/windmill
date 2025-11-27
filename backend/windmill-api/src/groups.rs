@@ -103,7 +103,7 @@ async fn list_groups(
 
     let rows = sqlx::query_as!(
         Group,
-        "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -126,7 +126,7 @@ async fn list_group_names(
 ) -> JsonResult<Vec<String>> {
     let rows = if !only_member_of.unwrap_or(false) {
         sqlx::query_scalar!(
-            "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name desc",
+            "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name asc",
             w_id
         )
         .fetch_all(&db)

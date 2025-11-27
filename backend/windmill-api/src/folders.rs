@@ -96,7 +96,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -117,7 +117,7 @@ async fn list_foldernames(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
