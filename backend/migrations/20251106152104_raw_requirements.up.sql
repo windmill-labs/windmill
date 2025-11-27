@@ -14,3 +14,10 @@ CREATE TABLE IF NOT EXISTS workspace_dependencies(
 -- Make any query that tries to create non-linear history fail
 CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_name_language_constraint ON workspace_dependencies(name, language, workspace_id) WHERE archived = false AND name IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_null_name_language_constraint ON workspace_dependencies(language, workspace_id) WHERE archived = false AND name IS NULL;
+
+-- Performance indexes for common query patterns
+-- For the list query (filtering by workspace_id and archived)
+CREATE INDEX IF NOT EXISTS workspace_dependencies_workspace_archived_idx ON workspace_dependencies(workspace_id, archived) WHERE archived = false;
+
+-- For get_history and delete queries (without archived filter)
+CREATE INDEX IF NOT EXISTS workspace_dependencies_workspace_lang_name_idx ON workspace_dependencies(workspace_id, language, name);
