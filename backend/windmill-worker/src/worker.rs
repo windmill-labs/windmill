@@ -3241,6 +3241,55 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
+    run_language_executor(
+        job,
+        conn,
+        client,
+        parent_runnable_path,
+        job_dir,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        base_internal_url,
+        worker_name,
+        column_order,
+        new_args,
+        occupancy_metrics,
+        killpill_rx,
+        precomputed_agent_info,
+        has_stream,
+        language,
+        code,
+        envs,
+        codebase,
+        lock,
+    )
+    .await
+}
+
+pub async fn run_language_executor(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
+    job_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    base_internal_url: &str,
+    worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
+    language: Option<ScriptLang>,
+    code: &String,
+    envs: &Option<Vec<String>>,
+    codebase: &Option<String>,
+    lock: &Option<String>,
+) -> error::Result<Box<RawValue>> {
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
             job,
@@ -3948,9 +3997,8 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
 
-                handle_code_execution_job(
+                run_language_executor(
                     &job,
-                    Some(Arc::new(ScriptData { code: params.content, lock: None })),
                     &params.conn,
                     &params.client,
                     None,
@@ -3966,6 +4014,11 @@ pub fn init_worker_internal_server_inline_utils(
                     &mut killpill_rx,
                     None,
                     &mut has_stream,
+                    Some(params.lang),
+                    &params.content,
+                    &None,
+                    &None,
+                    &None,
                 )
                 .await
             })
