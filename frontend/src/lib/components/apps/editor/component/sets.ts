@@ -76,6 +76,7 @@ const display: ComponentSet = {
 		'chatcomponent',
 		'displaycomponent',
 		'jobidlogcomponent',
+		'jobprogressbarcomponent',
 		'jobidflowstatuscomponent',
 		'jobiddisplaycomponent',
 		'statcomponent',
