@@ -85,7 +85,7 @@ impl AssetsFinder {
             "duckdbConnectionSettings" => (AssetKind::Resource, None, 0, None),
             "polarsConnectionSettings" => (AssetKind::Resource, None, 0, None),
             "datatable" => (AssetKind::DataTable, None, 0, Some("main")),
-            "ducklake" => (AssetKind::DataTable, None, 0, Some("main")),
+            "ducklake" => (AssetKind::Ducklake, None, 0, Some("main")),
             _ => return Err(()),
         };
 
