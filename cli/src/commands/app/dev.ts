@@ -24,6 +24,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
 import { replaceInlineScripts } from "./apps.ts";
 import { Runnable } from "./metadata.ts";
+import { inferRunnableSchemaFromFile } from "./app_metadata.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -212,41 +213,60 @@ async function dev(opts: DevOptions) {
     );
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
-    const runnablesChangeTimeouts: Record<string, number> = {};
+    // Per-file debounce timeouts for schema inference (longer debounce for typing)
+    const schemaInferenceTimeouts: Record<string, number> = {};
+    const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
     (async () => {
       try {
         for await (const event of runnablesWatcher!) {
-          const key = event.paths.join(",");
+          // Process each changed path with individual debouncing
+          for (const changedPath of event.paths) {
+            const relativePath = path.relative(process.cwd(), changedPath);
+            const relativeToRunnables = path.relative(runnablesPath, changedPath);
 
-          // Debounce file changes (wait 100ms for rapid successive changes)
-          if (runnablesChangeTimeouts[key]) {
-            clearTimeout(runnablesChangeTimeouts[key]);
+            // Skip non-modify events for schema inference
+            if (event.kind !== "modify" && event.kind !== "create") {
+              continue;
+            }
+
+            // Skip lock files
+            if (changedPath.endsWith(".lock")) {
+              continue;
+            }
+
+            // Log the change event
+            log.info(
+              colors.cyan(`📝 Runnable changed [${event.kind}]: ${relativePath}`)
+            );
+
+            // Debounce schema inference per file (wait for typing to finish)
+            if (schemaInferenceTimeouts[changedPath]) {
+              clearTimeout(schemaInferenceTimeouts[changedPath]);
+            }
+
+            schemaInferenceTimeouts[changedPath] = setTimeout(async () => {
+              delete schemaInferenceTimeouts[changedPath];
+
+              try {
+                // Infer and update schema for this runnable
+                const updatedRunnableId = await inferRunnableSchemaFromFile(
+                  process.cwd(),
+                  relativeToRunnables
+                );
+
+                if (updatedRunnableId) {
+                  // Regenerate wmill.d.ts with updated schema
+                  await genRunnablesTs();
+                }
+              } catch (error: any) {
+                log.error(
+                  colors.red(`Error inferring schema: ${error.message}`)
+                );
+              }
+            }, SCHEMA_DEBOUNCE_MS);
           }
-
-          runnablesChangeTimeouts[key] = setTimeout(() => {
-            delete runnablesChangeTimeouts[key];
-
-            // Process each changed path
-            event.paths.forEach(async (changedPath) => {
-              const relativePath = path.relative(process.cwd(), changedPath);
-
-              // Log the change event
-              log.info(
-                colors.cyan(
-                  `📝 Runnable changed [${event.kind}]: ${relativePath}`
-                )
-              );
-              await genRunnablesTs();
-              // TODO: Add logic here to handle runnable changes
-              // For example:
-              // - Parse the runnable file
-              // - Update app configuration
-              // - Trigger rebuild if needed
-              // - Sync with backend
-            });
-          }, 100);
         }
       } catch (error: any) {
         if (error.name !== "Interrupted") {

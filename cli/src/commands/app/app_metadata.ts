@@ -399,3 +399,106 @@ async function generateInlineScriptLock(
     );
   }
 }
+
+/**
+ * Infers and updates schema for a single runnable in a raw app.
+ * Used by dev server to update schema on file changes.
+ *
+ * @param appFolder - The folder containing the raw app
+ * @param runnableFilePath - The path to the changed runnable file (relative to runnables folder)
+ * @returns The runnable ID if updated, undefined if no update was needed
+ */
+export async function inferRunnableSchemaFromFile(
+  appFolder: string,
+  runnableFilePath: string
+): Promise<string | undefined> {
+  // Extract runnable ID from file path (e.g., "myRunnable.inline_script.ts" -> "myRunnable")
+  const fileName = path.basename(runnableFilePath);
+
+  // Skip lock files
+  if (fileName.endsWith(".lock")) {
+    return undefined;
+  }
+
+  // Match pattern: {runnableId}.inline_script.{ext}
+  const match = fileName.match(/^(.+)\.inline_script\.[^.]+$/);
+  if (!match) {
+    return undefined;
+  }
+
+  const runnableId = match[1];
+
+  // Read the app file
+  const appFilePath = path.join(appFolder, "raw_app.yaml");
+  const appFile = (await yamlParseFile(appFilePath)) as AppFile;
+
+  if (!appFile.runnables?.[runnableId]) {
+    log.warn(colors.yellow(`Runnable ${runnableId} not found in raw_app.yaml`));
+    return undefined;
+  }
+
+  const runnable = appFile.runnables[runnableId];
+
+  // Only process inline scripts
+  if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
+    return undefined;
+  }
+
+  const inlineScript = runnable.inlineScript;
+  const language = inlineScript.language as SupportedLanguage;
+
+  // Skip frontend scripts - they don't need schema inference
+  if (language === "frontend") {
+    return undefined;
+  }
+
+  // Read the actual content from the file
+  const fullFilePath = path.join(appFolder, "runnables", runnableFilePath);
+  let content: string;
+  try {
+    content = await Deno.readTextFile(fullFilePath);
+  } catch {
+    log.warn(colors.yellow(`Could not read file: ${fullFilePath}`));
+    return undefined;
+  }
+
+  // Infer schema from script content
+  const currentSchema = inlineScript.schema;
+  const remotePath = appFolder.replaceAll(SEP, "/");
+
+  try {
+    const schemaResult = await inferSchema(
+      language as ScriptLanguage,
+      content,
+      currentSchema,
+      `${remotePath}/${runnableId}`
+    );
+
+    // Check if schema actually changed
+    const newSchemaStr = JSON.stringify(schemaResult.schema);
+    const oldSchemaStr = JSON.stringify(currentSchema);
+
+    if (newSchemaStr === oldSchemaStr) {
+      return undefined;
+    }
+
+    // Update the schema in the app file
+    appFile.runnables[runnableId].inlineScript.schema = schemaResult.schema;
+
+    // Write the updated app file
+    writeIfChanged(
+      appFilePath,
+      yamlStringify(appFile as Record<string, any>, yamlOptions)
+    );
+
+    log.info(colors.green(`  Updated schema for ${runnableId}`));
+    return runnableId;
+  } catch (schemaError: any) {
+    log.warn(
+      colors.yellow(
+        `Failed to infer schema for ${runnableId}: ${schemaError.message}`
+      )
+    );
+    return undefined;
+  }
+}
