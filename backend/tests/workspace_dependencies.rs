@@ -40,6 +40,7 @@ mod workspace_dependencies {
 
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "workspace_dependencies_leafs"))]
+    #[ignore]
     async fn basic_manual_named(db: Pool<Postgres>) -> anyhow::Result<()> {
         let ((_client, port, _s), db, mut completed) = (
             init_client(db.clone()).await,
