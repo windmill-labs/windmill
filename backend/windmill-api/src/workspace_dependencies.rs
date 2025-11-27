@@ -5,12 +5,10 @@ use axum::{
 };
 use http::StatusCode;
 use serde::Deserialize;
-use tracing::{debug, error, info, instrument};
 use windmill_common::{
-    db::UserDB,
     error::{self, JsonResult},
     scripts::ScriptLang,
-    utils::{require_admin, StripPath},
+    utils::require_admin,
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
@@ -27,7 +25,6 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list))
         .route("/archive/:language", post(archive))
         .route("/get_latest/:language", get(get_latest))
-        // TODO: We should really not delete it, archiving it would be better.
         .route("/delete/:language", post(delete))
 }
 

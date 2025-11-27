@@ -7,8 +7,8 @@ use phf::phf_set;
 
 pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
     "u/admin/hub_sync",
-    // TODO: Could bad actor possibly exloit if not this?
-    "g/all/setup_app/app"
+    "g/all/setup_app/app",
+    "g/all/setup_app"
 };
 
 /// Minimum Windmill version required for workspace dependencies feature
