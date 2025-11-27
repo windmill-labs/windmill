@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Map, View, Feature } from 'ol'
 	import { Fill, Stroke, Style, Text } from 'ol/style.js'
-	import { useGeographic } from 'ol/proj'
-	import { OSM, Vector as VectorSource } from 'ol/source'
-	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
-	import { Point } from 'ol/geom'
-	import { defaults as defaultControls } from 'ol/control'
-	import CircleStyle from 'ol/style/Circle'
+	import { useGeographic } from 'ol/proj.js'
+	import { OSM, Vector as VectorSource } from 'ol/source.js'
+	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer.js'
+	import { Point } from 'ol/geom.js'
+	import { defaults as defaultControls } from 'ol/control.js'
+	import CircleStyle from 'ol/style/Circle.js'
 
 	interface Marker {
 		lon: number
