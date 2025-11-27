@@ -373,6 +373,7 @@ components:
                   - s3object
                   - resource
                   - ducklake
+                  - datatable
               access_type:
                 type: string
                 enum: [r, w, rw]

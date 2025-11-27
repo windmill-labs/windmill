@@ -5,6 +5,7 @@
 	): boolean {
 		return (
 			asset.kind === 'ducklake' ||
+			asset.kind === 'datatable' ||
 			asset.kind === 's3object' ||
 			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
 		)
