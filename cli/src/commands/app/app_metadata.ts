@@ -14,14 +14,16 @@ import {
   clearGlobalLock,
   updateMetadataGlobalLock,
   findClosestRawReqs,
+  inferSchema,
 } from "../../utils/metadata.ts";
+import { ScriptLanguage } from "../../utils/script_common.ts";
 import {
   inferContentTypeFromFilePath,
   languagesWithRawReqsSupport,
 } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts, findGlobalDeps } from "../script/script.ts";
-import { FSFSElement } from "../sync/sync.ts";
+import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { AppFile } from "./raw_apps.ts";
 import { replaceInlineScripts } from "./apps.ts";
@@ -177,10 +179,11 @@ export async function generateAppLocksInternal(
         opts.defaultTs
       );
 
+
       // Write the updated app file
       writeIfChanged(
         appFilePath,
-        yamlStringify(appFile as Record<string, any>)
+        yamlStringify(appFile as Record<string, any>, yamlOptions)
       );
     } else {
       log.info(colors.gray(`No scripts changed in ${appFolder}`));
@@ -232,6 +235,16 @@ async function updateAppRunnables(
       continue;
     }
 
+    // Skip if content is still an !inline reference (should have been replaced by replaceInlineScripts)
+    if (typeof content === "string" && content.startsWith("!inline ")) {
+      log.warn(
+        colors.yellow(
+          `Runnable ${runnableId} content is still an !inline reference, skipping`
+        )
+      );
+      continue;
+    }
+
     // Skip frontend scripts - they don't need locks
     if (language === "frontend") {
       continue;
@@ -255,6 +268,25 @@ async function updateAppRunnables(
         langRawDeps
       );
 
+      // Infer schema from script content
+      let schema = inlineScript.schema;
+      try {
+        const schemaResult = await inferSchema(
+          language as ScriptLanguage,
+          content,
+          schema,
+          `${remotePath}/${runnableId}`
+        );
+        schema = schemaResult.schema;
+        log.info(colors.gray(`  Inferred schema for ${runnableId}`));
+      } catch (schemaError: any) {
+        log.warn(
+          colors.yellow(
+            `  Failed to infer schema for ${runnableId}: ${schemaError.message}`
+          )
+        );
+      }
+
       // Determine file extension for this language
       const ext = getLanguageExtension(language, defaultTs);
       const baseName = `${runnableId}.inline_script`;
@@ -269,7 +301,7 @@ async function updateAppRunnables(
         writeIfChanged(lockPath, lock);
       }
 
-      // Update the runnable with !inline references
+      // Update the runnable with !inline references and updated schema
       const inlineContentRef = `!inline ${baseName}.${ext}`;
       const inlineLockRef = lock && lock !== "" ? `!inline ${baseName}.lock` : "";
 
@@ -279,6 +311,7 @@ async function updateAppRunnables(
           ...inlineScript,
           content: inlineContentRef,
           lock: inlineLockRef,
+          schema: schema,
         },
       };
 
