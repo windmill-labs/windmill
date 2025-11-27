@@ -42,7 +42,9 @@ impl Visitor for AssetsFinder {
             Err(_) => {
                 // Check keyword arguments for assets before falling back to generic visit
                 for keyword in &node.keywords {
-                    if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) = &keyword.value {
+                    if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) =
+                        &keyword.value
+                    {
                         if let Some((kind, path)) = parse_asset_syntax(s) {
                             self.assets.push(ParseAssetsResult {
                                 kind,
@@ -72,20 +74,22 @@ impl AssetsFinder {
             .ok_or(())?;
 
         use AssetKind::*;
-        let (kind, access_type, arg) = match ident.as_str() {
-            "load_s3_file" => (S3Object, Some(R), Arg::Pos(0, "s3object")),
-            "load_s3_file_reader" => (S3Object, Some(R), Arg::Pos(0, "s3object")),
-            "write_s3_file" => (S3Object, Some(W), Arg::Pos(0, "s3object")),
-            "get_resource" => (Resource, None, Arg::Pos(0, "path")),
-            "set_resource" => (Resource, Some(W), Arg::Pos(0, "path")),
-            "get_boto3_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
-            "get_polars_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
-            "get_duckdb_connection_settings" => (Resource, None, Arg::Pos(0, "s3_resource_path")),
+        let (kind, access_type, arg, default) = match ident.as_str() {
+            "load_s3_file" => (S3Object, Some(R), Arg(0, "s3object"), None),
+            "load_s3_file_reader" => (S3Object, Some(R), Arg(0, "s3object"), None),
+            "write_s3_file" => (S3Object, Some(W), Arg(0, "s3object"), None),
+            "get_resource" => (Resource, None, Arg(0, "path"), None),
+            "set_resource" => (Resource, Some(W), Arg(0, "path"), None),
+            "get_boto3_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
+            "get_polars_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
+            "get_duckdb_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
+            "datatable" => (DataTable, None, Arg(0, "name"), Some("main")),
+            "ducklake" => (Ducklake, None, Arg(0, "name"), Some("main")),
             _ => return Err(()),
         };
 
         let arg_val = match arg {
-            Arg::Pos(i, name) => node.args.get(i).or_else(|| {
+            Arg(i, name) => node.args.get(i).or_else(|| {
                 // Get arg by name
                 node.keywords
                     .iter()
@@ -94,11 +98,18 @@ impl AssetsFinder {
             }),
         };
 
-        match arg_val {
-            Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
+        match (arg_val, default) {
+            (Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })), _) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+            }
+            (None, Some(default)) => {
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: default.to_string(),
+                    access_type,
+                });
             }
             _ => return Err(()),
         };
@@ -106,7 +117,5 @@ impl AssetsFinder {
     }
 }
 
-enum Arg {
-    // Positional arguments in python can also be used by their name
-    Pos(usize, &'static str),
-}
+struct Arg(usize, &'static str);
+// Positional arguments in python can also be used by their name
