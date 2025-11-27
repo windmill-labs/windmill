@@ -1015,6 +1015,10 @@ class Windmill:
             },
         )
 
+    def datatable(self, name: str = "main"):
+        return DataTableClient(self, name)
+
+
 
 def init_global_client(f):
     @functools.wraps(f)
@@ -1555,7 +1559,6 @@ def run_inline_script_preview(
         args=args,
     )
 
-
 @init_global_client
 def username_to_email(username: str) -> str:
     """
@@ -1565,6 +1568,14 @@ def username_to_email(username: str) -> str:
     """
     return _client.username_to_email(username)
 
+
+@init_global_client
+def datatable(name: str = "main"):
+    return _client.datatable(name)
+
+@init_global_client
+def ducklake(name: str = "main"):
+    return _client.datatable(name)
 
 def task(*args, **kwargs):
     from inspect import signature
@@ -1663,3 +1674,20 @@ def stream_result(stream) -> None:
     """
     for text in stream:
         append_to_result_stream(text)
+
+class DataTableClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def fetch(self, sql: str, *args):
+        args_dict = {}
+        args_def = ""
+        for i, arg in enumerate(args):
+            args_dict[f"arg{i+1}"] = arg
+            args_def += f"-- ${i+1} arg{i+1}\n"
+        sql = args_def + sql
+        return self.client.run_inline_script_preview(
+            content=sql,
+            language="postgresql",
+            args={"database": f"datatable://{self.name}", **args_dict},
+        )
