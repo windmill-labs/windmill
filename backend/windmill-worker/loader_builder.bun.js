@@ -29,7 +29,6 @@ for (const i of imports) {
   if (name == undefined) {
     throw Error("Unrecognized import: " + i.path);
   }
-  console.log(name);
   if (isBuiltin(name)) {
     continue;
   }
