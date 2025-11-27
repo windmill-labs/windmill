@@ -736,7 +736,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **set_flow_json**: Replace the entire flow structure with JSON (use this for structural changes like adding/removing modules)
 
 Follow the user instructions carefully.
-Go step by step, and explain what you're doing as you're doing it.
+Prefer doing only one usage of set_flow_json over multiple ones, unless the user explicitly asks for you to go step by step. At the end of your changes, explain precisely what you did and what the flow does now.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
@@ -829,7 +829,7 @@ To reduce token usage, rawscript content in the flow JSON you receive is replace
 **To modify an existing script's code:**
 - Use the \`set_module_code\` tool: \`set_module_code(moduleId, newCode)\`
 - No need to call \`set_flow_json\` for code-only changes
-- If you also need structural changes, call \`set_module_code\` first, then \`set_flow_json\` with the reference
+- If you also need structural changes, call \`set_flow_json\` first to set the flow structure, then \`set_module_code\` to set the code of the module
 
 **To add a new inline script module:**
 - Call \`set_flow_json\` with the full code content directly (not a reference)
