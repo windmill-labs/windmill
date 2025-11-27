@@ -34,6 +34,7 @@
 	import {
 		canWrite,
 		classNames,
+		debounce,
 		emptySchema,
 		removeMarkdown,
 		truncate,
@@ -95,6 +96,7 @@
 		formatExtension: undefined
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
+	let resourceTypeNameExists: boolean = $state(false)
 
 	let editResourceType = $state({
 		name: '',
@@ -224,8 +226,26 @@
 	}
 
 	const startNewType = () => {
+		// Find a unique name by checking for duplicates and appending a number
+		const baseName = 'my_resource_type'
+		let uniqueName = baseName
+		let counter = 2
+
+		// Check if the base name or numbered variants exist
+		while (true) {
+			const fullName = (disableCustomPrefix ? '' : 'c_') + uniqueName
+			const exists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+
+			if (!exists) {
+				break
+			}
+
+			uniqueName = `${baseName}_${counter}`
+			counter++
+		}
+
 		newResourceType = {
-			name: 'my_resource_type',
+			name: uniqueName,
 			schema: emptySchema(),
 			description: '',
 			formatExtension: undefined
@@ -327,7 +347,24 @@
 	function validateResourceTypeName() {
 		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
 		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
+		checkResourceTypeNameExists.debounced()
 	}
+
+	const checkResourceTypeNameExists = debounce(() => {
+		if (!newResourceType.name) {
+			resourceTypeNameExists = false
+			return
+		}
+		const fullName = (disableCustomPrefix ? '' : 'c_') + newResourceType.name
+		resourceTypeNameExists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+	}, 300)
+
+	// Re-check when prefix setting changes
+	$effect(() => {
+		if (disableCustomPrefix !== undefined) {
+			checkResourceTypeNameExists.debounced()
+		}
+	})
 
 	function toSnakeCase() {
 		newResourceType.name = newResourceType.name
@@ -576,7 +613,7 @@
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
-				disabled={!isNewResourceTypeNameValid}>Save</Button
+				disabled={!isNewResourceTypeNameValid || resourceTypeNameExists}>Save</Button
 			>
 		{/snippet}
 		<div class="flex flex-col gap-6">
@@ -619,6 +656,10 @@
 						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
 							>Name must be snake_case!
 							<button onclick={toSnakeCase} class="text-blue-600">Fix...</button></p
+						>
+					{:else if resourceTypeNameExists}
+						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
+							>A resource type with this name already exists!</p
 						>
 					{/if}
 				{/if}
