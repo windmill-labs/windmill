@@ -28,7 +28,6 @@ import { downloadZip } from "./pull.ts";
 import {
   exts,
   findContentFile,
-  findGlobalDeps,
   findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
@@ -58,7 +57,9 @@ import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
   readLockfile,
+  workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
@@ -1553,9 +1554,9 @@ export async function pull(
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
     await readLockfile(); // ensure wmill-lock.yaml exists
-    const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);
+    const rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
 
     for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
@@ -1564,7 +1565,7 @@ export async function pull(
         opts,
         false,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         true
       );
@@ -1814,7 +1815,7 @@ export async function push(
   );
 
 
-  const globalDeps = await findGlobalDeps();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1827,7 +1828,7 @@ export async function push(
       opts,
       true,
       true,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases,
       false
     );
@@ -1992,7 +1993,7 @@ export async function push(
                   workspace,
                   alreadySynced,
                   opts.message,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases,
                   opts
                 )
@@ -2008,7 +2009,7 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases
                 )
               ) {
@@ -2100,7 +2101,7 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases
                 )
               ) {
@@ -2287,36 +2288,20 @@ export async function push(
                   });
                   break;
                 case "workspace_dependencies":
-                  // Parse the workspace dependencies file path
-                  // Format: dependencies/requirements.in, dependencies/package.json, dependencies/myname.requirements.in, etc.
                   const relativePath = removePathPrefix(change.path, "dependencies");
                   
-                  let language: "python3" | "nativets" | "go" | "php";
-                  let name: string | undefined;
-                  
-                  // Parse based on file extension and potential name prefix
-                  if (relativePath.endsWith("requirements.in")) {
-                    language = "python3";
-                    name = relativePath === "requirements.in" ? undefined : relativePath.replace(".requirements.in", "");
-                  } else if (relativePath.endsWith("package.json")) {
-                    // Could be Bun, Deno, or Nativets - we'll default to nativets for sync
-                    language = "nativets";
-                    name = relativePath === "package.json" ? undefined : relativePath.replace(".package.json", "");
-                  } else if (relativePath.endsWith("go.mod")) {
-                    language = "go";
-                    name = relativePath === "go.mod" ? undefined : relativePath.replace(".go.mod", "");
-                  } else if (relativePath.endsWith("composer.json")) {
-                    language = "php";
-                    name = relativePath === "composer.json" ? undefined : relativePath.replace(".composer.json", "");
-                  } else {
+                  const res = workspaceDependenciesPathToLanguageAndFilename(change.path);
+                  if (!res) {
                     throw new Error(`Unknown workspace dependencies file format: ${change.path}`);
                   }
+                  const { name, language } = res;
 
                   await wmill.deleteWorkspaceDependencies({
                     workspace: workspaceId,
                     language,
                     name
                   });
+
                   break;
                 default:
                   break;
