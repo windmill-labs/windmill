@@ -92,7 +92,6 @@ export async function parseAnthropicCompletion(
 		}
 	})
 
-	// Stream arguments by accumulating partialJson (jsonSnapshot is empty)
 	completion.on('inputJson', (partialJson: string) => {
 		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
 			// Accumulate the partial JSON
