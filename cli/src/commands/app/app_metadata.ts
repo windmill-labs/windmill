@@ -25,6 +25,7 @@ import { FSFSElement } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { AppFile } from "./raw_apps.ts";
 import { replaceInlineScripts } from "./apps.ts";
+import { getLanguageExtension, SupportedLanguage } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 const TOP_HASH = "__app_hash";
 
@@ -171,7 +172,9 @@ export async function generateAppLocksInternal(
         workspace,
         appFile.runnables,
         remote_path,
-        rawReqs
+        appFolder,
+        rawReqs,
+        opts.defaultTs
       );
 
       // Write the updated app file
@@ -194,115 +197,172 @@ export async function generateAppLocksInternal(
 }
 
 /**
- * Updates locks for all runnables in an app
+ * Updates locks for all runnables in an app, generating locks inline script by inline script
+ * Also writes content and locks back to the runnables folder
  */
 async function updateAppRunnables(
   workspace: Workspace,
   runnables: Record<string, any>,
   remotePath: string,
-  rawDeps?: Record<string, string>
+  appFolder: string,
+  rawDeps?: Record<string, string>,
+  defaultTs: "bun" | "deno" = "bun"
 ): Promise<Record<string, any>> {
-  let rawResponse;
+  const updatedRunnables = { ...runnables };
+  const runnablesFolder = path.join(appFolder, "runnables");
 
-  if (rawDeps != undefined) {
-    log.info(colors.blue("Using raw requirements for app dependencies"));
-
-    // Generate the script locks running a dependency job in Windmill
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          path: remotePath,
-          raw_code: null,
-          entrypoint: null,
-          args: {},
-          language: "nativets",
-          raw_deps: rawDeps,
-        }),
-      }
-    );
-  } else {
-    // Use the standard app dependencies endpoint
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/app_dependencies`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          runnables,
-          path: remotePath,
-        }),
-      }
-    );
+  // Ensure runnables folder exists
+  try {
+    await Deno.mkdir(runnablesFolder, { recursive: true });
+  } catch {
+    // Folder may already exist
   }
 
-  if (!rawResponse.ok) {
-    const text = await rawResponse.text();
-    log.error(
-      colors.red(
-        `Error updating app runnables locks: ${rawResponse.status} ${rawResponse.statusText}\n${text}`
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    // Only process inline scripts (runnableByName with inlineScript)
+    if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
+      continue;
+    }
+
+    const inlineScript = runnable.inlineScript;
+    const language = inlineScript.language as SupportedLanguage;
+    const content = inlineScript.content;
+
+    if (!content || !language) {
+      continue;
+    }
+
+    // Skip frontend scripts - they don't need locks
+    if (language === "frontend") {
+      continue;
+    }
+
+    // Find raw deps for this language if available
+    const langRawDeps = rawDeps?.[language];
+
+    log.info(
+      colors.gray(
+        `Generating lock for runnable ${runnableId} (${language})${langRawDeps ? " with raw deps" : ""}`
       )
     );
-    throw new Error(`Failed to update app runnables: ${text}`);
+
+    try {
+      const lock = await generateInlineScriptLock(
+        workspace,
+        content,
+        language,
+        `${remotePath}/${runnableId}`,
+        langRawDeps
+      );
+
+      // Determine file extension for this language
+      const ext = getLanguageExtension(language, defaultTs);
+      const baseName = `${runnableId}.inline_script`;
+      const contentPath = path.join(runnablesFolder, `${baseName}.${ext}`);
+      const lockPath = path.join(runnablesFolder, `${baseName}.lock`);
+
+      // Write content to file
+      writeIfChanged(contentPath, content);
+
+      // Write lock to file if it exists
+      if (lock && lock !== "") {
+        writeIfChanged(lockPath, lock);
+      }
+
+      // Update the runnable with !inline references
+      const inlineContentRef = `!inline ${baseName}.${ext}`;
+      const inlineLockRef = lock && lock !== "" ? `!inline ${baseName}.lock` : "";
+
+      updatedRunnables[runnableId] = {
+        ...runnable,
+        inlineScript: {
+          ...inlineScript,
+          content: inlineContentRef,
+          lock: inlineLockRef,
+        },
+      };
+
+      log.info(
+        colors.gray(
+          `  Written ${baseName}.${ext}${lock ? ` and ${baseName}.lock` : ""}`
+        )
+      );
+    } catch (error: any) {
+      log.error(
+        colors.red(
+          `Failed to generate lock for runnable ${runnableId}: ${error.message}`
+        )
+      );
+      // Continue with other runnables even if one fails
+    }
   }
 
-  const jobId = await rawResponse.text();
-  log.info(colors.gray(`Dependency job started: ${jobId}`));
-
-  // Poll for job completion
-  const result = await waitForJob(workspace, jobId);
-
-  if (result && result.runnables) {
-    return result.runnables;
-  }
-
-  return runnables;
+  return updatedRunnables;
 }
 
 /**
- * Waits for a job to complete and returns its result
+ * Generates a lock for a single inline script using the dependencies endpoint
  */
-async function waitForJob(
+async function generateInlineScriptLock(
   workspace: Workspace,
-  jobId: string,
-  maxAttempts = 120
-): Promise<any> {
+  content: string,
+  language: string,
+  scriptPath: string,
+  rawDeps?: string
+): Promise<string> {
   const extraHeaders = getHeaders();
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs_u/completed/get_result_maybe/${jobId}`,
-      {
-        headers: extraHeaders,
-      }
+  const rawResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        raw_scripts: [
+          {
+            raw_code: content,
+            language: language,
+            script_path: scriptPath,
+          },
+        ],
+        raw_deps: rawDeps,
+        entrypoint: scriptPath,
+      }),
+    }
+  );
+
+  if (!rawResponse.ok) {
+    const text = await rawResponse.text();
+    throw new Error(
+      `Dependency generation failed: ${rawResponse.status} ${rawResponse.statusText}\n${text}`
     );
-
-    if (!response.ok) {
-      throw new Error(`Failed to check job status: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-
-    if (result.completed) {
-      if (!result.success) {
-        throw new Error(`Job failed: ${JSON.stringify(result.result)}`);
-      }
-      return result.result;
-    }
-
-    // Wait before next poll
-    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`Job ${jobId} did not complete within the timeout period`);
+  let responseText = "reading response failed";
+  try {
+    responseText = await rawResponse.text();
+    const response = JSON.parse(responseText);
+    const lock = response.lock;
+
+    if (lock === undefined) {
+      if (response?.["error"]?.["message"]) {
+        throw new Error(
+          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
+        );
+      }
+      throw new Error(
+        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
+      );
+    }
+
+    return lock ?? "";
+  } catch (e: any) {
+    throw new Error(
+      `Failed to parse dependency response: ${rawResponse.statusText}, ${responseText}, ${e.message}`
+    );
+  }
 }
