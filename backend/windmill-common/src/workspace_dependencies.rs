@@ -11,18 +11,18 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
     "g/all/setup_app"
 };
 
+lazy_static::lazy_static! {
+    static ref WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: bool = std::env::var("WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES").is_ok();
+}
 /// Minimum Windmill version required for workspace dependencies feature
-#[cfg(not(test))]
 pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.586.0";
-// for tests we will use older version
-#[cfg(test)]
-pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.0.0";
 
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
-    if !*crate::worker::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES
-        .read()
-        .await
+    if !*WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES 
+        && !*crate::worker::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES
+            .read()
+            .await
     {
         tracing::warn!(
             "Workspace dependencies feature will be disabled because not all workers support it (minimum version {} required)",
