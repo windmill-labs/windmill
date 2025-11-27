@@ -41,10 +41,7 @@ export async function downloadZip(
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
     }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}`;
-  
-  log.info(`Requesting tarball with include_workspace_dependencies=${includeWorkspaceDependenciesValue}, skipWorkspaceDependencies=${skipWorkspaceDependencies}`);
-  log.info(`Full URL: ${url}`);
-  
+
   const zipResponse = await fetch(url, {
       headers: requestHeaders,
       method: "GET",

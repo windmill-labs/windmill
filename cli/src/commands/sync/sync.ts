@@ -670,7 +670,7 @@ export async function elementsToMap(
   const processedBasePaths = new Set<string>();
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) {
-      if (entry.path.includes("dependencies")) {
+      if (entry.path.includes("dependencies/")) {
         log.info(`Ignoring dependencies-related path: ${entry.path} (isDirectory: ${entry.isDirectory}, ignored: ${entry.ignored})`);
       }
       continue;
@@ -705,23 +705,14 @@ export async function elementsToMap(
     // Use getTypeStrFromPath for consistent type detection
     try {
       const fileType = getTypeStrFromPath(path);
-      if (fileType === "workspace_dependencies") {
-        log.info(`Found workspace dependencies file: ${path} (type: ${fileType})`);
-      }
       if (skips.skipVariables && fileType === "variable") continue;
       if (skips.skipScripts && fileType === "script") continue;
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
-      if (skips.skipWorkspaceDependencies && fileType === "workspace_dependencies") {
-        log.info(`Skipping workspace dependencies file: ${path} due to skipWorkspaceDependencies flag`);
-        continue;
-      }
-    } catch (e) {
+      if (skips.skipWorkspaceDependencies && fileType === "workspace_dependencies") continue;
+    } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
-      if (path.includes("dependencies")) {
-        log.info(`Could not determine type for dependencies-related file: ${path}, error: ${e}`);
-      }
     }
 
     if (skips.skipResources && isFileResource(path)) continue;

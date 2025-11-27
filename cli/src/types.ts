@@ -250,7 +250,7 @@ export function getTypeStrFromPath(
   if (p.includes(".app" + SEP)) {
     return "app";
   }
-  if (p.startsWith("dependencies/" + SEP)) {
+  if (p.startsWith("dependencies" + SEP)) {
     return "workspace_dependencies";
   }
   const parsed = path.parse(p);
