@@ -1280,7 +1280,7 @@ export const components = {
 	},
 	jobprogressbarcomponent: {
 		name: 'Progress Bar by Job Id',
-		icon: Clock,
+		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}/progress_bar`,
 		dims: '2:2-6:2' as AppComponentDimensions,
 		customCss: {

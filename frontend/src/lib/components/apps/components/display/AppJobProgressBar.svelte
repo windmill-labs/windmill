@@ -11,6 +11,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 
 	interface Props {
 		id: string
@@ -100,6 +101,7 @@
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
+	bind:scriptProgress
 />
 
 <InitializeComponent {id} />
@@ -107,20 +109,19 @@
 {#if render}
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
-			class={twMerge(
-				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-				css?.header?.class
-			)}
-			style={css?.header?.style}
-		>
-			Progress
-		</div>
-		<div
 			style={css?.container?.style}
 			class={twMerge('p-2 grow overflow-auto', css?.container?.class)}
 		>
 			{#if testJob}
-				<JobProgressBar job={testJob} {scriptProgress} />
+				{#if testJob.job_kind == 'flow' || testJob.job_kind == 'flowpreview'}
+					<FlowProgressBar
+						job={testJob}
+						bind:currentSubJobProgress={scriptProgress}
+						class="py-4 max-w-7xl mx-auto px-4"
+					/>
+				{:else}
+					<JobProgressBar hideStepTitle job={testJob} {scriptProgress} />
+				{/if}
 			{:else}
 				<span class="text-secondary text-xs">No job</span>
 			{/if}
