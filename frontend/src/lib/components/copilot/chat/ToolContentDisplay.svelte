@@ -61,7 +61,7 @@
 {#if showWhileLoading || (!loading && hasContent) || streaming}
 	<div class="space-y-2">
 		<div class="flex items-center justify-between">
-			<span class="text-secondary text-2xs font-semibold uppercase tracking-wide">
+			<span class="text-2xs">
 				{title}:
 			</span>
 			{#if showCopy && hasContent && !streaming}
@@ -88,13 +88,13 @@
 			</div>
 		{:else if error}
 			<div
-				class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto"
+				class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-28 overflow-y-auto"
 			>
 				<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
 			</div>
 		{:else if hasContent}
 			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-64 overflow-y-auto"
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-28 overflow-y-auto"
 			>
 				<pre class="text-2xs text-primary whitespace-pre-wrap"
 					>{formatJson($state.snapshot(content))}</pre

@@ -29,7 +29,7 @@
 	<!-- Collapsible Header -->
 	<button
 		class={twMerge(
-			'w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
+			'w-full p-2 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
 		onclick={() => (isExpanded = !isExpanded)}
@@ -59,7 +59,7 @@
 
 	<!-- Expanded Content -->
 	{#if isExpanded}
-		<div class="p-3 bg-surface space-y-3">
+		<div class="p-2 bg-surface space-y-3">
 			<!-- Parameters Section - only show if we have parameters -->
 			{#if hasParameters}
 				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
