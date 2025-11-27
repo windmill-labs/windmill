@@ -226,8 +226,26 @@
 	}
 
 	const startNewType = () => {
+		// Find a unique name by checking for duplicates and appending a number
+		const baseName = 'my_resource_type'
+		let uniqueName = baseName
+		let counter = 2
+
+		// Check if the base name or numbered variants exist
+		while (true) {
+			const fullName = (disableCustomPrefix ? '' : 'c_') + uniqueName
+			const exists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+
+			if (!exists) {
+				break
+			}
+
+			uniqueName = `${baseName}_${counter}`
+			counter++
+		}
+
 		newResourceType = {
-			name: 'my_resource_type',
+			name: uniqueName,
 			schema: emptySchema(),
 			description: '',
 			formatExtension: undefined
