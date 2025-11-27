@@ -12,14 +12,14 @@
 
 	let { message }: Props = $props()
 
-	let isExpanded = $derived(
-		message.showDetails ||
-			message.isStreamingArguments ||
-			(message.isLoading && message.needsConfirmation)
-	)
-
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
+	)
+
+	let isExpanded = $derived(
+		message.showDetails ||
+			(message.isStreamingArguments && hasParameters) ||
+			(message.isLoading && message.needsConfirmation)
 	)
 </script>
 
@@ -60,14 +60,16 @@
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-3 bg-surface space-y-3">
-			<!-- Parameters Section -->
-			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
-				<ToolContentDisplay
-					title="Parameters"
-					content={message.parameters}
-					streaming={message.isStreamingArguments}
-				/>
-			</div>
+			<!-- Parameters Section - only show if we have parameters -->
+			{#if hasParameters}
+				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+					<ToolContentDisplay
+						title="Parameters"
+						content={message.parameters}
+						streaming={message.isStreamingArguments}
+					/>
+				</div>
+			{/if}
 
 			<!-- Confirmation Footer -->
 			{#if message.needsConfirmation}
@@ -102,8 +104,8 @@
 					</Button>
 				</div>
 
-				<!-- Result Section -->
-			{:else}
+				<!-- Logs and Result - hide while streaming -->
+			{:else if !message.isStreamingArguments}
 				<ToolContentDisplay
 					title="Logs"
 					content={message.logs}

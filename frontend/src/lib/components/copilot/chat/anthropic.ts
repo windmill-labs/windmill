@@ -10,7 +10,7 @@ import type {
 	ToolUseBlockParam,
 	Tool as AnthropicTool,
 	Message,
-	MessageStreamEvent
+	RawMessageStreamEvent
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
@@ -63,14 +63,10 @@ export async function parseAnthropicCompletion(
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
 
-	// Track current streaming tool state (minimal data needed)
 	let currentStreamingTool: { tempId: string; shouldStream: boolean } | undefined = undefined
-
-	// Accumulate JSON string manually (SDK's jsonSnapshot is empty)
 	let accumulatedJson = ''
 
-	// Capture content_block_start for tool name/id BEFORE arguments arrive
-	completion.on('streamEvent', (event: MessageStreamEvent, _snapshot: Message) => {
+	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
 		if (event.type === 'content_block_start') {
 			const block = event.content_block
 			if (block.type === 'tool_use') {
@@ -90,15 +86,14 @@ export async function parseAnthropicCompletion(
 					isLoading: true,
 					content: `Calling ${toolName}...`,
 					toolName,
-					isStreamingArguments: shouldStream,
-					showDetails: shouldStream
+					isStreamingArguments: shouldStream
 				})
 			}
 		}
 	})
 
 	// Stream arguments by accumulating partialJson (jsonSnapshot is empty)
-	completion.on('inputJson', (partialJson: string, _jsonSnapshot: unknown) => {
+	completion.on('inputJson', (partialJson: string) => {
 		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
 			// Accumulate the partial JSON
 			accumulatedJson += partialJson
