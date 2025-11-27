@@ -817,12 +817,7 @@ export async function elementsToMap(
       // No specific items configuration, use regular path
       map[entry.path] = content;
     }
-    
-    // Debug: log when workspace dependencies are added to map
-    if (path.startsWith("dependencies/")) {
-      console.log(`Added workspace dependencies file to map: ${path}`);
-    }
-  }
+      }
   return map;
 }
 
@@ -1345,16 +1340,6 @@ export async function pull(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
   
-  // Debug: show what changes include workspace dependencies
-  const workspaceDepsChanges = changes.filter(c => c.path.startsWith("dependencies/"));
-  if (workspaceDepsChanges.length > 0) {
-    log.info(`Found ${workspaceDepsChanges.length} workspace dependencies changes:`);
-    workspaceDepsChanges.forEach(change => {
-      log.info(`  ${change.name}: ${change.path}`);
-    });
-  } else {
-    log.info("No workspace dependencies changes found");
-  }
   
   // Debug: show all changes for push operation
   if (changes.length > 0) {
