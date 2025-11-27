@@ -211,6 +211,10 @@ export async function parseOpenAIResponsesCompletion(
 	let textContent = ''
 	let toolCallsMap: Record<string, { name: string; call_id: string }> = {}
 
+	// Streaming state tracking
+	let currentStreamingTool: { itemId: string; shouldStream: boolean } | undefined = undefined
+	let accumulatedJson = ''
+
 	// Handle text streaming
 	runner.on('response.output_text.delta', (event) => {
 		callbacks.onNewToken(event.delta)
@@ -221,22 +225,60 @@ export async function parseOpenAIResponsesCompletion(
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
 		if (item.type === 'function_call' && item.id) {
+			const tool = tools.find((t) => t.def.function.name === item.name)
+			const shouldStream = tool?.streamArguments ?? false
+
 			toolCallsMap[item.id] = {
 				name: item.name,
 				call_id: item.call_id
 			}
 
+			// Reset streaming state for new tool
+			accumulatedJson = ''
+			currentStreamingTool = { itemId: item.id, shouldStream }
+
 			// Show temporary loading state for the tool call
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: `Calling ${item.name} tool...`
+				content: `Calling ${item.name}...`,
+				toolName: item.name,
+				isStreamingArguments: shouldStream
 			})
+		}
+	})
+
+	// Stream function call arguments incrementally
+	runner.on('response.function_call_arguments.delta', (event) => {
+		if (currentStreamingTool?.shouldStream && currentStreamingTool.itemId === event.item_id) {
+			accumulatedJson += event.delta
+
+			try {
+				const parsed = JSON.parse(accumulatedJson)
+				callbacks.setToolStatus(`${event.item_id}`, {
+					parameters: parsed,
+					isStreamingArguments: true,
+					isLoading: true
+				})
+			} catch {
+				// JSON incomplete, display as raw string
+				callbacks.setToolStatus(`${event.item_id}`, {
+					parameters: accumulatedJson,
+					isStreamingArguments: true,
+					isLoading: true
+				})
+			}
 		}
 	})
 
 	// Handle function call arguments done
 	runner.on('response.function_call_arguments.done', (event) => {
+		// Clear streaming state
+		currentStreamingTool = undefined
+		callbacks.setToolStatus(`${event.item_id}`, {
+			isStreamingArguments: false
+		})
+
 		// Retrieve tool call metadata from map
 		const metadata = toolCallsMap[event.item_id]
 		if (!metadata) {
@@ -257,6 +299,7 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Handle errors
 	runner.on('error', (err: OpenAIError | ResponseErrorEvent) => {
+		currentStreamingTool = undefined
 		console.error('OpenAI Responses stream error:', err)
 		error = err
 	})
