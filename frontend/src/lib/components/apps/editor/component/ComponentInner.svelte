@@ -16,6 +16,7 @@
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
+	import AppJobProgressBar from '../../components/display/AppJobProgressBar.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 	import AppAccordionList from '../../components/display/AppAccordionList.svelte'
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
@@ -146,6 +147,7 @@
 	])
 	const chunk5Components = new Set([
 		'jobidlogcomponent',
+		'jobprogressbarcomponent',
 		'listcomponent',
 		'logcomponent',
 		'mapcomponent',
@@ -599,6 +601,14 @@
 	{#if chunk5Components.has(component.type)}
 		{#if component.type === 'jobidlogcomponent'}
 			<AppJobIdLogComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'jobprogressbarcomponent'}
+			<AppJobProgressBar
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
