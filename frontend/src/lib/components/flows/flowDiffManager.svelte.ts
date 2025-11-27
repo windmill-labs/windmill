@@ -55,6 +55,8 @@ export function createFlowDiffManager() {
 	// State: module actions tracking changes (added/modified/removed/shadowed)
 	let moduleActions = $state<Record<string, ModuleActionInfo>>({})
 
+	$inspect('HERE: [flowDiffManager] moduleActions', moduleActions)
+
 	// State: reference to DiffDrawer component for showing module diffs
 	let diffDrawer = $state<DiffDrawer | undefined>(undefined)
 

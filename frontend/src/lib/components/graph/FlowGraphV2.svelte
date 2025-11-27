@@ -719,8 +719,9 @@
 	})
 
 	let graph = $derived.by(() => {
-		console.log('HERE graph', effectiveModuleActions)
 		moduleTracker.counter
+		// Track moduleActions changes so graph rebuilds on accept/reject
+		effectiveModuleActions
 		return graphBuilder(
 			untrack(() => effectiveModules),
 			{
@@ -873,8 +874,6 @@
 	export function getDiffManager() {
 		return diffManager
 	}
-
-	$inspect('HERE effectiveModuleActions', effectiveModuleActions)
 
 	export function enableNotes() {
 		if (!showNotes) {
