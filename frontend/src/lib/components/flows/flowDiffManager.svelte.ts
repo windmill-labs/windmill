@@ -408,11 +408,14 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Revert the entire flow to the snapshot
+	 * @param flowStore - The flow store to update
+	 * @param snapshot - Optional specific snapshot to revert to (defaults to beforeFlow)
 	 */
-	function revertToSnapshot(flowStore: StateStore<ExtendedOpenFlow>) {
-		if (!beforeFlow) return
+	function revertToSnapshot(flowStore: StateStore<ExtendedOpenFlow>, snapshot?: ExtendedOpenFlow) {
+		const targetSnapshot = snapshot ?? beforeFlow
+		if (!targetSnapshot) return
 
-		flowStore.val = beforeFlow
+		flowStore.val = targetSnapshot
 		refreshStateStore(flowStore)
 		clearSnapshot()
 	}

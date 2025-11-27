@@ -63,24 +63,22 @@
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
 			if (!diffManager) return
 
-			if (snapshot) {
-				diffManager.revertToSnapshot(flowStore)
+			// Pass snapshot to diffManager - use message's snapshot or fall back to beforeFlow
+			diffManager.revertToSnapshot(flowStore, snapshot)
 
-				// Update current editor if needed
-				if ($currentEditor) {
-					const module = getModule($currentEditor.stepId, snapshot)
-					if (module) {
-						if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
-							$currentEditor.editor.setCode(module.value.content)
-						} else if ($currentEditor.type === 'iterator' && module.value.type === 'forloopflow') {
-							$currentEditor.editor.setCode(
-								module.value.iterator.type === 'javascript' ? module.value.iterator.expr : ''
-							)
-						}
+			// Update current editor if needed
+			const targetSnapshot = snapshot ?? diffManager.beforeFlow
+			if ($currentEditor && targetSnapshot) {
+				const module = getModule($currentEditor.stepId, targetSnapshot)
+				if (module) {
+					if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
+						$currentEditor.editor.setCode(module.value.content)
+					} else if ($currentEditor.type === 'iterator' && module.value.type === 'forloopflow') {
+						$currentEditor.editor.setCode(
+							module.value.iterator.type === 'javascript' ? module.value.iterator.expr : ''
+						)
 					}
 				}
-			} else {
-				diffManager.revertToSnapshot(flowStore)
 			}
 		},
 
