@@ -276,6 +276,21 @@ class Windmill:
             cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
+    def run_inline_script_preview(
+        self,
+        content: str,
+        language: str,
+        args: dict = None,
+    ) -> Any:
+        """Run a script on the current worker without creating a job"""
+        endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        body = {
+            "content": content,
+            "language": language,
+            "args": args or {},
+        }
+        return self.post(endpoint, json=body).text
+
     def wait_job(
         self,
         job_id,
@@ -1525,6 +1540,19 @@ def run_script_by_hash(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+    )
+
+@init_global_client
+def run_inline_script_preview(
+    content: str,
+    language: str,
+    args: dict = None,
+) -> Any:
+    """Run a script on the current worker without creating a job"""
+    return _client.run_inline_script_preview(
+        content=content,
+        language=language,
+        args=args,
     )
 
 
