@@ -246,6 +246,7 @@ export async function handleFile(
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
+          ...(codebase.banner != null && { banner: codebase.banner }),
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;

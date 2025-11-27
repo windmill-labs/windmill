@@ -101,6 +101,7 @@ export interface Codebase {
   inject?: string[];
   loader?: any,
   format?: "cjs" | "esm";
+  banner?: string | { js?: string };
 }
 
 function getGitRepoRoot(): string | null {
