@@ -495,8 +495,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     );
     for DependencyDependent { importer_path, importer_kind, importer_node_ids } in importers.iter()
     {
-        dbg!(&importer_path);
-        dbg!(&importer_node_ids);
         tracing::trace!("Processing dependency: {:?}", importer_path);
         if already_visited.contains(importer_path) {
             tracing::trace!("Skipping already visited dependency");
@@ -2446,10 +2444,6 @@ async fn python_dep(
     use windmill_common::worker::{split_python_requirements, PyVAlias};
 
     create_dependencies_dir(job_dir).await;
-
-    dbg!(&annotations);
-    dbg!(&annotations);
-    dbg!(&annotations);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,

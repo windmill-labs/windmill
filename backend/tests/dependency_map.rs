@@ -289,10 +289,12 @@ def main():
         in_test_worker(&db, completed.next(), port).await;
 
         // Changing leafs should not change dependency map
-        assert_dmap(&db, None, corrected_dmap(vec![
-                ("f/rel/leaf_2", "f/rel/leaf_2_renamed"),
-            ]),
-).await;
+        assert_dmap(
+            &db,
+            None,
+            corrected_dmap(vec![("f/rel/leaf_2", "f/rel/leaf_2_renamed")]),
+        )
+        .await;
         Ok(())
     }
 
@@ -322,10 +324,12 @@ def main():
         in_test_worker(&db, completed.next(), port).await;
 
         // Changing leafs should not change dependency map
-        assert_dmap(&db, None, corrected_dmap(vec![
-                ("f/rel/leaf_1", "f/rel/leaf_1_renamed"),
-            ]),
-).await;
+        assert_dmap(
+            &db,
+            None,
+            corrected_dmap(vec![("f/rel/leaf_1", "f/rel/leaf_1_renamed")]),
+        )
+        .await;
         Ok(())
     }
 
@@ -362,11 +366,9 @@ def main():
             .clone()
             .iter_mut()
             .map(|el| {
-                dbg!(&el);
                 if el.0 == "f/rel/branch" {
                     el.0 = "f/rel/branch_renamed";
                 }
-                dbg!(&el);
                 *el
             })
             .collect::<Vec<_>>();

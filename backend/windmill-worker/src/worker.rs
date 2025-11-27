@@ -2630,10 +2630,6 @@ pub async fn handle_queued_job(
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
-    //
-    dbg!(&raw_code);
-    dbg!(&raw_lock);
-    dbg!(&job);
 
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -2864,18 +2860,15 @@ pub async fn handle_queued_job(
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
 
-        let raw_workspace_dependencies_o = if dbg!(job.kind.is_dependency()) {
-            dbg!(&job.args);
+        let raw_workspace_dependencies_o = if job.kind.is_dependency() {
             job.args
                 .as_ref()
                 .and_then(|x| x.get("raw_workspace_dependencies"))
-                .map(|v| dbg!(v.get()))
+                .map(|v| v.get())
                 .and_then(|v| serde_json::from_str::<RawWorkspaceDependencies>(v).ok())
         } else {
             None
         };
-
-        dbg!(&raw_workspace_dependencies_o);
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {

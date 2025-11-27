@@ -164,7 +164,6 @@ impl WorkspaceDependencies {
         workspace_id: &str,
         conn: Connection,
     ) -> error::Result<Option<Self>> {
-        dbg!(&name, language, &workspace_id);
         if language.as_dependencies_filename().is_none() {
             return Ok(None);
         }
@@ -490,7 +489,6 @@ impl WorkspaceDependenciesPrefetched {
     }
 
     fn check_legacy_compat(&self) -> Result<(), String> {
-        dbg!(&self);
         use ScriptLang::*;
         use WorkspaceDependenciesPrefetchedInternal::*;
         match (self.language, &self.internal) {
