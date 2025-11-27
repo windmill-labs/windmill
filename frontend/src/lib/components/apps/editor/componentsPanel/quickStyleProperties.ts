@@ -665,6 +665,10 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	jobprogressbarcomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
 	accordionlistcomponent: {
 		container: containerDefaultProps
 	},
