@@ -3,7 +3,7 @@ mod tests {
     use sqlx::{Pool, Postgres};
     use windmill_parser_py_imports::parse_python_imports;
 
-    #[sqlx::test(fixtures("base"), migrations = "../../migrations")]
+    #[sqlx::test(fixtures("base"))]
     async fn test_parse_python_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
@@ -41,15 +41,14 @@ def main():
         Ok(())
     }
 
-    #[sqlx::test(fixtures("base"), migrations = "../../migrations")]
+    #[sqlx::test(fixtures("base"))]
     async fn test_parse_python_imports2(db: Pool<Postgres>) -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
 #requirements:
 #burkina=0.4
 #nigeria
-#
-#congo
+
 
 import os
 import wmill
@@ -75,7 +74,7 @@ def main():
         Ok(())
     }
 
-    #[sqlx::test(fixtures("base"), migrations = "../../migrations")]
+    #[sqlx::test(fixtures("base"))]
     async fn test_parse_python_imports_local(db: Pool<Postgres>) -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "

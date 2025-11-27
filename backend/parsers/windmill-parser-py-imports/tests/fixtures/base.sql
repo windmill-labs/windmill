@@ -2581,3 +2581,102 @@ import innerdifffolder
 '',
 '',
 'f/foobar/bar', -28028598712388159, 'python3', '');
+
+
+
+--
+-- Name: workspace_dependencies_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.workspace_dependencies_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.workspace_dependencies_id_seq OWNER TO postgres;
+
+--
+-- Name: workspace_dependencies_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.workspace_dependencies_id_seq', 7, true);
+
+
+--
+-- Name: SEQUENCE workspace_dependencies_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.workspace_dependencies_id_seq TO windmill_user;
+GRANT ALL ON SEQUENCE public.workspace_dependencies_id_seq TO windmill_admin;
+
+
+--
+-- Name: workspace_dependencies; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.workspace_dependencies (
+    id bigint DEFAULT nextval('public.workspace_dependencies_id_seq'::regclass) NOT NULL,
+    name character varying(255),
+    content text NOT NULL,
+    language public.script_lang NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    archived boolean DEFAULT false NOT NULL,
+    workspace_id character varying(50) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.workspace_dependencies OWNER TO postgres;
+
+--
+-- Name: workspace_dependencies workspace_dependencies_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.workspace_dependencies
+    ADD CONSTRAINT workspace_dependencies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: one_non_archived_per_name_language_constraint; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX one_non_archived_per_name_language_constraint ON public.workspace_dependencies USING btree (name, language, workspace_id) WHERE ((archived = false) AND (name IS NOT NULL));
+
+
+--
+-- Name: one_non_archived_per_null_name_language_constraint; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX one_non_archived_per_null_name_language_constraint ON public.workspace_dependencies USING btree (language, workspace_id) WHERE ((archived = false) AND (name IS NULL));
+
+
+--
+-- Name: workspace_dependencies_workspace_archived_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX workspace_dependencies_workspace_archived_idx ON public.workspace_dependencies USING btree (workspace_id, archived) WHERE (archived = false);
+
+
+--
+-- Name: workspace_dependencies_workspace_lang_name_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX workspace_dependencies_workspace_lang_name_idx ON public.workspace_dependencies USING btree (workspace_id, language, name);
+
+
+--
+-- Name: TABLE workspace_dependencies; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE public.workspace_dependencies TO windmill_user;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE public.workspace_dependencies TO windmill_admin;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+
