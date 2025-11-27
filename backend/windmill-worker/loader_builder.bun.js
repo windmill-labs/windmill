@@ -17,7 +17,7 @@ const captureVersion =
   /^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@([^\/]+))?.*$/;
 
 import { semver } from "bun";
-
+import { isBuiltin } from "module";
 let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
 const imports = new Bun.Transpiler().scanImports(
   content.replaceAll("__require", "require")
@@ -29,7 +29,8 @@ for (const i of imports) {
   if (name == undefined) {
     throw Error("Unrecognized import: " + i.path);
   }
-  if (name.startsWith("node:")) {
+  console.log(name);
+  if (isBuiltin(name)) {
     continue;
   }
   let splitted = name.split("/");
