@@ -212,7 +212,9 @@ export async function parseOpenAIResponsesCompletion(
 	let toolCallsMap: Record<string, { name: string; call_id: string }> = {}
 
 	// Streaming state tracking
-	let currentStreamingTool: { itemId: string; shouldStream: boolean } | undefined = undefined
+	let currentStreamingTool:
+		| { itemId: string; shouldStream: boolean; toolName: string }
+		| undefined = undefined
 	let accumulatedJson = ''
 
 	// Handle text streaming
@@ -235,7 +237,7 @@ export async function parseOpenAIResponsesCompletion(
 
 			// Reset streaming state for new tool
 			accumulatedJson = ''
-			currentStreamingTool = { itemId: item.id, shouldStream }
+			currentStreamingTool = { itemId: item.id, shouldStream, toolName: item.name }
 
 			// Show temporary loading state for the tool call
 			callbacks.onMessageEnd()
@@ -243,7 +245,9 @@ export async function parseOpenAIResponsesCompletion(
 				isLoading: true,
 				content: `Calling ${item.name}...`,
 				toolName: item.name,
-				isStreamingArguments: shouldStream
+				isStreamingArguments: shouldStream,
+				showFade: tool?.showFade,
+				showDetails: tool?.showDetails
 			})
 		}
 	})

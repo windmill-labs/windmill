@@ -67,6 +67,8 @@
 						title="Parameters"
 						content={message.parameters}
 						streaming={message.isStreamingArguments}
+						toolName={message.toolName}
+						showFade={message.showFade}
 					/>
 				</div>
 			{/if}

@@ -899,6 +899,7 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
 	streamArguments: true,
 	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -968,6 +969,7 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL,
 	streamArguments: true,
 	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -988,8 +990,6 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			})
 			throw new Error('Code parameter is required and must be a string')
 		}
-
-		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
 
 		try {
 			// Save old code

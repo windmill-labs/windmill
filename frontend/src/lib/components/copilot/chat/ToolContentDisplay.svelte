@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Loader2, Copy, Check } from 'lucide-svelte'
+	import { TOOL_PRETTIFY_MAP } from './shared'
 
 	interface Props {
 		title: string
@@ -9,6 +10,8 @@
 		showCopy?: boolean
 		showWhileLoading?: boolean
 		streaming?: boolean
+		toolName?: string
+		showFade?: boolean
 	}
 
 	let {
@@ -18,14 +21,29 @@
 		loading,
 		showCopy = true,
 		showWhileLoading = true,
-		streaming = false
+		streaming = false,
+		toolName,
+		showFade = false
 	}: Props = $props()
 	let copied = $state(false)
 
 	const hasContent = $derived(content !== undefined && content !== null)
 
+	// Look up prettify function from the map using toolName
+	const prettifyFn = $derived(toolName ? TOOL_PRETTIFY_MAP[toolName] : undefined)
+
 	function formatJson(obj: any): string {
 		try {
+			// Apply prettify function if available for this tool
+			if (prettifyFn) {
+				if (typeof obj === 'object') {
+					return prettifyFn(JSON.stringify(obj, null, 2))
+				} else {
+					return prettifyFn(obj)
+				}
+			}
+
+			// Original formatting logic as fallback
 			if (typeof obj === 'string') {
 				try {
 					const parsed = JSON.parse(obj)
@@ -94,11 +112,18 @@
 			</div>
 		{:else if hasContent}
 			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 overflow-x-auto max-h-28 overflow-y-auto"
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded overflow-hidden relative"
 			>
-				<pre class="text-2xs text-primary whitespace-pre-wrap"
-					>{formatJson($state.snapshot(content))}</pre
-				>
+				<div class="p-3 overflow-x-auto max-h-28 overflow-y-auto">
+					<pre class="text-2xs text-primary whitespace-pre-wrap"
+						>{formatJson($state.snapshot(content))}</pre
+					>
+				</div>
+				{#if showFade}
+					<div
+						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface-secondary via-surface-secondary/70 via-surface-secondary/40 to-transparent"
+					></div>
+				{/if}
 			</div>
 		{:else}
 			<div

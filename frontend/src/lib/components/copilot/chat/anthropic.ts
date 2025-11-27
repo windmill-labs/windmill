@@ -15,7 +15,6 @@ import type {
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
-import { generateRandomString } from '$lib/utils'
 
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
@@ -63,7 +62,9 @@ export async function parseAnthropicCompletion(
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
 
-	let currentStreamingTool: { tempId: string; shouldStream: boolean } | undefined = undefined
+	let currentStreamingTool:
+		| { tempId: string; shouldStream: boolean; toolName: string }
+		| undefined = undefined
 	let accumulatedJson = ''
 
 	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
@@ -71,22 +72,24 @@ export async function parseAnthropicCompletion(
 			const block = event.content_block
 			if (block.type === 'tool_use') {
 				const toolName = block.name
+				const toolId = block.id as string
 
 				const tool = tools.find((t) => t.def.function.name === toolName)
 				const shouldStream = tool?.streamArguments ?? false
 
 				callbacks.onMessageEnd()
-				const tempId = `temp-${generateRandomString(12)}`
 
 				// Reset accumulated JSON for new tool
 				accumulatedJson = ''
-				currentStreamingTool = { tempId, shouldStream }
+				currentStreamingTool = { tempId: toolId, shouldStream, toolName }
 
-				callbacks.setToolStatus(tempId, {
+				callbacks.setToolStatus(toolId, {
 					isLoading: true,
 					content: `Calling ${toolName}...`,
 					toolName,
-					isStreamingArguments: shouldStream
+					isStreamingArguments: shouldStream,
+					showFade: tool?.showFade,
+					showDetails: tool?.showDetails
 				})
 			}
 		}
@@ -130,11 +133,6 @@ export async function parseAnthropicCompletion(
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
 			} else if (block.type === 'tool_use') {
-				// Remove temp display if it exists
-				if (currentStreamingTool?.tempId) {
-					callbacks.removeToolStatus(currentStreamingTool.tempId)
-				}
-
 				// Convert Anthropic tool calls to OpenAI format for compatibility
 				toolCallsToProcess.push({
 					id: block.id,
@@ -158,10 +156,6 @@ export async function parseAnthropicCompletion(
 
 	// Handle errors
 	completion.on('error', (e: any) => {
-		if (currentStreamingTool?.tempId) {
-			callbacks.removeToolStatus(currentStreamingTool.tempId)
-			currentStreamingTool = undefined
-		}
 		console.error('Anthropic stream error:', e)
 		error = e
 	})

@@ -922,6 +922,14 @@ export async function parseOpenAICompletion(
 
 					const shouldStream = streamingTools[index]
 					const accumulatedArgs = finalToolCall.function.arguments
+					let parameters: any = undefined
+					if (accumulatedArgs) {
+						try {
+							parameters = JSON.parse(accumulatedArgs)
+						} catch {
+							parameters = accumulatedArgs
+						}
+					}
 
 					// Display tool call with streaming parameters if enabled
 					callbacks.setToolStatus(toolCallId, {
@@ -929,17 +937,9 @@ export async function parseOpenAICompletion(
 						content: `Calling ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
-						...(shouldStream && accumulatedArgs
-							? {
-									parameters: (() => {
-										try {
-											return JSON.parse(accumulatedArgs)
-										} catch {
-											return accumulatedArgs
-										}
-									})()
-								}
-							: {})
+						showFade: tool?.showFade,
+						showDetails: tool?.showDetails,
+						parameters: parameters
 					})
 				}
 			}

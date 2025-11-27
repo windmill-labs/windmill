@@ -15,6 +15,42 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import YAML from 'yaml'
 import { getCurrentModel } from '$lib/aiStore'
 
+// Prettify function for code arguments - extracts and formats code from JSON
+function prettifyCodeArguments(content: string): string {
+	let codeContent = content
+
+	// If it's a JSON string, try to extract the code property
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (parsed.code) {
+				codeContent = parsed.code
+			}
+		} catch {
+			// If JSON is incomplete during streaming, try to extract manually
+			// Remove leading { "code": " or {"code":"
+			codeContent = content.replace(/^\{\s*"code"\s*:\s*"/, '')
+			// Remove trailing } if it exists
+			codeContent = codeContent.replace(/"\s*}\s*$/, '')
+		}
+	}
+
+	// Convert escaped newlines to actual newlines
+	codeContent = codeContent.replace(/\\n/g, '\n')
+
+	// Convert other common escape sequences
+	codeContent = codeContent.replace(/\\t/g, '\t')
+	codeContent = codeContent.replace(/\\"/g, '"')
+	codeContent = codeContent.replace(/\\\\/g, '\\')
+
+	return codeContent
+}
+
+// Map of tool names to their prettify functions
+export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
+	edit_code: prettifyCodeArguments
+}
+
 export interface ContextStringResult {
 	dbContext: string
 	diffContext: string
@@ -219,6 +255,7 @@ export type ToolDisplayMessage = {
 	showDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	showFade?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -361,6 +398,7 @@ export interface Tool<T> {
 	confirmationMessage?: string
 	showDetails?: boolean
 	streamArguments?: boolean
+	showFade?: boolean
 }
 
 export interface ToolCallbacks {
