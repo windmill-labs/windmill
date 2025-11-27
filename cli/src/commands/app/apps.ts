@@ -180,8 +180,8 @@ const command = new Command()
   .action(push as any)
   .command("dev", devCommand)
   .command(
-    "generate-metadata",
-    "re-generate the metadata for app runnables, updating locks and schemas for inline scripts that have changed"
+    "generate-locks",
+    "re-generate the lockfiles for app runnables inline scripts that have changed"
   )
   .arguments("[app_folder:string]")
   .option("--yes", "Skip confirmation prompt")
@@ -191,8 +191,8 @@ const command = new Command()
     "Default TypeScript runtime (bun or deno)"
   )
   .action(async (opts: any, appFolder: string | undefined) => {
-    const { generateMetadataCommand } = await import("./raw_apps.ts");
-    await generateMetadataCommand(opts, appFolder);
+    const { generateLocksCommand } = await import("./raw_apps.ts");
+    await generateLocksCommand(opts, appFolder);
   });
 
 export default command;

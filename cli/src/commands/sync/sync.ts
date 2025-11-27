@@ -292,6 +292,7 @@ export function extractInlineScriptsForApps(
             content: lock,
           });
         }
+        o.schema = undefined;
         return r;
       } else {
         return extractInlineScriptsForApps(v, pathAssigner);

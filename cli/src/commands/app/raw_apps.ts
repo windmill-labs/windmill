@@ -39,7 +39,7 @@ async function collectAppFiles(
 
       if (entry.isDirectory) {
         // Skip the runnables and node_modules subfolders
-        if (entry.name === "runnables" || entry.name === "node_modules") {
+        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist") {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
@@ -179,7 +179,7 @@ export async function generatingPolicy(
   }
 }
 
-export async function generateMetadataCommand(
+export async function generateLocksCommand(
   opts: GlobalOptions & {
     yes?: boolean;
     dryRun?: boolean;

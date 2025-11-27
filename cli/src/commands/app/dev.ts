@@ -250,6 +250,7 @@ async function dev(opts: DevOptions) {
               delete schemaInferenceTimeouts[changedPath];
 
               try {
+                log.info(colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`));
                 // Infer and update schema for this runnable
                 const updatedRunnableId = await inferRunnableSchemaFromFile(
                   process.cwd(),
