@@ -3317,7 +3317,7 @@ pub async fn run_language_executor(
         {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             return do_mysql(
@@ -3354,7 +3354,7 @@ pub async fn run_language_executor(
         {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             return do_bigquery(
@@ -3383,7 +3383,7 @@ pub async fn run_language_executor(
         {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             return do_snowflake(
@@ -3420,7 +3420,7 @@ pub async fn run_language_executor(
         {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             return do_mssql(
@@ -3457,7 +3457,7 @@ pub async fn run_language_executor(
         {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             return do_oracledb(
@@ -3503,7 +3503,7 @@ pub async fn run_language_executor(
     } else if language == Some(ScriptLang::Graphql) {
         if run_inline {
             return Err(Error::internal_err(
-                "Inline execution is not supported for this language".to_string(),
+                "Inline execution is not yet supported for this language".to_string(),
             ));
         }
         return do_graphql(
@@ -3520,7 +3520,7 @@ pub async fn run_language_executor(
     } else if language == Some(ScriptLang::Nativets) {
         if run_inline {
             return Err(Error::internal_err(
-                "Inline execution is not supported for this language".to_string(),
+                "Inline execution is not yet supported for this language".to_string(),
             ));
         }
         append_logs(
@@ -3612,7 +3612,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_python_job(
@@ -3641,7 +3641,7 @@ mount {{
         Some(ScriptLang::Deno) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_deno_job(
@@ -3666,7 +3666,7 @@ mount {{
         Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_bun_job(
@@ -3694,7 +3694,7 @@ mount {{
         Some(ScriptLang::Go) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_go_job(
@@ -3718,7 +3718,7 @@ mount {{
         Some(ScriptLang::Bash) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_bash_job(
@@ -3742,7 +3742,7 @@ mount {{
         Some(ScriptLang::Powershell) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_powershell_job(
@@ -3772,7 +3772,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_php_job(
@@ -3804,7 +3804,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_rust_job(
@@ -3836,7 +3836,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_ansible_job(
@@ -3862,7 +3862,7 @@ mount {{
         Some(ScriptLang::CSharp) => {
             if run_inline {
                 return Err(Error::internal_err(
-                    "Inline execution is not supported for this language".to_string(),
+                    "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
             Box::pin(handle_csharp_job(
@@ -3893,7 +3893,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_nu_job(JobHandlerInputNu {
@@ -3926,7 +3926,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_java_job(JobHandlerInputJava {
@@ -3959,7 +3959,7 @@ mount {{
             {
                 if run_inline {
                     return Err(Error::internal_err(
-                        "Inline execution is not supported for this language".to_string(),
+                        "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
                 Box::pin(handle_ruby_job(JobHandlerInputRuby {
