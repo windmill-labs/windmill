@@ -282,10 +282,9 @@
 									tag="ducklake"
 								>
 									{#snippet wizardBottomHint()}
-										Note: the 'Manage' button below is different from the Manage Ducklake button.
-										This will show you the content of the PostgreSQL database used as a catalog,
-										while the other button shows you the actual content of the ducklake (the parquet
-										files).
+										Note: this is different from the Manage Ducklake button. This will show you the
+										content of the PostgreSQL database used as a catalog, while the other button
+										shows you the content of the ducklake (the parquet files).
 									{/snippet}
 								</CustomInstanceDbSelect>
 							{/if}

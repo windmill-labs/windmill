@@ -11,7 +11,6 @@
 	import LoggedWizardResult, { firstEmptyStepIsError } from '../wizards/LoggedWizardResult.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import type { ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -46,97 +45,103 @@
 <Modal2
 	bind:isOpen={() => !!opened, (v) => !v && !preventClose && (opened = undefined)}
 	target="#content"
-	title={opened?.dbname ?? '??'}
+	title={'Custom Instance Database Setup'}
 	contentClasses="flex flex-col"
-	fixedWidth="sm"
-	fixedHeight="lg"
+	fixedWidth="md"
+	fixedHeight="md"
 >
 	{#if opened}
 		{@const status = opened?.status}
 		{@const dbname = opened?.dbname}
 		{@const enableManageButton =
 			status?.logs.created_database === 'OK' || status?.logs.created_database === 'SKIP'}
-		{#if !status}
-			<div class="mb-4 text-secondary text-sm">
-				{dbname} needs to be configured in the Windmill postgres instance
-			</div>
-		{/if}
-
-		{#if status?.error}
-			<div transition:slide={{ duration: 200 }} class="mb-4">
-				<Alert title="Error setting up custom instance database" type="error">
-					{status.error}
-				</Alert>
-			</div>
-		{/if}
-
-		<LoggedWizardResult
-			class="overflow-y-auto"
-			steps={firstEmptyStepIsError(
-				[
-					{
-						title: 'Super admin required',
-						status: status?.logs.super_admin,
-						description:
-							'You need to be a super admin to create a new database in the Windmill PostgreSQL instance'
-					},
-					{
-						title: 'Retrieve and parse database credentials',
-						status: status?.logs.database_credentials,
-						description:
-							'Windmill uses the DATABASE_URL or DATABASE_URL_FILE environment variable to connect to the PostgreSQL instance. Make sure it is correctly set'
-					},
-					{
-						title: 'Database name is valid',
-						status: status?.logs.valid_dbname,
-						description:
-							'The database name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
-					},
-					{
-						title:
-							'Create database' +
-							(status?.logs.created_database === 'SKIP' ? ' (already exists, skipped)' : ''),
-						status: status?.logs.created_database,
-						description: `In the Windmill PostgreSQL instance, run: CREATE DATABASE "${dbname}".`
-					},
-					{
-						title: `Connect to the ${dbname} database`,
-						status: status?.logs.db_connect,
-						description:
-							"Connect to the newly created database with the default admin user (the one in DATABASE_URL, usually 'postgres') to run the next commands"
-					},
-					{
-						title: 'Grant permissions to custom_instance_user',
-						status: status?.logs.grant_permissions,
-						description:
-							'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
-							`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
-							'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
-							'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
-							'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
-							'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;'
-					}
-				],
-				status?.error ?? undefined
-			)}
-		/>
-		<div class="mt-auto pt-6">
-			{#if bottomHint}
-				<div class="text-primary text-xs mb-2">
-					{@render bottomHint()}
+		<div class="flex h-full divide-x gap-4">
+			<div class="basis-2/5 grow-0 shrink-0 flex flex-col">
+				<div class="flex-1 flex flex-col">
+					<span class="text-sm font-bold mb-2 overflow break-all">{dbname}</span>
+					<span class="text-sm">
+						Custom instance databases are databases created in the Windmill PostgreSQL instance.
+						Their credentials are automatically managed by Windmill and are never exposed to users.
+						Only super admins can create them.
+					</span>
 				</div>
-			{/if}
-			<div class="flex gap-2">
-				<ExploreAssetButton
-					class="flex-1"
-					asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
-					_resourceMetadata={{ resource_type: 'postgresql' }}
-					{dbManagerDrawer}
-					disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
-					onClick={() => (opened = undefined)}
-				/>
+				<div class="pt-6">
+					{#if bottomHint}
+						<div class="text-secondary text-2xs mb-2">
+							{@render bottomHint()}
+						</div>
+					{/if}
+					<ExploreAssetButton
+						class="flex-1"
+						asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
+						_resourceMetadata={{ resource_type: 'postgresql' }}
+						{dbManagerDrawer}
+						disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
+						onClick={() => (opened = undefined)}
+					/>
+				</div>
+			</div>
+			<div class="flex-1 shrink-0 flex flex-col pl-4 gap-4">
+				<div class="flex-1 overflow-y-auto">
+					{#if status?.error}
+						<div transition:slide={{ duration: 200 }} class="mb-4">
+							<Alert title="Error setting up custom instance database" type="error">
+								{status.error}
+							</Alert>
+						</div>
+					{/if}
+
+					<LoggedWizardResult
+						steps={firstEmptyStepIsError(
+							[
+								{
+									title: 'Super admin required',
+									status: status?.logs.super_admin,
+									description:
+										'You need to be a super admin to create a new database in the Windmill PostgreSQL instance'
+								},
+								{
+									title: 'Retrieve and parse database credentials',
+									status: status?.logs.database_credentials,
+									description:
+										'Windmill uses the DATABASE_URL or DATABASE_URL_FILE environment variable to connect to the PostgreSQL instance. Make sure it is correctly set'
+								},
+								{
+									title: 'Database name is valid',
+									status: status?.logs.valid_dbname,
+									description:
+										'The database name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
+								},
+								{
+									title:
+										'Create database' +
+										(status?.logs.created_database === 'SKIP' ? ' (already exists, skipped)' : ''),
+									status: status?.logs.created_database,
+									description: `In the Windmill PostgreSQL instance, run: CREATE DATABASE "${dbname}".`
+								},
+								{
+									title: `Connect to the ${dbname} database`,
+									status: status?.logs.db_connect,
+									description:
+										"Connect to the newly created database with the default admin user (the one in DATABASE_URL, usually 'postgres') to run the next commands"
+								},
+								{
+									title: 'Grant permissions to custom_instance_user',
+									status: status?.logs.grant_permissions,
+									description:
+										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
+										`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
+										'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
+										'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
+										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
+										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;'
+								}
+							],
+							status?.error ?? undefined
+						)}
+					/>
+				</div>
 				<Button
-					wrapperClasses="flex-1"
 					size="sm"
 					variant={!status?.success ? 'accent' : 'default'}
 					endIcon={status?.success ? undefined : { icon: ArrowRight }}
@@ -192,5 +197,3 @@
 		</div>
 	{/if}
 </Modal2>
-
-<ConfirmationModal {...confirmationModal.props} />
