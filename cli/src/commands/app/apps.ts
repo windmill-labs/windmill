@@ -175,6 +175,21 @@ const command = new Command()
   .command("push", "push a local app ")
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
-  .command("dev", devCommand);
+  .command("dev", devCommand)
+  .command(
+    "generate-metadata",
+    "re-generate the metadata for app runnables, updating locks and schemas for inline scripts that have changed"
+  )
+  .arguments("[app_folder:string]")
+  .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
+  .option(
+    "--default-ts <runtime:string>",
+    "Default TypeScript runtime (bun or deno)"
+  )
+  .action(async (opts: any, appFolder: string | undefined) => {
+    const { generateMetadataCommand } = await import("./raw_apps.ts");
+    await generateMetadataCommand(opts, appFolder);
+  });
 
 export default command;

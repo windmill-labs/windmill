@@ -7,7 +7,6 @@ import {
   open,
   windmillUtils,
   yamlParseFile,
-  SEP,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -17,13 +16,14 @@ import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "npm:ws@8.18.0";
-import { getDevBuildOptions } from "./bundle.ts";
+import { getDevBuildOptions, ensureNodeModules } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
 import { replaceInlineScripts } from "./apps.ts";
+import { Runnable } from "./metadata.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -116,6 +116,12 @@ async function dev(opts: DevOptions) {
     Deno.exit(1);
   }
 
+  // Ensure node_modules exists
+  const appDir = path.dirname(entryPoint);
+  await ensureNodeModules(appDir);
+
+  genRunnablesTs();
+
   // Ensure dist directory exists
   const distDir = path.join(process.cwd(), "dist");
   if (!fs.existsSync(distDir)) {
@@ -133,12 +139,9 @@ async function dev(opts: DevOptions) {
 
   const buildOptions = getDevBuildOptions(entryPoint);
 
-
   const wmillPlugin = {
     name: "wmill-virtual",
     setup(build: any) {
-
-
       // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
       build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
         log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
@@ -149,13 +152,20 @@ async function dev(opts: DevOptions) {
       });
 
       // Provide the virtual module content
-      build.onLoad({ filter: /.*/, namespace: "wmill-virtual" }, (args: any) => {
-        log.info(colors.yellow(`[wmill-virtual] Loading virtual module: ${args.path}`));
-        return {
-          contents: wmillTs(port),
-          loader: "ts",
-        };
-      });
+      build.onLoad(
+        { filter: /.*/, namespace: "wmill-virtual" },
+        (args: any) => {
+          log.info(
+            colors.yellow(
+              `[wmill-virtual] Loading virtual module: ${args.path}`
+            )
+          );
+          return {
+            contents: wmillTs(port),
+            loader: "ts",
+          };
+        }
+      );
     },
   };
 
@@ -338,7 +348,9 @@ async function dev(opts: DevOptions) {
     ws.on("message", async (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
-        log.info(colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`));
+        log.info(
+          colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`)
+        );
 
         const { type, reqId, runnable_id, v, jobId } = message;
 
@@ -348,7 +360,10 @@ async function dev(opts: DevOptions) {
         };
 
         // Helper to execute and wait for result
-        const runAndWaitForResult = async (runnableId: string, args: any): Promise<{ uuid: string; result: any }> => {
+        const runAndWaitForResult = async (
+          runnableId: string,
+          args: any
+        ): Promise<{ uuid: string; result: any }> => {
           const runnables = await loadRunnables();
           const runnable = runnables[runnableId];
 
@@ -356,7 +371,13 @@ async function dev(opts: DevOptions) {
             throw new Error(`Runnable not found: ${runnableId}`);
           }
 
-          const uuid = await executeRunnable(runnable, workspaceId, appPath, runnableId, args);
+          const uuid = await executeRunnable(
+            runnable,
+            workspaceId,
+            appPath,
+            runnableId,
+            args
+          );
           log.info(colors.gray(`[runBg] Job started: ${uuid}`));
 
           const result = await waitForJob(workspaceId, uuid);
@@ -372,14 +393,20 @@ async function dev(opts: DevOptions) {
               respond("runBgRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[runBg] Error: ${error.message}`));
-              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+              respond(
+                "runBgRes",
+                { message: error.message, stack: error.stack },
+                true
+              );
             }
             break;
           }
 
           case "runBgAsync": {
             // Run a runnable asynchronously and return job ID immediately
-            log.info(colors.blue(`[runBgAsync] Running runnable async: ${runnable_id}`));
+            log.info(
+              colors.blue(`[runBgAsync] Running runnable async: ${runnable_id}`)
+            );
             try {
               const runnables = await loadRunnables();
               const runnable = runnables[runnable_id];
@@ -388,7 +415,13 @@ async function dev(opts: DevOptions) {
                 throw new Error(`Runnable not found: ${runnable_id}`);
               }
 
-              const uuid = await executeRunnable(runnable, workspaceId, appPath, runnable_id, v);
+              const uuid = await executeRunnable(
+                runnable,
+                workspaceId,
+                appPath,
+                runnable_id,
+                v
+              );
               log.info(colors.gray(`[runBgAsync] Job started: ${uuid}`));
 
               // Return job ID immediately
@@ -400,11 +433,19 @@ async function dev(opts: DevOptions) {
                   respond("runBgRes", result, false);
                 })
                 .catch((error: any) => {
-                  respond("runBgRes", { message: error.message, stack: error.stack }, true);
+                  respond(
+                    "runBgRes",
+                    { message: error.message, stack: error.stack },
+                    true
+                  );
                 });
             } catch (error: any) {
               log.error(colors.red(`[runBgAsync] Error: ${error.message}`));
-              respond("runBgAsyncRes", { message: error.message, stack: error.stack }, true);
+              respond(
+                "runBgAsyncRes",
+                { message: error.message, stack: error.stack },
+                true
+              );
             }
             break;
           }
@@ -417,7 +458,11 @@ async function dev(opts: DevOptions) {
               respond("runBgRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[waitJob] Error: ${error.message}`));
-              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+              respond(
+                "runBgRes",
+                { message: error.message, stack: error.stack },
+                true
+              );
             }
             break;
           }
@@ -430,17 +475,29 @@ async function dev(opts: DevOptions) {
               respond("runBgRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[getJob] Error: ${error.message}`));
-              respond("runBgRes", { message: error.message, stack: error.stack }, true);
+              respond(
+                "runBgRes",
+                { message: error.message, stack: error.stack },
+                true
+              );
             }
             break;
           }
 
           default:
-            log.warn(colors.yellow(`[WebSocket] Unknown message type: ${type}`));
-            respond("error", { message: `Unknown message type: ${type}` }, true);
+            log.warn(
+              colors.yellow(`[WebSocket] Unknown message type: ${type}`)
+            );
+            respond(
+              "error",
+              { message: `Unknown message type: ${type}` },
+              true
+            );
         }
       } catch (error: any) {
-        log.error(colors.red(`[WebSocket] Failed to parse message: ${error.message}`));
+        log.error(
+          colors.red(`[WebSocket] Failed to parse message: ${error.message}`)
+        );
       }
     });
 
@@ -456,7 +513,9 @@ async function dev(opts: DevOptions) {
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
-    log.info(colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`));
+    log.info(
+      colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`)
+    );
     log.info(colors.gray(`📦 Serving files from: ${process.cwd()}`));
     log.info(colors.gray(`🔄 Live reload enabled\n`));
 
@@ -519,38 +578,21 @@ async function genRunnablesTs() {
   const rawApp = (await yamlParseFile(
     path.join(process.cwd(), "raw_app.yaml")
   )) as any;
-  const runnables = rawApp?.["value"]?.["runnables"] as any;
+  const runnables = rawApp?.["runnables"] as any;
   try {
-  const newWmillTs = windmillUtils.genWmillTs(runnables);
-  writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);
+    const newWmillTs = windmillUtils.genWmillTs(runnables);
+    writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);
   } catch (error: any) {
     log.error(colors.red(`Failed to generate wmill.d.ts: ${error.message}`));
   }
 }
 
-// ============================================================================
-// Runnable Execution Helpers
-// ============================================================================
-
-interface Runnable {
-  name: string;
-  type?: "runnableByName" | "runnableByPath";
-  path?: string;
-  runType?: "script" | "flow" | "hubscript";
-  inlineScript?: {
-    content: string;
-    language: string;
-    lock?: string;
-    cache_ttl?: number;
-    id?: number;
-  };
-  fields?: Record<string, any>;
-}
-
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
-    const rawApp = (await yamlParseFile(path.join(localPath, "raw_app.yaml"))) as any;
+    const rawApp = (await yamlParseFile(
+      path.join(localPath, "raw_app.yaml")
+    )) as any;
     replaceInlineScripts(rawApp.runnables, path.join(localPath, "runnables/"));
 
     return rawApp?.runnables ?? {};

@@ -56,7 +56,6 @@ import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
-  generateFlowLockInternal,
   generateScriptMetadataInternal,
   readLockfile,
 } from "../../utils/metadata.ts";
@@ -67,6 +66,7 @@ import {
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<

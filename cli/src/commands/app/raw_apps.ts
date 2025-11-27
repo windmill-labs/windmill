@@ -15,6 +15,7 @@ import { GlobalOptions, isSuperset } from "../../types.ts";
 
 import { replaceInlineScripts } from "./apps.ts";
 import { createBundle } from "./bundle.ts";
+import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 
 export interface AppFile {
   runnables: any;
@@ -45,7 +46,10 @@ async function collectAppFiles(
       } else if (entry.isFile) {
         // Skip raw_app.yaml as it's metadata, not an app file
         // Skip node_modules and package-lock.json as they are generated
-        if (relativePath === "raw_app.yaml" || relativePath === "package-lock.json") {
+        if (
+          relativePath === "raw_app.yaml" ||
+          relativePath === "package-lock.json"
+        ) {
           continue;
         }
         const content = await Deno.readTextFile(fullPath);
@@ -125,8 +129,8 @@ export async function pushRawApp(
         },
         js,
         css,
-      }},
-    );
+      },
+    });
   } else {
     const { js, css } = await createBundleRaw();
     await wmill.createAppRaw({
@@ -172,6 +176,105 @@ export async function generatingPolicy(
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
+  }
+}
+
+export async function generateMetadataCommand(
+  opts: GlobalOptions & {
+    yes?: boolean;
+    dryRun?: boolean;
+    defaultTs?: "bun" | "deno";
+  } & SyncOptions,
+  appPath: string | undefined
+) {
+  const { generateAppLocksInternal } = await import("./app_metadata.ts");
+  const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
+  const { ignoreF } = await import("../sync/sync.ts");
+  const { Confirm } = await import("../../../deps.ts");
+
+  if (appPath == "") {
+    appPath = undefined;
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+
+  if (appPath) {
+    // Generate metadata for a specific app
+    await generateAppLocksInternal(
+      appPath,
+      false,
+      workspace,
+      opts,
+      false,
+      false,
+      true
+    );
+  } else {
+    // Generate metadata for all apps
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(Deno.cwd(), [], true),
+      (p, isD) => {
+        return ignore(p, isD) || (!isD && !p.endsWith(SEP + "raw_app.yaml"));
+      },
+      false,
+      {}
+    );
+
+    const appFolders = Object.keys(elems)
+      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
+      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
+
+    let hasAny = false;
+    log.info("Checking metadata for all apps:");
+    for (const appFolder of appFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        true,
+        workspace,
+        opts,
+        false,
+        true,
+        true
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+
+    if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray(`Dry run complete.`));
+        return;
+      }
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above apps?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+
+    for (const appFolder of appFolders) {
+      await generateAppLocksInternal(
+        appFolder,
+        false,
+        workspace,
+        opts,
+        false,
+        true,
+        true
+      );
+    }
   }
 }
 

@@ -57,7 +57,7 @@ export { WebSocketServer, WebSocket } from "npm:ws";
 export * as getPort from "npm:get-port@7.1.0";
 export * as open from "npm:open";
 export * as esMain from "npm:es-main";
-export * as windmillUtils from "jsr:@windmill-labs/shared-utils@1.0.6";
+export * as windmillUtils from "jsr:@windmill-labs/shared-utils@1.0.7";
 
 import { OpenAPI } from "./gen/index.ts";
 

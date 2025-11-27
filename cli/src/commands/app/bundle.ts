@@ -31,6 +31,31 @@ export const DEFAULT_BUILD_OPTIONS = {
 };
 
 /**
+ * Ensures node_modules exists in the specified directory
+ * Runs npm install if node_modules is missing
+ * @param appDir Directory to check for node_modules (defaults to entry point directory)
+ */
+export async function ensureNodeModules(appDir?: string): Promise<void> {
+  const targetDir = appDir ?? process.cwd();
+  const nodeModulesPath = path.join(targetDir, "node_modules");
+
+  if (!fs.existsSync(nodeModulesPath)) {
+    log.info(colors.yellow("📦 node_modules not found, running npm install..."));
+    const npmInstall = new Deno.Command("npm", {
+      args: ["install"],
+      cwd: targetDir,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const { code } = await npmInstall.output();
+    if (code !== 0) {
+      throw new Error(`npm install failed with exit code ${code}`);
+    }
+    log.info(colors.green("✅ npm install completed"));
+  }
+}
+
+/**
  * Creates an esbuild bundle for the app
  * @param options Bundle configuration options
  * @returns Bundle result containing JS and CSS blobs
@@ -55,23 +80,9 @@ export async function createBundle(
     );
   }
 
-  // Check if node_modules exists in the app directory, if not run npm install
+  // Ensure node_modules exists in the app directory
   const appDir = path.dirname(entryPoint);
-  const nodeModulesPath = path.join(appDir, "node_modules");
-  if (!fs.existsSync(nodeModulesPath)) {
-    log.info(colors.yellow("📦 node_modules not found, running npm install..."));
-    const npmInstall = new Deno.Command("npm", {
-      args: ["install"],
-      cwd: appDir,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const { code } = await npmInstall.output();
-    if (code !== 0) {
-      throw new Error(`npm install failed with exit code ${code}`);
-    }
-    log.info(colors.green("✅ npm install completed"));
-  }
+  await ensureNodeModules(appDir);
 
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
@@ -84,7 +95,7 @@ export async function createBundle(
   // log.info("FOO")
   // log.info("wmillTs" + JSON.stringify(wmillTs));
   // Plugin to provide /wmill.ts as a virtual module
-  const wmillTs = windmillUtils.wmillTsRaw.default;
+  const wmillTs = (windmillUtils.wmillTsRaw as any).default ?? windmillUtils.wmillTsRaw;
 
   const wmillPlugin = {
     name: "wmill-virtual",
