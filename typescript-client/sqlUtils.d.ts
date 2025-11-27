@@ -36,9 +36,7 @@ export type SqlStatement = {
 
   args: Record<string, any>;
 
-  fetch<
-    ResultCollectionT extends ResultCollection = "last_statement_first_row"
-  >(
+  fetch<ResultCollectionT extends ResultCollection = "last_statement_all_rows">(
     params?: FetchParams<ResultCollectionT | ResultCollection> // The union is for auto-completion
   ): Promise<SqlResult<ResultCollectionT>>;
 
