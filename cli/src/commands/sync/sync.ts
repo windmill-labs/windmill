@@ -263,8 +263,10 @@ export interface InlineScript {
 }
 
 export function extractInlineScriptsForApps(
+  key: string | undefined,
   rec: any,
-  pathAssigner: PathAssigner
+  pathAssigner: PathAssigner,
+  toId: (key: string, val: any) => string
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -273,7 +275,7 @@ export function extractInlineScriptsForApps(
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
         const o: Record<string, any> = v as any;
-        const name = rec["name"];
+        const name = toId(k, v);
         const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);
         const basePath = basePathO.replaceAll(SEP, "/");
         const r = [];
@@ -296,7 +298,7 @@ export function extractInlineScriptsForApps(
         o.schema = undefined;
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
+        return extractInlineScriptsForApps(v, pathAssigner, toId);
       }
     });
   }
@@ -403,7 +405,8 @@ function ZipFSElement(
             try {
               inlineScripts = extractInlineScriptsForApps(
                 app?.["value"],
-                newPathAssigner(defaultTs)
+                newPathAssigner(defaultTs),
+                (o) => o["name"]
               );
             } catch (error) {
               log.error(
