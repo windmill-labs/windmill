@@ -12,6 +12,9 @@
 	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import { isPartialS3Object } from '../../editor/appUtilsS3'
 
 	interface Props {
 		id: string
@@ -37,13 +40,37 @@
 		initConfig(components['downloadcomponent'].initialData.configuration, configuration)
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, appPath, workspace } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()
+
+	let downloadUrl: string | undefined = $state(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
+
+	async function getS3File(source: string | undefined, storage?: string, presigned?: string) {
+		if (!source) return ''
+		const appPathOrUser = defaultIfEmptyString(
+			$appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)
+		const params = new URLSearchParams()
+		params.append('s3', source)
+		if (storage) {
+			params.append('storage', storage)
+		}
+
+		if (token?.token && token.token != '') {
+			params.append('token', token.token)
+		}
+
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
+	}
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -69,12 +96,31 @@
 		}
 	}
 
+	async function loadSource() {
+		if (isPartialS3Object(resolvedConfig.source)) {
+			downloadUrl = await getS3File(
+				resolvedConfig.source.s3,
+				resolvedConfig.source.storage,
+				resolvedConfig.source.presigned
+			)
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid source object' + typeof resolvedConfig.source)
+		} else if (resolvedConfig.source?.startsWith('s3://')) {
+			downloadUrl = await getS3File(resolvedConfig.source?.replace('s3://', ''))
+		} else {
+			downloadUrl = transformBareBase64IfNecessary(resolvedConfig.source)
+		}
+	}
+
 	let css = $state(initCss($app.css?.downloadcomponent, customCss))
 	$effect(() => {
 		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
 	})
 	$effect(() => {
 		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
+	$effect(() => {
+		resolvedConfig && loadSource()
 	})
 </script>
 
@@ -122,7 +168,7 @@
 				extendedSize={resolvedConfig.size}
 				color={resolvedConfig.color}
 				download={resolvedConfig.filename}
-				href={transformBareBase64IfNecessary(resolvedConfig.source)}
+				href={downloadUrl}
 				target="_blank"
 				ref="external"
 				nonCaptureEvent

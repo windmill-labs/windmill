@@ -7,6 +7,9 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import { isPartialS3Object } from '../../editor/appUtilsS3'
 
 	interface Props {
 		id: string
@@ -17,7 +20,8 @@
 
 	let { id, configuration, customCss = undefined, render }: Props = $props()
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, appPath, workspace } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		loading: false
@@ -25,6 +29,45 @@
 
 	let source: string | ArrayBuffer | undefined = $state(undefined)
 	let zoom: number | undefined = $state(undefined)
+
+	let pdfSource: string | ArrayBuffer | undefined = $state(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
+
+	async function getS3File(s3Path: string | undefined, storage?: string, presigned?: string) {
+		if (!s3Path) return ''
+		const appPathOrUser = defaultIfEmptyString(
+			$appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)
+		const params = new URLSearchParams()
+		params.append('s3', s3Path)
+		if (storage) {
+			params.append('storage', storage)
+		}
+
+		if (token?.token && token.token != '') {
+			params.append('token', token.token)
+		}
+
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
+	}
+
+	async function loadSource() {
+		if (isPartialS3Object(source)) {
+			pdfSource = await getS3File(source.s3, source.storage, source.presigned)
+		} else if (source && typeof source !== 'string' && !(source instanceof ArrayBuffer)) {
+			throw new Error('Invalid PDF source object' + typeof source)
+		} else if (typeof source === 'string' && source?.startsWith('s3://')) {
+			pdfSource = await getS3File(source?.replace('s3://', ''))
+		} else {
+			pdfSource = source
+		}
+	}
+
+	$effect(() => {
+		source && loadSource()
+	})
 
 	let css = $state(initCss($app.css?.pdfcomponent, customCss))
 </script>
@@ -50,7 +93,7 @@
 			<Loader2 class="animate-spin" />
 		{:then Module}
 			<Module.default
-				{source}
+				source={pdfSource}
 				{zoom}
 				class={css?.container?.class}
 				style={css?.container?.style}
