@@ -8,6 +8,7 @@ use serde::Deserialize;
 use windmill_common::{
     error::{self, JsonResult},
     scripts::ScriptLang,
+    users::username_to_permissioned_as,
     utils::require_admin,
     workspace_dependencies::WorkspaceDependencies,
     DB,
@@ -37,7 +38,19 @@ async fn create(
 ) -> error::Result<(StatusCode, String)> {
     tracing::info!(workspace_id = %nwd.workspace_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
-    Ok((StatusCode::CREATED, format!("{}", nwd.create(&db).await?)))
+    Ok((
+        StatusCode::CREATED,
+        format!(
+            "{}",
+            nwd.create(
+                &authed.email,
+                &authed.username,
+                &username_to_permissioned_as(&authed.username),
+                &db
+            )
+            .await?
+        ),
+    ))
 }
 
 #[axum::debug_handler]
@@ -88,12 +101,12 @@ async fn archive(
             db,
         )
         .await?,
-        None, // TODO
-        None, // TODO
-        "",   // TODO
-        "",   // TODO
-        "",   // TODO
-        db,   // TODO
+        None,
+        None,
+        &authed.email,
+        &authed.username,
+        &username_to_permissioned_as(&authed.username),
+        db,
         vec![],
     )
     .await
@@ -120,11 +133,11 @@ async fn delete(
             db,
         )
         .await?,
-        None, // TODO
-        None, // TODO
-        "",   // TODO
-        "",   // TODO
-        "",   // TODO
+        None,
+        None,
+        &authed.email,
+        &authed.username,
+        &username_to_permissioned_as(&authed.username),
         db,
         vec![],
     )

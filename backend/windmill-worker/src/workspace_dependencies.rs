@@ -23,7 +23,13 @@ impl NewWorkspaceDependencies {
     /// Archives any existing dependencies with the same name/language/workspace,
     /// then inserts the new dependencies. Triggers recomputation of dependent scripts
     /// and rebuilds the dependency map if this is the first unnamed dependency for the workspace.
-    pub async fn create<'c>(self, db: &sqlx::Pool<sqlx::Postgres>) -> error::Result<i64> {
+    pub async fn create<'c>(
+        self,
+        email: &str,
+        created_by: &str,
+        permissioned_as: &str,
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> error::Result<i64> {
         // Check if all workers support workspace dependencies feature
         windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
             .await?;
@@ -135,12 +141,12 @@ impl NewWorkspaceDependencies {
                 db,
             )
             .await?,
-            None, // TODO
-            None, // TODO
-            "",   // TODO
-            "",   // TODO
-            "",   // TODO
-            db,   // TODO
+            None,
+            None,
+            email,
+            created_by,
+            permissioned_as,
+            db,
             vec![],
         )
         .await?;
