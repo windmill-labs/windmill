@@ -40,8 +40,8 @@
 				return 'requirements.in'
 			case 'bun':
 				return 'package.json'
-			case 'go':
-				return 'go.mod'
+			// case 'go':
+			// 	return 'go.mod'
 			case 'php':
 				return 'composer.json'
 			default:
@@ -91,7 +91,7 @@
 			drawer?.closeDrawer()
 			// Call editWorkspaceDependencies with the workspace default info (name = null for workspace default)
 			setTimeout(() => {
-				editWorkspaceDependencies(defaultId, null, language)
+				editWorkspaceDependencies(defaultId, undefined, language)
 			}, 100) // Small delay to allow drawer to close before opening new one
 		} else {
 			console.error('No workspace default found for language:', language)
@@ -106,7 +106,7 @@
 	const LANGUAGE_OPTIONS = [
 		{ value: 'python3', label: 'Python' },
 		{ value: 'bun', label: 'TypeScript (Bun/Bunnative)' },
-		{ value: 'go', label: 'Go' },
+		// { value: 'go', label: 'Go' },
 		{ value: 'php', label: 'PHP' }
 	]
 
@@ -130,19 +130,19 @@ numpy>=1.24.0
 	}
 }`,
 
-		go: `module mymod
+// 		go: `module mymod
 
-go 1.25
+// go 1.25
 
-require (
-	rsc.io/quote v1.5.2 
-	github.com/gorilla/mux v1.8.1
-	github.com/lib/pq v1.10.9
-	github.com/joho/godotenv v1.5.1
-	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.8.4
-)
-`,
+// require (
+// 	rsc.io/quote v1.5.2 
+// 	github.com/gorilla/mux v1.8.1
+// 	github.com/lib/pq v1.10.9
+// 	github.com/joho/godotenv v1.5.1
+// 	github.com/sirupsen/logrus v1.9.3
+// 	github.com/stretchr/testify v1.8.4
+// )
+// `,
 
 		php: `{
   "require": {
@@ -205,17 +205,20 @@ require (
 
 	// Watch for language changes and update template
 	let initialLanguageSet = $state(false)
+	let previousLanguage = $state<ScriptLang | null>(null)
+
 	$effect(() => {
-		if (workspaceDependencies.language && LANGUAGE_TEMPLATES[workspaceDependencies.language] && !edit) {
-			// Only update template for new workspace dependencies, not when editing existing ones
-			// And only update if this is the initial language set or user explicitly changed language
+		const lang = workspaceDependencies.language
+
+		// Only update template when language actually changes, not on every content edit
+		if (lang && LANGUAGE_TEMPLATES[lang] && !edit && previousLanguage !== lang) {
+			workspaceDependencies.content = LANGUAGE_TEMPLATES[lang]
+			previousLanguage = lang
+
 			if (!initialLanguageSet) {
-				workspaceDependencies.content = LANGUAGE_TEMPLATES[workspaceDependencies.language]
 				initialLanguageSet = true
-			} else {
-				// User changed language, update template
-				workspaceDependencies.content = LANGUAGE_TEMPLATES[workspaceDependencies.language]
 			}
+
 			if (editor && editorReady) {
 				editor.setCode(workspaceDependencies.content)
 			}
@@ -237,10 +240,11 @@ require (
 		can_write = true
 		editorReady = false
 		initialLanguageSet = false
-		
+		previousLanguage = null
+
 		// Load existing workspace defaults from API
 		await loadExistingWorkspaceDefaults()
-		
+
 		drawer?.openDrawer()
 	}
 
@@ -280,6 +284,8 @@ require (
 		workspaceDependenciesType = name === null ? 'workspace' : 'named'
 		editorReady = false
 		initialLanguageSet = true // Don't override content when editing
+		previousLanguage = language // Set to current language to prevent template reset
+
 		drawer?.openDrawer()
 	}
 
@@ -413,9 +419,16 @@ require (
 					{/if}
 					<div class="text-sm text-tertiary">
 						<FolderOpen size={16} class="inline mr-2" />
-						Workspace default dependencies are used when no specific dependencies are specified in scripts.
+						Default Workspace Dependencies are used when no specific Dependencies are referenced from runnables.
 						Named dependencies can be referenced by scripts using
-						<code class="bg-surface-secondary px-1 rounded">#raw_reqs requirement_name</code> annotations.
+						<a
+							href="https://www.windmill.dev/docs/advanced/dependencies"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-accent"
+						>
+							annotations
+						</a>.
 					</div>
 				</div>
 			</Section>

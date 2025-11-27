@@ -12,7 +12,7 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
 };
 
 /// Minimum Windmill version required for workspace dependencies feature
-pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.583.0";
+pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.586.0";
 
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
@@ -253,7 +253,7 @@ impl WorkspaceDependencies {
             language
                 .as_dependencies_filename()
                 .ok_or(error::Error::BadConfig(format!(
-                    "raw requirements are not supported for: {}",
+                    "workspace dependencies are not supported for: {}",
                     language.as_str()
                 )))?;
 
@@ -399,34 +399,41 @@ impl WorkspaceDependenciesPrefetched {
     }
 
     pub fn get_go(&self) -> error::Result<Option<String>> {
-        use WorkspaceDependenciesPrefetchedInternal::*;
-        self.internal.assert_no_extra_mode().map_err(map_err)?;
-        Ok(match &self.internal {
-            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
-                wdar.assert_no_inline().map_err(map_err)?;
-                wdar.assert_external_less_than(2).map_err(map_err)?;
-                external.get(0).map(|wd| dbg!(wd.content.clone())).or(Some(
-                    "
-module mymod
-go 1.25
-require ()
-                        "
-                    .to_owned(),
-                ))
-            }
-            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
-            None => Option::None,
-        }
-        .map(|go_mod_content| {
-            if let Some(module) = go_mod_content
-                .lines()
-                .find(|l| l.trim_start().starts_with("module "))
-            {
-                go_mod_content.replace(module, "module mymod")
-            } else {
-                format!("module mymod\n{go_mod_content}")
-            }
-        }))
+        // NOTE: go is disabled for now:
+        // https://discord.com/channels/930051556043276338/1031563866641018910/1443541229349634189
+
+        self.internal
+            .assert_no_workspace_dependencies()
+            .map_err(map_err)?;
+        Ok(None)
+        // use WorkspaceDependenciesPrefetchedInternal::*;
+        // self.internal.assert_no_manual_mode().map_err(map_err)?;
+        //         Ok(match &self.internal {
+        //             Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
+        //                 wdar.assert_no_inline().map_err(map_err)?;
+        //                 wdar.assert_external_less_than(2).map_err(map_err)?;
+        //                 external.get(0).map(|wd| dbg!(wd.content.clone())).or(Some(
+        //                     "
+        // module mymod
+        // go 1.25
+        // require ()
+        //                         "
+        //                     .to_owned(),
+        //                 ))
+        //             }
+        //             Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+        //             None => Option::None,
+        //         }
+        //         .map(|go_mod_content| {
+        //             if let Some(module) = go_mod_content
+        //                 .lines()
+        //                 .find(|l| l.trim_start().starts_with("module "))
+        //             {
+        //                 go_mod_content.replace(module, "module mymod")
+        //             } else {
+        //                 format!("module mymod\n{go_mod_content}")
+        //             }
+        //         }))
     }
 
     pub fn get_php(&self) -> error::Result<Option<String>> {
@@ -657,6 +664,14 @@ impl WorkspaceDependenciesPrefetchedInternal {
     fn assert_no_extra_mode(&self) -> Result<(), String> {
         if self.get_mode() == Some(Mode::extra) {
             Err(format!("'workspace dependencies in extra mode'"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn assert_no_manual_mode(&self) -> Result<(), String> {
+        if self.get_mode() == Some(Mode::manual) {
+            Err(format!("'workspace dependencies in manual mode'"))
         } else {
             Ok(())
         }

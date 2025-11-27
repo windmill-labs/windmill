@@ -460,18 +460,18 @@ pub async fn install_go_dependencies(
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let anns = GoAnnotations::parse(code);
-    let (mut new_lockfile, mut skip_tidy) = (false, has_sum);
 
     let hash_input = match maybe_lock {
         MaybeLock::Resolved { ref lock } => lock.clone(),
         MaybeLock::Unresolved { ref workspace_dependencies } => {
+            // NOTE: This will always be none, go workspace dependencies are disabled for now.
+            // read more on discord (internal):
+            // https://discord.com/channels/930051556043276338/1031563866641018910/1443541229349634189
             if let Some(go_mod) = workspace_dependencies.get_go()? {
                 if !skip_go_mod {
                     gen_go_mymod(code, job_dir).await?;
                     fs::write(format!("{job_dir}/go.mod"), &go_mod).await?;
                 }
-
-                skip_tidy = true;
                 go_mod
             } else {
                 if !skip_go_mod {
@@ -537,6 +537,8 @@ pub async fn install_go_dependencies(
         calculate_hash(&hash_input)
     );
 
+    let (mut new_lockfile, mut skip_tidy) = (false, has_sum);
+
     if !has_sum {
         if let Some(db) = conn.as_sql() {
             if let Some(cached) = sqlx::query_scalar!(
@@ -557,14 +559,7 @@ pub async fn install_go_dependencies(
         }
     }
 
-    let mod_command = if skip_tidy
-        // If there is go.mod provided we want to use `download` only.
-        // Unlike `tidy` it does not modify local go.mod
-    {
-        "download"
-    } else {
-        "tidy"
-    };
+    let mod_command = if skip_tidy { "download" } else { "tidy" };
     let mut child_cmd = Command::new(GO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)

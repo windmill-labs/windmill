@@ -110,10 +110,9 @@ impl ScriptLang {
         use ScriptLang::*;
         Some(
             match self {
-                // TODO: Doublecheck these
-                Bun | Bunnative | Deno => "package.json",
+                Bun | Bunnative => "package.json",
                 Python3 => "requirements.in",
-                Go => "go.mod",
+                // Go => "go.mod",
                 Php => "composer.json",
                 _ => return None,
             }
