@@ -41,11 +41,11 @@ use windmill_audit::ActionKind;
 use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
-    assets::{AssetUsageKind, AssetWithAltAccessType, clear_asset_usage, insert_asset_usage},
+    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
-    utils::{WarnAfterExt, paginate_without_limits},
+    utils::{paginate_without_limits, WarnAfterExt},
     worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
 
@@ -60,9 +60,7 @@ use windmill_common::{
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
     },
     users::username_to_permissioned_as,
-    utils::{
-        not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath,
-    },
+    utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
     worker::to_raw_value,
     HUB_BASE_URL,
 };
@@ -1027,7 +1025,8 @@ async fn create_script_internal<'c>(
             false,
             None,
             None,
-            None
+            None,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))

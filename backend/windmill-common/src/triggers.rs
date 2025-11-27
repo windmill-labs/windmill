@@ -85,6 +85,7 @@ lazy_static! {
         Cache::new(1000);
 }
 
+#[derive(Debug, Clone)]
 pub struct TriggerMetadata {
     pub trigger_path: Option<String>,
     pub trigger_kind: JobTriggerKind,

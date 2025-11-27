@@ -94,6 +94,7 @@ pub enum JobKind {
     FlowNode,
     AppScript,
     AIAgent,
+    Unassigned,
 }
 
 impl JobKind {

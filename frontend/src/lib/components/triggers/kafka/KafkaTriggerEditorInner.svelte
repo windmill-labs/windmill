@@ -83,7 +83,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let active_mode = $state(true)
+	let suspended_mode = $state(true)
 
 	const isValid = $derived(
 		!!kafkaResourcePath &&
@@ -190,7 +190,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		active_mode = cfg?.active_mode ?? true
+		suspended_mode = cfg?.suspended_mode ?? true
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -219,7 +219,7 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			active_mode
+			suspended_mode
 		}
 	}
 
@@ -387,7 +387,7 @@
 					</div>
 				</Section>
 
-				<TriggerActiveMode triggerPath={path} jobTriggerKind={'kafka'} bind:active_mode />
+				<TriggerActiveMode triggerPath={path} jobTriggerKind={'kafka'} bind:suspended_mode />
 			{/if}
 
 			<KafkaTriggersConfigSection

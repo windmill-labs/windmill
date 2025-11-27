@@ -13,7 +13,7 @@ export async function saveSqsTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditSqsTrigger = {
@@ -25,7 +25,7 @@ export async function saveSqsTriggerFromCfg(
 		message_attributes: cfg.message_attributes,
 		aws_auth_resource_type: cfg.aws_auth_resource_type,
 		enabled: cfg.enabled,
-		active_mode: cfg.active_mode,
+		suspended_mode: cfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {

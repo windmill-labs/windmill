@@ -62,7 +62,7 @@ export async function saveHttpRouteFromCfg(
 		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
 		retry: routeCfg.retry,
 		enabled: routeCfg.enabled,
-		active_mode: routeCfg.active_mode
+		suspended_mode: routeCfg.suspended_mode
 	}
 	try {
 		if (edit) {

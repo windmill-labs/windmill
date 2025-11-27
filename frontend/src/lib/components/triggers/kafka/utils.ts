@@ -13,7 +13,7 @@ export async function saveKafkaTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditKafkaTrigger = {
@@ -23,7 +23,7 @@ export async function saveKafkaTriggerFromCfg(
 		kafka_resource_path: cfg.kafka_resource_path,
 		group_id: cfg.group_id,
 		topics: cfg.topics,
-		active_mode: cfg.active_mode,
+		suspended_mode: cfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {

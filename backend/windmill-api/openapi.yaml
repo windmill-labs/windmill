@@ -17386,7 +17386,7 @@ components:
           type: boolean
         enabled:
           type: boolean
-        active_mode:
+        suspended_mode:
           type: boolean
       required:
         - path
@@ -17398,7 +17398,7 @@ components:
         - edited_at
         - is_flow
         - enabled
-        - active_mode
+        - suspended_mode
 
     AuthenticationMethod:
       type: string
@@ -17634,10 +17634,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
-          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -17699,9 +17697,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -17832,9 +17829,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
 
       required:
         - path
@@ -17883,9 +17879,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
 
       required:
         - path
@@ -18023,9 +18018,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -18064,9 +18058,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -18175,7 +18168,7 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
       required:
         - path
@@ -18310,10 +18303,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
-          description: If false, queue jobs with suspend functionality instead of immediate execution
       required:
         - queue_url
         - aws_resource_path
@@ -18349,9 +18340,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - queue_url
         - aws_resource_path
@@ -18491,9 +18481,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -18526,9 +18515,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_modes:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -18595,9 +18583,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
 
       required:
         - path
@@ -18628,9 +18615,8 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -18707,9 +18693,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
 
       required:
         - path
@@ -18746,9 +18731,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
       required:
         - path
         - script_path
@@ -18797,10 +18781,8 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         enabled:
           type: boolean
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
-          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
 
       required:
         - path
@@ -18827,10 +18809,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        active_mode:
+        suspended_mode:
           type: boolean
-          default: true
-          description: If set to false, each incoming event will be suspend job until ran manually or set it to true
       required:
         - path
         - script_path

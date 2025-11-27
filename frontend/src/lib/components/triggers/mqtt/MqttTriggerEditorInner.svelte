@@ -97,7 +97,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let active_mode = $state(true)
+	let suspended_mode = $state(true)
 
 	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
 		$state('connection_options')
@@ -204,7 +204,7 @@
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			active_mode = cfg?.active_mode ?? true
+			suspended_mode = cfg?.suspended_mode ?? true
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
 		} catch (error) {
@@ -244,7 +244,7 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			active_mode
+			suspended_mode
 		}
 	}
 
@@ -421,7 +421,7 @@
 				</Section>
 			{/if}
 
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'mqtt'} bind:active_mode />
+			<TriggerActiveMode triggerPath={path} jobTriggerKind={'mqtt'} bind:suspended_mode />
 
 			<MqttEditorConfigSection
 				bind:mqtt_resource_path

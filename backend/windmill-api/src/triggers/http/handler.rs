@@ -209,7 +209,7 @@ pub async fn insert_new_trigger_into_db(
                 error_handler_path,
                 error_handler_args,
                 retry,
-                active_mode
+                suspended_mode
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23, $24
@@ -238,7 +238,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.base.active_mode.unwrap_or(true)
+            trigger.base.suspended_mode.unwrap_or(true)
         )
         .execute(&mut *tx)
         .await?;
@@ -500,7 +500,7 @@ impl TriggerCrud for HttpTrigger {
                 error_handler_path = $20,
                 error_handler_args = $21,
                 retry = $22,
-                active_mode = $23
+                suspended_mode = $23
             WHERE
                 workspace_id = $24 AND
                 path = $25
@@ -527,7 +527,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
-                trigger.base.active_mode.unwrap_or(true),
+                trigger.base.suspended_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -561,7 +561,7 @@ impl TriggerCrud for HttpTrigger {
                 error_handler_path = $17,
                 error_handler_args = $18,
                 retry = $19,
-                active_mode = $20
+                suspended_mode = $20
             WHERE
                 workspace_id = $21 AND
                 path = $22
@@ -585,7 +585,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
-                trigger.base.active_mode.unwrap_or(true),
+                trigger.base.suspended_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -1050,7 +1050,7 @@ async fn route_job(
         .map_err(|e| e.into_response())?;
 
     let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
-    if !trigger.active_mode {
+    if !trigger.suspended_mode {
         let _ = trigger_runnable(
             &db,
             Some(user_db),
@@ -1064,7 +1064,7 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            trigger.active_mode,
+            trigger.suspended_mode,
             trigger_info,
         )
         .await
@@ -1157,7 +1157,7 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            trigger.active_mode,
+            trigger.suspended_mode,
             trigger_info,
         )
         .await

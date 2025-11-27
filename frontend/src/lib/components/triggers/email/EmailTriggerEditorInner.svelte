@@ -67,7 +67,7 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let enabled = $state(false)
-	let active_mode = $state(true)
+	let suspended_mode = $state(true)
 	// Component references
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
@@ -166,7 +166,7 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		enabled = cfg?.enabled ?? false
-		active_mode = cfg?.active_mode ?? true
+		suspended_mode = cfg?.suspended_mode ?? true
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -218,7 +218,7 @@
 			error_handler_args,
 			retry,
 			enabled,
-			active_mode
+			suspended_mode
 		}
 
 		return nCfg
@@ -316,7 +316,7 @@
 				</Section>
 			{/if}
 
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'email'} bind:active_mode />
+			<TriggerActiveMode triggerPath={path} jobTriggerKind={'email'} bind:suspended_mode />
 
 			<EmailTriggerEditorConfigSection
 				initialTriggerPath={initialPath}

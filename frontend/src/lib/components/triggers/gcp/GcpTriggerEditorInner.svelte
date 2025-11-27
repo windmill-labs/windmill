@@ -61,7 +61,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let active_mode = $state(true)
+	let suspended_mode = $state(true)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -190,7 +190,7 @@
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
-		active_mode = cfg?.active_mode ?? true
+		suspended_mode = cfg?.suspended_mode ?? true
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
@@ -219,7 +219,7 @@
 
 	function getGcpConfig() {
 		return {
-			active_mode,
+			suspended_mode,
 			gcp_resource_path,
 			subscription_mode,
 			subscription_id,
@@ -396,7 +396,7 @@
 					</div>
 				</Section>
 
-				<TriggerActiveMode triggerPath={path} jobTriggerKind={'gcp'} bind:active_mode />
+				<TriggerActiveMode triggerPath={path} jobTriggerKind={'gcp'} bind:suspended_mode />
 			{/if}
 
 			<GcpTriggerEditorConfigSection

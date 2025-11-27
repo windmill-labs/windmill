@@ -1,0 +1,28 @@
+-- Add up migration script here
+ALTER TABLE gcp_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE http_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE kafka_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE mqtt_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE nats_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE postgres_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE sqs_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE websocket_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE email_trigger 
+ADD COLUMN suspended_mode BOOLEAN NOT NULL DEFAULT FALSE;
+

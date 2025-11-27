@@ -16,7 +16,7 @@ use windmill_common::{
     jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     triggers::{
-        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerMetadata, TriggerKind,
+        HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerKind, TriggerMetadata,
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
     users::username_to_permissioned_as,
@@ -24,12 +24,6 @@ use windmill_common::{
     worker::to_raw_value,
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
-
-/// Helper function to check if triggers should use queue mode.
-/// Queue mode suspends jobs by scheduling them for a far future date.
-fn is_queue_mode(active_mode: Option<bool>) -> bool {
-    matches!(active_mode, Some(false))
-}
 
 #[cfg(feature = "enterprise")]
 use crate::jobs::check_license_key_valid;
@@ -40,7 +34,6 @@ use crate::{
         push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
         run_wait_result_internal, RunJobQuery,
     },
-    triggers::INACTIVE_TRIGGER_SCHEDULED_FOR_DATE,
     utils::check_scopes,
     HTTP_CLIENT,
 };
@@ -526,7 +519,7 @@ pub async fn trigger_runnable_inner(
     trigger_path: String,
     job_id: Option<Uuid>,
     trigger: TriggerMetadata,
-    active_mode: Option<bool>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>, Option<String>)> {
     let error_handler_args = error_handler_args.map(|args| {
         let args = args
@@ -538,13 +531,8 @@ pub async fn trigger_runnable_inner(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let scheduled_for = if is_queue_mode(active_mode) {
-        Some(INACTIVE_TRIGGER_SCHEDULED_FOR_DATE.clone())
-    } else {
-        None
-    };
     let (uuid, delete_after_use, early_return) = if is_flow {
-        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
+        let run_query = RunJobQuery { job_id, suspended_mode, ..Default::default() };
         let path = StripPath(runnable_path.to_string());
         let (uuid, early_return) = push_flow_job_by_path_into_queue(
             authed,
@@ -572,7 +560,7 @@ pub async fn trigger_runnable_inner(
             trigger_path,
             job_id,
             trigger,
-            scheduled_for,
+            suspended_mode,
         )
         .await?;
         (uuid, delete_after_use, None)
@@ -595,7 +583,7 @@ pub async fn trigger_runnable(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-    active_mode: bool,
+    suspended_mode: bool,
     trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let uuid = trigger_runnable_inner(
@@ -612,7 +600,7 @@ pub async fn trigger_runnable(
         trigger_path,
         job_id,
         trigger,
-        Some(active_mode),
+        Some(suspended_mode),
     )
     .await?
     .0;
@@ -768,10 +756,10 @@ async fn trigger_script_internal(
     trigger_path: String,
     job_id: Option<Uuid>,
     trigger: TriggerMetadata,
-    scheduled_for: Option<DateTime<Utc>>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
-        let run_query = RunJobQuery { job_id, scheduled_for, ..Default::default() };
+        let run_query = RunJobQuery { job_id, suspended_mode, ..Default::default() };
         let path = StripPath(script_path.to_string());
         push_script_job_by_path_into_queue(
             authed,
@@ -798,7 +786,7 @@ async fn trigger_script_internal(
             trigger_path,
             job_id,
             trigger,
-            scheduled_for,
+            suspended_mode,
         )
         .await
     }
@@ -817,7 +805,7 @@ async fn trigger_script_with_retry_and_error_handler(
     trigger_path: String,
     job_id: Option<Uuid>,
     trigger: TriggerMetadata,
-    scheduled_for: Option<DateTime<Utc>>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -911,7 +899,7 @@ async fn trigger_script_with_retry_and_error_handler(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
-        scheduled_for,
+        None,
         None,
         None,
         None,
@@ -930,6 +918,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         None,
         Some(trigger),
+        suspended_mode,
     )
     .await?;
     tx.commit().await?;

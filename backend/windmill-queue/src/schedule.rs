@@ -506,6 +506,7 @@ pub async fn push_scheduled_job<'c>(
             Some(schedule.path.clone()),
             JobTriggerKind::Schedule,
         )),
+        None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;

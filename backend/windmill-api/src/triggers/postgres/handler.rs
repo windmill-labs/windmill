@@ -126,7 +126,7 @@ impl TriggerCrud for PostgresTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                active_mode
+                suspended_mode
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14
             )
@@ -144,7 +144,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.base.active_mode.unwrap_or(true)
+            trigger.base.suspended_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;
@@ -229,7 +229,7 @@ impl TriggerCrud for PostgresTrigger {
                 error_handler_path = $11,
                 error_handler_args = $12,
                 retry = $13,
-                active_mode = $14
+                suspended_mode = $14
             WHERE 
                 workspace_id = $9 AND path = $10
             "#,
@@ -246,7 +246,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.base.active_mode.unwrap_or(true)
+            trigger.base.suspended_mode.unwrap_or(true)
         )
         .execute(tx)
         .await?;

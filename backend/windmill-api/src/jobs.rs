@@ -1757,6 +1757,7 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
+    pub suspended_mode: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -4143,6 +4144,7 @@ pub async fn run_flow(
         None,
         None,
         trigger,
+        run_query.suspended_mode,
     )
     .await?;
 
@@ -4398,6 +4400,7 @@ pub async fn restart_flow(
         None,
         None,
         None,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;
@@ -4518,6 +4521,7 @@ pub async fn push_script_job_by_path_into_queue(
         None,
         None,
         trigger,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;
@@ -4673,6 +4677,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
         None,
         None,
@@ -5214,6 +5219,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         None,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;
@@ -5359,6 +5365,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         None,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;
@@ -5482,6 +5489,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         None,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;
@@ -5956,6 +5964,7 @@ async fn run_preview_script(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6074,6 +6083,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -6217,6 +6227,7 @@ async fn run_dependencies_job(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6284,6 +6295,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
         None,
         None,
@@ -6641,6 +6653,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -6839,6 +6852,7 @@ async fn run_dynamic_select(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6983,6 +6997,7 @@ pub async fn run_job_by_hash_inner(
         None,
         None,
         trigger,
+        run_query.suspended_mode,
     )
     .await?;
     tx.commit().await?;

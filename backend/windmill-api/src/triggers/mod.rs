@@ -30,14 +30,14 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
+pub mod global_handler;
 mod handler;
 mod listener;
 pub mod trigger_helpers;
-pub mod global_handler;
 
 #[allow(unused)]
 pub(crate) use handler::TriggerCrud;
-pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggersCount};
+pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggerForReassignment, TriggersCount};
 pub use listener::start_all_listeners;
 #[allow(unused)]
 pub(crate) use listener::Listener;
@@ -62,7 +62,7 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    pub active_mode: bool,
+    pub suspended_mode: bool,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -125,7 +125,7 @@ pub struct BaseTriggerData {
     pub script_path: String,
     pub is_flow: bool,
     pub enabled: Option<bool>,
-    pub active_mode: Option<bool>,
+    pub suspended_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,8 +156,4 @@ impl Default for StandardTriggerQuery {
     fn default() -> Self {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
-}
-
-lazy_static::lazy_static! {
-    pub static ref INACTIVE_TRIGGER_SCHEDULED_FOR_DATE: DateTime<Utc> = Utc.with_ymd_and_hms(9999, 12, 31, 23, 59, 59).unwrap();
 }

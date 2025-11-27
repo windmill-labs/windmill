@@ -1017,8 +1017,6 @@ pub fn start_interactive_worker_shell(
                     }
                 };
 
-
-
                 match pulled_job {
                     Ok(Some(job)) => {
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
@@ -3152,6 +3150,7 @@ async fn try_validate_schema(
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
                 JobKind::AIAgent => 15,
+                JobKind::Unassigned => 16,
             };
 
             let sv = match job.runnable_id {

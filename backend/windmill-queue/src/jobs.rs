@@ -479,6 +479,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -535,6 +536,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -1384,6 +1386,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1932,6 +1935,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -3859,6 +3863,7 @@ pub async fn push<'c, 'd>(
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
     trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4045,7 +4050,7 @@ pub async fn push<'c, 'd>(
         script_hash,
         script_path,
         raw_code_tuple,
-        job_kind,
+        mut job_kind,
         raw_flow,
         flow_status,
         language,
@@ -5274,6 +5279,12 @@ pub async fn push<'c, 'd>(
         root_job
     };
 
+    let (job_kind, suspend, suspend_until) = if suspended_mode.unwrap_or(false) {
+        (JobKind::Unassigned, Some(1), Some(Utc::now() + chrono::Duration::days(30)))
+    } else {
+        (job_kind, None, None)
+    };
+
     sqlx::query!(
         "WITH inserted_job AS (
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
@@ -5294,8 +5305,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, suspend, suspend_until)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42, $43)",
         job_id,
         workspace_id,
         raw_code,
@@ -5341,6 +5352,8 @@ pub async fn push<'c, 'd>(
         trigger_kind as Option<JobTriggerKind>,
         running,
         end_user_email,
+        suspend,
+        suspend_until,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -5413,6 +5426,7 @@ pub async fn push<'c, 'd>(
             JobKind::FlowNode => "jobs.run.flow_node",
             JobKind::AppScript => "jobs.run.app_script",
             JobKind::AIAgent => "jobs.run.ai_agent",
+            JobKind::Unassigned => "jobs.run.unassigned",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

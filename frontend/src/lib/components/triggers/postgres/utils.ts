@@ -114,7 +114,7 @@ export async function savePostgresTriggerFromCfg(
 			? {
 					error_handler_path: config.error_handler_path,
 					error_handler_args: config.error_handler_path ? config.error_handler_args : undefined,
-					retry: config.retry,
+					retry: config.retry
 				}
 			: {}
 		const requestBody: EditPostgresTrigger = {
@@ -126,7 +126,7 @@ export async function savePostgresTriggerFromCfg(
 			publication_name: config.publication_name,
 			publication: config.publication,
 			enabled: config.enabled,
-			active_mode: config.active_mode,
+			suspended_mode: config.suspended_mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

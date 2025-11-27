@@ -13,7 +13,7 @@ export async function saveNatsTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditNatsTrigger = {
@@ -25,7 +25,7 @@ export async function saveNatsTriggerFromCfg(
 		consumer_name: cfg.consumer_name,
 		subjects: cfg.subjects,
 		use_jetstream: cfg.use_jetstream,
-		active_mode: cfg.active_mode,
+		suspended_mode: cfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {

@@ -32,7 +32,7 @@ export async function saveGcpTriggerFromCfg(
 			is_flow: cfg.is_flow,
 			auto_acknowledge_msg: cfg.auto_acknowledge_msg,
 			ack_deadline: cfg.ack_deadline,
-			active_mode: cfg.active_mode,
+			suspended_mode: cfg.suspended_mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

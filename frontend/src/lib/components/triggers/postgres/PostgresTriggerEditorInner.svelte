@@ -117,7 +117,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let active_mode = $state(true)
+	let suspended_mode = $state(true)
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -302,7 +302,7 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			active_mode
+			suspended_mode
 		}
 		return cfg
 	}
@@ -323,7 +323,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		active_mode = cfg?.active_mode ?? true
+		suspended_mode = cfg?.suspended_mode ?? true
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -580,7 +580,7 @@
 				</Section>
 			{/if}
 
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'postgres'} bind:active_mode />
+			<TriggerActiveMode triggerPath={path} jobTriggerKind={'postgres'} bind:suspended_mode />
 			<Section label="Database">
 				{#snippet badge()}
 					{#if isEditor}

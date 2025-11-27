@@ -112,7 +112,7 @@ impl TriggerCrud for WebsocketTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                active_mode
+                suspended_mode
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16, $17
             )
@@ -136,7 +136,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.base.active_mode.unwrap_or(true)
+            trigger.base.suspended_mode.unwrap_or(true)
         )
         .execute(&mut *tx)
         .await?;
@@ -189,7 +189,7 @@ impl TriggerCrud for WebsocketTrigger {
             error_handler_path = $14,
             error_handler_args = $15,
             retry = $16,
-            active_mode = $17
+            suspended_mode = $17
         WHERE
             workspace_id = $12 AND path = $13
     ",
@@ -213,7 +213,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.base.active_mode.unwrap_or(true)
+            trigger.base.suspended_mode.unwrap_or(true)
         )
         .execute(&mut *tx)
         .await?;

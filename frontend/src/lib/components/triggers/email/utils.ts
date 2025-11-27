@@ -29,7 +29,7 @@ export async function saveEmailTriggerFromCfg(
 		workspaced_local_part: emailCfg.workspaced_local_part,
 		error_handler_path: emailCfg.error_handler_path,
 		error_handler_args: emailCfg.error_handler_path ? emailCfg.error_handler_args : undefined,
-		active_mode: emailCfg.active_mode,
+		suspended_mode: emailCfg.suspended_mode,
 		enabled: emailCfg.enabled,
 		retry: emailCfg.retry
 	}

@@ -334,7 +334,7 @@ impl Listener for WebsocketTrigger {
             trigger_config,
             script_path,
             error_handling,
-            active_mode,
+            suspended_mode,
             ..
         } = listening_trigger;
 
@@ -367,9 +367,9 @@ impl Listener for WebsocketTrigger {
             ),
             None => (None, None, None),
         };
-        let active_mode = active_mode.unwrap_or(false);
+        let suspended_mode = suspended_mode.unwrap_or(false);
         let trigger = TriggerMetadata::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
-        if active_mode || extra.is_none() {
+        if suspended_mode || extra.is_none() {
             trigger_runnable(
                 db,
                 None,
@@ -383,7 +383,7 @@ impl Listener for WebsocketTrigger {
                 error_handler_args,
                 format!("websocket_trigger/{}", listening_trigger.path),
                 None,
-                active_mode,
+                suspended_mode,
                 trigger,
             )
             .await?;
