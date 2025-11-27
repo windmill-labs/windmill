@@ -134,6 +134,7 @@ pub async fn get_or_create_conversation_with_id(
     } else {
         title.to_string()
     };
+
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
@@ -148,6 +149,7 @@ pub async fn get_or_create_conversation_with_id(
     )
     .fetch_one(&mut **tx)
     .await?;
+
     Ok(conversation)
 }
 

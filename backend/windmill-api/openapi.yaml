@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.582.2
+  version: 1.585.1
   title: Windmill API
 
   contact:
@@ -687,6 +687,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
+
+  /w/{workspace}/workspaces/get_as_superadmin:
+    get:
+      summary: get workspace as super admin (require to be super admin)
+      operationId: getWorkspaceAsSuperAdmin
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
 
   /workspaces/list_as_superadmin:
     get:
@@ -5217,6 +5233,14 @@ paths:
             Accepts multiple values as a comma-separated list.
           schema:
             type: string
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+
       responses:
         "200":
           description: All scripts
@@ -6500,6 +6524,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -7729,6 +7760,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component
@@ -12059,32 +12093,32 @@ paths:
               schema:
                 type: boolean
   /w/{workspace}/email_triggers/setenabled/{path}:
-      post:
-        summary: enable/disable email trigger
-        operationId: setEmailTriggerEnabled
-        tags:
-          - email_trigger
-        parameters:
-          - $ref: "#/components/parameters/WorkspaceId"
-          - $ref: "#/components/parameters/Path"
-        requestBody:
-          required: true
+    post:
+      summary: enable/disable email trigger
+      operationId: setEmailTriggerEnabled
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: email trigger enable/disable
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-        responses:
-          "200":
-            description: email trigger enable/disable
-            content:
-              text/plain:
-                schema:
-                  type: string
+                type: string
 
   /groups/list:
     get:

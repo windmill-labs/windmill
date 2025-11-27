@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.582.2
+  version: 1.585.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -447,6 +447,8 @@ components:
           type: boolean
         parallelism:
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - iterator
@@ -470,6 +472,8 @@ components:
           type: boolean
         parallelism:
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - skip_failures

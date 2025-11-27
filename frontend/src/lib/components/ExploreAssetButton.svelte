@@ -13,7 +13,7 @@
 </script>
 
 <script lang="ts">
-	import { isDbType } from '$lib/components/apps/components/display/dbtable/utils'
+	import { isDbType } from '$lib/components/dbTypes'
 	import { formatAsset, type Asset } from '$lib/components/assets/lib'
 	import { Button, ButtonType } from '$lib/components/common'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
