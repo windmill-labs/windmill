@@ -142,7 +142,7 @@ export async function findResourceFile(path: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "Found two resource files for the same resource" +
-      validCandidates.join(", ")
+        validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -181,11 +181,11 @@ export async function handleScriptMetadata(
 }
 
 export interface OutputFile {
-  path: string
-  contents: Uint8Array
-  hash: string
+  path: string;
+  contents: Uint8Array;
+  hash: string;
   /** "contents" as text (changes automatically with "contents") */
-  readonly text: string
+  readonly text: string;
 }
 
 export async function handleFile(
@@ -223,10 +223,9 @@ export async function handleFile(
       let outputFiles: OutputFile[] = [];
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
-        bundleContent = execSync(
-          codebase.customBundler + " " + path,
-          { maxBuffer: 1024 * 1024 * 50 }
-        ).toString();
+        bundleContent = execSync(codebase.customBundler + " " + path, {
+          maxBuffer: 1024 * 1024 * 50,
+        }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
         const esbuild = await import("npm:esbuild");
@@ -243,7 +242,7 @@ export async function handleFile(
           inject: codebase.inject,
           define: codebase.define,
           loader: codebase.loader ?? { ".node": "file" },
-          outdir: '/',
+          outdir: "/",
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
@@ -260,17 +259,18 @@ export async function handleFile(
       if (outputFiles.length > 1) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
         log.info(
-          `Found multiple output files for ${path}, creating a tarball... ${outputFiles.map((file) => file.path).join(", ")}`
+          `Found multiple output files for ${path}, creating a tarball... ${outputFiles
+            .map((file) => file.path)
+            .join(", ")}`
         );
         forceTar = true;
         const startTime = performance.now();
         const tarball = new archiveNpm.Tarball();
         const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
-        const content = outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? '';
+        const content =
+          outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? "";
         log.info(`Main content: ${content.length}chars`);
-        tarball.append(
-          new File([content], "main.js", { type: "text/plain" })
-        );
+        tarball.append(new File([content], "main.js", { type: "text/plain" }));
         for (const file of outputFiles) {
           if (file.path == "/" + mainPath) {
             continue;
@@ -318,20 +318,20 @@ export async function handleFile(
     let typed = opts?.skipScriptsMetadata
       ? undefined
       : (
-        await parseMetadataFile(
-          remotePath,
-          opts
-            ? {
-              ...opts,
-              path,
-              workspaceRemote: workspace,
-              schemaOnly: codebase ? true : undefined,
-              globalDeps,
-              codebases
-            }
-            : undefined,
-        )
-      )?.payload;
+          await parseMetadataFile(
+            remotePath,
+            opts
+              ? {
+                  ...opts,
+                  path,
+                  workspaceRemote: workspace,
+                  schemaOnly: codebase ? true : undefined,
+                  globalDeps,
+                  codebases,
+                }
+              : undefined
+          )
+        )?.payload;
 
     const workspaceId = workspace.workspaceId;
 
@@ -401,6 +401,7 @@ export async function handleFile(
       on_behalf_of_email: typed?.on_behalf_of_email,
     };
 
+    // console.log(requestBodyCommon.codebase);
     // log.info(JSON.stringify(requestBodyCommon, null, 2))
     // log.info(JSON.stringify(opts, null, 2))
     if (remote) {
@@ -418,19 +419,19 @@ export async function handleFile(
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
-            remote.ws_error_handler_muted &&
+              remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
-            remote.concurrency_time_window_s &&
+              remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-            Boolean(remote.restart_unless_cancelled) &&
+              Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-            Boolean(remote.visible_to_runner_only) &&
+              Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
-            Boolean(remote.has_preprocessor) &&
+              Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
@@ -523,7 +524,8 @@ async function createScript(
       });
     } catch (e: any) {
       throw Error(
-        `Script creation for ${body.path} with parent ${body.parent_hash
+        `Script creation for ${body.path} with parent ${
+          body.parent_hash
         }  was not successful: ${e.body ?? e.message} `
       );
     }
@@ -549,7 +551,8 @@ async function createScript(
     });
     if (req.status != 201) {
       throw Error(
-        `Script snapshot creation was not successful: ${req.status} - ${req.statusText
+        `Script snapshot creation was not successful: ${req.status} - ${
+          req.statusText
         } - ${await req.text()} `
       );
     }
@@ -561,8 +564,8 @@ export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
-      ? exts.map((x) => filePath.replace(".script.lock", x))
-      : exts.map((x) => filePath.replace(".script.yaml", x));
+    ? exts.map((x) => filePath.replace(".script.lock", x))
+    : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
     await Promise.all(
@@ -581,7 +584,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more than one candidate found: " +
-      validCandidates.join(", ")
+        validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
