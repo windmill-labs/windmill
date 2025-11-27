@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { WorkspaceDependenciesService, WorkspaceService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -9,9 +9,8 @@
 	import DependenciesDeploymentWarning from './DependenciesDeploymentWarning.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite } from '$lib/utils'
 	import Section from './Section.svelte'
-	import { Loader2, Rocket, Code2, FolderOpen, AlertTriangle } from 'lucide-svelte'
+	import { Loader2, Rocket, Code2, FolderOpen } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import RadioButton from './RadioButton.svelte'
 
@@ -167,14 +166,12 @@ numpy>=1.24.0
 	let valid = $state(true)
 	let drawer: Drawer | undefined = $state()
 	let edit = $state(false)
-	let initialId: number | undefined = $state(undefined)
-	let initialName: string | undefined = $state(null)
-	let initialLanguage: string = $state('python')
+	let initialName: string | undefined = $state(undefined)
+	let initialLanguage: ScriptLang = $state('python3')
 	let existingWorkspaceDefaults: Record<string, boolean> = $state({})
 	let workspaceDefaultIds: Record<string, number> = $state({})
 	let can_write = $state(true)
 	let editor: SimpleEditor | undefined = $state(undefined)
-	let dependents: any[] = $state([])
 	let showWarning = $state(false)
 	let currentImportedPath: string | null = $state(null)
 
@@ -232,8 +229,7 @@ numpy>=1.24.0
 			description: "",
 		}
 		edit = false
-		initialId = undefined
-		initialName = null
+		initialName = undefined
 		initialLanguage = 'python3'
 		workspaceDependenciesName = ''
 		workspaceDependenciesType = 'named' // Start with named by default
@@ -277,11 +273,10 @@ numpy>=1.24.0
 			return
 		}
 		
-		initialId = id
 		initialName = name
 		initialLanguage = language
 		workspaceDependenciesName = name || ''
-		workspaceDependenciesType = name === null ? 'workspace' : 'named'
+		workspaceDependenciesType = !name ? 'workspace' : 'named'
 		editorReady = false
 		initialLanguageSet = true // Don't override content when editing
 		previousLanguage = language // Set to current language to prevent template reset
@@ -317,8 +312,8 @@ numpy>=1.24.0
 	async function handleDeployClick(): Promise<void> {
 		// For updates, check for dependents and show warning
 		if (edit) {
-			const existingPath = getWorkspaceDependenciesPath(initialName, initialLanguage)
-			
+			const existingPath = getWorkspaceDependenciesPath(initialName ?? null, initialLanguage)
+
 			if (existingPath === null) {
 				sendUserToast('Unsupported language for workspace dependencies path generation', true)
 				return
@@ -331,9 +326,14 @@ numpy>=1.24.0
 					importedPath: existingPath
 				})
 
-				// Show warning with dependent information
-				currentImportedPath = existingPath
-				showWarning = true
+				// Only show warning if there are actually dependents
+				if (dependents.length > 0) {
+					currentImportedPath = existingPath
+					showWarning = true
+				} else {
+					// No dependents, proceed directly
+					await updateWorkspaceDependencies()
+				}
 			} catch (error) {
 				console.error('Error checking dependents:', error)
 				// On error, proceed without warning

@@ -4,6 +4,7 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import { Button } from './common'
 	import WorkspaceDependenciesEditor from './WorkspaceDependenciesEditor.svelte'
+	import type { ScriptLang } from '$lib/gen'
 	import { Code2, Edit, FileText } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
@@ -11,10 +12,10 @@
 	// Component state
 	let drawer: Drawer | undefined = $state()
 	let workspaceDependenciesEditor: WorkspaceDependenciesEditor | undefined = $state()
-	
+
 	// Content state
 	let viewContent: string = $state('')
-	let viewLanguage: string = $state('python')
+	let viewLanguage: ScriptLang = $state('python3')
 	let viewPath: string = $state('')
 	let viewDescription: string = $state('')
 	let viewDepsId: number | undefined = $state(undefined)
@@ -22,18 +23,18 @@
 	let canWriteDeps: boolean = $state(false)
 
 	// Export methods for external control
-	export function openViewer(path: string, content?: string, language?: string, description?: string, depsId?: number, depsName?: string) {
+	export function openViewer(path: string, content?: string, language?: ScriptLang, description?: string, depsId?: number, depsName?: string) {
 		viewPath = path
 		viewContent = content || ''
-		viewLanguage = language || 'python'
+		viewLanguage = language || 'python3'
 		viewDescription = description || ''
 		viewDepsId = depsId
 		viewDepsName = depsName
-		
+
 		// TODO: Replace with actual API call to check permissions
 		// For now, mock the permission check
 		canWriteDeps = canWrite(path, {}, $userStore)
-		
+
 		drawer?.openDrawer()
 	}
 
@@ -51,22 +52,6 @@
 	function onWorkspaceDependenciesUpdated() {
 		// TODO: Reload workspace dependencies data
 		console.log('Workspace dependencies updated, should reload data')
-	}
-
-	function getLanguageForHighlighting(lang: string): 'python3' | 'nativets' | 'go' | 'php' | undefined {
-		// Map our workspace dependencies languages to syntax highlighting languages
-		switch (lang) {
-			case 'python':
-				return 'python3'
-			case 'typescript':
-				return 'nativets'
-			case 'go':
-				return 'go'
-			case 'php':
-				return 'php'
-			default:
-				return undefined
-		}
 	}
 </script>
 
@@ -102,7 +87,7 @@
 			{/if}
 			
 			{#if viewContent}
-				<HighlightCode language={getLanguageForHighlighting(viewLanguage)} code={viewContent} />
+				<HighlightCode language={viewLanguage} code={viewContent} />
 			{:else}
 				<div class="text-center text-secondary py-8">
 					<FileText size={48} class="mx-auto mb-4 opacity-50" />

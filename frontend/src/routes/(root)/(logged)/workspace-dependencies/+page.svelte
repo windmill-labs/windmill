@@ -96,12 +96,12 @@
 
 	// Archive workspace dependencies
 	async function archiveWorkspaceDependencies(deps: WorkspaceDependencies): Promise<void> {
-		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+		const importedPath = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name ?? null, deps.language)
 		if (!importedPath) {
 			sendUserToast('Unable to determine workspace dependencies path', true)
 			return
 		}
-		
+
 		currentImportedPath = importedPath
 		warningTitle = `Archive Warning`
 		warningConfirmText = 'Archive Anyway'
@@ -161,12 +161,12 @@
 
 	async function viewReferencedFrom(deps: WorkspaceDependencies): Promise<void> {
 		try {
-			const path = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name, deps.language)
+			const path = workspaceDependenciesEditor?.getWorkspaceDependenciesPath(deps.name ?? null, deps.language)
 			if (!path) {
 				sendUserToast('Unable to determine workspace dependencies path', true)
 				return
 			}
-			
+
 			const dependents = await WorkspaceService.getDependents({
 				workspace: $workspaceStore!,
 				importedPath: path
@@ -292,8 +292,8 @@
 								<div class="flex items-center gap-2">
 									<FileText size={16} class="text-secondary" />
 									<div class="flex flex-col">
-										<a
-											class="break-all hover:text-primary cursor-pointer font-medium"
+										<button
+											class="break-all hover:text-primary cursor-pointer font-medium text-left"
 											onclick={() => editWorkspaceDependencies(deps)}
 										>
 											{#if deps.marked}
@@ -301,7 +301,7 @@
 											{:else}
 												{workspaceDependenciesEditor?.getDisplayName(deps) || (deps.name || `Default (${deps.language})`)}
 											{/if}
-										</a>
+										</button>
 										<span class="text-xs text-tertiary font-mono">
 											{workspaceDependenciesEditor?.getFullFilename(deps.language, deps.name ?? null)} • {deps.language}
 										</span>

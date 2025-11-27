@@ -4,12 +4,11 @@
 	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
 	import Modal from './common/modal/Modal.svelte'
-	import { 
-		AlertTriangle, 
-		ChevronRight, 
-		ChevronDown, 
-		FileText, 
-		GitBranch, 
+	import {
+		ChevronRight,
+		ChevronDown,
+		FileText,
+		GitBranch,
 		Layers,
 		ArrowRight,
 		Package
@@ -77,7 +76,7 @@
 			dependencies = dependents.map(dep => ({
 				path: dep.importer_path,
 				kind: dep.importer_kind as 'script' | 'flow' | 'app',
-				nodeIds: dep.importer_node_ids,
+				nodeIds: dep.importer_node_ids ?? undefined,
 				expanded: false,
 				childrenCount: amountMap.get(dep.importer_path) || 0
 			}))
@@ -113,7 +112,7 @@
 			node.children = dependents.map(dep => ({
 				path: dep.importer_path,
 				kind: dep.importer_kind as 'script' | 'flow' | 'app',
-				nodeIds: dep.importer_node_ids,
+				nodeIds: dep.importer_node_ids ?? undefined,
 				expanded: false,
 				childrenCount: amountMap.get(dep.importer_path) || 0
 			}))
@@ -234,10 +233,11 @@
 </Modal>
 
 {#snippet DependencyNode({ node, level }: { node: DependencyNode, level: number })}
+	{@const Icon = getIcon(node.kind)}
 	<div style="margin-left: {level * 1}rem;">
 		<div class="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
 			<!-- Expand/collapse button -->
-			{#if node?.childrenCount > 0}
+			{#if (node.childrenCount ?? 0) > 0}
 				<button
 					onclick={() => toggleExpand(node)}
 					class="flex-shrink-0 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
@@ -257,7 +257,7 @@
 
 			<!-- Kind icon and label -->
 			<div class="flex items-center gap-1.5 flex-shrink-0">
-				<svelte:component this={getIcon(node.kind)} size={14} class="text-blue-600 dark:text-blue-400" />
+				<Icon size={14} class="text-blue-600 dark:text-blue-400" />
 				<span class="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wide">
 					{getKindLabel(node.kind)}
 				</span>
@@ -276,7 +276,7 @@
 			</div>
 
 			<!-- Children count -->
-			{#if node.childrenCount > 0}
+			{#if (node.childrenCount ?? 0) > 0}
 				<span class="flex-shrink-0 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-full">
 					{node.childrenCount} dep{node.childrenCount !== 1 ? 's' : ''}
 				</span>
