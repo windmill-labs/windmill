@@ -94,10 +94,13 @@ function sqlProviderImpl(
     let content = values.map((_, i) => formatArg(i)).join("\n") + "\n";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+
+    let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
-      content += strings[i];
-      if (i !== strings.length - 1) content += `$${i + 1}`;
+      contentBody += strings[i];
+      if (i !== strings.length - 1) contentBody += `$${i + 1}`;
     }
+    content += contentBody;
 
     const args = {
       ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
@@ -113,11 +116,29 @@ function sqlProviderImpl(
     }: FetchParams<ResultCollectionT> = {}) {
       if (resultCollection)
         content = `-- result_collection=${resultCollection}\n${content}`;
-      let result = await JobService.runScriptPreviewInline({
-        workspace: getWorkspace(),
-        requestBody: { args, content, language },
-      });
-      return result as SqlResult<ResultCollectionT>;
+      try {
+        let result = await JobService.runScriptPreviewInline({
+          workspace: getWorkspace(),
+          requestBody: { args, content, language },
+        });
+        return result as SqlResult<ResultCollectionT>;
+      } catch (e: any) {
+        let err = e;
+        if (
+          e &&
+          typeof e.body == "string" &&
+          e.statusText == "Internal Server Error"
+        ) {
+          let body = e.body;
+          if (body.startsWith("Internal:")) body = body.slice(9).trim();
+          if (body.startsWith("Error:")) body = body.slice(6).trim();
+          if (body.startsWith("datatable")) body = body.slice(9).trim();
+          err = Error(`${provider} ${body}`);
+          err.query = contentBody;
+          err.request = e.request;
+        }
+        throw err;
+      }
     }
 
     return {
