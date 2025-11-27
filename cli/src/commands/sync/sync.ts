@@ -450,9 +450,10 @@ function ZipFSElement(
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
             let inlineScripts;
+            const value = rawApp?.["value"];
             try {
               inlineScripts = extractInlineScriptsForApps(
-                rawApp?.["value"],
+                value,
                 newPathAssigner(defaultTs)
               );
             } catch (error) {
@@ -464,7 +465,7 @@ function ZipFSElement(
 
             try {
               for (const [filePath, content] of Object.entries(
-                rawApp?.["value"]?.["files"] ?? []
+                value?.["files"] ?? []
               )) {
                 yield {
                   isDirectory: false,
@@ -498,7 +499,7 @@ function ZipFSElement(
               };
             }
 
-            const runnables = rawApp?.["value"]?.["runnables"];
+            const runnables = value?.["runnables"];
             if (runnables) {
               rawApp.runnables = runnables;
               delete rawApp?.["value"];

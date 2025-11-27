@@ -121,7 +121,11 @@ async function dev(opts: DevOptions) {
   const appDir = path.dirname(entryPoint);
   await ensureNodeModules(appDir);
 
-  genRunnablesTs();
+  // In-memory cache of inferred schemas (runnableId -> schema)
+  // Used to generate wmill.d.ts without modifying raw_app.yaml
+  const inferredSchemas: Record<string, any> = {};
+
+  genRunnablesTs(inferredSchemas);
 
   // Ensure dist directory exists
   const distDir = path.join(process.cwd(), "dist");
@@ -251,15 +255,17 @@ async function dev(opts: DevOptions) {
 
               try {
                 log.info(colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`));
-                // Infer and update schema for this runnable
-                const updatedRunnableId = await inferRunnableSchemaFromFile(
+                // Infer schema for this runnable (returns schema in memory, doesn't write to file)
+                const result = await inferRunnableSchemaFromFile(
                   process.cwd(),
                   relativeToRunnables
                 );
 
-                if (updatedRunnableId) {
-                  // Regenerate wmill.d.ts with updated schema
-                  await genRunnablesTs();
+                if (result) {
+                  // Store inferred schema in memory
+                  inferredSchemas[result.runnableId] = result.schema;
+                  // Regenerate wmill.d.ts with updated schema from memory
+                  await genRunnablesTs(inferredSchemas);
                 }
               } catch (error: any) {
                 log.error(
@@ -594,12 +600,28 @@ const command = new Command()
 
 export default command;
 
-async function genRunnablesTs() {
-  log.info(colors.blue("🔄 Generating runnables.ts..."));
+/**
+ * Generates wmill.d.ts with type definitions for runnables.
+ * Merges in-memory inferred schemas with runnables from raw_app.yaml.
+ *
+ * @param schemaOverrides - In-memory schema overrides (runnableId -> schema)
+ */
+async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
+  log.info(colors.blue("🔄 Generating wmill.d.ts..."));
   const rawApp = (await yamlParseFile(
     path.join(process.cwd(), "raw_app.yaml")
   )) as any;
   const runnables = rawApp?.["runnables"] as any;
+
+  // Apply schema overrides from in-memory cache
+  if (runnables && Object.keys(schemaOverrides).length > 0) {
+    for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
+      if (runnables[runnableId]?.inlineScript) {
+        runnables[runnableId].inlineScript.schema = schema;
+      }
+    }
+  }
+
   try {
     const newWmillTs = windmillUtils.genWmillTs(runnables);
     writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);

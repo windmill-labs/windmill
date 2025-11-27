@@ -381,17 +381,26 @@ async function generateInlineScriptLock(
 }
 
 /**
- * Infers and updates schema for a single runnable in a raw app.
- * Used by dev server to update schema on file changes.
+ * Result of schema inference for a runnable
+ */
+export interface InferredSchemaResult {
+  runnableId: string;
+  schema: any;
+}
+
+/**
+ * Infers schema for a single runnable from its file content.
+ * Used by dev server to update schema in memory (for wmill.d.ts generation).
+ * Does NOT write to raw_app.yaml - schema is kept in memory only.
  *
  * @param appFolder - The folder containing the raw app
  * @param runnableFilePath - The path to the changed runnable file (relative to runnables folder)
- * @returns The runnable ID if updated, undefined if no update was needed
+ * @returns The runnable ID and inferred schema, or undefined if inference failed/not applicable
  */
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
   runnableFilePath: string
-): Promise<string | undefined> {
+): Promise<InferredSchemaResult | undefined> {
   // Extract runnable ID from file path (e.g., "myRunnable.inline_script.ts" -> "myRunnable")
   const fileName = path.basename(runnableFilePath);
 
@@ -408,7 +417,7 @@ export async function inferRunnableSchemaFromFile(
 
   const runnableId = match[1];
 
-  // Read the app file
+  // Read the app file to get the language
   const appFilePath = path.join(appFolder, "raw_app.yaml");
   const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
@@ -426,6 +435,7 @@ export async function inferRunnableSchemaFromFile(
 
   const inlineScript = runnable.inlineScript;
   const language = inlineScript.language as SupportedLanguage;
+
   // Skip frontend scripts - they don't need schema inference
   if (language === "frontend") {
     return undefined;
@@ -442,10 +452,9 @@ export async function inferRunnableSchemaFromFile(
   }
 
   // Infer schema from script content
-  const currentSchema = inlineScript.schema
-  const oldSchemaStr = JSON.stringify(currentSchema);
-
+  const currentSchema = inlineScript.schema;
   const remotePath = appFolder.replaceAll(SEP, "/");
+
   try {
     const schemaResult = await inferSchema(
       language as ScriptLanguage,
@@ -454,26 +463,11 @@ export async function inferRunnableSchemaFromFile(
       `${remotePath}/${runnableId}`
     );
 
-    // Check if schema actually changed
-    const newSchemaStr = JSON.stringify(schemaResult.schema);
-
-
-    if (newSchemaStr === oldSchemaStr) {
-      return undefined;
-    }
-
-    // Update the schema in the app file
-    appFile.runnables[runnableId].inlineScript.schema = schemaResult.schema;
-
-    log.info(colors.gray(`  Writing updated app file ${appFilePath}`));
-    // Write the updated app file
-    writeIfChanged(
-      appFilePath,
-      yamlStringify(appFile as Record<string, any>, yamlOptions)
-    );
-
-    log.info(colors.green(`  Updated schema for ${runnableId}`));
-    return runnableId;
+    log.info(colors.green(`  Inferred schema for ${runnableId}`));
+    return {
+      runnableId,
+      schema: schemaResult.schema,
+    };
   } catch (schemaError: any) {
     log.warn(
       colors.yellow(
