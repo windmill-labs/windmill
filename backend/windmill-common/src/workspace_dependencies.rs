@@ -197,7 +197,7 @@ impl WorkspaceDependencies {
         }
 
         // Fetch and cache
-        let fetch = async {
+        let fetch = Box::pin(async {
             match &conn {
                 Connection::Sql(db) => sqlx::query_as!(
                     Self,
@@ -228,7 +228,7 @@ impl WorkspaceDependencies {
                     .await
                     .map_err(error::Error::from),
             }
-        };
+        });
 
         let (workspace_dependencies_o, ..) = WORKSPACE_DEPENDENCIES_CACHE
             .get_or_insert_async(&cache_key, async {
@@ -331,65 +331,68 @@ impl WorkspaceDependenciesPrefetched {
 
         tracing::debug!(workspace_id, ?language, "extracting workspace dependencies");
 
-        let r = if let Some(wdar) =
-            language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
-        {
-            tracing::debug!(workspace_id, ?language, "found explicit annotations");
+        Box::pin(async {
+            let r = if let Some(wdar) =
+                language.extract_workspace_dependencies_annotated_refs(code, runnable_path)
+            {
+                tracing::debug!(workspace_id, ?language, "found explicit annotations");
 
-            let expanded = wdar
-                .expand(language, workspace_id, raw_workspace_dependencies_o, conn)
-                .await?;
+                let expanded = wdar
+                    .expand(language, workspace_id, raw_workspace_dependencies_o, conn)
+                    .await?;
 
-            Explicit(expanded)
-        // First try in raw dependencies
-        } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
-            raw_workspace_dependencies_o,
-            Option::None,
-            language,
-            workspace_id.to_owned(),
-        ) {
-            tracing::debug!(
-                workspace_id,
-                ?language,
-                dep_id = workspace_dependencies.id,
-                "using implicit raw"
-            );
-
-            // Hardcode to manual for now.
-            Implicit { workspace_dependencies, mode: Mode::manual }
-        } else if let Some(workspace_dependencies) =
-            // If not found, fetch from db
-            WorkspaceDependencies::get_latest(
+                Explicit(expanded)
+            // First try in raw dependencies
+            } else if let Some(workspace_dependencies) = get_raw_workspace_dependencies(
+                raw_workspace_dependencies_o,
                 Option::None,
                 language,
-                workspace_id,
-                conn,
-            )
-            .await?
-        {
-            tracing::debug!(
-                workspace_id,
-                ?language,
-                dep_id = workspace_dependencies.id,
-                "using implicit default"
-            );
+                workspace_id.to_owned(),
+            ) {
+                tracing::debug!(
+                    workspace_id,
+                    ?language,
+                    dep_id = workspace_dependencies.id,
+                    "using implicit raw"
+                );
 
-            // Hardcode to manual for now.
-            Implicit { workspace_dependencies, mode: Mode::manual }
-        } else {
-            tracing::debug!(workspace_id, ?language, "no dependencies found");
+                // Hardcode to manual for now.
+                Implicit { workspace_dependencies, mode: Mode::manual }
+            } else if let Some(workspace_dependencies) =
+                // If not found, fetch from db
+                WorkspaceDependencies::get_latest(
+                    Option::None,
+                    language,
+                    workspace_id,
+                    conn,
+                )
+                .await?
+            {
+                tracing::debug!(
+                    workspace_id,
+                    ?language,
+                    dep_id = workspace_dependencies.id,
+                    "using implicit default"
+                );
 
-            None
-        };
+                // Hardcode to manual for now.
+                Implicit { workspace_dependencies, mode: Mode::manual }
+            } else {
+                tracing::debug!(workspace_id, ?language, "no dependencies found");
 
-        // Crucial part. It will drop all blacklisted runnables
-        WorkspaceDependenciesPrefetched {
-            internal: r,
-            language,
-            runnable_path: runnable_path.to_owned(),
-            workspace_id: workspace_id.to_owned(),
-        }
-        .preprocess()
+                None
+            };
+
+            // Crucial part. It will drop all blacklisted runnables
+            WorkspaceDependenciesPrefetched {
+                internal: r,
+                language,
+                runnable_path: runnable_path.to_owned(),
+                workspace_id: workspace_id.to_owned(),
+            }
+            .preprocess()
+            .await
+        })
         .await
     }
 
