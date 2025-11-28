@@ -604,13 +604,15 @@ struct PulledCodebase {
 }
 async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCodebase> {
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+    let CodebaseInfo { is_tar, is_esm } = id_to_codebase_info(id);
+
     let bun_cache_path = format!(
-        "{}/{}",
+        "{}/{}.{}",
         windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
-        path
+        path,
+        if is_tar { "tar" } else { "js" }
     );
 
-    let CodebaseInfo { is_tar, is_esm } = id_to_codebase_info(id);
     let dst = format!(
         "{job_dir}/{}",
         if is_tar { "codebase.tar" } else { "main.js" }
@@ -631,9 +633,10 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}/{}",
+                "{}/{}.{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                path
+                path,
+                if is_tar { "tar" } else { "js" }
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");
@@ -1093,14 +1096,9 @@ pub async fn handle_bun_job(
             "".to_string()
         };
 
-        let codebase_import = if format == BundleFormat::Esm {
-            " with { type: 'js' }"
-        } else {
-            ""
-        };
         let wrapper_content = format!(
             r#"
-import * as Main from "{main_import}{codebase_import}";
+import * as Main from "{main_import}";
 
 import * as fs from "fs/promises";
 
