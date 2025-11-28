@@ -87,18 +87,34 @@ function sqlProviderImpl(
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
-    let formatArg = {
+    let formatArgDecl = {
       datatable: (i: number) => `-- $${i + 1} arg${i + 1}`,
-      ducklake: (i: number) => `-- $arg${i + 1}`,
+      ducklake: (i: number) => {
+        let argType =
+          parseTypeAnnotation(strings[i], strings[i + 1]) ||
+          inferSqlType(values[i]);
+        return `-- $arg${i + 1} (${argType})`;
+      },
     }[provider];
-    let content = values.map((_, i) => formatArg(i)).join("\n") + "\n";
+
+    let formatArgUsage = {
+      datatable: (i: number) => {
+        let argType =
+          parseTypeAnnotation(strings[i], strings[i + 1]) ||
+          inferSqlType(values[i]);
+        return `$${i + 1}::${argType}`;
+      },
+      ducklake: (i: number) => `$arg${i + 1}`,
+    }[provider];
+
+    let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
 
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
       contentBody += strings[i];
-      if (i !== strings.length - 1) contentBody += `$${i + 1}`;
+      if (i !== strings.length - 1) contentBody += formatArgUsage(i);
     }
     content += contentBody;
 
@@ -150,4 +166,53 @@ function sqlProviderImpl(
     } satisfies SqlStatement;
   };
   return sql;
+}
+
+// DuckDB executor requires explicit argument types at declaration
+// And postgres at argument usage.
+// These types exist in both DuckDB and Postgres
+// Check that the types exist if you plan to extend this function for other SQL engines.
+function inferSqlType(value: any): string {
+  if (typeof value === "number" || typeof value === "bigint") {
+    if (Number.isInteger(value)) return "BIGINT";
+    return "DOUBLE PRECISION";
+  } else if (value === null || value === undefined) {
+    return "TEXT";
+  } else if (typeof value === "string") {
+    return "TEXT";
+  } else if (typeof value === "object") {
+    return "JSON";
+  } else if (typeof value === "boolean") {
+    return "BOOLEAN";
+  } else {
+    return "TEXT";
+  }
+}
+
+// The goal is to detect if the user added a type annotation manually
+//
+// untyped : sql`SELECT ${x} = 0` => ['SELECT ', ' = 0']
+// typed   : sql`SELECT ${x}::int = 0` => ['SELECT ', '::int = 0']
+// typed   : sql`SELECT CAST ( ${x} AS int ) = 0` => ['SELECT CAST ( ', ' AS int ) = 0']
+function parseTypeAnnotation(
+  prevTemplateString: string | undefined,
+  nextTemplateString: string | undefined
+): string | undefined {
+  if (!nextTemplateString) return;
+  nextTemplateString = nextTemplateString.trimStart();
+  if (nextTemplateString.startsWith("::")) {
+    return nextTemplateString.substring(2).trimStart().split(/\s+/)[0];
+  }
+  prevTemplateString = prevTemplateString?.trimEnd();
+  if (
+    prevTemplateString?.endsWith("(") &&
+    prevTemplateString
+      .substring(0, prevTemplateString.length - 1)
+      .trim()
+      .toUpperCase()
+      .endsWith("CAST") &&
+    nextTemplateString.toUpperCase().startsWith("AS ")
+  ) {
+    return nextTemplateString.substring(2).trimStart().split(/\s+/)[0];
+  }
 }
