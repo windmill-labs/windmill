@@ -82,11 +82,11 @@ static GLOBAL: Jemalloc = Jemalloc;
 use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
-    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR,
-    UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, init_worker_internal_server_inline_utils,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
+    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -750,9 +750,16 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
+        let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
         let server_f = async {
             if !is_agent {
                 if let Some(db) = conn.as_sql() {
+                    if worker_mode {
+                        init_worker_internal_server_inline_utils(
+                            worker_internal_server_killpill_rx,
+                            base_internal_url.clone(),
+                        )?;
+                    }
                     windmill_api::run_server(
                         db.clone(),
                         index_reader,

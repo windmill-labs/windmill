@@ -171,7 +171,13 @@
 	}
 </script>
 
-<Modal2 bind:isOpen={open} title="Critical Alerts" target="#content" fixedSize="lg">
+<Modal2
+	bind:isOpen={open}
+	title="Critical Alerts"
+	target="#content"
+	fixedHeight="lg"
+	fixedWidth="lg"
+>
 	<svelte:fragment slot="header-left">
 		<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
 	</svelte:fragment>

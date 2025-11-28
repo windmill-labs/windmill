@@ -15432,6 +15432,7 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
+ "once_cell",
  "openidconnect",
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -15718,6 +15719,31 @@ dependencies = [
  "triomphe",
  "wasm-bindgen",
  "windmill-parser",
+]
+
+[[package]]
+name = "windmill-parser-wasm"
+version = "1.585.1"
+dependencies = [
+ "anyhow",
+ "getrandom 0.2.16",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "windmill-parser",
+ "windmill-parser-bash",
+ "windmill-parser-csharp",
+ "windmill-parser-go",
+ "windmill-parser-graphql",
+ "windmill-parser-java",
+ "windmill-parser-nu",
+ "windmill-parser-php",
+ "windmill-parser-py",
+ "windmill-parser-ruby",
+ "windmill-parser-rust",
+ "windmill-parser-sql",
+ "windmill-parser-ts",
+ "windmill-parser-yaml",
 ]
 
 [[package]]

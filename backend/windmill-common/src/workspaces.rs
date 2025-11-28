@@ -9,6 +9,7 @@ use strum::AsRefStr;
 use crate::{
     error::{to_anyhow, Error, Result},
     get_database_url, parse_postgres_url,
+    utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
     DB,
 };
@@ -149,6 +150,70 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+pub struct DataTable {
+    pub database: DataTableDatabase,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTableDatabase {
+    pub resource_type: DataTableCatalogResourceType,
+    pub resource_path: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[derive(AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum DataTableCatalogResourceType {
+    #[strum(serialize = "postgres")]
+    Postgresql,
+    Instance,
+}
+
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let datatable = sqlx::query_scalar!(
+        r#"
+            SELECT ws.datatable->'datatables'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?
+    .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
+    let datatable = serde_json::from_value::<DataTable>(datatable)?;
+
+    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
+    {
+        let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
+        json!({
+            "dbname": datatable.database.resource_path,
+            "host": pg_creds.host,
+            "port": pg_creds.port,
+            "user": "custom_instance_user",
+            "sslmode": pg_creds.ssl_mode,
+            "password": get_custom_pg_instance_password(&db).await?,
+        })
+    } else {
+        transform_json_unchecked(
+            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
+            w_id,
+            db,
+        )
+        .await?
+    };
+
+    Ok(db_resource)
+}
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
     pub storage: DucklakeStorage,
@@ -213,9 +278,9 @@ pub async fn get_ducklake_from_db_unchecked(
                 "dbname": ducklake.catalog.resource_path,
                 "host": pg_creds.host,
                 "port": pg_creds.port,
-                "user": "ducklake_user",
+                "user": "custom_instance_user",
                 "sslmode": pg_creds.ssl_mode,
-                "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+                "password": get_custom_pg_instance_password(&db).await?,
             })
         } else {
             transform_json_unchecked(
@@ -231,19 +296,6 @@ pub async fn get_ducklake_from_db_unchecked(
         storage: ducklake.storage,
     };
     Ok(ducklake)
-}
-
-pub async fn get_ducklake_instance_pg_catalog_password(db: &DB) -> Result<String> {
-    sqlx::query_scalar!(
-        "SELECT value->>'ducklake_user_pg_pwd' FROM global_settings WHERE name = 'ducklake_settings';"
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten().ok_or_else(||
-        Error::BadRequest(format!(
-            "Ducklake instance catalog password not found, did you run migrations ?"
-        ))
-    )
 }
 
 // This does not check for any permission. Should never be displayed to a user.

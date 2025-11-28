@@ -35,7 +35,7 @@
 							call_id: z.string(),
 							function_name: z.string(),
 							resource_path: z.string(),
-							arguments: z.record(z.unknown()).optional()
+							arguments: z.record(z.any(), z.any()).optional()
 						}),
 						z.object({
 							type: z.literal('message')

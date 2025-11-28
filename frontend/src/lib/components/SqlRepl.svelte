@@ -55,7 +55,7 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { getDbType } from './dbOps'
+	import { getDatabaseArg, getDbType } from './dbOps'
 	import type { DbInput } from './dbTypes'
 	import { wrapDucklakeQuery } from './ducklake'
 
@@ -103,7 +103,7 @@
 					})
 					.join(';')
 			}
-			const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+			const dbArg = getDatabaseArg(input)
 
 			if (input?.type === 'ducklake') {
 				transformedCode = wrapDucklakeQuery(transformedCode, input.ducklake)

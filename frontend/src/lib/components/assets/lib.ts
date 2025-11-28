@@ -22,6 +22,8 @@ export function formatAsset(asset: Asset): string {
 			return `s3://${asset.path}`
 		case 'ducklake':
 			return `ducklake://${asset.path}`
+		case 'datatable':
+			return `datatable://${asset.path}`
 	}
 }
 
@@ -72,6 +74,8 @@ export function formatAssetKind(asset: {
 			return 'S3 Object'
 		case 'ducklake':
 			return 'Ducklake'
+		case 'datatable':
+			return 'Datatable'
 	}
 }
 

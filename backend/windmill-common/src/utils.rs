@@ -953,3 +953,16 @@ impl<T> ExpiringCacheEntry<T> {
         self.expiry < std::time::Instant::now()
     }
 }
+
+pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
+    sqlx::query_scalar!(
+        "SELECT value->>'user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';"
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten().ok_or_else(||
+        Error::BadRequest(format!(
+            "Custom instance db password not found, did you run migrations ?"
+        ))
+    )
+}

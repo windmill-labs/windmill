@@ -27,6 +27,7 @@ members = [
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
+    "./parsers/windmill-parser-wasm",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu"
 ]

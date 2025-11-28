@@ -50,7 +50,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="flex flex-col bg-surface rounded-md py-1.5 px-3 cursor-pointer"
+			class="flex flex-col bg-surface rounded-md py-1.5 pr-2 cursor-pointer"
 			role=""
 			onclick={() => {
 				if (step.description) {
