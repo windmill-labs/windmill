@@ -2237,6 +2237,7 @@ pub async fn handle_app_dependency_job(
         reduce_app(db, &job_path, &mut value_lite, app_id).await?;
         if let Value::Object(object) = &mut value_lite {
             object.insert("version".to_string(), json!(id));
+            object.remove("files");
         }
         sqlx::query!(
             "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)

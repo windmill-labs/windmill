@@ -8,8 +8,8 @@ export async function updateRawAppPolicy(
 ): Promise<Policy> {
 	const triggerables_v2 = Object.fromEntries(
 		(await Promise.all(
-			Object.values(runnables).map(async (runnable) => {
-				return await processRunnable(runnable?.name ?? '', runnable, runnable?.fields ?? {})
+			Object.entries(runnables).map(async ([id, runnable]) => {
+				return await processRunnable(id, runnable, runnable?.fields ?? {})
 			})
 		)) as [string, TriggerableV2][]
 	)

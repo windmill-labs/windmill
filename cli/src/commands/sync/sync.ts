@@ -262,6 +262,34 @@ export interface InlineScript {
   content: string;
 }
 
+function extractFields(fields: Record<string, any>) {
+  Object.entries(fields).forEach(([k, v]) => {
+    if (typeof v == "object") {
+      if (v.type == "static") {
+        fields[k] = { value: v.value }
+      } else if (v.type == "javascript") {
+        fields[k] = { expr: v.expr, allowUserResources: v.allowUserResources }
+      } else if (v.type == "user") {
+        fields[k] = undefined
+      }
+    }
+    // if (k == 'runType') {
+    //   fields["type"] = undefined
+    //   fields["schema"] = undefined
+    // }
+  })
+}
+
+
+export function extractFieldsForApps(runnables: Record<string, any>) {
+  Object.values(runnables).forEach((v) => {
+    if (typeof v == "object") {
+      if (v.fields !== undefined) {
+        extractFields(v.fields)
+      }
+    }
+  })
+}
 export function extractInlineScriptsForApps(
   key: string | undefined,
   rec: any,
@@ -461,6 +489,8 @@ function ZipFSElement(
             rawApp.policy = undefined;
             let inlineScripts;
             const value = rawApp?.["value"];
+            // console.log("FOOB", value?.["runnables"])
+            extractFieldsForApps(value?.["runnables"]);
             try {
               inlineScripts = extractInlineScriptsForApps(
                 undefined,

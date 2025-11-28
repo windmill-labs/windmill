@@ -28,7 +28,6 @@ import { Workspace } from "../workspace/workspace.ts";
 import { AppFile } from "./raw_apps.ts";
 import { replaceInlineScripts } from "./apps.ts";
 import {
-  getLanguageExtension,
   newPathAssigner,
   SupportedLanguage,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
@@ -436,17 +435,14 @@ export async function inferRunnableSchemaFromFile(
   const runnable = appFile.runnables[runnableId];
 
   // Only process inline scripts
-  if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
+  if (!runnable?.inlineScript) {
     return undefined;
   }
 
   const inlineScript = runnable.inlineScript;
   const language = inlineScript.language as SupportedLanguage;
 
-  // Skip frontend scripts - they don't need schema inference
-  if (language === "frontend") {
-    return undefined;
-  }
+
 
   // Read the actual content from the file
   const fullFilePath = path.join(appFolder, "runnables", runnableFilePath);

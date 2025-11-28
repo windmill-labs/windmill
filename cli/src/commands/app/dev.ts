@@ -260,10 +260,12 @@ async function dev(opts: DevOptions) {
                   process.cwd(),
                   relativeToRunnables
                 );
-
                 if (result) {
+                  // log.info(colors.green(`  Schema: ${JSON.stringify(result.schema, null, 2)}`));
+                  // log.info(colors.green(`  Runnable ID: ${result.runnableId}`));
                   // Store inferred schema in memory
                   inferredSchemas[result.runnableId] = result.schema;
+                  log.info(colors.green(`  Inferred Schemas: ${JSON.stringify(inferredSchemas, null, 2)}`));
                   // Regenerate wmill.d.ts with updated schema from memory
                   await genRunnablesTs(inferredSchemas);
                 }
@@ -618,6 +620,7 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
     for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
       if (runnables[runnableId]?.inlineScript) {
         runnables[runnableId].inlineScript.schema = schema;
+        runnables[runnableId].type = "inline";
       }
     }
   }
@@ -672,7 +675,7 @@ async function executeRunnable(
     }
   }
 
-  if (runnable.type === "runnableByName" && runnable.inlineScript) {
+  if ((runnable.type === "inline" || runnable.type === "runnableByName") && runnable.inlineScript) {
     const inlineScript = runnable.inlineScript;
     if (inlineScript.id !== undefined) {
       requestBody.id = inlineScript.id;
@@ -684,7 +687,7 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if (runnable.type === "runnableByPath" && runnable.path) {
+  } else if ((runnable.type === "path" || runnable.type === "runnableByPath") && runnable.path) {
     const runType = runnable.runType ?? "script";
     requestBody.path =
       runType !== "hubscript"

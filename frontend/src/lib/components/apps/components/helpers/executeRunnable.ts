@@ -12,7 +12,7 @@ export async function executeRunnable(
 	id: string,
 	requestBody: ExecuteComponentData['requestBody'],
 	inlineScriptOverride?: InlineScript,
-	queryParams?: Record<string, any>
+	queryParams?: Record<string, any>,
 ) {
 	let appPath = defaultIfEmptyString(path, `u/${username ?? 'unknown'}/newapp`)
 	if (isRunnableByName(runnable)) {

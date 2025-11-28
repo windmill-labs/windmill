@@ -13,7 +13,7 @@ import { Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 
-import { replaceInlineScripts } from "./apps.ts";
+import { replaceInlineScripts, repopulateFields } from "./apps.ts";
 import { createBundle } from "./bundle.ts";
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 
@@ -97,6 +97,7 @@ export async function pushRawApp(
   const path = localPath + "raw_app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
   replaceInlineScripts(localApp.runnables, localPath + SEP + "runnables/");
+  repopulateFields(localApp.runnables)
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {

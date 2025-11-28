@@ -1,7 +1,7 @@
 export type Runnable =
   | {
       name: string;
-      type?: "runnableByName";
+      type?: "runnableByName" | "inline";
       path?: string;
       inlineScript?: {
         content: string;
@@ -13,7 +13,7 @@ export type Runnable =
       fields?: Record<string, any>;
     }
   | {
-      type: "runnableByPath";
+      type: "runnableByPath" | "path";
       path: string;
       runType?: "script" | "flow" | "hubscript";
       fields?: Record<string, any>;
