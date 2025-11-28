@@ -1093,9 +1093,14 @@ pub async fn handle_bun_job(
             "".to_string()
         };
 
+        let codebase_import = if format == BundleFormat::Esm {
+            " with { type: 'js' }"
+        } else {
+            ""
+        };
         let wrapper_content = format!(
             r#"
-import * as Main from "{main_import}";
+import * as Main from "{main_import}{codebase_import}";
 
 import * as fs from "fs/promises";
 
