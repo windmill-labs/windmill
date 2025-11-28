@@ -3,6 +3,7 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
+import type { ChatCompletionTool as ChatCompletionFunctionTool } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
@@ -118,34 +119,36 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
-const addModuleSchema = z.object({
-	afterId: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
-		),
-	insideId: z
-		.string()
-		.nullish()
-		.describe(
-			'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
-		),
-	branchPath: z
-		.string()
-		.nullish()
-		.describe(
-			"Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
-		),
-	value: z.any().describe('Complete module object including id, summary, and value fields')
-})
-
-const addModuleToolDef = createToolDef(
-	addModuleSchema,
-	'add_module',
-	'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.'
-)
+const addModuleToolDef: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		strict: false,
+		name: 'add_module',
+		description: 'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.',
+		parameters: {
+			type: 'object',
+			properties: {
+				afterId: {
+					type: ['string', 'null'],
+					description: 'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
+				},
+				insideId: {
+					type: ['string', 'null'],
+					description: 'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
+				},
+				branchPath: {
+					type: ['string', 'null'],
+					description: "Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
+				},
+				value: {
+					...openFlowSchema.components.schemas.FlowModule,
+					description: 'Complete module object including id, summary, and value fields'
+				}
+			},
+			required: ['value']
+		}
+	}
+}
 
 const removeModuleSchema = z.object({
 	id: z.string().describe('ID of the module to remove')
@@ -157,20 +160,28 @@ const removeModuleToolDef = createToolDef(
 	'Remove a module from the flow by its ID. Searches recursively through all nested structures.'
 )
 
-const modifyModuleSchema = z.object({
-	id: z.string().describe('ID of the module to modify'),
-	value: z
-		.any()
-		.describe(
-			'Complete new module object (full replacement). Use this to change module configuration, input_transforms, branch conditions, etc. Do NOT use this to add/remove modules inside branches/loops - use add_module/remove_module for that.'
-		)
-})
-
-const modifyModuleToolDef = createToolDef(
-	modifyModuleSchema,
-	'modify_module',
-	'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.'
-)
+const modifyModuleToolDef: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		strict: false,
+		name: 'modify_module',
+		description: 'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.',
+		parameters: {
+			type: 'object',
+			properties: {
+				id: {
+					type: 'string',
+					description: 'ID of the module to modify'
+				},
+				value: {
+					...openFlowSchema.components.schemas.FlowModule,
+					description: 'Complete new module object (full replacement). Use this to change module configuration, input_transforms, branch conditions, etc. Do NOT use this to add/remove modules inside branches/loops - use add_module/remove_module for that.'
+				}
+			},
+			required: ['id', 'value']
+		}
+	}
+}
 
 const moveModuleSchema = z.object({
 	id: z.string().describe('ID of the module to move'),
@@ -913,6 +924,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			console.log('[tool_search_scripts]', args)
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Searching for workspace scripts related to "' + args.query + '"...'
 			})
@@ -932,6 +944,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
+			console.log('[tool_resource_type]', args)
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Searching resource types for "' + parsedArgs.query + '"...'
@@ -950,6 +963,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: getInstructionsForCodeGenerationToolDef,
 		fn: async ({ args, toolId, toolCallbacks }) => {
+			console.log('[tool_get_instructions_for_code_generation]', args)
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
 				allowResourcesFetch: true,
@@ -964,6 +978,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: testRunFlowToolDef,
 		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
+			console.log('[tool_test_run_flow]', args)
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
@@ -1007,6 +1022,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		// set strict to false to avoid issues with open ai models
 		def: { ...testRunStepToolDef, function: { ...testRunStepToolDef.function, strict: false } },
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+			console.log('[tool_test_run_step]', args)
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
@@ -1124,6 +1140,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: inspectInlineScriptToolDef,
 		fn: async ({ args, toolCallbacks, toolId }) => {
+			console.log('[tool_inspect_inline_script]', args)
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
 
@@ -1157,6 +1174,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: setModuleCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_set_module_code]', args)
 			const parsedArgs = setModuleCodeSchema.parse(args)
 			const { moduleId, code } = parsedArgs
 
@@ -1175,17 +1193,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...addModuleToolDef, function: { ...addModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = addModuleSchema.parse(args)
-			let { afterId, insideId, branchPath, value } = parsedArgs
-
-			console.log('parsedArgs', parsedArgs)
+			console.log('[tool_add_module]', args)
+			let { afterId, insideId, branchPath, value } = args
 
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
 				try {
 					value = JSON.parse(value)
 				} catch (e) {
-					throw new Error(`Failed to parse value as JSON: ${e.message}`)
+					throw new Error(`Failed to parse value as JSON: ${(e as Error).message}`)
 				}
 			}
 
@@ -1252,6 +1268,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...removeModuleToolDef, function: { ...removeModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_remove_module]', args)
 			const parsedArgs = removeModuleSchema.parse(args)
 			const { id } = parsedArgs
 
@@ -1283,15 +1300,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = modifyModuleSchema.parse(args)
-			let { id, value } = parsedArgs
+			console.log('[tool_modify_module]', args)
+			let { id, value } = args
 
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
 				try {
 					value = JSON.parse(value)
 				} catch (e) {
-					throw new Error(`Failed to parse value as JSON: ${e.message}`)
+					throw new Error(`Failed to parse value as JSON: ${(e as Error).message}`)
 				}
 			}
 
@@ -1345,6 +1362,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...moveModuleToolDef, function: { ...moveModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_move_module]', args)
 			const parsedArgs = moveModuleSchema.parse(args)
 			const { id, afterId, insideId, branchPath } = parsedArgs
 
@@ -1387,6 +1405,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...setFlowSchemaToolDef, function: { ...setFlowSchemaToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_set_flow_schema]', args)
 			const parsedArgs = setFlowSchemaSchema.parse(args)
 			let { schema } = parsedArgs
 
@@ -1422,8 +1441,31 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			function: { ...setPreprocessorModuleToolDef.function, strict: false }
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_set_preprocessor_module]', args)
 			const parsedArgs = setPreprocessorModuleSchema.parse(args)
-			const { module } = parsedArgs
+			let { module } = parsedArgs
+
+			// Parse module if it's a JSON string
+			if (typeof module === 'string') {
+				try {
+					module = JSON.parse(module)
+				} catch (e) {
+					throw new Error(`Failed to parse module as JSON: ${(e as Error).message}`)
+				}
+			}
+
+			// Handle character-indexed object (bug case) - reconstruct string
+			if (module && typeof module === 'object' && !Array.isArray(module)) {
+				const keys = Object.keys(module)
+				if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+					const reconstructed = Object.values(module).join('')
+					try {
+						module = JSON.parse(reconstructed)
+					} catch (e) {
+						throw new Error(`Failed to parse reconstructed module JSON: ${(e as Error).message}`)
+					}
+				}
+			}
 
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting preprocessor module...' })
 
@@ -1472,8 +1514,31 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			function: { ...setFailureModuleToolDef.function, strict: false }
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			console.log('[tool_set_failure_module]', args)
 			const parsedArgs = setFailureModuleSchema.parse(args)
-			const { module } = parsedArgs
+			let { module } = parsedArgs
+
+			// Parse module if it's a JSON string
+			if (typeof module === 'string') {
+				try {
+					module = JSON.parse(module)
+				} catch (e) {
+					throw new Error(`Failed to parse module as JSON: ${(e as Error).message}`)
+				}
+			}
+
+			// Handle character-indexed object (bug case) - reconstruct string
+			if (module && typeof module === 'object' && !Array.isArray(module)) {
+				const keys = Object.keys(module)
+				if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+					const reconstructed = Object.values(module).join('')
+					try {
+						module = JSON.parse(reconstructed)
+					} catch (e) {
+						throw new Error(`Failed to parse reconstructed module JSON: ${(e as Error).message}`)
+					}
+				}
+			}
 
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting failure handler module...' })
 
