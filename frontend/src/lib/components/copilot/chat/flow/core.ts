@@ -1176,7 +1176,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: { ...addModuleToolDef, function: { ...addModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = addModuleSchema.parse(args)
-			const { afterId, insideId, branchPath, value } = parsedArgs
+			let { afterId, insideId, branchPath, value } = parsedArgs
+
+			// Parse value if it's a JSON string
+			if (typeof value === 'string') {
+				try {
+					value = JSON.parse(value)
+				} catch (e) {
+					throw new Error(`Failed to parse value as JSON: ${e.message}`)
+				}
+			}
 
 			// Validation
 			if (afterId !== undefined && afterId !== null && insideId) {
@@ -1273,7 +1282,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = modifyModuleSchema.parse(args)
-			const { id, value } = parsedArgs
+			let { id, value } = parsedArgs
+
+			// Parse value if it's a JSON string
+			if (typeof value === 'string') {
+				try {
+					value = JSON.parse(value)
+				} catch (e) {
+					throw new Error(`Failed to parse value as JSON: ${e.message}`)
+				}
+			}
 
 			toolCallbacks.setToolStatus(toolId, { content: `Modifying module '${id}'...` })
 
@@ -1368,7 +1386,17 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: { ...setFlowSchemaToolDef, function: { ...setFlowSchemaToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setFlowSchemaSchema.parse(args)
-			const { schema } = parsedArgs
+			let { schema } = parsedArgs
+
+			// If schema is a JSON string, parse it to an object
+			if (typeof schema === 'string') {
+				try {
+					schema = JSON.parse(schema)
+				} catch (e) {
+					// If it fails to parse, keep it as-is and let it fail downstream
+					console.warn('SCHEMA failed to parse as JSON string', e)
+				}
+			}
 
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow input schema...' })
 
