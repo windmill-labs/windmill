@@ -1102,7 +1102,7 @@ pub async fn handle_bun_job(
         };
         let wrapper_content = format!(
             r#"
-import * as Main from "{main_import}{codebase_import}";
+import * as Main from "{main_import}"{codebase_import};
 
 import * as fs from "fs/promises";
 
