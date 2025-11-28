@@ -218,7 +218,7 @@
 			{/if}
 		</Pane>
 		{#if !disableAi}
-			<FlowAIChat {flowModuleSchemaMap} />
+			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
 		{/if}
 	</Splitpanes>
 </div>

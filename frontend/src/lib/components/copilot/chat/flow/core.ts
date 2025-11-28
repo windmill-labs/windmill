@@ -77,6 +77,9 @@ export interface FlowAIChatHelpers {
 	hasPendingChanges: () => boolean
 	/** Select a step in the flow */
 	selectStep: (id: string) => void
+
+	/** Run a test of the current flow using the UI's preview mechanism */
+	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
 }
 
 const searchScriptsSchema = z.object({
@@ -1067,15 +1070,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			const parsedArgs = await buildTestRunArgs(args, this.def)
+			// Use the UI test mechanism - this opens the preview panel
 			return executeTestRun({
-				jobStarter: () =>
-					JobService.runFlowPreview({
-						workspace: workspace,
-						requestBody: {
-							args: parsedArgs,
-							value: flow.value
-						}
-					}),
+				jobStarter: async () => {
+					const jobId = await helpers.testFlow(parsedArgs)
+					if (!jobId) {
+						throw new Error('Failed to start test run - testFlow returned undefined')
+					}
+					return jobId
+				},
 				workspace,
 				toolCallbacks,
 				toolId,

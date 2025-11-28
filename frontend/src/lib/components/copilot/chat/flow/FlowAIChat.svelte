@@ -12,12 +12,14 @@
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
+		onTestFlow
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
@@ -150,6 +152,15 @@
 
 		selectStep: (id) => {
 			selectionManager.selectId(id)
+		},
+
+		testFlow: async (args, conversationId) => {
+			// Set preview args if provided
+			if (args) {
+				previewArgs.val = args
+			}
+			// Call the UI test function which opens preview panel
+			return await onTestFlow?.(conversationId)
 		},
 
 		setFlowJson: async (json: string) => {
