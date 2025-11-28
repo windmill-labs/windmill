@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: bool = std::env::var("WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES").is_ok();
 }
 /// Minimum Windmill version required for workspace dependencies feature
-pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.586.0";
+pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.587.0";
 
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
