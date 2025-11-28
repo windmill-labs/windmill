@@ -422,7 +422,7 @@ numpy>=1.24.0
 						Default Workspace Dependencies are used when no specific Dependencies are referenced from runnables.
 						Named dependencies can be referenced by scripts using
 						<a
-							href="https://www.windmill.dev/docs/advanced/dependencies"
+							href="https://www.windmill.dev/docs/core_concepts/workspace_dependencies"
 							target="_blank"
 							rel="noopener noreferrer"
 							class="text-accent"

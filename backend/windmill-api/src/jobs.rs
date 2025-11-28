@@ -6159,7 +6159,9 @@ async fn run_dependencies_job(
         return Err(error::Error::MigrationNeeded {
             feature: "cli is outdated".into(),
             version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
-            guide_url: Url::from_str("https://windmill.dev/docs/todo")?,
+            guide_url: Url::from_str(
+                "https://www.windmill.dev/docs/core_concepts/workspace_dependencies/migration",
+            )?,
         });
     }
 
@@ -6259,7 +6261,9 @@ async fn run_flow_dependencies_job(
         return Err(error::Error::MigrationNeeded {
             feature: "cli is outdated".into(),
             version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
-            guide_url: Url::from_str("https://windmill.dev/docs/todo")?,
+            guide_url: Url::from_str(
+                "https://www.windmill.dev/docs/core_concepts/workspace_dependencies/migration",
+            )?,
         });
     }
 
