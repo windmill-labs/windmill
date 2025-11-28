@@ -14,9 +14,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInf
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
-        build_command_with_isolation, read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
-        StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
+        write_file_binary, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
@@ -1095,9 +1095,14 @@ pub async fn handle_bun_job(
             "".to_string()
         };
 
+        let codebase_import = if format == BundleFormat::Esm {
+            " with { type: 'js' }"
+        } else {
+            ""
+        };
         let wrapper_content = format!(
             r#"
-import * as Main from "{main_import}";
+import * as Main from "{main_import}{codebase_import}";
 
 import * as fs from "fs/promises";
 
