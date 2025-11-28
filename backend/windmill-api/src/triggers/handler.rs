@@ -37,8 +37,7 @@ pub struct TriggerForReassignment {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub error_handler_path: Option<String>,
-    pub error_handler_args:
-        Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    pub error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
@@ -428,7 +427,8 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
         .route("/update/*path", post(update_trigger::<T>))
         .route("/delete/*path", delete(delete_trigger::<T>))
         .route("/exists/*path", get(exists_trigger::<T>))
-        .route("/setenabled/*path", post(set_enabled_trigger::<T>));
+        .route("/setenabled/*path", post(set_enabled_trigger::<T>))
+        .route("/update_status/*path", post(update_trigger_status::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));
@@ -651,6 +651,123 @@ struct SetEnabledPayload {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+struct UpdateStatusPayload {
+    suspended_mode: bool,
+    enabled: bool,
+}
+
+async fn update_trigger_status<T: TriggerCrud>(
+    Extension(handler): Extension<Arc<T>>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((workspace_id, path)): Path<(String, StripPath)>,
+    Json(payload): Json<UpdateStatusPayload>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let updated = if T::SUPPORTS_SERVER_STATE {
+        sqlx::query(&format!(
+            r#"
+            UPDATE
+                {}
+            SET
+                suspended_mode = $1,
+                enabled = $2,
+                email = $3,
+                edited_by = $4,
+                edited_at = now(),
+                server_id = NULL,
+                error = NULL
+            WHERE
+                workspace_id = $5 AND
+                path = $6
+            "#,
+            T::TABLE_NAME
+        ))
+        .bind(payload.suspended_mode)
+        .bind(payload.suspended_mode || payload.enabled)
+        .bind(&authed.email)
+        .bind(&authed.username)
+        .bind(&workspace_id)
+        .bind(path)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+    } else {
+        sqlx::query(&format!(
+            r#"
+            UPDATE
+                {}
+            SET
+                suspended_mode = $1,
+                enabled = $2,
+                email = $3,
+                edited_by = $4,
+                edited_at = now()
+            WHERE
+                workspace_id = $5 AND
+                path = $6
+            "#,
+            T::TABLE_NAME
+        ))
+        .bind(payload.suspended_mode)
+        .bind(payload.suspended_mode || payload.enabled)
+        .bind(&authed.email)
+        .bind(&authed.username)
+        .bind(&workspace_id)
+        .bind(path)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+    };
+
+    if updated == 0 {
+        return Err(Error::NotFound(format!(
+            "Trigger not found at path: {}",
+            path
+        )));
+    }
+
+    handler.set_enabled_extra_action(&mut *tx).await?;
+
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &workspace_id,
+        T::get_deployed_object(path.to_owned()),
+        Some(format!(
+            "{} trigger '{}' status updated",
+            T::DEPLOYMENT_NAME,
+            path
+        )),
+        true,
+    )
+    .await?;
+
+    Ok(format!(
+        "Trigger '{}' updated: {} mode, {}",
+        path,
+        if payload.suspended_mode {
+            "suspended"
+        } else {
+            "active"
+        },
+        if payload.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ))
+}
+
 async fn set_enabled_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -825,21 +942,21 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    // {
-    //     use crate::triggers::global_handler::{
-    //         cancel_suspended_trigger_jobs, resume_suspended_trigger_jobs,
-    //     };
+    {
+        use crate::triggers::global_handler::{
+            cancel_suspended_trigger_jobs, resume_suspended_trigger_jobs,
+        };
 
-    //     router = router
-    //         .route(
-    //             "/trigger/:trigger_kind/resume_suspended_trigger_job/*trigger_path",
-    //             post(resume_suspended_trigger_jobs),
-    //         )
-    //         .route(
-    //             "/trigger/:trigger_kind/cancel_suspended_trigger_job/*trigger_path",
-    //             post(cancel_suspended_trigger_jobs),
-    //         );
-    // }
+        router = router
+            .route(
+                "/trigger/:trigger_kind/resume_suspended_trigger_job/*trigger_path",
+                post(resume_suspended_trigger_jobs),
+            )
+            .route(
+                "/trigger/:trigger_kind/cancel_suspended_trigger_job/*trigger_path",
+                post(cancel_suspended_trigger_jobs),
+            );
+    }
 
     router
 }

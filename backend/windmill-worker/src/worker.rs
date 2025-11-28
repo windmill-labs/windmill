@@ -2634,6 +2634,13 @@ pub async fn handle_queued_job(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
+    match job.kind {
+        JobKind::Unassigned => {
+            return Err(Error::ExecutionError("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
+        }
+        _ => {}
+    }
+
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
     match conn {
         Connection::Sql(db) => {

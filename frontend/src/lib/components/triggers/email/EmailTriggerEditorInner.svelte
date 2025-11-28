@@ -25,7 +25,6 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
-	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	let {
 		useDrawer = true,
@@ -315,8 +314,6 @@
 					</div>
 				</Section>
 			{/if}
-
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'email'} bind:suspended_mode />
 
 			<EmailTriggerEditorConfigSection
 				initialTriggerPath={initialPath}

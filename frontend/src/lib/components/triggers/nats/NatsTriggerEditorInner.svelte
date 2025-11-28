@@ -19,7 +19,6 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -401,8 +400,6 @@
 					</div>
 				</Section>
 			{/if}
-
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'nats'} bind:suspended_mode />
 
 			<NatsTriggersConfigSection
 				{path}

@@ -8638,6 +8638,20 @@ paths:
             type: string
           style: simple
           explode: false
+      requestBody:
+        description: Optional list of job IDs to reassign
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to reassign. If not provided, all suspended jobs for the trigger will be reassigned.
       responses:
         "200":
           description: confirmation message
@@ -8668,6 +8682,20 @@ paths:
             type: string
           style: simple
           explode: false
+      requestBody:
+        description: Optional list of job IDs to cancel
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to cancel. If not provided, all suspended jobs for the trigger will be canceled.
       responses:
         "200":
           description: confirmation message
@@ -10282,6 +10310,39 @@ paths:
       responses:
         "200":
           description: http trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/http_triggers/update_status/{path}:
+    post:
+      summary: update http trigger suspended mode and enabled status
+      operationId: updateHttpTriggerStatus
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suspended_mode:
+                  type: boolean
+                  description: Whether the trigger is in suspended mode (queues jobs instead of running them)
+                enabled:
+                  type: boolean
+                  description: Whether the trigger is enabled
+              required:
+                - suspended_mode
+                - enabled
+      responses:
+        "200":
+          description: http trigger status updated
           content:
             text/plain:
               schema:
@@ -17344,7 +17405,7 @@ components:
         - args
 
     JobTriggerKind:
-      description: trigger kind (schedule, http, websocket...)
+      description: job trigger kind (schedule, http, websocket...)
       type: string
       enum:
         - webhook
@@ -17359,8 +17420,6 @@ components:
         - mqtt
         - sqs
         - gcp
-        - poll
-        - cli
 
     TriggerExtraProperty:
       type: object

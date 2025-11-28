@@ -3900,6 +3900,7 @@ async fn batch_rerun_handle_job(
             let result = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
+                None,
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
@@ -3908,7 +3909,7 @@ async fn batch_rerun_handle_job(
                 None,
             )
             .await;
-            if let Ok((uuid, _)) = result {
+            if let Ok((uuid, _, _)) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -3917,6 +3918,7 @@ async fn batch_rerun_handle_job(
                 push_script_job_by_path_into_queue(
                     authed.clone(),
                     db.clone(),
+                    None,
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
@@ -3925,6 +3927,7 @@ async fn batch_rerun_handle_job(
                     None,
                 )
                 .await
+                .map(|r| r.0)
             } else {
                 run_job_by_hash_inner(
                     authed.clone(),
@@ -3937,8 +3940,9 @@ async fn batch_rerun_handle_job(
                     None,
                 )
                 .await
+                .map(|r| r.0)
             };
-            if let Ok((uuid, _)) = result {
+            if let Ok(uuid) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -4056,17 +4060,18 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    let (uuid, _) = push_flow_job_by_path_into_queue(
-        authed, db, user_db, w_id, flow_path, run_query, args, None,
+    let (uuid, _, _) = push_flow_job_by_path_into_queue(
+        authed, db, None, user_db, w_id, flow_path, run_query, args, None,
     )
     .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_flow(
+pub async fn run_flow<'c>(
     authed: &ApiAuthed,
     db: &DB,
+    tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
     w_id: &str,
     flow_path: &str,
@@ -4074,7 +4079,11 @@ pub async fn run_flow(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<String>)> {
+) -> error::Result<(
+    Uuid,
+    Option<String>,
+    Option<sqlx::Transaction<'c, sqlx::Postgres>>,
+)> {
     let FlowVersionInfo {
         version,
         tag,
@@ -4092,22 +4101,30 @@ pub async fn run_flow(
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (email, permissioned_as, push_authed, tx) =
-        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
-            (
-                on_behalf_of_email,
-                username_to_permissioned_as(&edited_by),
-                None,
-                PushIsolationLevel::IsolatedRoot(db.clone()),
-            )
-        } else {
-            (
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
-                Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-            )
-        };
+    let return_tx = tx_o.is_some();
+
+    let (email, permissioned_as, push_authed, tx) = if let Some(tx) = tx_o {
+        (
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Transaction(tx),
+        )
+    } else if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
+        (
+            on_behalf_of_email,
+            username_to_permissioned_as(&edited_by),
+            None,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+        )
+    } else {
+        (
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+        )
+    };
 
     let (uuid, mut tx) = push(
         &db,
@@ -4166,9 +4183,13 @@ pub async fn run_flow(
         .await?;
     }
 
-    tx.commit().await?;
-
-    Ok((uuid, early_return))
+    // If we were given a transaction, return it; otherwise commit it
+    if return_tx {
+        Ok((uuid, early_return, Some(tx)))
+    } else {
+        tx.commit().await?;
+        Ok((uuid, early_return, None))
+    }
 }
 
 pub async fn run_flow_and_wait_result(
@@ -4182,9 +4203,10 @@ pub async fn run_flow_and_wait_result(
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
 ) -> error::Result<Response> {
-    let (uuid, early_return) = run_flow(
+    let (uuid, early_return, _) = run_flow(
         authed,
         db,
+        None,
         user_db,
         w_id,
         flow_path,
@@ -4198,16 +4220,21 @@ pub async fn run_flow_and_wait_result(
     run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
 }
 
-pub async fn push_flow_job_by_path_into_queue(
+pub async fn push_flow_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
     db: DB,
+    tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
     w_id: String,
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<String>)> {
+) -> error::Result<(
+    Uuid,
+    Option<String>,
+    Option<sqlx::Transaction<'c, sqlx::Postgres>>,
+)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4223,6 +4250,7 @@ pub async fn push_flow_job_by_path_into_queue(
     run_flow(
         &authed,
         &db,
+        tx_o,
         user_db,
         &w_id,
         flow_path,
@@ -4293,9 +4321,10 @@ pub async fn run_flow_by_version_inner(
     let flow_version_info =
         get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    run_flow(
+    let (uuid, early_return, _) = run_flow(
         &authed,
         &db,
+        None,
         user_db,
         &w_id,
         &flow_path,
@@ -4304,7 +4333,9 @@ pub async fn run_flow_by_version_inner(
         args,
         trigger,
     )
-    .await
+    .await?;
+
+    Ok((uuid, early_return))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -4425,9 +4456,10 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    let (uuid, _) = push_script_job_by_path_into_queue(
+    let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
         db,
+        None,
         user_db,
         w_id,
         script_path,
@@ -4440,16 +4472,21 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn push_script_job_by_path_into_queue(
+pub async fn push_script_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
     db: DB,
+    tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
     w_id: String,
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<bool>)> {
+) -> error::Result<(
+    Uuid,
+    Option<bool>,
+    Option<sqlx::Transaction<'c, sqlx::Postgres>>,
+)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4470,22 +4507,30 @@ pub async fn push_script_job_by_path_into_queue(
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
 
-    let (email, permissioned_as, push_authed, tx) =
-        if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-            (
-                on_behalf_of.email.as_str(),
-                on_behalf_of.permissioned_as.clone(),
-                None,
-                PushIsolationLevel::IsolatedRoot(db.clone()),
-            )
-        } else {
-            (
-                authed.email.as_str(),
-                username_to_permissioned_as(&authed.username),
-                Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
-            )
-        };
+    let return_tx = tx_o.is_some();
+
+    let (email, permissioned_as, push_authed, tx) = if let Some(tx) = tx_o {
+        (
+            authed.email.as_str(),
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Transaction(tx),
+        )
+    } else if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+            None,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+        )
+    } else {
+        (
+            authed.email.as_str(),
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+        )
+    };
 
     let (uuid, tx) = push(
         &db,
@@ -4524,9 +4569,14 @@ pub async fn push_script_job_by_path_into_queue(
         run_query.suspended_mode,
     )
     .await?;
-    tx.commit().await?;
 
-    Ok((uuid, delete_after_use))
+    // If we were given a transaction, return it; otherwise commit it
+    if return_tx {
+        Ok((uuid, delete_after_use, Some(tx)))
+    } else {
+        tx.commit().await?;
+        Ok((uuid, delete_after_use, None))
+    }
 }
 
 #[derive(Deserialize)]
@@ -5652,9 +5702,10 @@ pub async fn stream_job(
     let uuid = match runnable_id {
         RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
         | RunnableId::HubScript(script_path) => {
-            push_script_job_by_path_into_queue(
+            let (uuid, _, _) = push_script_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
+                None,
                 user_db,
                 w_id.clone(),
                 StripPath(script_path),
@@ -5662,8 +5713,8 @@ pub async fn stream_job(
                 args,
                 None,
             )
-            .await?
-            .0
+            .await?;
+            uuid
         }
         RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
             run_job_by_hash_inner(
@@ -5683,6 +5734,7 @@ pub async fn stream_job(
             push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
+                None,
                 user_db,
                 w_id.clone(),
                 StripPath(flow_path),
@@ -6738,9 +6790,10 @@ async fn run_dynamic_select(
 
                 let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
 
-                let (uuid, _) = push_script_job_by_path_into_queue(
+                let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
                     db.clone(),
+                    None,
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(path),

@@ -41,7 +41,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::{TriggerMetadata, TriggerKind},
+    triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, require_admin, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -1050,7 +1050,7 @@ async fn route_job(
         .map_err(|e| e.into_response())?;
 
     let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
-    if !trigger.suspended_mode {
+    if trigger.suspended_mode {
         let _ = trigger_runnable(
             &db,
             Some(user_db),
@@ -1064,7 +1064,7 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            trigger.suspended_mode,
+            true,
             trigger_info,
         )
         .await
@@ -1073,7 +1073,7 @@ async fn route_job(
         return Ok((
             StatusCode::OK,
             format!(
-                "Trigger: {} in inactive mode, incoming request has been queued",
+                "Trigger {} is in suspended mode, jobs are added to the queue but suspended",
                 &trigger.path
             ),
         )
@@ -1084,8 +1084,9 @@ async fn route_job(
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, _) = trigger_runnable_inner(
+            let (uuid, _, _, _) = trigger_runnable_inner(
                 &db,
+                None,
                 Some(user_db.clone()),
                 authed.clone(),
                 &trigger.workspace_id,
@@ -1157,7 +1158,7 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            trigger.suspended_mode,
+            false,
             trigger_info,
         )
         .await

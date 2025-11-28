@@ -5,7 +5,10 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import type { Trigger } from './utils'
+	import { type Trigger } from './utils'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
+	import type { JobTriggerKind } from '$lib/gen'
 
 	interface Props {
 		saveDisabled: any
@@ -15,10 +18,15 @@
 		isLoading: any
 		permissions: 'write' | 'create' | 'none'
 		isDeployed: boolean
+		kind: JobTriggerKind
+		path: string
+		editedAt: string | undefined
+		suspendedMode?: boolean
 		extra?: Snippet
 		onDelete?: () => void
 		onReset?: () => void
 		onToggleEnabled?: (enabled: boolean) => void
+		onToggleSuspendedMode?: (suspendedMode: boolean, enabled?: boolean) => void
 		onUpdate?: () => void
 		cloudDisabled?: boolean
 		trigger?: Trigger
@@ -32,30 +40,72 @@
 		isLoading,
 		permissions,
 		isDeployed,
+		kind,
+		path,
+		suspendedMode = false,
+		editedAt,
 		extra,
 		onDelete,
 		onReset,
 		onToggleEnabled,
 		onUpdate,
+		onToggleSuspendedMode,
 		cloudDisabled = false,
 		trigger
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
+
+	let showSuspendedJobsModal = $state(false)
 </script>
+
+{#if path && suspendedMode}
+	<TriggerSuspendedJobsModal
+		bind:shouldShowModal={showSuspendedJobsModal}
+		{suspendedMode}
+		triggerPath={path}
+		jobTriggerKind={kind}
+		{onToggleSuspendedMode}
+		{editedAt}
+	/>
+{/if}
 
 {#if !allowDraft}
 	{@render extra?.()}
 	{#if edit && enabled !== undefined}
-		<Toggle
-			size="sm"
-			disabled={permissions === 'none'}
-			checked={enabled}
-			options={{ right: 'enable', left: 'disable' }}
-			on:change={({ detail }) => {
-				onToggleEnabled?.(detail)
-			}}
-		/>
+		{#if suspendedMode}
+			<Button
+				on:click={() => {
+					showSuspendedJobsModal = true
+				}}
+				variant="accent"
+			>
+				See suspended jobs
+			</Button>
+		{:else}
+			<Toggle
+				size="sm"
+				disabled={permissions === 'none'}
+				checked={enabled}
+				options={{ right: 'enable', left: 'disable' }}
+				on:change={({ detail }) => {
+					onToggleEnabled?.(detail)
+				}}
+			/>
+
+			<DropdownV2
+				items={[
+					{
+						displayName: 'Suspend job executions',
+						action: () => {
+							onToggleSuspendedMode?.(true)
+						},
+						tooltip:
+							'Suspend job executions for this trigger, allowing you to individually resume or cancel them and reassign them to a different runnable'
+					}
+				]}
+			/>
+		{/if}
 	{/if}
 	{#if canSave}
 		<Button

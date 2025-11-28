@@ -1,10 +1,10 @@
 use crate::{
     db::{ApiAuthed, DB},
-    triggers::{trigger_helpers::trigger_runnable_inner, TriggerForReassignment, Trigger, TriggerCrud},
+    triggers::{trigger_helpers::trigger_runnable_inner, TriggerCrud, TriggerForReassignment},
 };
 
 #[cfg(feature = "http_trigger")]
-use crate::triggers::http::{handler::HttpTrigger, HttpConfig};
+use crate::triggers::http::handler::HttpTrigger;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::{MqttConfig, MqttTrigger};
@@ -13,7 +13,7 @@ use crate::triggers::mqtt::{MqttConfig, MqttTrigger};
 use crate::triggers::postgres::{PostgresConfig, PostgresTrigger};
 
 #[cfg(feature = "websocket")]
-use crate::triggers::websocket::{WebsocketConfig, WebsocketTrigger};
+use crate::triggers::websocket::WebsocketTrigger;
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
 use crate::triggers::email::{EmailConfig, EmailTrigger};
@@ -33,6 +33,7 @@ use axum::{
     extract::{Extension, Path},
     response::Json,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -41,13 +42,21 @@ use windmill_common::{db::UserDB, error, jobs::JobTriggerKind, triggers::Trigger
 struct JobWithArgs {
     id: Uuid,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
-pub async fn reassign_suspended_jobs(
+#[derive(Deserialize, Serialize, Default)]
+pub struct ReassignJobsBody {
+    #[serde(default)]
+    pub job_ids: Option<Vec<Uuid>>,
+}
+
+pub async fn resume_suspended_trigger_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, trigger_kind, trigger_path)): Path<(String, JobTriggerKind, String)>,
+    Json(body): Json<ReassignJobsBody>,
 ) -> error::Result<Json<String>> {
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -185,70 +194,206 @@ pub async fn reassign_suspended_jobs(
         }
     };
 
-    let jobs = sqlx::query_as!(JobWithArgs,
-        "SELECT id, args as \"args: _\" FROM v2_job WHERE workspace_id = $1 AND kind = 'unassigned'::JOB_KIND AND trigger_kind = $2 AND trigger = $3",
-        w_id,
-        trigger_kind as _,
-        trigger_path,
-    ).fetch_all(&mut *tx).await?;
+    let jobs = if let Some(job_ids) = body.job_ids.as_ref() {
+        if job_ids.is_empty() {
+            vec![]
+        } else {
+            sqlx::query_as!(
+                JobWithArgs,
+                "SELECT id, args as \"args: _\", created_at FROM v2_job
+                 WHERE workspace_id = $1
+                   AND kind = 'unassigned'::JOB_KIND
+                   AND trigger_kind = $2
+                   AND trigger = $3
+                   AND id = ANY($4)",
+                w_id,
+                trigger_kind as _,
+                trigger_path,
+                job_ids as _,
+            )
+            .fetch_all(&mut *tx)
+            .await?
+        }
+    } else {
+        sqlx::query_as!(
+            JobWithArgs,
+            "SELECT id, args as \"args: _\", created_at FROM v2_job
+             WHERE workspace_id = $1
+               AND kind = 'unassigned'::JOB_KIND
+               AND trigger_kind = $2
+               AND trigger = $3",
+            w_id,
+            trigger_kind as _,
+            trigger_path,
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
 
     let trigger_metadata = TriggerMetadata::new(Some(trigger_path.clone()), trigger_kind);
 
     let l = jobs.len();
 
     for job in jobs {
-        trigger_runnable_inner(
-            &db,
-            Some(user_db.clone()),
-            authed.clone(),
-            &w_id,
-            &trigger.script_path,
-            trigger.is_flow,
-            windmill_queue::PushArgsOwned {
-                extra: None,
-                args: job.args.map(|a| a.0).unwrap_or_default(),
-            },
-            trigger.retry.as_ref(),
-            trigger.error_handler_path.as_deref(),
-            trigger.error_handler_args.as_ref(),
-            trigger_path.clone(),
-            None,
-            trigger_metadata.clone(),
-            None,
-        )
-        .await?;
+        // If job was created before trigger was edited, simply update it to unsuspend
+        // instead of deleting and repushing
+        if job.created_at > trigger.edited_at {
+            let job_kind = if trigger.is_flow {
+                windmill_common::jobs::JobKind::Flow
+            } else {
+                windmill_common::jobs::JobKind::Script
+            };
 
-        // Delete the unassigned job from all related tables
-        sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job.id)
+            sqlx::query!(
+                "UPDATE v2_job SET kind = $1 WHERE id = $2",
+                job_kind as _,
+                job.id
+            )
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!("DELETE FROM v2_job_runtime WHERE id = $1", job.id)
+            // Update the job to unsuspend it and set the correct kind
+            sqlx::query!(
+                "UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1",
+                job.id
+            )
             .execute(&mut *tx)
+            .await?;
+        } else {
+            // Job was created after trigger edit - delete and repush with new configuration
+            // Pass the transaction to trigger_runnable_inner so everything is in the same transaction
+            let (_uuid, _delete_after_use, _early_return, tx_o) = trigger_runnable_inner(
+                &db,
+                Some(tx),
+                Some(user_db.clone()),
+                authed.clone(),
+                &w_id,
+                &trigger.script_path,
+                trigger.is_flow,
+                windmill_queue::PushArgsOwned {
+                    extra: None,
+                    args: job.args.map(|a| a.0).unwrap_or_default(),
+                },
+                trigger.retry.as_ref(),
+                trigger.error_handler_path.as_deref(),
+                trigger.error_handler_args.as_ref(),
+                trigger_path.clone(),
+                None,
+                trigger_metadata.clone(),
+                None,
+            )
             .await?;
 
-        sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job.id)
-            .execute(&mut *tx)
-            .await?;
+            tx = match tx_o {
+                Some(tx) => tx,
+                None => {
+                    return Err(error::Error::internal_err(
+                        "Transaction should be returned when passed in".to_string(),
+                    ));
+                }
+            };
 
-        sqlx::query!("DELETE FROM concurrency_key WHERE job_id = $1", job.id)
-            .execute(&mut *tx)
-            .await?;
+            // Delete the unassigned job from all related tables
+            sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
 
-        sqlx::query!("DELETE FROM debounce_key WHERE job_id = $1", job.id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query!("DELETE FROM v2_job_runtime WHERE id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
 
-        sqlx::query!("DELETE FROM debounce_stale_data WHERE job_id = $1", job.id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
 
-        sqlx::query!("DELETE FROM v2_job WHERE id = $1", job.id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query!("DELETE FROM concurrency_key WHERE job_id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
+
+            sqlx::query!("DELETE FROM debounce_key WHERE job_id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
+
+            sqlx::query!("DELETE FROM debounce_stale_data WHERE job_id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
+
+            sqlx::query!("DELETE FROM v2_job WHERE id = $1", job.id)
+                .execute(&mut *tx)
+                .await?;
+        }
     }
 
     tx.commit().await?;
 
     Ok(Json(format!("Reassigned {} jobs", l)))
+}
+
+pub async fn cancel_suspended_trigger_jobs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, trigger_kind, trigger_path)): Path<(String, JobTriggerKind, String)>,
+    Json(body): Json<ReassignJobsBody>,
+) -> error::Result<Json<String>> {
+    let mut tx = user_db.clone().begin(&authed).await?;
+
+    // Get the list of job IDs to cancel
+    let jobs_to_cancel = if let Some(job_ids) = body.job_ids.as_ref() {
+        if job_ids.is_empty() {
+            vec![]
+        } else {
+            sqlx::query_scalar!(
+                "SELECT id FROM v2_job
+                 WHERE workspace_id = $1
+                   AND kind = 'unassigned'::JOB_KIND
+                   AND trigger_kind = $2
+                   AND trigger = $3
+                   AND id = ANY($4)",
+                w_id,
+                trigger_kind as _,
+                trigger_path,
+                job_ids as _,
+            )
+            .fetch_all(&mut *tx)
+            .await?
+        }
+    } else {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job
+             WHERE workspace_id = $1
+               AND kind = 'unassigned'::JOB_KIND
+               AND trigger_kind = $2
+               AND trigger = $3",
+            w_id,
+            trigger_kind as _,
+            trigger_path,
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
+    let count = jobs_to_cancel.len();
+
+    if count > 0 {
+        // Use the cancel_jobs helper from windmill_queue
+        for job_id in &jobs_to_cancel {
+            let (returned_tx, _) = windmill_queue::cancel_job(
+                &authed.username,
+                Some("canceled by trigger management".to_string()),
+                *job_id,
+                &w_id,
+                tx,
+                &db,
+                false,
+                false,
+            )
+            .await?;
+            tx = returned_tx;
+        }
+    }
+
+    tx.commit().await?;
+
+    Ok(Json(format!("Canceled {} jobs", count)))
 }

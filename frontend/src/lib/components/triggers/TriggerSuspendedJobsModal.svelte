@@ -1,44 +1,55 @@
 <script lang="ts">
 	import Modal2 from '../common/modal/Modal2.svelte'
-	import type { QueuedJob } from '$lib/gen/types.gen'
+	import type { JobTriggerKind, QueuedJob } from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import RunRow from '../runs/RunRow.svelte'
-	import '../runs/runs-grid.css'
-	import { JobService, TriggerService } from '$lib/gen'
+	import { HttpTriggerService, JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { type JobTriggerType } from './utils'
-	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Row from '$lib/components/table/Row.svelte'
+	import { Skeleton } from '../common'
+	import { PlayCircle, Trash2 } from 'lucide-svelte'
+	import { displayDate } from '$lib/utils'
+	import Badge from '../common/badge/Badge.svelte'
+	import Tooltip from '../Tooltip.svelte'
+
 	type Props = {
-		suspended_mode: boolean
+		suspendedMode: boolean
 		triggerPath: string
-		jobTriggerKind: JobTriggerType
+		jobTriggerKind: JobTriggerKind
+		shouldShowModal: boolean
+		editedAt: string | undefined
+		onTriggerEnabled?: () => void
+		onToggleSuspendedMode?: (suspendedMode: boolean, enabled?: boolean) => void
 	}
 
-	let { suspended_mode = $bindable(), jobTriggerKind, triggerPath }: Props = $props()
+	let {
+		jobTriggerKind,
+		triggerPath,
+		shouldShowModal = $bindable(),
+		onTriggerEnabled,
+		editedAt
+	}: Props = $props()
 
-	let wasInInactiveMode = $state(!suspended_mode)
-	let shouldShowModal = $state(false)
-
-	$effect(() => {
-		if (suspended_mode && wasInInactiveMode) {
-			shouldShowModal = true
-		} else if (!suspended_mode) {
-			wasInInactiveMode = true
-			shouldShowModal = false
-		}
-	})
 	let queuedJobs = $state<QueuedJob[]>([])
+	let selectedJobs = $state<Set<string>>(new Set())
 	let loading = $state(false)
 	let error = $state<string | null>(null)
 	let processingAction = $state(false)
-	let isPreviousLoading = $state(false)
-	let isNextLoading = $state(false)
 	let workspace = $workspaceStore!
-	let containerWidth = $state(1000)
 	let currentPage = $state(1)
 	let perPage = $state(20)
 	let hasMorePages = $derived(queuedJobs.length === perPage)
+	let headerHeight = $state(0)
+	let contentHeight = $state(0)
+
+	// Derived states for checkbox logic
+	let allSelected = $derived(queuedJobs.length > 0 && selectedJobs.size === queuedJobs.length)
+	let someSelected = $derived(selectedJobs.size > 0 && selectedJobs.size < queuedJobs.length)
+	let hasSelectedJobs = $derived(selectedJobs.size > 0)
+
 	$effect(() => {
 		if (shouldShowModal) {
 			fetchQueuedJobs()
@@ -64,6 +75,7 @@
 			})
 
 			queuedJobs = allSuspendedJobs
+			selectedJobs = new Set()
 		} catch (e) {
 			error = `Failed to fetch queued jobs: ${e}`
 			console.error('Failed to fetch queued jobs:', e)
@@ -74,21 +86,81 @@
 
 	function nextPage() {
 		if (hasMorePages && !loading) {
-			isNextLoading = true
 			currentPage += 1
-			fetchQueuedJobs().finally(() => {
-				isNextLoading = false
-			})
+			fetchQueuedJobs()
 		}
 	}
 
 	function prevPage() {
 		if (currentPage > 1 && !loading) {
-			isPreviousLoading = true
 			currentPage -= 1
-			fetchQueuedJobs().finally(() => {
-				isPreviousLoading = false
+			fetchQueuedJobs()
+		}
+	}
+
+	function toggleSelectAll() {
+		if (allSelected) {
+			selectedJobs = new Set()
+		} else {
+			selectedJobs = new Set(queuedJobs.map((job) => job.id))
+		}
+	}
+
+	function toggleJobSelection(jobId: string) {
+		const newSelection = new Set(selectedJobs)
+		if (newSelection.has(jobId)) {
+			newSelection.delete(jobId)
+		} else {
+			newSelection.add(jobId)
+		}
+		selectedJobs = newSelection
+	}
+
+	async function runSelectedJobs() {
+		if (selectedJobs.size === 0) return
+
+		processingAction = true
+		error = null
+
+		try {
+			const jobIds = Array.from(selectedJobs)
+			await TriggerService.resumeSuspendedTriggerJobs({
+				workspace,
+				triggerKind: jobTriggerKind,
+				triggerPath,
+				requestBody: { job_ids: jobIds }
 			})
+			sendUserToast(`Successfully resumed ${jobIds.length} job${jobIds.length > 1 ? 's' : ''}`)
+			await fetchQueuedJobs()
+		} catch (e) {
+			error = `Failed to run selected jobs: ${e}`
+			console.error('Failed to run selected jobs:', e)
+		} finally {
+			processingAction = false
+		}
+	}
+
+	async function discardSelectedJobs() {
+		if (selectedJobs.size === 0) return
+
+		processingAction = true
+		error = null
+
+		try {
+			const jobIds = Array.from(selectedJobs)
+			await TriggerService.cancelSuspendedTriggerJobs({
+				workspace,
+				triggerKind: jobTriggerKind,
+				triggerPath,
+				requestBody: { job_ids: jobIds }
+			})
+			sendUserToast(`Successfully canceled ${jobIds.length} job${jobIds.length > 1 ? 's' : ''}`)
+			await fetchQueuedJobs()
+		} catch (e) {
+			error = `Failed to discard selected jobs: ${e}`
+			console.error('Failed to discard selected jobs:', e)
+		} finally {
+			processingAction = false
 		}
 	}
 
@@ -102,15 +174,23 @@
 			const resumedJobs = await TriggerService.resumeSuspendedTriggerJobs({
 				workspace,
 				triggerKind: jobTriggerKind,
-				triggerPath
+				triggerPath,
+				requestBody: {}
+			})
+
+			//TODO: Add support for other trigger types
+			await HttpTriggerService.updateHttpTriggerStatus({
+				workspace,
+				path: triggerPath,
+				requestBody: { enabled: true, suspended_mode: false }
 			})
 			sendUserToast(resumedJobs)
+			closeModal()
 		} catch (e) {
 			error = `Failed to run jobs: ${e}`
 			console.error('Failed to run jobs:', e)
 		} finally {
 			processingAction = false
-			closeModal()
 		}
 	}
 
@@ -124,166 +204,185 @@
 			await TriggerService.cancelSuspendedTriggerJobs({
 				workspace,
 				triggerKind: jobTriggerKind,
-				triggerPath
+				triggerPath,
+				requestBody: {}
+			})
+
+			await HttpTriggerService.updateHttpTriggerStatus({
+				workspace,
+				path: triggerPath,
+				requestBody: { enabled: false, suspended_mode: false }
 			})
 
 			sendUserToast(`Successfully canceled all jobs`)
+			closeModal()
 		} catch (e) {
 			error = `Failed to discard jobs: ${e}`
 			console.error('Failed to discard jobs:', e)
 		} finally {
 			processingAction = false
-			closeModal()
 		}
 	}
 
+	function enableTrigger() {
+		onTriggerEnabled?.()
+		closeModal()
+	}
+
 	function closeModal() {
-		wasInInactiveMode = false
 		shouldShowModal = false
 	}
 </script>
 
-{#if shouldShowModal}
-	<Modal2
-		bind:isOpen={shouldShowModal}
-		title="{hasMorePages
-			? `${queuedJobs.length}+ suspended`
-			: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'} for this trigger"
-		target="#content"
-		fixedSize="lg"
-	>
-		<div class="flex w-full flex-col gap-4 h-full">
-			{#if loading}
-				<div class="flex items-center justify-center py-8">
-					<div
-						class="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full"
-					></div>
-					<span class="ml-2">Loading queued jobs...</span>
-				</div>
-			{:else if error}
-				<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-					{error}
-				</div>
-			{:else if queuedJobs.length === 0}
-				<div class="flex flex-col items-center w-full py-12 px-4">
-					<div class="text-center">
-						<div class="text-base font-medium text-secondary mb-2">No suspended jobs found</div>
-						<div class="text-sm text-tertiary"
-							>This trigger has no suspended jobs waiting to be processed.</div
-						>
-					</div>
-				</div>
-			{:else}
-				<div class="flex-1 overflow-auto">
-					<div class="mb-3">
-						<h3 class="text-sm font-medium">
-							Suspended Jobs {#if hasMorePages}(Page {currentPage}){:else}({queuedJobs.length}){/if}
-						</h3>
-						<p class="text-xs text-gray-500 mt-1">Click on any job to view details</p>
-					</div>
-
-					<div class="divide-y h-full border min-w-[650px]" bind:clientWidth={containerWidth}>
-						<div
-							class="bg-surface-secondary sticky top-0 w-full py-2 pr-4 grid grid-runs-table-no-tag"
-						>
-							<div class="text-2xs px-2 font-semibold">Status</div>
-							<div class="text-xs font-semibold">Started</div>
-							<div class="text-xs font-semibold">Duration</div>
-							<div class="text-xs font-semibold">Path</div>
-							<div class="text-xs font-semibold">Triggered by</div>
-							<div class=""></div>
-						</div>
-
-						<div class="h-full">
-							{#each queuedJobs as job}
-								<div class="flex flex-row items-center h-[42px] w-full">
-									<RunRow
-										{job}
-										{containerWidth}
-										showTag={false}
-										activeLabel={null}
-										on:select={() => {
-											window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')
-										}}
-									/>
-								</div>
-							{/each}
-						</div>
-					</div>
-				</div>
-
-				{#if queuedJobs.length > 0 && (currentPage > 1 || hasMorePages)}
-					<div
-						class="w-full bg-surface border-t flex flex-row justify-between p-2 items-center gap-2"
-					>
-						<div class="flex flex-row gap-2 items-center">
-							<span class="text-xs text-secondary">
-								{queuedJobs.length}
-								{hasMorePages ? '+' : ''} suspended job{queuedJobs.length === 1 ? '' : 's'}
-							</span>
-						</div>
-
-						<div class="flex flex-row gap-3 items-center">
-							<div class="flex text-xs text-secondary">Page {currentPage}</div>
-
-							<Button
-								variant="subtle"
-								size="xs2"
-								startIcon={{ icon: ChevronLeft }}
-								on:click={prevPage}
-								disabled={currentPage === 1 || loading}
-								loading={isPreviousLoading}
-							>
-								Previous
-							</Button>
-
-							<Button
-								variant="subtle"
-								size="xs2"
-								endIcon={{ icon: ChevronRight }}
-								on:click={nextPage}
-								disabled={!hasMorePages || loading}
-								loading={isNextLoading}
-							>
-								Next
-							</Button>
-						</div>
-					</div>
-				{/if}
-
-				<div class="bg-blue-50 p-4 rounded-lg">
-					<p class="text-sm text-blue-700">
-						You are switching this trigger from inactive to active mode. What would you like to do
-						with the {hasMorePages
-							? `${queuedJobs.length}+ suspended`
-							: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'}?
-					</p>
-				</div>
-			{/if}
-
-			<div class="flex gap-2 pt-4 border-t">
-				{#if !loading && !error && queuedJobs.length > 0}
-					<Button
-						variant="border"
-						size="sm"
-						onClick={discardAllJobs}
-						disabled={processingAction}
-						color="red"
-					>
-						{processingAction ? 'Discarding...' : 'Discard All Jobs'}
-					</Button>
-
-					<Button
-						variant="contained"
-						size="sm"
-						onClick={runAllJobs}
-						disabled={processingAction}
-						color="green"
-					>
-						{processingAction ? 'Running...' : 'Run All Jobs'}
-					</Button>
-				{/if}
+<Modal2
+	zIndex={1102}
+	bind:isOpen={shouldShowModal}
+	title="{hasMorePages
+		? `${queuedJobs.length}+ suspended`
+		: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'} for this trigger"
+	target="#content"
+	fixedSize="lg"
+>
+	<div class="flex w-full flex-col gap-4 h-full">
+		{#if error}
+			<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+				{error}
 			</div>
+		{/if}
+
+		<div class="relative grow min-h-0 w-full">
+			<DataTable
+				size="xs"
+				paginated
+				on:next={nextPage}
+				on:previous={prevPage}
+				bind:currentPage
+				hasMore={hasMorePages}
+				bind:contentHeight
+			>
+				<Head>
+					<tr bind:clientHeight={headerHeight}>
+						<Cell head first class="w-12">
+							<div class="h-4 w-4">
+								<input
+									type="checkbox"
+									checked={allSelected}
+									indeterminate={someSelected}
+									onchange={toggleSelectAll}
+									disabled={loading || queuedJobs.length === 0}
+									class="cursor-pointer w-auto"
+								/>
+							</div>
+						</Cell>
+						<Cell head class="min-w-24">Created At</Cell>
+						<Cell head class="min-w-32 ">Script/Flow Path</Cell>
+					</tr>
+				</Head>
+				{#if loading}
+					<tbody>
+						{#each new Array(3) as _}
+							<Row>
+								{#each new Array(4) as _}
+									<Cell>
+										<Skeleton layout={[[5]]} />
+									</Cell>
+								{/each}
+							</Row>
+						{/each}
+					</tbody>
+				{:else if queuedJobs.length === 0}
+					<div class="absolute top-0 left-0 w-full h-full center-center">
+						<p class="text-center text-gray-500 mt-4">No suspended jobs found.</p>
+					</div>
+				{:else}
+					<tbody class="divide-y border-b w-full overflow-y-auto">
+						{#each queuedJobs as job}
+							<Row>
+								<Cell class="w-12 sm:pl-3">
+									<div class="h-4 w-4">
+										<input
+											type="checkbox"
+											checked={selectedJobs.has(job.id)}
+											onchange={() => toggleJobSelection(job.id)}
+											disabled={processingAction}
+											class="cursor-pointer"
+										/>
+									</div>
+								</Cell>
+
+								<Cell wrap>{displayDate(job.created_at)}</Cell>
+
+								<Cell wrap class="flex flex-row gap-2">
+									<a
+										href="/run/{job.id}?workspace={workspace}"
+										target="_blank"
+										class="text-blue-600 hover:underline"
+									>
+										<div class="flex-shrink min-w-0 break-words">{job.script_path || '-'}</div>
+									</a>
+									{#if editedAt && job.created_at && new Date(editedAt) > new Date(job.created_at)}
+										<Badge color="yellow"
+											>Outdated <Tooltip>
+												Trigger was edited after these jobs were created and suspended. They will be
+												reassigned to match the new trigger configuration, in particular the
+												runnable, retry and error handling settings.
+											</Tooltip>
+										</Badge>
+									{/if}
+								</Cell>
+							</Row>
+						{/each}
+					</tbody>
+				{/if}
+			</DataTable>
 		</div>
-	</Modal2>
-{/if}
+
+		<!-- Bottom right conditional buttons -->
+		<div class="flex justify-end gap-2">
+			{#if queuedJobs.length === 0}
+				<!-- No jobs found - show Enable Trigger -->
+				<Button size="sm" disabled={processingAction} on:click={enableTrigger}>
+					Enable Trigger
+				</Button>
+				<Button size="sm" disabled={processingAction} on:click={enableTrigger}>
+					Enable Trigger
+				</Button>
+			{:else if hasSelectedJobs}
+				<!-- Jobs selected - show Discard Selected and Run Selected -->
+				<Button
+					startIcon={{ icon: Trash2 }}
+					size="sm"
+					disabled={processingAction}
+					on:click={discardSelectedJobs}
+				>
+					Discard Selected ({selectedJobs.size})
+				</Button>
+				<Button
+					startIcon={{ icon: PlayCircle }}
+					size="sm"
+					disabled={processingAction}
+					on:click={runSelectedJobs}
+				>
+					Run selected ({selectedJobs.size})
+				</Button>
+			{:else}
+				<Button
+					startIcon={{ icon: Trash2 }}
+					size="sm"
+					disabled={processingAction}
+					on:click={discardAllJobs}
+				>
+					Discard all jobs and disable
+				</Button>
+				<Button
+					startIcon={{ icon: PlayCircle }}
+					size="sm"
+					disabled={processingAction}
+					on:click={runAllJobs}
+				>
+					Run all jobs and resume
+				</Button>
+			{/if}
+		</div>
+	</div>
+</Modal2>

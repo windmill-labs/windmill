@@ -27,7 +27,6 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -420,8 +419,6 @@
 					</div>
 				</Section>
 			{/if}
-
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'mqtt'} bind:suspended_mode />
 
 			<MqttEditorConfigSection
 				bind:mqtt_resource_path

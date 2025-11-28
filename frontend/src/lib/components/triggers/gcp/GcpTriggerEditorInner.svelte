@@ -29,7 +29,6 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -395,8 +394,6 @@
 						{/if}
 					</div>
 				</Section>
-
-				<TriggerActiveMode triggerPath={path} jobTriggerKind={'gcp'} bind:suspended_mode />
 			{/if}
 
 			<GcpTriggerEditorConfigSection

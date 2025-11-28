@@ -34,7 +34,6 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
-	import TriggerActiveMode from '../TriggerActiveMode.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -493,8 +492,6 @@
 					textClass="font-semibold"
 				/>
 			</Section>
-
-			<TriggerActiveMode triggerPath={path} jobTriggerKind={'websocket'} bind:suspended_mode />
 
 			<WebsocketEditorConfigSection
 				bind:url
