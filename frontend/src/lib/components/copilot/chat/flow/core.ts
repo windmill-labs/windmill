@@ -1178,6 +1178,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = addModuleSchema.parse(args)
 			let { afterId, insideId, branchPath, value } = parsedArgs
 
+			console.log('parsedArgs', parsedArgs)
+
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
 				try {
@@ -1593,7 +1595,9 @@ Modules have this basic structure:
   "value": {
     "type": "rawscript",
     "language": "bun",
-    "content": "export async function main() {...}",
+    "content": "export async function main() {
+		return "Hello, world!";
+	}",
     "input_transforms": {}
   }
 }
@@ -1652,10 +1656,10 @@ To reduce token usage, rawscript content in the flow you receive is replaced wit
 
 **To modify existing script code:**
 - Use \`set_module_code\` tool for code-only changes: \`set_module_code({ moduleId: "step_a", code: "..." })\`
-- Or use \`modify_module\` with full code in the content field
 
 **To add a new inline script module:**
 - Use \`add_module\` with the full code content directly (not a reference)
+- Avoid coding in single lines, always use multi-line code blocks.
 - The system will automatically store and optimize it
 
 **To inspect existing code:**
@@ -1682,7 +1686,9 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
   "value": {
     "type": "rawscript",
     "language": "bun",
-    "content": "export async function main(userId: string, data: any[]) { ... }",
+    "content": "export async function main(userId: string, data: any[]) {
+		return "Hello, world!";
+	}",
     "input_transforms": {
       "userId": {
         "type": "javascript",

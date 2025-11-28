@@ -248,7 +248,11 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
 		return 100000
-	} else if (model.startsWith('claude-sonnet') || model.startsWith('gemini-2.5')) {
+	} else if (
+		model.startsWith('claude-sonnet') ||
+		model.startsWith('gemini-2.5') ||
+		model.startsWith('claude-haiku')
+	) {
 		return 64000
 	} else if (model.startsWith('gpt-4.1')) {
 		return 32768
