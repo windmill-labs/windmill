@@ -19,5 +19,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_non_archived_per_null_name_language_constr
 -- For the list query (filtering by workspace_id and archived)
 CREATE INDEX IF NOT EXISTS workspace_dependencies_workspace_archived_idx ON workspace_dependencies(workspace_id, archived) WHERE archived = false;
 
--- For get_history and delete queries (without archived filter)
-CREATE INDEX IF NOT EXISTS workspace_dependencies_workspace_lang_name_idx ON workspace_dependencies(workspace_id, language, name);
+CREATE INDEX IF NOT EXISTS workspace_dependencies_workspace_lang_name_idx ON workspace_dependencies(workspace_id, language, name, archived);
