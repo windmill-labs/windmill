@@ -109,7 +109,7 @@
 		try {
 			if (
 				$isCustomInstanceDbEnabled &&
-				dataTableSettings.dataTables.some(
+				tempSettings.dataTables.some(
 					(d) =>
 						d.database.resource_type === 'instance' &&
 						!customInstanceDbs.current?.[d.database.resource_path ?? '']?.success
