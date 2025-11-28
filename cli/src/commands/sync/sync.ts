@@ -764,7 +764,7 @@ export async function* readDirRecursiveWithIgnore(
       }
       stack.push({
         path: e2.path,
-        ignored: e.ignored || e2.isDirectory && e2.path == "dependencies" ? false : ignore(e2.path, e2.isDirectory),
+        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -796,10 +796,8 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
+    // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
-      if (entry.path.includes("dependencies/")) {
-        log.info(`Ignoring dependencies-related path: ${entry.path} (isDirectory: ${entry.isDirectory}, ignored: ${entry.ignored})`);
-      }
       continue;
     }
     const path = entry.path;
@@ -1084,6 +1082,7 @@ async function compareDynFSElement(
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
+
     if (m1[k] === undefined) {
       if (
         !ignoreMetadataDeletion ||
@@ -1196,7 +1195,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("f" + SEP) &&
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
-      !p.startsWith("groups" + SEP)
+      !p.startsWith("groups" + SEP) &&
+      !p.startsWith("dependencies" + SEP)
     );
   }
 
@@ -1214,7 +1214,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
         !p.startsWith("f" + SEP) &&
         !p.startsWith("g" + SEP) &&
         !p.startsWith("users" + SEP) &&
-        !p.startsWith("groups" + SEP)
+        !p.startsWith("groups" + SEP) &&
+        !p.startsWith("dependencies" + SEP)
       );
     }
   } catch {
@@ -1230,7 +1231,8 @@ export const isWhitelisted = (p: string) => {
     p == "f" ||
     p == "g" ||
     p == "users" ||
-    p == "groups"
+    p == "groups" || 
+    p == "dependencies"
   );
 };
 
