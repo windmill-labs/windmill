@@ -201,18 +201,42 @@ const moveModuleToolDef = createToolDef(
 	'Move a module to a new position. Can move within same level or between different nesting levels (e.g., from main flow into a branch).'
 )
 
-const setFlowJsonSchema = z.object({
-	json: z
-		.string()
+const setFlowSchemaSchema = z.object({
+	schema: z.any().describe('Flow input schema defining the parameters the flow accepts')
+})
+
+const setFlowSchemaToolDef = createToolDef(
+	setFlowSchemaSchema,
+	'set_flow_schema',
+	'Set or update the flow input schema. Defines what parameters the flow accepts when executed.'
+)
+
+const setPreprocessorModuleSchema = z.object({
+	module: z
+		.any()
 		.describe(
-			'Complete flow JSON including modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module'
+			'Preprocessor module object. The id will be automatically set to "preprocessor" (do not specify a different id). The preprocessor runs before the main flow starts.'
 		)
 })
 
-const setFlowJsonToolDef = createToolDef(
-	setFlowJsonSchema,
-	'set_flow_json',
-	'Set the entire flow structure using JSON. Use this for changes to the flow structure and/or input schema. The JSON should include the complete modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module. All existing modules will be replaced.'
+const setPreprocessorModuleToolDef = createToolDef(
+	setPreprocessorModuleSchema,
+	'set_preprocessor_module',
+	'Set or update the preprocessor module. The preprocessor runs before the main flow execution starts. The module id is automatically set to "preprocessor".'
+)
+
+const setFailureModuleSchema = z.object({
+	module: z
+		.any()
+		.describe(
+			'Failure handler module object. The id will be automatically set to "failure" (do not specify a different id). Runs when any step in the flow fails.'
+		)
+})
+
+const setFailureModuleToolDef = createToolDef(
+	setFailureModuleSchema,
+	'set_failure_module',
+	'Set or update the failure handler module. This runs automatically when any flow step fails. The module id is automatically set to "failure".'
 )
 
 class WorkspaceScriptsSearch {
@@ -1339,28 +1363,131 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' moved successfully` })
 			return `Module '${id}' has been moved to the new position.`
 		}
+	},
+	{
+		def: { ...setFlowSchemaToolDef, function: { ...setFlowSchemaToolDef.function, strict: false } },
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setFlowSchemaSchema.parse(args)
+			const { schema } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow input schema...' })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Update the flow with new schema
+			const updatedFlow = {
+				...flow.value,
+				schema
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Flow input schema updated successfully' })
+			return 'Flow input schema has been updated.'
+		}
+	},
+	{
+		def: {
+			...setPreprocessorModuleToolDef,
+			function: { ...setPreprocessorModuleToolDef.function, strict: false }
+		},
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setPreprocessorModuleSchema.parse(args)
+			const { module } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting preprocessor module...' })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Ensure the ID is always 'preprocessor'
+			if (module?.id && module.id !== 'preprocessor') {
+				console.warn(
+					`Preprocessor module ID should always be 'preprocessor', but received '${module.id}'. Correcting to 'preprocessor'.`
+				)
+			}
+
+			// Handle inline script storage if this is a rawscript with full content
+			let processedModule = { ...module, id: 'preprocessor' }
+			if (
+				processedModule?.value?.type === 'rawscript' &&
+				processedModule?.value?.content &&
+				!processedModule.value.content.startsWith('inline_script.')
+			) {
+				inlineScriptStore.set('preprocessor', processedModule.value.content)
+				processedModule = {
+					...processedModule,
+					id: 'preprocessor',
+					value: {
+						...processedModule.value,
+						content: `inline_script.preprocessor`
+					}
+				}
+			}
+
+			// Update the flow with new preprocessor
+			const updatedFlow = {
+				...flow.value,
+				preprocessor_module: processedModule
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Preprocessor module updated successfully' })
+			return 'Preprocessor module has been updated.'
+		}
+	},
+	{
+		def: {
+			...setFailureModuleToolDef,
+			function: { ...setFailureModuleToolDef.function, strict: false }
+		},
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setFailureModuleSchema.parse(args)
+			const { module } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Setting failure handler module...' })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Ensure the ID is always 'failure'
+			if (module?.id && module.id !== 'failure') {
+				console.warn(
+					`Failure module ID should always be 'failure', but received '${module.id}'. Correcting to 'failure'.`
+				)
+			}
+
+			// Handle inline script storage if this is a rawscript with full content
+			let processedModule = { ...module, id: 'failure' }
+			if (
+				processedModule?.value?.type === 'rawscript' &&
+				processedModule?.value?.content &&
+				!processedModule.value.content.startsWith('inline_script.')
+			) {
+				inlineScriptStore.set('failure', processedModule.value.content)
+				processedModule = {
+					...processedModule,
+					id: 'failure',
+					value: {
+						...processedModule.value,
+						content: `inline_script.failure`
+					}
+				}
+			}
+
+			// Update the flow with new failure module
+			const updatedFlow = {
+				...flow.value,
+				failure_module: processedModule
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Failure handler module updated successfully'
+			})
+			return 'Failure handler module has been updated.'
+		}
 	}
-	// {
-	// 	def: setFlowJsonToolDef,
-	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-	// 		const parsedArgs = setFlowJsonSchema.parse(args)
-	// 		toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow JSON...' })
-
-	// 		await helpers.setFlowJson(parsedArgs.json)
-
-	// 		// Check for unresolved inline script references
-	// 		const { flow } = helpers.getFlowAndSelectedId()
-	// 		const unresolvedRefs = findUnresolvedInlineScriptRefs(flow.value.modules)
-
-	// 		toolCallbacks.setToolStatus(toolId, { content: 'Flow JSON applied successfully' })
-
-	// 		if (unresolvedRefs.length > 0) {
-	// 			return `Flow structure updated with warnings: Unresolved inline script references found for modules: ${unresolvedRefs.join(', ')}. These modules have invalid content - use set_module_code to set their code.`
-	// 		}
-
-	// 		return 'Flow structure updated via JSON. All affected modules have been marked and require review/acceptance.'
-	// 	}
-	// }
 ]
 
 /**
@@ -1404,6 +1531,24 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **set_module_code**: Modify only the code of an existing inline script module
   - Use this for quick code-only changes
   - Example: \`set_module_code({ moduleId: "step_a", code: "..." })\`
+
+## Flow Configuration Tools
+
+- **set_flow_schema**: Set/update flow input parameters
+  - Defines what parameters the flow accepts when executed
+  - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } }, required: ["user_id"] } })\`
+
+- **set_preprocessor_module**: Set/update the preprocessor
+  - The preprocessor runs before the main flow execution starts
+  - Useful for validation, setup, or preprocessing inputs
+  - **IMPORTANT**: The module id is always "preprocessor" (automatically set, don't specify it)
+  - Example: \`set_preprocessor_module({ module: { value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+
+- **set_failure_module**: Set/update the failure handler
+  - Runs automatically when any flow step fails
+  - Useful for cleanup, notifications, or error logging
+  - **IMPORTANT**: The module id is always "failure" (automatically set, don't specify it)
+  - Example: \`set_failure_module({ module: { value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
 
 Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
@@ -1560,9 +1705,13 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
 
 3. **Set appropriate \`input_transforms\`:**
    - Map function parameters to flow inputs or previous step results
-   - If using new flow_input properties, you'll need to update the flow schema separately
+   - If referencing new flow_input properties (e.g., \`flow_input.user_id\`), add them to the flow schema using \`set_flow_schema\`
 
-4. **For positioning:**
+4. **Update flow schema if needed:**
+   - If your module uses flow inputs that don't exist yet, use \`set_flow_schema\` to add them
+   - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } } } })\`
+
+5. **For positioning:**
    - Append to end: use \`afterId: null\`
    - After specific step: use \`afterId: "step_id"\`
    - Inside branch/loop: use \`insideId: "container_id"\` + \`branchPath\`
