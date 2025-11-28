@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        WITH result_stream AS (\n                            SELECT \n                                string_agg(stream, '' order by idx asc) as stream, \n                                job_id, \n                                max(idx) + 1 as offset \n                            FROM job_result_stream_v2\n                            WHERE job_id = $2 AND idx >= $3\n                            GROUP BY job_id\n                        )\n                        SELECT\n                            COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",\n                            rs.stream AS \"result_stream: Option<String>\",\n                            rs.offset AS stream_offset,\n                            COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job\n                        FROM (\n                            SELECT $2::uuid as job_id, $1::text as workspace_id\n                        ) base\n                        LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id\n                        LEFT JOIN v2_job_status js ON js.id = base.job_id\n                        LEFT JOIN result_stream rs ON rs.job_id = base.job_id\n                        WHERE base.job_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "result_stream: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "stream_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "flow_status: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "stream_job",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ed5ff52b210e9158706ceffb4700108d4965e911656028be19b5ce530ab01d92"
+}

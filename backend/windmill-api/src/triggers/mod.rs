@@ -1,7 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
+use windmill_common::jobs::JobTriggerKind;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HandlerAction {
+    Trigger { path: String, trigger_kind: JobTriggerKind },
+    // Future variants can be added here (e.g., Script, Flow, etc.)
+}
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
 pub mod email;
@@ -22,13 +30,14 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
+pub mod global_handler;
 mod handler;
 mod listener;
 pub mod trigger_helpers;
 
 #[allow(unused)]
 pub(crate) use handler::TriggerCrud;
-pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggersCount};
+pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggerForReassignment, TriggersCount};
 pub use listener::start_all_listeners;
 #[allow(unused)]
 pub(crate) use listener::Listener;
@@ -53,6 +62,7 @@ pub struct BaseTrigger {
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
+    pub suspended_mode: bool,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -98,8 +108,10 @@ where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
 {
     fn from_row(row: &sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        let base = BaseTrigger::from_row(row)?;
+
         Ok(Trigger {
-            base: BaseTrigger::from_row(row)?,
+            base,
             config: T::from_row(row)?,
             server_state: ServerState::from_row(row).ok(),
             error_handling: TriggerErrorHandling::from_row(row)?,
@@ -113,6 +125,7 @@ pub struct BaseTriggerData {
     pub script_path: String,
     pub is_flow: bool,
     pub enabled: Option<bool>,
+    pub suspended_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

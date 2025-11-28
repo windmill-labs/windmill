@@ -8342,6 +8342,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
+        - $ref: "#/components/parameters/TriggerPath"
+        - $ref: "#/components/parameters/JobTriggerKind"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -8613,6 +8615,94 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_job/{trigger_path}:
+    post:
+      summary: resume all suspended jobs for a specific trigger
+      operationId: resumeSuspendedTriggerJobs
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
+      requestBody:
+        description: Optional list of job IDs to reassign
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to reassign. If not provided, all suspended jobs for the trigger will be reassigned.
+      responses:
+        "200":
+          description: confirmation message
+          content:
+              application/json:
+                schema:
+                  type: string
+
+  /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_job/{trigger_path}:
+    post:
+      summary: cancel all suspended jobs for a specific trigger
+      operationId: cancelSuspendedTriggerJobs
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
+      requestBody:
+        description: Optional list of job IDs to cancel
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to cancel. If not provided, all suspended jobs for the trigger will be canceled.
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            application/json:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/completed/list:
     get:
@@ -10220,6 +10310,39 @@ paths:
       responses:
         "200":
           description: http trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/http_triggers/update_status/{path}:
+    post:
+      summary: update http trigger suspended mode and enabled status
+      operationId: updateHttpTriggerStatus
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suspended_mode:
+                  type: boolean
+                  description: Whether the trigger is in suspended mode (queues jobs instead of running them)
+                enabled:
+                  type: boolean
+                  description: Whether the trigger is enabled
+              required:
+                - suspended_mode
+                - enabled
+      responses:
+        "200":
+          description: http trigger status updated
           content:
             text/plain:
               schema:
@@ -15178,22 +15301,7 @@ components:
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
-        type: string
-        enum:
-          - webhook
-          - default_email
-          - email
-          - schedule
-          - http
-          - websocket
-          - postgres
-          - kafka
-          - nats
-          - mqtt
-          - sqs
-          - gcp
-          - poll
-          - cli
+        $ref: "#/components/schemas/JobTriggerKind"
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -15287,6 +15395,12 @@ components:
     SchedulePath:
       name: schedule_path
       description: mask to filter by schedule path
+      in: query
+      schema:
+        type: string
+    TriggerPath:
+      name: trigger_path
+      description: mask to filter by trigger path
       in: query
       schema:
         type: string
@@ -17290,6 +17404,23 @@ components:
         - timezone
         - args
 
+    JobTriggerKind:
+      description: job trigger kind (schedule, http, websocket...)
+      type: string
+      enum:
+        - webhook
+        - default_email
+        - email
+        - schedule
+        - http
+        - websocket
+        - postgres
+        - kafka
+        - nats
+        - mqtt
+        - sqs
+        - gcp
+
     TriggerExtraProperty:
       type: object
       properties:
@@ -17314,6 +17445,8 @@ components:
           type: boolean
         enabled:
           type: boolean
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -17324,6 +17457,7 @@ components:
         - edited_at
         - is_flow
         - enabled
+        - suspended_mode
 
     AuthenticationMethod:
       type: string
@@ -17559,6 +17693,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
 
       required:
         - path
@@ -17620,6 +17756,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -17750,6 +17888,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
 
       required:
         - path
@@ -17798,6 +17938,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
 
       required:
         - path
@@ -17935,6 +18077,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -17973,6 +18117,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -18081,6 +18227,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -18214,6 +18362,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - queue_url
         - aws_resource_path
@@ -18249,6 +18399,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - queue_url
         - aws_resource_path
@@ -18388,6 +18540,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -18420,6 +18574,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_modes:
+          type: boolean
       required:
         - path
         - script_path
@@ -18486,6 +18642,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
 
       required:
         - path
@@ -18516,6 +18674,8 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
+        suspended_mode:
+          type: boolean
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -18592,6 +18752,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
 
       required:
         - path
@@ -18628,7 +18790,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path
@@ -18677,6 +18840,9 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         enabled:
           type: boolean
+        suspended_mode:
+          type: boolean
+
       required:
         - path
         - script_path
@@ -18702,6 +18868,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        suspended_mode:
+          type: boolean
       required:
         - path
         - script_path

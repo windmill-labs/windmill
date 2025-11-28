@@ -111,6 +111,8 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
+	let suspended_mode = $state(true)
+	let editedAt: string | undefined = $state(undefined)
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -251,6 +253,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			editedAt = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -291,6 +294,8 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		suspended_mode = cfg?.suspended_mode ?? false
+		editedAt = cfg?.edited_at ?? undefined
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -359,7 +364,8 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			suspended_mode
 		}
 
 		return nCfg
@@ -373,10 +379,24 @@
 				workspace: $workspaceStore ?? '',
 				requestBody: { enabled: newEnabled }
 			})
-			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} HTTP trigger ${initialPath}`)
+			sendUserToast(`${newEnabled ? 'Enabled' : 'Disabled'} HTTP trigger ${initialPath}`)
 		}
 	}
 
+	async function handleToggleSuspendedMode(newSuspendedMode: boolean, newEnabled: boolean = true) {
+		suspended_mode = newSuspendedMode
+		enabled = newSuspendedMode || newEnabled
+		if (!trigger?.draftConfig) {
+			await HttpTriggerService.updateHttpTriggerStatus({
+				workspace: $workspaceStore ?? '',
+				path: initialPath,
+				requestBody: { suspended_mode: newSuspendedMode, enabled: newSuspendedMode || newEnabled }
+			})
+			sendUserToast(
+				`${newSuspendedMode ? 'Suspended' : newEnabled ? 'Resumed' : 'Disabled'} HTTP trigger ${initialPath}`
+			)
+		}
+	}
 
 	// Update config for captures
 	function getCaptureConfig() {
@@ -848,6 +868,7 @@
 			{saveDisabled}
 			{enabled}
 			onToggleEnabled={handleToggleEnabled}
+			onToggleSuspendedMode={handleToggleSuspendedMode}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -855,6 +876,10 @@
 			{onReset}
 			{onDelete}
 			{isDeployed}
+			kind={'http'}
+			{path}
+			suspendedMode={suspended_mode}
+			{editedAt}
 		/>
 	{/if}
 {/snippet}

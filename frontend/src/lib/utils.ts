@@ -1344,6 +1344,7 @@ export type Item = {
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
+	tooltip?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {

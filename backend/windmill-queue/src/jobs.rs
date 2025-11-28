@@ -40,6 +40,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
@@ -478,6 +479,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -534,6 +536,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -1383,6 +1386,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1931,6 +1935,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
         None,
         None,
         None,
@@ -3838,7 +3843,7 @@ pub async fn push<'c, 'd>(
     token_prefix: Option<&str>,
     #[allow(unused_mut)]
     mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
-    schedule_path: Option<String>,
+    schedule_path: Option<String>, //should be removed in favor of the trigger param below
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
     flow_innermost_root_job: Option<Uuid>,
@@ -3857,7 +3862,8 @@ pub async fn push<'c, 'd>(
     // If we know there is already a debounce job, we can use this for debouncing.
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
-    trigger_kind: Option<JobTriggerKind>,
+    trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4038,14 +4044,13 @@ pub async fn push<'c, 'd>(
             }
         }
     }
-
     let mut preprocessed = None;
     #[allow(unused)] 
     let (
         script_hash,
         script_path,
         raw_code_tuple,
-        job_kind,
+        mut job_kind,
         raw_flow,
         flow_status,
         language,
@@ -5178,6 +5183,16 @@ pub async fn push<'c, 'd>(
         }
     }
 
+    let (trigger_path, trigger_kind) = trigger.map_or_else(
+        || {
+            schedule_path.map(|path| (Some(path), JobTriggerKind::Schedule))
+        },
+        |trigger| {
+            Some((trigger.trigger_path, trigger.trigger_kind))
+        },
+    )
+    .unzip();
+
     if concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
@@ -5253,13 +5268,6 @@ pub async fn push<'c, 'd>(
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
 
-    let trigger_kind = trigger_kind.or_else(|| {
-        if schedule_path.is_some() {
-            Some(JobTriggerKind::Schedule)
-        } else {
-            None
-        }
-    });
 
     let root_job = if root_job.is_some()
         && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
@@ -5269,6 +5277,12 @@ pub async fn push<'c, 'd>(
         None
     } else {
         root_job
+    };
+
+    let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
+        (JobKind::Unassigned, Some(Utc::now() + chrono::Duration::days(30)))
+    } else {
+        (job_kind, scheduled_for_o)
     };
 
     sqlx::query!(
@@ -5306,7 +5320,7 @@ pub async fn push<'c, 'd>(
         script_path.clone(),
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
-        schedule_path,
+        trigger_path.flatten(),
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
@@ -5410,6 +5424,7 @@ pub async fn push<'c, 'd>(
             JobKind::FlowNode => "jobs.run.flow_node",
             JobKind::AppScript => "jobs.run.app_script",
             JobKind::AIAgent => "jobs.run.ai_agent",
+            JobKind::Unassigned => "jobs.run.unassigned",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

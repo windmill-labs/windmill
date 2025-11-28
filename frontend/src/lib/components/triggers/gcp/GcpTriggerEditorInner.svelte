@@ -60,6 +60,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let suspended_mode = $state(true)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -188,6 +189,7 @@
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
+		suspended_mode = cfg?.suspended_mode ?? true
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
@@ -216,6 +218,7 @@
 
 	function getGcpConfig() {
 		return {
+			suspended_mode,
 			gcp_resource_path,
 			subscription_mode,
 			subscription_id,

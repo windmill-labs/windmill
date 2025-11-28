@@ -96,6 +96,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let suspended_mode = $state(true)
 
 	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
 		$state('connection_options')
@@ -202,6 +203,7 @@
 			error_handler_args = cfg?.error_handler_args ?? {}
 			retry = cfg?.retry
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			suspended_mode = cfg?.suspended_mode ?? true
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
 		} catch (error) {
@@ -240,7 +242,8 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			suspended_mode
 		}
 	}
 

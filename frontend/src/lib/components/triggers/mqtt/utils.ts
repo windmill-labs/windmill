@@ -13,7 +13,7 @@ export async function saveMqttTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditMqttTrigger = {
@@ -27,6 +27,7 @@ export async function saveMqttTriggerFromCfg(
 		script_path: cfg.script_path,
 		enabled: cfg.enabled,
 		is_flow: cfg.is_flow,
+		suspended_mode: cfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {
