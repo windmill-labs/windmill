@@ -1,9 +1,9 @@
 UPDATE global_settings
 SET value = jsonb_build_object(
     'status', (
-        SELECT jsonb_object_agg(
-            key,
-            value - 'tag'
+        SELECT COALESCE(
+            jsonb_object_agg(key, value - 'tag'),
+            '{}'::jsonb
         )
         FROM jsonb_each(value->'databases')
     ),

@@ -5,22 +5,24 @@
 
 ALTER ROLE ducklake_user RENAME TO custom_instance_user;
 
+-- Rename to more generic names
 UPDATE global_settings
 SET name = 'custom_instance_pg_databases',
     value = jsonb_build_object(
         'user_pwd', value->'ducklake_user_pg_pwd',
-        'status', value->'instance_catalog_db_status'
+        'databases', value->'instance_catalog_db_status'
     )
 WHERE name = 'ducklake_settings';
 
+-- Add ducklake tag to existing databases
 UPDATE global_settings
 SET value = jsonb_build_object(
     'databases', (
-        SELECT jsonb_object_agg(
-            key,
-            value || jsonb_build_object('tag', 'ducklake')
-        )
-        FROM jsonb_each(value->'status')
+      SELECT COALESCE(
+        jsonb_object_agg(key, value || jsonb_build_object('tag', 'ducklake')),
+        '{}'::jsonb
+      )
+      FROM jsonb_each(value->'databases')
     ),
     'user_pwd', value->'user_pwd'
 )
