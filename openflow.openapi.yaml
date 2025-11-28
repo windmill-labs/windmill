@@ -606,7 +606,6 @@ components:
           description: Steps to execute if no branch expressions match
           items:
             $ref: "#/components/schemas/FlowModule"
-          required: [modules]
         type:
           type: string
           enum:
