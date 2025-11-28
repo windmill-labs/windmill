@@ -12,7 +12,8 @@
 	import Section from './Section.svelte'
 	import { Loader2, Rocket, Code2, FolderOpen } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
-	import RadioButton from './RadioButton.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -264,12 +265,12 @@ numpy>=1.24.0
 					description: workspaceDeps.description || `${name || 'Default'} requirements for ${language}`
 				}
 			} else {
-				sendUserToast('Workspace dependencies not found', true)
+				sendUserToast('Enforced dependencies not found', true)
 				return
 			}
 		} catch (error) {
 			console.error('Error loading workspace dependencies:', error)
-			sendUserToast(`Failed to load workspace dependencies: ${error.message}`, true)
+			sendUserToast(`Failed to load enforced dependencies: ${error.message}`, true)
 			return
 		}
 		
@@ -298,12 +299,12 @@ numpy>=1.24.0
 			})
 
 			const displayName = workspaceDependenciesType === 'workspace' ? `workspace default for ${workspaceDependencies.language}` : workspaceDependenciesName
-			sendUserToast(`Deployed workspace dependencies: ${displayName}`)
+			sendUserToast(`Deployed enforced dependencies: ${displayName}`)
 			dispatch('create')
 			drawer?.closeDrawer()
 		} catch (error) {
 			console.error('Error updating workspace dependencies:', error)
-			sendUserToast(`Failed to update workspace dependencies: ${error.message}`, true)
+			sendUserToast(`Failed to update enforced dependencies: ${error.message}`, true)
 		} finally {
 			showWarning = false
 		}
@@ -315,7 +316,7 @@ numpy>=1.24.0
 			const existingPath = getWorkspaceDependenciesPath(initialName ?? null, initialLanguage)
 
 			if (existingPath === null) {
-				sendUserToast('Unsupported language for workspace dependencies path generation', true)
+				sendUserToast('Unsupported language for enforced dependencies path generation', true)
 				return
 			}
 
@@ -358,7 +359,7 @@ numpy>=1.24.0
 
 <Drawer bind:this={drawer} size="1200px">
 	<DrawerContent
-		title={edit ? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}` : 'Add workspace dependencies'}
+		title={edit ? `Deploy ${getFullFilename(workspaceDependencies.language, workspaceDependenciesType === 'workspace' ? null : workspaceDependenciesName)}` : 'Add enforced dependencies'}
 		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
@@ -379,16 +380,19 @@ numpy>=1.24.0
 				/>
 			{/if}
 			
-			<Section label="Workspace Dependencies Type">
+			<Section label="Enforced Dependencies Type">
 				<div class="flex flex-col gap-4">
 					{#if hasWorkspaceDefault(workspaceDependencies.language) && !edit}
-						<RadioButton
-							bind:value={workspaceDependenciesType}
-							options={[
-								['Named Dependencies', 'named']
-							]}
-							disabled={!can_write}
-						/>
+						<ToggleButtonGroup bind:selected={workspaceDependenciesType} disabled={!can_write}>
+							{#snippet children({ item })}
+								<ToggleButton
+									disabled={!can_write}
+									value="named"
+									label="Named Dependencies"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
 						<div class="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
 							<FolderOpen size={16} class="text-blue-600" />
 							<span class="text-sm text-blue-800 flex-1">
@@ -399,14 +403,22 @@ numpy>=1.24.0
 							</Button>
 						</div>
 					{:else}
-						<RadioButton
-							bind:value={workspaceDependenciesType}
-							options={[
-								['Named Dependencies', 'named'],
-								['Workspace Default', 'workspace']
-							]}
-							disabled={!can_write || edit}
-						/>
+						<ToggleButtonGroup bind:selected={workspaceDependenciesType} disabled={!can_write || edit}>
+							{#snippet children({ item })}
+								<ToggleButton
+									disabled={!can_write || edit}
+									value="named"
+									label="Named Dependencies"
+									{item}
+								/>
+								<ToggleButton
+									disabled={!can_write || edit}
+									value="workspace"
+									label="Workspace Default"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
 					{/if}
 					{#if workspaceDependenciesType === 'named'}
 						<input
@@ -419,7 +431,7 @@ numpy>=1.24.0
 					{/if}
 					<div class="text-sm text-tertiary">
 						<FolderOpen size={16} class="inline mr-2" />
-						Default Workspace Dependencies are used when no specific Dependencies are referenced from runnables.
+						Default Enforced Dependencies are used when no specific Dependencies are referenced from runnables.
 						Named dependencies can be referenced by scripts using
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/workspace_dependencies"
@@ -451,12 +463,12 @@ numpy>=1.24.0
 				<input
 					type="text"
 					bind:value={workspaceDependencies.description}
-					placeholder="Brief description of these workspace dependencies (optional)"
+					placeholder="Brief description of these enforced dependencies (optional)"
 					disabled={!can_write}
 					class="input"
 				/>
 				<div class="text-sm text-tertiary mt-2">
-					Provide a brief description to help others understand the purpose of these workspace dependencies.
+					Provide a brief description to help others understand the purpose of these enforced dependencies.
 				</div>
 			</Section>
 
