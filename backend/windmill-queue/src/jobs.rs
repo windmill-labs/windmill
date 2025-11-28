@@ -24,6 +24,9 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -137,7 +140,7 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: MiniCompletedJob,
     pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
@@ -151,6 +154,10 @@ pub struct JobCompleted {
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
     pub from_cache: Option<bool>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    #[serde(skip)]
+    pub done_tx: Option<oneshot::Sender<()>>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -2271,6 +2278,8 @@ pub struct JobAndPerms {
     pub parent_runnable_path: Option<String>,
     pub token: String,
     pub precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
@@ -2302,6 +2311,7 @@ impl PulledJob {
             parent_runnable_path: self.parent_runnable_path,
             token,
             precomputed_agent_info: None,
+            flow_runners: None,
         }
     }
 }
@@ -2492,6 +2502,8 @@ impl PulledJobResult {
                     duration: None,
                     has_stream: Some(false),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 }),
             ),
             PulledJobResult { job: Some(job), error_while_preprocessing: Some(e), .. } => Err(
@@ -2511,6 +2523,8 @@ impl PulledJobResult {
                     duration: None,
                     has_stream: Some(false),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
@@ -3809,50 +3823,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(db: Pool<Postgres>, workspace_id: String, email: Option<String>) {
-    tokio::task::spawn(async move {
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            // Update workspace usage
-            let workspace_result = sqlx::query!(
-                "INSERT INTO usage (id, is_workspace, month_, usage)
-                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                &workspace_id
-            )
-            .execute(&db)
-            .await;
-
-            if let Err(e) = workspace_result {
-                tracing::error!("Failed to update workspace usage for {}: {:#}", workspace_id, e);
-            }
-
-            // Update user usage if email is provided (non-premium workspaces only)
-            if let Some(ref email) = email {
-                let user_result = sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                    email
-                )
-                .execute(&db)
-                .await;
-
-                if let Err(e) = user_result {
-                    tracing::error!("Failed to update user usage for {}: {:#}", email, e);
-                }
-            }
-        })
-        .await;
-
-        if let Err(_) = result {
-            tracing::error!(
-                "Usage update timed out after 10s for workspace {} and email {:?}",
-                workspace_id,
-                email
-            );
-        }
-    });
-}
+use crate::cloud_usage::increment_usage_async;
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
@@ -5758,10 +5729,74 @@ async fn restarted_flows_resolution(
     ))
 }
 
+
+
+// Wrapper struct to send both job and optional flow_runners to dedicated workers
+pub struct DedicatedWorkerJob {
+    pub job: Arc<MiniPulledJob>,
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    pub done_tx: Option<oneshot::Sender<()>>,
+}
+
+#[derive(Debug)]
+pub struct FlowRunners {
+    pub runners: HashMap<String, Sender<DedicatedWorkerJob>>,
+    pub handles: Vec<JoinHandle<()>>,
+    pub job_id: Uuid,
+}
+
+impl Drop for FlowRunners {
+    fn drop(&mut self) {
+        let total_runners = self.handles.len();
+        tracing::info!("dropping {} flow runners for job {}", total_runners, self.job_id);
+
+        // First, drop all senders to signal workers to stop gracefully
+        self.runners.clear();
+
+        // Spawn a background task to wait with timeout and abort if needed
+        let handles = std::mem::take(&mut self.handles);
+        let job_id = self.job_id;
+
+        tokio::spawn(async move {
+            // Extract abort handles before consuming the join handles
+            let abort_handles: Vec<_> = handles.iter().map(|h| h.abort_handle()).collect();
+
+            // Wait up to 5 seconds for natural termination
+            let timeout_result = tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                futures::future::join_all(handles)
+            ).await;
+
+            match timeout_result {
+                Ok(_) => {
+                    tracing::info!("all {} flow runners for job {} terminated gracefully", total_runners, job_id);
+                }
+                Err(_) => {
+                    // Timeout reached, abort only the handles that haven't finished
+                    let mut aborted = 0;
+                    for abort_handle in abort_handles {
+                        if !abort_handle.is_finished() {
+                            abort_handle.abort();
+                            aborted += 1;
+                        }
+                    }
+                    let graceful = total_runners - aborted;
+                    tracing::warn!(
+                        "flow runners for job {}: {} terminated gracefully, {} aborted after 5s timeout",
+                        job_id, graceful, aborted
+                    );
+                }
+            }
+        });
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 
 pub async fn get_same_worker_job(

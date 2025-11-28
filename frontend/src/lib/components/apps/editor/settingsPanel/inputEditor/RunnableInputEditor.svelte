@@ -6,6 +6,7 @@
 	import RunnableSelector from '../mainInput/RunnableSelector.svelte'
 	import SelectedRunnable from '../SelectedRunnable.svelte'
 	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
+	import { convertManagedFieldsToEvalv2 } from '$lib/components/apps/components/componentManagedFields'
 
 	interface Props {
 		appInput: ResultAppInput
@@ -26,7 +27,14 @@
 		fields: Record<string, StaticAppInput>
 	}) {
 		if (appInput.type === 'runnable') {
-			appInput = { ...appInput, runnable, fields }
+			// Convert component-managed fields from static to evalv2 type
+			// This ensures they are properly handled at runtime and not added to force_viewer_static_fields
+			const convertedFields = convertManagedFieldsToEvalv2(
+				appComponent.type,
+				appComponent.id,
+				fields
+			) as Record<string, StaticAppInput>
+			appInput = { ...appInput, runnable, fields: convertedFields }
 			$selectedComponentInEditor = appComponent.id
 		} else {
 			console.warn('Cannot pick runnable for non-runnable input')

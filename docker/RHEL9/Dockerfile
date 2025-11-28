@@ -61,7 +61,7 @@ RUN --mount=type=secret,id=rh_username \
 RUN subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
 
 RUN yum update -y && \
-    yum install -y perl-FindBin perl-IPC-Cmd libxml2-devel xmlsec1-devel xmlsec1-openssl-devel clang llvm-devel cmake libtool-ltdl-devel
+    yum install -y perl-FindBin perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel clang llvm-devel cmake libtool-ltdl-devel
 
 # RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
@@ -75,5 +75,12 @@ COPY .git/ .git/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cd windmill-duckdb-ffi-internal && \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
+
+RUN mkdir -p /usr/src/app && \
+    cp windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so /usr/src/app/
 
 RUN subscription-manager unregister

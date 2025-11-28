@@ -12,8 +12,7 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
-
-export const BG_PREFIX = 'bg_'
+import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
 export function migrateApp(app: App) {
 	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
@@ -62,16 +61,6 @@ export function processSubcomponents(data: AppComponent, fn: (data: AppComponent
 			fn(c)
 		}
 	}
-}
-
-export function allItems(
-	grid: GridItem[],
-	subgrids: Record<string, GridItem[]> | undefined
-): GridItem[] {
-	if (subgrids == undefined) {
-		return grid ?? []
-	}
-	return [...(grid ?? []), ...Object.values(subgrids).flat()]
 }
 
 export function schemaToInputsSpec(
@@ -355,6 +344,12 @@ declare function validateAll(id: string): void;
  * @param id component's id
  */
 declare function clearFiles(id: string): void;
+
+/** Send a message to a chat component
+ * @param id component's id
+ * @param message message to send
+ */
+declare function sendMessage(id: string, message: string): void;
 
 /**  Display a toast message
  * @param message message to display

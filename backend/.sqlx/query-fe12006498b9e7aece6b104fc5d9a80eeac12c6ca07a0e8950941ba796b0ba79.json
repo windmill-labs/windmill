@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE email_trigger \n                SET \n                    script_path = $1,\n                    path = $2,\n                    is_flow = $3,\n                    local_part = $4,\n                    workspaced_local_part = $5,\n                    edited_by = $6,\n                    email = $7,\n                    edited_at = now(),\n                    error_handler_path = $8,\n                    error_handler_args = $9,\n                    retry = $10,\n                    enabled = $11\n                WHERE \n                    workspace_id = $12 AND path = $13\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe12006498b9e7aece6b104fc5d9a80eeac12c6ca07a0e8950941ba796b0ba79"
+}

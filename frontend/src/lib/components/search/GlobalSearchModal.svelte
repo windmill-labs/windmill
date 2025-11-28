@@ -484,10 +484,12 @@
 
 	async function fetchCombinedItems() {
 		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			withoutDescription: true
 		})
 		const flows = await FlowService.listFlows({
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			withoutDescription: true
 		})
 		const apps = await AppService.listApps({ workspace: $workspaceStore! })
 		const raw_apps = await RawAppService.listRawApps({ workspace: $workspaceStore! })

@@ -17,7 +17,7 @@ export namespace ButtonType {
 	 * @deprecated Use `UnifiedSize` instead
 	 */
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type UnifiedSize = 'sm' | 'md' | 'lg'
+	export type UnifiedSize = 'xs' | 'sm' | 'md' | 'lg'
 	export type ExtendedSize = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	/**
 	 * @deprecated Use `Variant` instead
@@ -194,7 +194,7 @@ export namespace ButtonType {
 		accent:
 			'bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		default:
-			'border border-border-light bg-transparent hover:bg-red-500 dark:hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+			'border border-border-light bg-transparent hover:bg-red-500 dark:hover:bg-red-600 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
 		subtle:
 			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
 	}
@@ -221,36 +221,42 @@ export namespace ButtonType {
 
 	// New unified sizing system
 	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'px-1',
 		sm: 'px-2', // Regular horizontal padding
 		md: 'px-4',
 		lg: 'px-6'
 	}
 
 	export const UnifiedIconOnlySizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'px-1',
 		sm: 'px-2', // Square padding for icon-only (same as width padding)
 		md: 'px-2',
 		lg: 'px-4'
 	}
 
 	export const UnifiedMinHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'min-h-5',
 		sm: 'min-h-7',
 		md: 'min-h-8',
 		lg: 'min-h-10'
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'h-5',
 		sm: 'h-7',
 		md: 'h-8',
 		lg: 'h-10'
 	}
 
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
+		xs: 12,
 		sm: 13,
 		md: 14,
 		lg: 18
 	}
 
 	export const UnifiedFontSizes: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'font-normal',
 		sm: 'font-normal',
 		md: 'font-medium',
 		lg: 'font-medium'

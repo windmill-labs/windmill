@@ -29,13 +29,13 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     bash_executor::BIN_BASH,
     common::{
-        check_executor_binary_exists, get_reserved_variables, read_and_check_result,
-        start_child_process, transform_json, OccupancyMetrics,
+        build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
+        read_and_check_result, start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    PY_INSTALL_DIR, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, PY_INSTALL_DIR, PyVAlias, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1240,7 +1240,11 @@ fi
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut ansible_cmd = Command::new(ANSIBLE_PLAYBOOK_PATH.as_str());
+        let ansible_args: Vec<&str> = cmd_args.iter().map(|s| s.as_ref()).collect();
+        let mut ansible_cmd = build_command_with_isolation(
+            ANSIBLE_PLAYBOOK_PATH.as_str(),
+            &ansible_args,
+        );
         ansible_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -1250,7 +1254,6 @@ fi
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

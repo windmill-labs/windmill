@@ -53,6 +53,17 @@ pub(crate) struct DeleteWorkspaceQuery {
 }
 
 async fn delete_workspace_tables(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<()> {
+    sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM flow_conversation WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM workspace_env WHERE workspace_id = $1", w_id)
         .execute(&mut **tx)
         .await?;
