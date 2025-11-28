@@ -118,6 +118,89 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+const addModuleSchema = z.object({
+	afterId: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
+		),
+	insideId: z
+		.string()
+		.nullish()
+		.describe(
+			'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
+		),
+	branchPath: z
+		.string()
+		.nullish()
+		.describe(
+			"Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
+		),
+	value: z.any().describe('Complete module object including id, summary, and value fields')
+})
+
+const addModuleToolDef = createToolDef(
+	addModuleSchema,
+	'add_module',
+	'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.'
+)
+
+const removeModuleSchema = z.object({
+	id: z.string().describe('ID of the module to remove')
+})
+
+const removeModuleToolDef = createToolDef(
+	removeModuleSchema,
+	'remove_module',
+	'Remove a module from the flow by its ID. Searches recursively through all nested structures.'
+)
+
+const modifyModuleSchema = z.object({
+	id: z.string().describe('ID of the module to modify'),
+	value: z
+		.any()
+		.describe(
+			'Complete new module object (full replacement). Use this to change module configuration, input_transforms, branch conditions, etc. Do NOT use this to add/remove modules inside branches/loops - use add_module/remove_module for that.'
+		)
+})
+
+const modifyModuleToolDef = createToolDef(
+	modifyModuleSchema,
+	'modify_module',
+	'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.'
+)
+
+const moveModuleSchema = z.object({
+	id: z.string().describe('ID of the module to move'),
+	afterId: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			'New position: ID to insert after (null to append). Must not be used together with insideId.'
+		),
+	insideId: z
+		.string()
+		.nullish()
+		.describe(
+			'ID of the container to move into. Requires branchPath. Must not be used together with afterId.'
+		),
+	branchPath: z
+		.string()
+		.nullish()
+		.describe(
+			"Path within the new container: 'branches.0', 'default', or 'modules'. Required when using insideId."
+		)
+})
+
+const moveModuleToolDef = createToolDef(
+	moveModuleSchema,
+	'move_module',
+	'Move a module to a new position. Can move within same level or between different nesting levels (e.g., from main flow into a branch).'
+)
+
 const setFlowJsonSchema = z.object({
 	json: z
 		.string()
@@ -227,6 +310,378 @@ const setModuleCodeToolDef = createToolDef(
 )
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
+
+/**
+ * Recursively finds a module by ID in the flow structure
+ */
+function findModuleInFlow(modules: FlowModule[], id: string): FlowModule | undefined {
+	for (const module of modules) {
+		if (module.id === id) {
+			return module
+		}
+
+		// Search in nested structures
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			if (module.value.modules) {
+				const found = findModuleInFlow(module.value.modules, id)
+				if (found) return found
+			}
+		} else if (module.value.type === 'branchone') {
+			if (module.value.branches) {
+				for (const branch of module.value.branches) {
+					if (branch.modules) {
+						const found = findModuleInFlow(branch.modules, id)
+						if (found) return found
+					}
+				}
+			}
+			if (module.value.default) {
+				const found = findModuleInFlow(module.value.default, id)
+				if (found) return found
+			}
+		} else if (module.value.type === 'branchall') {
+			if (module.value.branches) {
+				for (const branch of module.value.branches) {
+					if (branch.modules) {
+						const found = findModuleInFlow(branch.modules, id)
+						if (found) return found
+					}
+				}
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * Recursively removes a module by ID from the flow structure
+ * Returns the updated modules array
+ */
+function removeModuleFromFlow(modules: FlowModule[], id: string): FlowModule[] {
+	const result: FlowModule[] = []
+
+	for (const module of modules) {
+		if (module.id === id) {
+			// Skip this module (remove it)
+			continue
+		}
+
+		const newModule = { ...module }
+
+		// Recursively remove from nested structures
+		if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+			if (newModule.value.modules) {
+				newModule.value = {
+					...newModule.value,
+					modules: removeModuleFromFlow(newModule.value.modules, id)
+				}
+			}
+		} else if (newModule.value.type === 'branchone') {
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? removeModuleFromFlow(branch.modules, id) : []
+					}))
+				}
+			}
+			if (newModule.value.default) {
+				newModule.value = {
+					...newModule.value,
+					default: removeModuleFromFlow(newModule.value.default, id)
+				}
+			}
+		} else if (newModule.value.type === 'branchall') {
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? removeModuleFromFlow(branch.modules, id) : []
+					}))
+				}
+			}
+		}
+
+		result.push(newModule)
+	}
+
+	return result
+}
+
+/**
+ * Parses a branch path string into navigation components
+ * Examples: 'branches.0' -> {type: 'branches', index: 0}
+ *           'default' -> {type: 'default'}
+ *           'modules' -> {type: 'modules'}
+ */
+function parseBranchPath(path: string): { type: string; index?: number } {
+	if (path === 'default') {
+		return { type: 'default' }
+	}
+	if (path === 'modules') {
+		return { type: 'modules' }
+	}
+
+	const match = path.match(/^(branches)\.(\d+)$/)
+	if (match) {
+		return { type: match[1], index: parseInt(match[2], 10) }
+	}
+
+	throw new Error(`Invalid branch path: ${path}`)
+}
+
+/**
+ * Gets the target array for module insertion based on insideId and branchPath
+ */
+function getTargetArray(
+	modules: FlowModule[],
+	insideId: string,
+	branchPath: string
+): FlowModule[] | undefined {
+	const container = findModuleInFlow(modules, insideId)
+	if (!container) {
+		return undefined
+	}
+
+	const parsed = parseBranchPath(branchPath)
+
+	if (container.value.type === 'forloopflow' || container.value.type === 'whileloopflow') {
+		if (parsed.type === 'modules') {
+			return container.value.modules || []
+		}
+		throw new Error(`Invalid branchPath '${branchPath}' for loop module. Use 'modules'`)
+	} else if (container.value.type === 'branchone') {
+		if (parsed.type === 'branches' && parsed.index !== undefined) {
+			return container.value.branches?.[parsed.index]?.modules
+		} else if (parsed.type === 'default') {
+			return container.value.default
+		}
+		throw new Error(
+			`Invalid branchPath '${branchPath}' for branchone module. Use 'branches.N' or 'default'`
+		)
+	} else if (container.value.type === 'branchall') {
+		if (parsed.type === 'branches' && parsed.index !== undefined) {
+			return container.value.branches?.[parsed.index]?.modules
+		}
+		throw new Error(`Invalid branchPath '${branchPath}' for branchall module. Use 'branches.N'`)
+	}
+
+	throw new Error(`Module '${insideId}' is not a container type`)
+}
+
+/**
+ * Updates a nested array within a container module
+ */
+function updateNestedArray(
+	module: FlowModule,
+	branchPath: string,
+	updatedArray: FlowModule[]
+): FlowModule {
+	const parsed = parseBranchPath(branchPath)
+	const newModule = { ...module }
+
+	if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+		if (parsed.type === 'modules') {
+			newModule.value = {
+				...newModule.value,
+				modules: updatedArray
+			}
+		}
+	} else if (newModule.value.type === 'branchone') {
+		if (parsed.type === 'branches' && parsed.index !== undefined && newModule.value.branches) {
+			const newBranches = [...newModule.value.branches]
+			newBranches[parsed.index] = {
+				...newBranches[parsed.index],
+				modules: updatedArray
+			}
+			newModule.value = {
+				...newModule.value,
+				branches: newBranches
+			}
+		} else if (parsed.type === 'default') {
+			newModule.value = {
+				...newModule.value,
+				default: updatedArray
+			}
+		}
+	} else if (newModule.value.type === 'branchall') {
+		if (parsed.type === 'branches' && parsed.index !== undefined && newModule.value.branches) {
+			const newBranches = [...newModule.value.branches]
+			newBranches[parsed.index] = {
+				...newBranches[parsed.index],
+				modules: updatedArray
+			}
+			newModule.value = {
+				...newModule.value,
+				branches: newBranches
+			}
+		}
+	}
+
+	return newModule
+}
+
+/**
+ * Recursively adds a module to the flow structure
+ */
+function addModuleToFlow(
+	modules: FlowModule[],
+	afterId: string | null | undefined,
+	insideId: string | undefined | null,
+	branchPath: string | undefined | null,
+	newModule: FlowModule
+): FlowModule[] {
+	// Case 1: Adding inside a container
+	if (insideId && branchPath) {
+		return modules.map((module) => {
+			if (module.id === insideId) {
+				const targetArray = getTargetArray(modules, insideId, branchPath)
+				if (!targetArray) {
+					throw new Error(
+						`Cannot find target array for insideId '${insideId}' with branchPath '${branchPath}'`
+					)
+				}
+				const updatedArray = afterId
+					? addModuleToFlow(targetArray, afterId, undefined, undefined, newModule)
+					: [...targetArray, newModule]
+				return updateNestedArray(module, branchPath, updatedArray)
+			}
+
+			// Recursively search nested structures
+			const newModuleCopy = { ...module }
+			if (
+				newModuleCopy.value.type === 'forloopflow' ||
+				newModuleCopy.value.type === 'whileloopflow'
+			) {
+				if (newModuleCopy.value.modules) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						modules: addModuleToFlow(
+							newModuleCopy.value.modules,
+							afterId,
+							insideId,
+							branchPath,
+							newModule
+						)
+					}
+				}
+			} else if (newModuleCopy.value.type === 'branchone') {
+				if (newModuleCopy.value.branches) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						branches: newModuleCopy.value.branches.map((branch) => ({
+							...branch,
+							modules: branch.modules
+								? addModuleToFlow(branch.modules, afterId, insideId, branchPath, newModule)
+								: []
+						}))
+					}
+				}
+				if (newModuleCopy.value.default) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						default: addModuleToFlow(
+							newModuleCopy.value.default,
+							afterId,
+							insideId,
+							branchPath,
+							newModule
+						)
+					}
+				}
+			} else if (newModuleCopy.value.type === 'branchall') {
+				if (newModuleCopy.value.branches) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						branches: newModuleCopy.value.branches.map((branch) => ({
+							...branch,
+							modules: branch.modules
+								? addModuleToFlow(branch.modules, afterId, insideId, branchPath, newModule)
+								: []
+						}))
+					}
+				}
+			}
+
+			return newModuleCopy
+		})
+	}
+
+	// Case 2: Adding at current level after a specific module
+	if (afterId !== null && afterId !== undefined) {
+		const result: FlowModule[] = []
+		for (const module of modules) {
+			result.push(module)
+			if (module.id === afterId) {
+				result.push(newModule)
+			}
+		}
+		return result
+	}
+
+	// Case 3: Appending to end of current level
+	return [...modules, newModule]
+}
+
+/**
+ * Recursively replaces a module by ID
+ */
+function replaceModuleInFlow(
+	modules: FlowModule[],
+	id: string,
+	newModule: FlowModule
+): FlowModule[] {
+	return modules.map((module) => {
+		if (module.id === id) {
+			return { ...newModule, id } // Ensure ID remains the same
+		}
+
+		const newModuleCopy = { ...module }
+
+		// Recursively replace in nested structures
+		if (
+			newModuleCopy.value.type === 'forloopflow' ||
+			newModuleCopy.value.type === 'whileloopflow'
+		) {
+			if (newModuleCopy.value.modules) {
+				newModuleCopy.value = {
+					...newModuleCopy.value,
+					modules: replaceModuleInFlow(newModuleCopy.value.modules, id, newModule)
+				}
+			}
+		} else if (newModuleCopy.value.type === 'branchone') {
+			if (newModuleCopy.value.branches) {
+				newModuleCopy.value = {
+					...newModuleCopy.value,
+					branches: newModuleCopy.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? replaceModuleInFlow(branch.modules, id, newModule) : []
+					}))
+				}
+			}
+			if (newModuleCopy.value.default) {
+				newModuleCopy.value = {
+					...newModuleCopy.value,
+					default: replaceModuleInFlow(newModuleCopy.value.default, id, newModule)
+				}
+			}
+		} else if (newModuleCopy.value.type === 'branchall') {
+			if (newModuleCopy.value.branches) {
+				newModuleCopy.value = {
+					...newModuleCopy.value,
+					branches: newModuleCopy.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules ? replaceModuleInFlow(branch.modules, id, newModule) : []
+					}))
+				}
+			}
+		}
+
+		return newModuleCopy
+	})
+}
 
 /**
  * Storage for inline scripts extracted from flow modules.
@@ -694,26 +1149,218 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: setFlowJsonToolDef,
+		def: { ...addModuleToolDef, function: { ...addModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setFlowJsonSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow JSON...' })
+			const parsedArgs = addModuleSchema.parse(args)
+			const { afterId, insideId, branchPath, value } = parsedArgs
 
-			await helpers.setFlowJson(parsedArgs.json)
-
-			// Check for unresolved inline script references
-			const { flow } = helpers.getFlowAndSelectedId()
-			const unresolvedRefs = findUnresolvedInlineScriptRefs(flow.value.modules)
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Flow JSON applied successfully' })
-
-			if (unresolvedRefs.length > 0) {
-				return `Flow structure updated with warnings: Unresolved inline script references found for modules: ${unresolvedRefs.join(', ')}. These modules have invalid content - use set_module_code to set their code.`
+			// Validation
+			if (afterId !== undefined && afterId !== null && insideId) {
+				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
+			}
+			if (insideId && !branchPath) {
+				throw new Error('branchPath is required when using insideId')
+			}
+			if (!value.id) {
+				throw new Error('Module value must include an id field')
 			}
 
-			return 'Flow structure updated via JSON. All affected modules have been marked and require review/acceptance.'
+			toolCallbacks.setToolStatus(toolId, { content: `Adding module '${value.id}'...` })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Check for duplicate ID
+			const existing = findModuleInFlow(flow.value.modules, value.id)
+			if (existing) {
+				throw new Error(`Module with id '${value.id}' already exists`)
+			}
+
+			// Handle inline script storage if this is a rawscript with full content
+			let processedValue = value
+			if (
+				processedValue.value?.type === 'rawscript' &&
+				processedValue.value?.content &&
+				!processedValue.value.content.startsWith('inline_script.')
+			) {
+				// Store the content and replace with reference
+				inlineScriptStore.set(processedValue.id, processedValue.value.content)
+				processedValue = {
+					...processedValue,
+					value: {
+						...processedValue.value,
+						content: `inline_script.${processedValue.id}`
+					}
+				}
+			}
+
+			// Add the module
+			const updatedModules = addModuleToFlow(
+				flow.value.modules,
+				afterId,
+				insideId,
+				branchPath,
+				processedValue as FlowModule
+			)
+
+			// Apply via setFlowJson to trigger proper snapshot and diff tracking
+			const updatedFlow = {
+				...flow.value,
+				modules: updatedModules
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${value.id}' added successfully` })
+			return `Module '${value.id}' has been added to the flow.`
+		}
+	},
+	{
+		def: { ...removeModuleToolDef, function: { ...removeModuleToolDef.function, strict: false } },
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = removeModuleSchema.parse(args)
+			const { id } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: `Removing module '${id}'...` })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Check module exists
+			const existing = findModuleInFlow(flow.value.modules, id)
+			if (!existing) {
+				throw new Error(`Module with id '${id}' not found`)
+			}
+
+			// Remove the module
+			const updatedModules = removeModuleFromFlow(flow.value.modules, id)
+
+			// Apply via setFlowJson to trigger proper snapshot and diff tracking
+			const updatedFlow = {
+				...flow.value,
+				modules: updatedModules
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' removed successfully` })
+			return `Module '${id}' has been removed from the flow.`
+		}
+	},
+	{
+		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = modifyModuleSchema.parse(args)
+			const { id, value } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: `Modifying module '${id}'...` })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Check module exists
+			const existing = findModuleInFlow(flow.value.modules, id)
+			if (!existing) {
+				throw new Error(`Module with id '${id}' not found`)
+			}
+
+			// Handle inline script storage if this is a rawscript with full content
+			let processedValue = value
+			if (
+				processedValue.value?.type === 'rawscript' &&
+				processedValue.value?.content &&
+				!processedValue.value.content.startsWith('inline_script.')
+			) {
+				// Store the content and replace with reference
+				inlineScriptStore.set(id, processedValue.value.content)
+				processedValue = {
+					...processedValue,
+					value: {
+						...processedValue.value,
+						content: `inline_script.${id}`
+					}
+				}
+			}
+
+			// Replace the module
+			const updatedModules = replaceModuleInFlow(
+				flow.value.modules,
+				id,
+				processedValue as FlowModule
+			)
+
+			// Apply via setFlowJson to trigger proper snapshot and diff tracking
+			const updatedFlow = {
+				...flow.value,
+				modules: updatedModules
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' modified successfully` })
+			return `Module '${id}' has been modified.`
+		}
+	},
+	{
+		def: { ...moveModuleToolDef, function: { ...moveModuleToolDef.function, strict: false } },
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = moveModuleSchema.parse(args)
+			const { id, afterId, insideId, branchPath } = parsedArgs
+
+			// Validation
+			if (afterId !== undefined && afterId !== null && insideId) {
+				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
+			}
+			if (insideId && !branchPath) {
+				throw new Error('branchPath is required when using insideId')
+			}
+
+			toolCallbacks.setToolStatus(toolId, { content: `Moving module '${id}'...` })
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Check module exists
+			const existing = findModuleInFlow(flow.value.modules, id)
+			if (!existing) {
+				throw new Error(`Module with id '${id}' not found`)
+			}
+
+			// Remove from current location
+			const withoutModule = removeModuleFromFlow(flow.value.modules, id)
+
+			// Add to new location
+			const updatedModules = addModuleToFlow(withoutModule, afterId, insideId, branchPath, existing)
+
+			// Apply via setFlowJson to trigger proper snapshot and diff tracking
+			const updatedFlow = {
+				...flow.value,
+				modules: updatedModules
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' moved successfully` })
+			return `Module '${id}' has been moved to the new position.`
 		}
 	}
+	// {
+	// 	def: setFlowJsonToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setFlowJsonSchema.parse(args)
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow JSON...' })
+
+	// 		await helpers.setFlowJson(parsedArgs.json)
+
+	// 		// Check for unresolved inline script references
+	// 		const { flow } = helpers.getFlowAndSelectedId()
+	// 		const unresolvedRefs = findUnresolvedInlineScriptRefs(flow.value.modules)
+
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Flow JSON applied successfully' })
+
+	// 		if (unresolvedRefs.length > 0) {
+	// 			return `Flow structure updated with warnings: Unresolved inline script references found for modules: ${unresolvedRefs.join(', ')}. These modules have invalid content - use set_module_code to set their code.`
+	// 		}
+
+	// 		return 'Flow structure updated via JSON. All affected modules have been marked and require review/acceptance.'
+	// 	}
+	// }
 ]
 
 /**
@@ -731,115 +1378,115 @@ function formatOpenFlowSchemaForPrompt(): string {
 }
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You have two main tools for modifying flows:
-- **set_module_code**: Modify the code of an existing inline script module (use this for code-only changes)
-- **set_flow_json**: Replace the entire flow structure with JSON (use this for structural changes like adding/removing modules)
+	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You have several tools for modifying flows:
+
+## Flow Modification Tools
+
+- **add_module**: Add a new module to the flow
+  - Use \`afterId\` to insert after a specific module (null to append to end)
+  - Use \`insideId\` + \`branchPath\` to insert into branches/loops
+  - Example: \`add_module({ afterId: "step_a", value: {...} })\`
+  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
+
+- **remove_module**: Remove a module by ID
+  - Example: \`remove_module({ id: "step_b" })\`
+
+- **modify_module**: Update an existing module (full replacement)
+  - Use for changing configuration, input_transforms, branch conditions, etc.
+  - Do NOT use for adding/removing nested modules - use add_module/remove_module instead
+  - Example: \`modify_module({ id: "step_a", value: {...} })\`
+
+- **move_module**: Reposition a module
+  - Can move within same level or between different nesting levels
+  - Example: \`move_module({ id: "step_c", afterId: "step_a" })\`
+  - Example: \`move_module({ id: "step_b", insideId: "loop_step", branchPath: "modules" })\`
+
+- **set_module_code**: Modify only the code of an existing inline script module
+  - Use this for quick code-only changes
+  - Example: \`set_module_code({ moduleId: "step_a", code: "..." })\`
 
 Follow the user instructions carefully.
-Prefer doing only one usage of set_flow_json over multiple ones, unless the user explicitly asks for you to go step by step. At the end of your changes, explain precisely what you did and what the flow does now.
+At the end of your changes, explain precisely what you did and what the flow does now.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
-## Working with JSON
+## Module Structure
 
-The JSON must include the complete flow definition with all modules. Example structure:
+Modules have this basic structure:
 \`\`\`json
 {
-  "schema": {
-    "type": "object",
-    "properties": {
-      "user_id": {
-        "type": "string"
-      },
-      "count": {
-        "type": "number",
-        "default": 10
-      }
-    },
-    "required": ["user_id"]
-  },
-  "modules": [
-    {
-      "id": "step_a",
-      "summary": "First step",
-      "value": {
-        "type": "rawscript",
-        "language": "bun",
-        "content": "export async function main() {...}",
-        "input_transforms": {}
-      }
-    },
-    {
-      "id": "step_b",
-      "value": {
-        "type": "forloopflow",
-        "iterator": {
-          "type": "javascript",
-          "expr": "results.step_a"
-        },
-        "skip_failures": true,
-        "parallel": true,
-        "modules": []
-      }
-    },
-    {
-      "id": "step_c",
-      "value": {
-        "type": "branchone",
-        "branches": [
-          {
-            "expr": "results.step_a > 10",
-            "modules": []
-          }
-        ],
-        "default": []
-      }
-    }
-  ],
-  "preprocessor_module": {
-    "id": "preprocessor",
-    "value": {}
-  },
-  "failure_module": {
-    "id": "failure",
-    "value": {}
+  "id": "step_a",
+  "summary": "Description of what this step does",
+  "value": {
+    "type": "rawscript",
+    "language": "bun",
+    "content": "export async function main() {...}",
+    "input_transforms": {}
   }
 }
 \`\`\`
 
+### Container Module Types
+
+**For loops:**
+\`\`\`json
+{
+  "id": "loop_step",
+  "value": {
+    "type": "forloopflow",
+    "iterator": { "type": "javascript", "expr": "results.step_a" },
+    "skip_failures": true,
+    "parallel": true,
+    "modules": []
+  }
+}
+\`\`\`
+- To add modules inside a loop: \`add_module({ insideId: "loop_step", branchPath: "modules", value: {...} })\`
+
+**Branches (if/else):**
+\`\`\`json
+{
+  "id": "branch_step",
+  "value": {
+    "type": "branchone",
+    "branches": [
+      { "expr": "results.step_a > 10", "modules": [] },
+      { "expr": "results.step_a > 5", "modules": [] }
+    ],
+    "default": []
+  }
+}
+\`\`\`
+- To add to first branch: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
+- To add to second branch: \`add_module({ insideId: "branch_step", branchPath: "branches.1", value: {...} })\`
+- To add to default: \`add_module({ insideId: "branch_step", branchPath: "default", value: {...} })\`
+- To modify branch conditions: \`modify_module({ id: "branch_step", value: {...} })\`
+
 ### Inline Script References (Token Optimization)
 
-To reduce token usage, rawscript content in the flow JSON you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
+To reduce token usage, rawscript content in the flow you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
 
 \`\`\`json
 {
-  "modules": [
-    {
-      "id": "step_a",
-      "value": {
-        "type": "rawscript",
-        "content": "inline_script.step_a",
-        "language": "bun"
-      }
-    }
-  ]
+  "id": "step_a",
+  "value": {
+    "type": "rawscript",
+    "content": "inline_script.step_a",
+    "language": "bun"
+  }
 }
 \`\`\`
 
-**To modify an existing script's code:**
-- Use the \`set_module_code\` tool: \`set_module_code(moduleId, newCode)\`
-- No need to call \`set_flow_json\` for code-only changes
-- If you also need structural changes, call \`set_flow_json\` first to set the flow structure, then \`set_module_code\` to set the code of the module
+**To modify existing script code:**
+- Use \`set_module_code\` tool for code-only changes: \`set_module_code({ moduleId: "step_a", code: "..." })\`
+- Or use \`modify_module\` with full code in the content field
 
 **To add a new inline script module:**
-- Call \`set_flow_json\` with the full code content directly (not a reference)
-
-**To keep existing code unchanged in structural changes:**
-- Keep the \`inline_script.{module_id}\` reference as-is in \`set_flow_json\`
-- The original code will be restored automatically
+- Use \`add_module\` with the full code content directly (not a reference)
+- The system will automatically store and optimize it
 
 **To inspect existing code:**
-- Use \`inspect_inline_script\` tool to view current code before modifying
+- Use \`inspect_inline_script\` tool to view the current code: \`inspect_inline_script({ moduleId: "step_a" })\`
 
 ### Input Transforms for Rawscripts
 
@@ -897,17 +1544,28 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
 - **Module types**: Use 'bun' as default language for rawscript if unspecified
 
 ### Creating New Steps
-1. If the user hasn't explicitly asked to write from scratch:
-   - First search for matching scripts in the workspace using \`search_scripts\`
-   - Then search for matching scripts in the hub using \`search_hub_scripts\`, but ONLY consider highly relevant results
-   - Only if no suitable script is found, create a raw script step
-2. If found, use type \`script\` with the path
-3. If creating a \`rawscript\` module:
-   - If no language is specified, use 'bun' as the default language
-   - Use \`get_instructions_for_code_generation\` to get the correct code format for the language
-   - Create the module with inline code
-4. Set appropriate \`input_transforms\` to pass data between steps
-5. If any inputs use flow_input properties that don't exist yet, add them to the schema
+
+1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
+   - First: \`search_scripts\` to find workspace scripts
+   - Then: \`search_hub_scripts\` (only consider highly relevant results)
+   - Only create a raw script if no suitable script is found
+
+2. **Add the module using \`add_module\`:**
+   - If using existing script: \`add_module({ afterId: "previous_step", value: { id: "new_step", value: { type: "script", path: "f/folder/script" } } })\`
+   - If creating rawscript:
+     - Default language is 'bun' if not specified
+     - Use \`get_instructions_for_code_generation\` to get the correct code format
+     - Include full code in the content field
+     - Example: \`add_module({ afterId: "step_a", value: { id: "step_b", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+
+3. **Set appropriate \`input_transforms\`:**
+   - Map function parameters to flow inputs or previous step results
+   - If using new flow_input properties, you'll need to update the flow schema separately
+
+4. **For positioning:**
+   - Append to end: use \`afterId: null\`
+   - After specific step: use \`afterId: "step_id"\`
+   - Inside branch/loop: use \`insideId: "container_id"\` + \`branchPath\`
 
 ## Resource Types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
