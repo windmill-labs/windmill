@@ -2636,7 +2636,7 @@ pub async fn handle_queued_job(
 
     match job.kind {
         JobKind::Unassigned => {
-            return Err(Error::ExecutionError("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
+            return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
         }
         _ => {}
     }
