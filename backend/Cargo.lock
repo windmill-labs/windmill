@@ -15193,6 +15193,7 @@ dependencies = [
  "reqwest 0.12.24",
  "rustls 0.23.35",
  "serde",
+ "serde_derive",
  "serde_json",
  "serde_yml",
  "sha1",
@@ -15438,6 +15439,8 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
+ "pep440_rs",
+ "phf 0.11.3",
  "pin-project-lite",
  "prometheus",
  "quick_cache",
@@ -15450,6 +15453,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "serde_yml",
  "sha2 0.10.9",
  "size",
  "sqlx",
@@ -15525,9 +15529,13 @@ version = "1.586.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
+ "pep440_rs",
  "proc-macro2",
  "quote",
  "regex",
+ "serde",
+ "serde_derive",
+ "serde_yml",
  "syn 2.0.111",
 ]
 
@@ -15653,6 +15661,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "toml",
+ "tracing",
  "windmill-common",
  "windmill-parser",
 ]

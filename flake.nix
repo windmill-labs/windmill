@@ -50,7 +50,7 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
-          libffi  # For deno_ffi
+          libffi # For deno_ffi
           libtool
           nodejs
           postgresql
@@ -118,20 +118,17 @@
             fi
             wm-cli-deps
           '';
-          buildInputs = buildInputs ++ [
-            pkgs.deno
-          ];
+          buildInputs = buildInputs ++ [ pkgs.deno ];
           packages = [
             (pkgs.writeScriptBin "wm-cli" ''
               deno run -A --no-check $FLAKE_ROOT/cli/src/main.ts $*
             '')
             (pkgs.writeScriptBin "wm-cli-deps" ''
               pushd $FLAKE_ROOT/cli/
-              ${
-                if pkgs.stdenv.isDarwin
-                then "./gen_wm_client_mac.sh && ./windmill-utils-internal/gen_wm_client_mac.sh"
-                else "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
-              }
+              ${if pkgs.stdenv.isDarwin then
+                "./gen_wm_client_mac.sh && ./windmill-utils-internal/gen_wm_client_mac.sh"
+              else
+                "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"}
               popd
             '')
           ];
@@ -278,6 +275,8 @@
           PHP_PATH = "${pkgs.php}/bin/php";
           COMPOSER_PATH = "${pkgs.php84Packages.composer}/bin/composer";
           BUN_PATH = "${pkgs.bun}/bin/bun";
+          NODE_PATH = "${pkgs.nodejs}/bin/node";
+          NODE_BIN_PATH = "${pkgs.nodejs}/bin/node";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
@@ -314,9 +313,11 @@
           # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
           BINDGEN_EXTRA_CLANG_ARGS =
             # Prevent clang from using system headers - only use Nix headers
-            "-nostdinc ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
-              builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
-            } ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} ${
+            "-nostdinc ${
+              builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"
+            } ${builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"} ${
+              builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"
+            } ${
               builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
             } -idirafter ${pkgs.libiconv}/include ${
               lib.optionalString stdenv.cc.isClang

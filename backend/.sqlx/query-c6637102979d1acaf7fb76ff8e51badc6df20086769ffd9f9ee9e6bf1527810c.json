@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            imported_path,\n            COUNT(DISTINCT importer_path) as \"count!\"\n        FROM dependency_map \n        WHERE workspace_id = $1 AND imported_path = ANY($2)\n        GROUP BY imported_path\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "imported_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c6637102979d1acaf7fb76ff8e51badc6df20086769ffd9f9ee9e6bf1527810c"
+}

@@ -264,6 +264,10 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
+    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
     /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -505,7 +509,10 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+    let mut file = File::create(&path).map_err(|e| {
+        tracing::error!("Failed to create file at {path}: {:?}", &e);
+        e
+    })?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)
@@ -1264,6 +1271,10 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    // Workspace dependencies feature requires minimum version across all workers
+    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
+        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
+            .unwrap();
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
@@ -1947,6 +1958,115 @@ pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
 pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}
+
+pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
+    requirements
+        .as_ref()
+        .lines()
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
+        .map(String::from)
+        .collect()
+}
+
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
+#[repr(u32)]
+pub enum PyVAlias {
+    Py310 = 10,
+    #[default]
+    Py311,
+    Py312,
+    Py313,
+}
+
+impl Into<pep440_rs::Version> for PyVAlias {
+    fn into(self) -> pep440_rs::Version {
+        pep440_rs::Version::new([self.major() as u64, self as u64])
+    }
+}
+
+impl Into<u32> for PyVAlias {
+    fn into(self) -> u32 {
+        self.major() * 100 + self as u32
+    }
+}
+
+impl PyVAlias {
+    pub fn all<T: From<PyVAlias>>() -> Vec<T> {
+        use PyVAlias::*;
+        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+    }
+    // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
+    fn major(&self) -> u32 {
+        use PyVAlias::*;
+        match self {
+            Py310 | Py311 | Py312 | Py313 => 3,
+            // Py400 | Py401 => 4
+        }
+    }
+
+    /// Converts numeric format to alias
+    /// Example:
+    /// 310u32 (in) -> PyVAlias::Py310 (out)
+    pub fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
+        use PyVAlias::*;
+        match numeric.to_string().as_str() {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            _ => None,
+        }
+    }
+}
+
+/// Parse lockfile for assigned python version.
+/// If not found returns None
+pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
+    requirements_lines: &[S],
+) -> Option<pep440_rs::Version> {
+    let parse_version = |s: &str| -> Option<pep440_rs::Version> {
+        // Possible inputs:
+        // V2:
+        // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
+        //
+        // V1:
+        // # py311 or #py311
+        let version_unparsed = s
+            .to_owned()
+            // Remove whitespaces. That leaves us with:
+            // V2: #py:3.11.0
+            // V1: #py311
+            //
+            // Remove #
+            // V2: py:3.11.0
+            // V1: py311
+            //
+            // Remove :
+            // V2: py3.11.0
+            // V1: py311
+            .replace([' ', '#', ':'], "")
+            // Remove "py"
+            // V2: 3.11.0
+            // V1: 311
+            .replace("py", "");
+
+        // We will support reading V1 syntax, but it will be overwritten next deploy
+        PyVAlias::try_from_v1(&version_unparsed)
+            .map(PyVAlias::into)
+            .or(pep440_rs::Version::from_str(&version_unparsed)
+                .ok()
+                .map(pep440_rs::Version::into))
+    };
+
+    requirements_lines
+        .iter()
+        .find(|s| {
+            let s = s.as_ref();
+            s.starts_with("#py") || s.starts_with("# py")
+        })
+        .map(S::as_ref)
+        .and_then(parse_version)
 }
 
 #[cfg(test)]

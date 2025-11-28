@@ -59,6 +59,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -134,7 +135,8 @@
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
-			| 'encryption') ?? 'users'
+			| 'encryption'
+			| 'dependencies') ?? 'users'
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
@@ -692,6 +694,13 @@
 					aiDescription="General workspace settings"
 					label="General"
 				/>
+				<Tab
+					small
+					value="dependencies"
+					aiId="workspace-settings-dependencies"
+					aiDescription="Workspace dependencies settings"
+					label="Dependencies"
+				/>
 			</Tabs>
 		</div>
 		{#if !loadedSettings}
@@ -1124,6 +1133,8 @@
 					<div class="text-sm text-secondary">Loading workspace...</div>
 				</div>
 			{/if}
+		{:else if tab == 'dependencies'}
+			<WorkspaceDependenciesSettings />
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, hash, language AS \"language: ScriptLang\" FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5ec262094e8ddf420b9098f2b3ef6d2c2caa94f39a0e57fe015e19fd1d0ab0ea"
+}

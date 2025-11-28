@@ -145,6 +145,10 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+export function isWorkspaceDependencies(path: string): boolean {
+  return path.startsWith("dependencies/")
+}
+
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
   let bytesWritten = 0
   const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input

@@ -246,7 +246,13 @@ impl FlowValue {
                         }
                     }
                 }
-                BranchOne { branches, .. } | BranchAll { branches, .. } => {
+                BranchOne { default, branches, .. } => {
+                    Self::traverse_leafs(default.iter().collect(), cb)?;
+                    for branch in branches {
+                        Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
+                    }
+                }
+                BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
                     }

@@ -17,10 +17,11 @@ import { pushResourceType } from "./commands/resource-type/resource-type.ts";
 import { pushVariable } from "./commands/variable/variable.ts";
 import { yamlOptions } from "./commands/sync/sync.ts";
 import { showDiffs } from "./core/conf.ts";
-import { deepEqual, isFileResource } from "./utils/utils.ts";
+import { deepEqual, isFileResource, isWorkspaceDependencies } from "./utils/utils.ts";
 import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
+import { pushWorkspaceDependencies } from "./commands/dependencies/dependencies.ts";
 import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
 import { pushTrigger } from "./commands/trigger/trigger.ts";
 
@@ -187,6 +188,8 @@ export async function pushObj(
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
     await pushGroup(workspace, p, befObj, newObj);
+  } else if (typeEnding === "workspace_dependencies") {
+    await pushWorkspaceDependencies(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
   } else if (typeEnding === "encryption_key") {
@@ -199,7 +202,9 @@ export async function pushObj(
 }
 
 export function parseFromPath(p: string, content: string): any {
-  return p.endsWith(".yaml")
+  return isWorkspaceDependencies(p)
+    ? content
+    : p.endsWith(".yaml")
     ? yamlParseContent(p, content)
     : p.endsWith(".json")
     ? JSON.parse(content)
@@ -237,12 +242,16 @@ export function getTypeStrFromPath(
   | "user"
   | "group"
   | "settings"
-  | "encryption_key" {
+  | "encryption_key"
+  | "workspace_dependencies" {
   if (p.includes(".flow" + SEP)) {
     return "flow";
   }
   if (p.includes(".app" + SEP)) {
     return "app";
+  }
+  if (p.startsWith("dependencies" + SEP)) {
+    return "workspace_dependencies";
   }
   const parsed = path.parse(p);
   if (
