@@ -2,6 +2,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
+use std::time::{Duration, Instant};
 
 use crate::{error, scripts::ScriptLang, utils::calculate_hash, worker::Connection};
 use phf::phf_set;
@@ -14,7 +15,16 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
 
 lazy_static::lazy_static! {
     static ref WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: bool = std::env::var("WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES").is_ok();
+
+    /// Simple in-memory cache for workspace dependencies get_latest with 10-second timeout.
+    /// Cache key: (workspace_id, language, name)
+    /// Cache value: (Option<WorkspaceDependencies>, cached_at timestamp)
+    static ref WORKSPACE_DEPENDENCIES_CACHE: quick_cache::sync::Cache<(String, ScriptLang, Option<String>), (Option<WorkspaceDependencies>, Instant)> = quick_cache::sync::Cache::new(1000);
 }
+
+/// Cache timeout for workspace dependencies
+const CACHE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Minimum Windmill version required for workspace dependencies feature
 pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.587.0";
 
@@ -175,36 +185,58 @@ impl WorkspaceDependencies {
             return Ok(None);
         }
 
-        match conn {
-            Connection::Sql(db) => sqlx::query_as!(
-                Self,
-                r#"
-                SELECT id, content, language AS "language: ScriptLang", name, description, archived, workspace_id, created_at
-                FROM workspace_dependencies
-                WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
-                LIMIT 1
-                "#,
-                name,
-                workspace_id,
-                language as ScriptLang
-            )
-            .fetch_optional(&db)
-            .await
-            .map_err(error::Error::from),
+        let cache_key = (workspace_id.to_string(), language, name.clone());
 
-            Connection::Http(http_client) => http_client
-                .get::<Option<WorkspaceDependencies>>(&format!(
-                    "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
-                    language.as_str(),
-                    if let Some(name) = name {
-                        format!("?name={name}")
-                    } else {
-                        "".to_owned()
-                    }
-                ))
+        // Check if cached value is still valid
+        if let Some((cached_value, cached_at)) = WORKSPACE_DEPENDENCIES_CACHE.get(&cache_key) {
+            if cached_at.elapsed() < CACHE_TIMEOUT {
+                return Ok(cached_value);
+            }
+            // Expired, remove it
+            WORKSPACE_DEPENDENCIES_CACHE.remove(&cache_key);
+        }
+
+        // Fetch and cache
+        let fetch = async {
+            match &conn {
+                Connection::Sql(db) => sqlx::query_as!(
+                    Self,
+                    r#"
+                    SELECT id, content, language AS "language: ScriptLang", name, description, archived, workspace_id, created_at
+                    FROM workspace_dependencies
+                    WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
+                    LIMIT 1
+                    "#,
+                    name,
+                    workspace_id,
+                    language as ScriptLang
+                )
+                .fetch_optional(db)
                 .await
                 .map_err(error::Error::from),
-        }
+
+                Connection::Http(http_client) => http_client
+                    .get::<Option<WorkspaceDependencies>>(&format!(
+                        "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
+                        language.as_str(),
+                        if let Some(ref name_val) = name {
+                            format!("?name={name_val}")
+                        } else {
+                            "".to_owned()
+                        }
+                    ))
+                    .await
+                    .map_err(error::Error::from),
+            }
+        };
+
+        let (workspace_dependencies_o, ..) = WORKSPACE_DEPENDENCIES_CACHE
+            .get_or_insert_async(&cache_key, async {
+                Ok::<_, error::Error>((fetch.await?, Instant::now()))
+            })
+            .await?;
+
+        Ok(workspace_dependencies_o)
     }
 
     /// Gets workspace dependencies by their unique ID.
@@ -585,7 +617,7 @@ impl WorkspaceDependenciesPrefetched {
 }
 
 #[derive(Debug, Clone)]
-pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
+pub struct WorkspaceDependenciesAnnotatedRefs<T> {
     /// ```python
     /// # requirements:
     /// # rich==x.y.z    <<
@@ -602,21 +634,8 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// The workflow is following:
     /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info (just the name).
     /// 2. You [[Self::expand]] to replace all external names with <[[WorkspaceDependencies]]>
-    pub external: Vec<T::Ty>,
+    pub external: Vec<T>,
     pub mode: Mode,
-}
-
-/// Trait allowing the same struct to hold either String names (fast parsing without DB)
-/// or resolved WorkspaceDependencies objects (after DB expansion).
-pub trait Container {
-    // TODO(#29661): Use default associated type
-    type Ty;
-}
-impl Container for String {
-    type Ty = Self;
-}
-impl Container for WorkspaceDependencies {
-    type Ty = Self;
 }
 
 /// `# extra_requirements:` - Extra
@@ -682,7 +701,7 @@ impl WorkspaceDependenciesPrefetchedInternal {
     }
 }
 
-impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRefs<T> {
+impl WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies> {
     fn assert_no_inline(&self) -> Result<(), String> {
         if self.inline.is_none() {
             Ok(())
@@ -733,7 +752,7 @@ impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRef
     }
 }
 
-impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
+impl WorkspaceDependenciesAnnotatedRefs<String> {
     pub(super) async fn expand(
         self,
         language: ScriptLang,
