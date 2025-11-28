@@ -26,7 +26,7 @@
 				inlineScript: undefined,
 				name: `Background Runnable ${index}`,
 				fields: {},
-				type: 'runnableByName',
+				type: 'inline',
 				recomputeIds: undefined
 			}
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts

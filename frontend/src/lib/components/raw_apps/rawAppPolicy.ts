@@ -1,6 +1,6 @@
 import type { Policy, ScriptLang } from '$lib/gen'
 import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
-import type { InlineScript, RunnableWithFields } from '../apps/inputType'
+import { isRunnableByName, isRunnableByPath, type InlineScript, type RunnableWithFields } from '../apps/inputType'
 
 export async function updateRawAppPolicy(
 	runnables: Record<string, Runnable>,
@@ -36,7 +36,7 @@ async function processRunnable(
 		})
 		.filter(Boolean) as string[]
 
-	if (runnable?.type == 'runnableByName') {
+	if (isRunnableByName(runnable)) {
 		let hex = await hash(runnable.inlineScript?.content)
 		console.log('hex', hex, id)
 		return [
@@ -47,7 +47,7 @@ async function processRunnable(
 				allow_user_resources: allowUserResources
 			}
 		]
-	} else if (runnable?.type == 'runnableByPath') {
+	} else if (isRunnableByPath(runnable)) {
 		let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
 		return [
 			`${id}:${prefix}/${runnable.path}`,

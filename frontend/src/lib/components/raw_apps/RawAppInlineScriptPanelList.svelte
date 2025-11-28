@@ -19,7 +19,7 @@
 		runnables[nid] = {
 			name: newScriptPath,
 			inlineScript: undefined,
-			type: 'runnableByName'
+			type: 'inline'
 		}
 
 		selectedRunnable = nid

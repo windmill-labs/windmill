@@ -133,13 +133,21 @@ export type RunnableByPath = {
 	path: string
 	schema: any
 	runType: 'script' | 'flow' | 'hubscript'
-	type: 'runnableByPath'
+	type: 'runnableByPath' | 'path'
+}
+
+export function isRunnableByPath(runnable: Runnable): runnable is RunnableByPath {
+	return runnable?.type == 'runnableByPath' || runnable?.type == 'path'
+}
+
+export function isRunnableByName(runnable: Runnable): runnable is RunnableByName {
+	return runnable?.type == 'runnableByName' || runnable?.type == 'inline'
 }
 
 export type RunnableByName = {
 	name: string
 	inlineScript: InlineScript | undefined
-	type: 'runnableByName'
+	type: 'runnableByName' | 'inline'
 }
 
 export type Runnable = RunnableByPath | RunnableByName | undefined

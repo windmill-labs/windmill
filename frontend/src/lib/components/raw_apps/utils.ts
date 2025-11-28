@@ -2,10 +2,10 @@ import type { ScriptLang } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { capitalize } from '../../sharedUtils'
-// import type { RunnableWithFields } from '../apps/inputType'
+import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
 
-export type RunnableWithFields = any
+// export type RunnableWithFields = any
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
@@ -49,7 +49,7 @@ function removeStaticFields(schema: Schema, fields: Record<string, { type: strin
 }
 
 function hiddenRunnableToTsType(runnable: Runnable) {
-	if (runnable?.type == 'runnableByName') {
+	if (isRunnableByName(runnable)) {
 		if (runnable?.inlineScript?.schema) {
 			return schemaToTsType(
 				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
@@ -57,7 +57,7 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 		} else {
 			return '{}'
 		}
-	} else if (runnable?.type == 'runnableByPath') {
+	} else if (isRunnableByPath(runnable)) {
 		return schemaToTsType(removeStaticFields(runnable?.schema, runnable?.fields ?? {}))
 	} else {
 		return '{}'

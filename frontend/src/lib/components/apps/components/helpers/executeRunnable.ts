@@ -1,6 +1,6 @@
 import { AppService, type ExecuteComponentData } from '$lib/gen'
 import { defaultIfEmptyString } from '$lib/utils'
-import type { Runnable } from '../../inputType'
+import { isRunnableByName, isRunnableByPath, type Runnable } from '../../inputType'
 import type { InlineScript } from '../../sharedTypes'
 
 export async function executeRunnable(
@@ -15,7 +15,7 @@ export async function executeRunnable(
 	queryParams?: Record<string, any>
 ) {
 	let appPath = defaultIfEmptyString(path, `u/${username ?? 'unknown'}/newapp`)
-	if (runnable?.type === 'runnableByName') {
+	if (isRunnableByName(runnable)) {
 		const { inlineScript } = inlineScriptOverride
 			? { inlineScript: inlineScriptOverride }
 			: runnable
@@ -32,7 +32,7 @@ export async function executeRunnable(
 				cache_ttl: inlineScript.cache_ttl
 			}
 		}
-	} else if (runnable?.type === 'runnableByPath') {
+	} else if (isRunnableByPath(runnable)) {
 		const { path, runType } = runnable
 		requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
 	}

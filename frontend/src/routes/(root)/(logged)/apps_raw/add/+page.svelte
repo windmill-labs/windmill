@@ -47,7 +47,7 @@
 		a: {
 			name: 'a',
 			fields: {},
-			type: 'runnableByName',
+			type: 'inline',
 			inlineScript: {
 				content:
 					'// import * as wmill from "windmill-client"\n\nexport async function main(x: string) {\n  return x\n}\n',

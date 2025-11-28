@@ -1,11 +1,13 @@
 <script lang="ts">
 	import EmptyInlineScript from '../apps/editor/inlineScriptsPanel/EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from '../apps/editor/inlineScriptsPanel/InlineScriptRunnableByPath.svelte'
-	import type {
-		InlineScript,
-		RunnableWithFields,
-		StaticAppInput,
-		UserAppInput
+	import {
+		isRunnableByName,
+		isRunnableByPath,
+		type InlineScript,
+		type RunnableWithFields,
+		type StaticAppInput,
+		type UserAppInput
 	} from '../apps/inputType'
 	import { createEventDispatcher } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
@@ -53,9 +55,9 @@
 	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
-		if (runnable?.type == 'runnableByPath') {
+		if (isRunnableByPath(runnable)) {
 			return runnable.schema
-		} else if (runnable?.type == 'runnableByName' && runnable.inlineScript) {
+		} else if (isRunnableByName(runnable) && runnable.inlineScript) {
 			return runnable.inlineScript.schema
 		}
 		return {}
@@ -79,7 +81,7 @@
 
 	async function testPreview() {
 		selectedTab = 'test'
-		if (runnable?.type == 'runnableByName') {
+		if (isRunnableByName(runnable)) {
 			await jobLoader?.runPreview(
 				appPath + '/' + id,
 				runnable.inlineScript?.content ?? '',
@@ -87,8 +89,8 @@
 				args,
 				undefined
 			)
-		} else if (runnable?.type == 'runnableByPath') {
-			if (jobLoader && runnable?.type == 'runnableByPath') {
+		} else if (isRunnableByPath(runnable)) {
+			if (jobLoader && isRunnableByPath(runnable)) {
 				if (runnable.runType == 'flow') {
 					await jobLoader.runFlowByPath(runnable.path, args)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
@@ -110,10 +112,10 @@
 	bind:job={testJob}
 />
 
-{#if runnable?.type == 'runnableByPath' || (runnable?.type == 'runnableByName' && runnable.inlineScript)}
+{#if isRunnableByPath(runnable) || (isRunnableByName(runnable) && runnable.inlineScript)}
 	<Splitpanes>
 		<Pane size={55}>
-			{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
+			{#if isRunnableByName(runnable)}
 				<RawAppInlineScriptEditor
 					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
 					{id}
@@ -130,7 +132,7 @@
 					on:delete
 					path={appPath}
 				/>
-			{:else if runnable?.type == 'runnableByPath'}
+			{:else if isRunnableByPath(runnable)}
 				<InlineScriptRunnableByPath
 					rawApps
 					bind:runnable
@@ -216,7 +218,7 @@
 		showScriptPicker
 		on:new={(e) => {
 			runnable = {
-				type: 'runnableByName',
+				type: 'inline',
 				inlineScript: e.detail,
 				name: runnable?.name ?? 'Background Runnable'
 			}

@@ -14,6 +14,7 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
+	import { isRunnableByName } from '../apps/inputType'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -54,7 +55,7 @@
 
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
-			if (runnable?.type === 'runnableByName') {
+			if (isRunnableByName(runnable)) {
 				return [key, runnable?.inlineScript?.content ?? '']
 			}
 			return [key, '']
