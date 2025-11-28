@@ -12,14 +12,13 @@ import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 import {
 	buildFlowTimeline,
 	insertModuleIntoFlow,
-	findModuleInFlow,
+	findModuleParent,
 	DUPLICATE_MODULE_PREFIX
 } from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
-import { getAllSubmodules } from './flowExplorer'
 import type DiffDrawer from '../DiffDrawer.svelte'
 
 export type FlowDiffManager = ReturnType<typeof createFlowDiffManager>
@@ -37,6 +36,21 @@ export type ComputeDiffOptions = {
 /**
  * Creates a flow diff manager instance
  */
+function createSkeletonModule(module: FlowModule): FlowModule {
+	const clone = JSON.parse(JSON.stringify(module))
+	if (clone.value.type === 'forloopflow' || clone.value.type === 'whileloopflow') {
+		clone.value.modules = []
+	} else if (clone.value.type === 'branchone') {
+		clone.value.default = []
+		clone.value.branches.forEach((b: any) => (b.modules = []))
+	} else if (clone.value.type === 'branchall') {
+		clone.value.branches.forEach((b: any) => (b.modules = []))
+	} else if (clone.value.type === 'aiagent') {
+		clone.value.tools = []
+	}
+	return clone
+}
+
 export function createFlowDiffManager() {
 	// State: snapshot of flow before changes
 	let beforeFlow = $state<ExtendedOpenFlow | undefined>(undefined)
@@ -81,8 +95,7 @@ export function createFlowDiffManager() {
 
 			// Check for input schema changes
 			if (beforeFlow.schema && afterInputSchema) {
-				const schemaChanged =
-					JSON.stringify(beforeFlow.schema) !== JSON.stringify(afterInputSchema)
+				const schemaChanged = JSON.stringify(beforeFlow.schema) !== JSON.stringify(afterInputSchema)
 				if (schemaChanged) {
 					newActions['Input'] = {
 						action: 'modified',
@@ -92,6 +105,11 @@ export function createFlowDiffManager() {
 			}
 
 			updateModuleActions(newActions)
+
+			// If no more actions, clear the snapshot (exit diff mode)
+			if (Object.keys(newActions).length === 0) {
+				clearSnapshot()
+			}
 		} else if (!beforeFlow) {
 			// Clear module actions and merged flow when no snapshot
 			mergedFlow = undefined
@@ -187,6 +205,23 @@ export function createFlowDiffManager() {
 	}
 
 	/**
+	 * Internal helper to delete a module from a flow object
+	 */
+	function deleteModuleInternal(id: string, flow: ExtendedOpenFlow) {
+		if (flow.value.preprocessor_module?.id === id) {
+			flow.value.preprocessor_module = undefined
+		} else if (flow.value.failure_module?.id === id) {
+			flow.value.failure_module = undefined
+		} else {
+			const { modules } = getIndexInNestedModules(flow, id)
+			const index = modules.findIndex((m) => m.id === id)
+			if (index >= 0) {
+				modules.splice(index, 1)
+			}
+		}
+	}
+
+	/**
 	 * Helper to delete a module from the flow
 	 */
 	function deleteModuleFromFlow(
@@ -195,97 +230,90 @@ export function createFlowDiffManager() {
 		selectNextIdFn?: (id: string) => void
 	) {
 		selectNextIdFn?.(id)
-
-		if (flowStore.val.value.preprocessor_module?.id === id) {
-			flowStore.val.value.preprocessor_module = undefined
-		} else if (flowStore.val.value.failure_module?.id === id) {
-			flowStore.val.value.failure_module = undefined
-		} else {
-			const { modules } = getIndexInNestedModules(flowStore.val, id)
-			const index = modules.findIndex((m) => m.id === id)
-			if (index >= 0) {
-				modules.splice(index, 1)
-			}
-		}
-
+		deleteModuleInternal(id, flowStore.val)
 		refreshStateStore(flowStore)
-	}
-
-	/**
-	 * Helper to remove a module and all its children from tracking
-	 */
-	function removeModuleAndChildren(
-		id: string,
-		currentActions: Record<string, ModuleActionInfo>
-	): Record<string, ModuleActionInfo> {
-		const newActions = { ...currentActions }
-
-		// Remove the parent module
-		delete newActions[id]
-
-		// Get the module from the flow to find children
-		const flow = mergedFlow ? { value: mergedFlow, summary: '' } : beforeFlow
-		if (flow) {
-			const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
-			? id.substring(DUPLICATE_MODULE_PREFIX.length)
-			: id
-			const module = getModuleFromFlow(actualId, flow as ExtendedOpenFlow)
-
-			if (module) {
-				// Get all child module IDs recursively
-				const childIds = getAllSubmodules(module)
-					.flat()
-					.map((m) => m.id)
-
-				// Remove all children from tracking
-				childIds.forEach((childId) => {
-					delete newActions[childId]
-					// Also try with duplicate prefix in case it's a shadowed/removed module
-					delete newActions[`${DUPLICATE_MODULE_PREFIX}${childId}`]
-				})
-			}
-		}
-
-		return newActions
 	}
 
 	/**
 	 * Accept a module action (keep the changes)
 	 * Removes the action from tracking after acceptance
 	 */
-	function acceptModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>) {
-		if (!beforeFlow) {
-			throw new Error('Cannot accept module without a beforeFlow snapshot')
+	function acceptModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>, asSkeleton = false) {
+		if (!beforeFlow || !afterFlow) {
+			throw new Error('Cannot accept module without beforeFlow and afterFlow snapshots')
 		}
 
 		const info = moduleActions[id]
 		if (!info) return
 
-		// Handle removed modules: delete them from mergedFlow if present
-		// (flowStore already has the module removed since changes are applied directly)
-		if (info.action === 'removed' && flowStore) {
-			const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
+		const actualId = id.startsWith(DUPLICATE_MODULE_PREFIX)
 			? id.substring(DUPLICATE_MODULE_PREFIX.length)
 			: id
-			// delete from merged flow
-			if (mergedFlow) {
-				const { modules } = getIndexInNestedModules({ value: mergedFlow, summary: '' }, actualId)
-				const index = modules.findIndex((m) => m.id === actualId)
-				if (index >= 0) {
-					modules.splice(index, 1)
+
+		if (id === 'Input') {
+			// Accept input schema changes: update beforeFlow to match afterInputSchema
+			if (beforeFlow.schema && afterInputSchema) {
+				beforeFlow.schema = JSON.parse(JSON.stringify(afterInputSchema))
+			}
+		} else if (info.action === 'removed') {
+			// Removed in after: Remove from beforeFlow
+			deleteModuleInternal(actualId, beforeFlow)
+		} else if (info.action === 'added') {
+			// Added in after: Add to beforeFlow
+
+			// Check if parent exists in beforeFlow; if not, recursively accept parent first.
+			const parentLoc = findModuleParent(afterFlow, actualId)
+			if (
+				parentLoc &&
+				parentLoc.type !== 'root' &&
+				parentLoc.type !== 'failure' &&
+				parentLoc.type !== 'preprocessor'
+			) {
+				const parentInBefore = getModuleFromFlow(parentLoc.parentId, beforeFlow)
+				if (!parentInBefore) {
+					// Parent is missing in beforeFlow. It must be pending acceptance.
+					// Accept as skeleton to avoid auto-accepting all siblings.
+					acceptModule(parentLoc.parentId, flowStore, true)
 				}
+			}
+
+			// Use insertModuleIntoFlow targeting beforeFlow, sourcing position from afterFlow
+			let module = getModuleFromFlow(actualId, {
+				value: afterFlow,
+				summary: ''
+			} as ExtendedOpenFlow)
+
+			if (module) {
+				// Check if module already exists in beforeFlow (could be a skeleton from earlier acceptance)
+				const existingModule = getModuleFromFlow(actualId, beforeFlow)
+
+				if (existingModule) {
+					// Module already exists (as skeleton or partial), update it in-place
+					const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
+					Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
+					Object.assign(existingModule, $state.snapshot(moduleToApply))
+				} else {
+					// Module doesn't exist, insert it
+					const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
+					insertModuleIntoFlow(beforeFlow.value, $state.snapshot(moduleToInsert), afterFlow, actualId)
+				}
+			}
+		} else if (info.action === 'modified') {
+			// Modified: Apply modifications to beforeFlow module
+			const beforeModule = getModuleFromFlow(actualId, beforeFlow)
+			const afterModule = getModuleFromFlow(actualId, {
+				value: afterFlow,
+				summary: ''
+			} as ExtendedOpenFlow)
+
+			if (beforeModule && afterModule) {
+				Object.keys(beforeModule).forEach((k) => delete (beforeModule as any)[k])
+				Object.assign(beforeModule, $state.snapshot(afterModule))
 			}
 		}
 
-		// Remove the action from tracking (no longer needs user decision)
-		// Also remove all children from tracking
-		if (moduleActions[id]) {
-			const newActions = removeModuleAndChildren(id, moduleActions)
-			updateModuleActions(newActions)
-		}
-
-		// Check if all actions are decided and clear snapshot if so
-		checkAndClearSnapshot()
+		// Note: The $effect will automatically recompute the diff, clearing the action
+		// since beforeFlow now matches afterFlow for this module.
 	}
 
 	/**
@@ -304,40 +332,20 @@ export function createFlowDiffManager() {
 
 		if (!info) return
 
-		const action = info.action
-
 		// Only perform revert operations if flowStore is provided
 		if (flowStore) {
-			// Handle different action types
 			if (id === 'Input') {
 				// Revert input schema changes
 				flowStore.val.schema = beforeFlow.schema
-			} else if (action === 'added') {
-				// Remove the added module from flowStore
+				afterInputSchema = flowStore.val.schema
+			} else if (info.action === 'added') {
+				// Added in after: Remove from flowStore (afterFlow)
 				deleteModuleFromFlow(actualId, flowStore)
-
-				// ALSO remove from merged flow for immediate visual update
-				if (mergedFlow) {
-					if (mergedFlow.preprocessor_module?.id === actualId) {
-						mergedFlow.preprocessor_module = undefined
-					} else if (mergedFlow.failure_module?.id === actualId) {
-						mergedFlow.failure_module = undefined
-					} else {
-						const { modules } = getIndexInNestedModules(
-							{ value: mergedFlow, summary: '' },
-							actualId
-						)
-						const index = modules.findIndex((m) => m.id === actualId)
-						if (index >= 0) {
-							modules.splice(index, 1)
-						}
-					}
-				}
-			} else if (action === 'removed') {
-				// Restore the removed module from beforeFlow to flowStore
+			} else if (info.action === 'removed') {
+				// Removed in after: Restore to flowStore (afterFlow)
+				// Source from beforeFlow
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
-				if (oldModule && flowStore) {
-					// Use the insertion helper which handles nested modules correctly
+				if (oldModule) {
 					insertModuleIntoFlow(
 						flowStore.val.value,
 						$state.snapshot(oldModule),
@@ -345,40 +353,24 @@ export function createFlowDiffManager() {
 						actualId
 					)
 				}
-
-				// Also update mergedFlow - the module may have duplicate prefix (ID collision case)
-				if (mergedFlow) {
-					const prefixedId = `${DUPLICATE_MODULE_PREFIX}${actualId}`
-					const moduleInMerged = findModuleInFlow(mergedFlow, prefixedId)
-					if (moduleInMerged) {
-						// Restore original ID by removing the duplicate prefix
-						moduleInMerged.id = actualId
-					}
-				}
-			} else if (action === 'modified') {
-				// Revert to the old module state in flowStore
+				refreshStateStore(flowStore)
+			} else if (info.action === 'modified') {
+				// Modified: Revert modifications in flowStore (afterFlow)
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				const newModule = getModuleFromFlow(actualId, flowStore.val)
 
 				if (oldModule && newModule) {
-					// Restore the old module state
 					Object.keys(newModule).forEach((k) => delete (newModule as any)[k])
 					Object.assign(newModule, $state.snapshot(oldModule))
 				}
+				refreshStateStore(flowStore)
 			}
 
-			refreshStateStore(flowStore)
+			afterFlow = flowStore.val.value
 		}
 
-		// Remove the action from tracking (no longer needs user decision)
-		// Also remove all children from tracking
-		if (moduleActions[id]) {
-			const newActions = removeModuleAndChildren(id, moduleActions)
-			updateModuleActions(newActions)
-		}
-
-		// Check if all actions are decided and clear snapshot if so
-		checkAndClearSnapshot()
+		// Note: The $effect will automatically recompute the diff, clearing the action
+		// since flowStore (afterFlow) now matches beforeFlow for this module.
 	}
 
 	/**
@@ -418,15 +410,6 @@ export function createFlowDiffManager() {
 		flowStore.val = targetSnapshot
 		refreshStateStore(flowStore)
 		clearSnapshot()
-	}
-
-	/**
-	 * Check if all module actions are decided (removed) and clear snapshot if so
-	 */
-	function checkAndClearSnapshot() {
-		if (Object.keys(moduleActions).length === 0) {
-			clearSnapshot()
-		}
 	}
 
 	/**

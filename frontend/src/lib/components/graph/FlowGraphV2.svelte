@@ -514,7 +514,6 @@
 
 	$inspect('HERE', effectiveModules)
 	$inspect('HERE', effectiveModuleActions)
-	$inspect('HERE', diffBeforeFlow)
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -720,7 +719,6 @@
 
 	let graph = $derived.by(() => {
 		moduleTracker.counter
-		// Track moduleActions changes so graph rebuilds on accept/reject
 		effectiveModuleActions
 		return graphBuilder(
 			untrack(() => effectiveModules),

@@ -107,7 +107,7 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 /**
  * Represents the parent location of a module
  */
-type ModuleParentLocation =
+export type ModuleParentLocation =
 	| { type: 'root'; index: number }
 	| { type: 'forloop' | 'whileloop'; parentId: string; index: number }
 	| { type: 'branchone-default'; parentId: string; index: number }
@@ -120,7 +120,7 @@ type ModuleParentLocation =
 /**
  * Finds the parent location of a module in a flow
  */
-function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
+export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
 	// Check special modules
 	if (flow.failure_module?.id === moduleId) {
 		return { type: 'failure', index: -1 }
@@ -396,11 +396,17 @@ function insertIntoNestedParent(
 
 	// Find the parent module in merged flow
 	const parentModule = findModuleById(merged, parentLocation.parentId)
-	if (!parentModule) return
+	if (!parentModule) {
+		console.warn('Parent module not found', parentLocation)
+		return
+	}
 
 	// Get the before parent to know original ordering
 	const beforeParent = findModuleById(beforeFlow, parentLocation.parentId)
-	if (!beforeParent) return
+	if (!beforeParent) {
+		console.warn('Before parent module not found', parentLocation)
+		return
+	}
 
 	// Insert based on type
 	if (parentLocation.type === 'forloop' && parentModule.value.type === 'forloopflow') {
