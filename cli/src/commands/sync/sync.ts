@@ -273,7 +273,12 @@ export function extractInlineScriptsForApps(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == 'runType') {
+        rec["type"] = undefined
+        rec["schema"] = undefined
+        return []
+      } else if (k == "inlineScript" && typeof v == "object") {
+        rec["type"] = undefined
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
         const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);

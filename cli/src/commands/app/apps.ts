@@ -32,7 +32,10 @@ export function replaceInlineScripts(rec: any, localPath: string) {
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == 'runType') {
+        rec["type"] = 'path'
+      } else if (k == "inlineScript" && typeof v == "object") {
+        rec["type"] = 'inline'
         const o: Record<string, any> = v as any;
 
         if (o["content"] && o["content"].startsWith("!inline")) {
