@@ -81,6 +81,7 @@
 
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
+		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
 		isRunning = true
 		try {
 			const statements = splitSqlStatements(pruneComments(code))
@@ -96,7 +97,7 @@
 			if (doPostgresRowToJsonFix) {
 				transformedCode = statements
 					.map((statement) => {
-						if (statement.trim().toUpperCase().startsWith('SELECT')) {
+						if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
 							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
 						}
 						return statement
@@ -132,7 +133,9 @@
 				result = result.map((row: any) => row['row_to_json'])
 			}
 
-			if (statements[statements.length - 1].toUpperCase().trim().startsWith('SELECT')) {
+			if (
+				READ_OPS.some((op) => statements[statements.length - 1].toUpperCase().trim().startsWith(op))
+			) {
 				runHistory.push({
 					created_at: new Date().toISOString(),
 					created_by: '',
