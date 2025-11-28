@@ -200,9 +200,6 @@ async function generateLocks(
   } & SyncOptions,
   folder: string | undefined
 ) {
-  const useRawReqs =
-    opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
-
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
@@ -212,10 +209,7 @@ async function generateLocks(
       folder,
       false,
       workspace,
-      opts,
-      undefined,
-      undefined,
-      useRawReqs
+      opts
     );
   } else {
     const ignore = await ignoreF(opts);
@@ -241,10 +235,7 @@ async function generateLocks(
         folder,
         true,
         workspace,
-        opts,
-        undefined,
-        undefined,
-        useRawReqs
+        opts
       );
       if (candidate) {
         hasAny = true;
@@ -271,10 +262,7 @@ async function generateLocks(
         folder,
         false,
         workspace,
-        opts,
-        undefined,
-        undefined,
-        useRawReqs
+        opts
       );
     }
   }

@@ -80,6 +80,7 @@
     "npm:express@*": "5.1.0",
     "npm:get-port@7.1.0": "7.1.0",
     "npm:jszip@3.7.1": "3.7.1",
+    "npm:jszip@3.8.0": "3.8.0",
     "npm:minimatch@*": "10.0.3",
     "npm:open@*": "10.2.0",
     "npm:ws@*": "8.18.3",
@@ -968,6 +969,15 @@
     },
     "jszip@3.7.1": {
       "integrity": "sha512-ghL0tz1XG9ZEmRMcEN2vt7xabrDdqHHeykgARpmZ0BiIctWxM47Vt63ZO2dnp4QYt/xJVLLy5Zv1l/xRdh2byg==",
+      "dependencies": [
+        "lie",
+        "pako",
+        "readable-stream",
+        "set-immediate-shim"
+      ]
+    },
+    "jszip@3.8.0": {
+      "integrity": "sha512-cnpQrXvFSLdsR9KR5/x7zdf6c3m8IhZfZzSblFEHSqBaVwD2nvJ4CuCKLyvKvwBgZm08CgfSoiTBQLm5WW9hGw==",
       "dependencies": [
         "lie",
         "pako",

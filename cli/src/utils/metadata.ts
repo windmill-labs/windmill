@@ -7,14 +7,12 @@ import {
 } from "../../bootstrap/script_bootstrap.ts";
 import { Workspace } from "../commands/workspace/workspace.ts";
 import {
-  languagesWithRawReqsSupport,
-  LanguageWithRawReqsSupport,
   ScriptLanguage,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { GlobalDeps } from "../commands/script/script.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
+
 import { SyncCodebase } from "./codebase.ts";
 import { argSigToJsonSchemaType } from "../../windmill-utils-internal/src/parse/parse-schema.ts";
 import { getIsWin } from "./utils.ts";
@@ -28,24 +26,46 @@ export class LockfileGenerationError extends Error {
 
 export async function generateAllMetadata() {}
 
-export function findClosestRawReqs(
-  lang: LanguageWithRawReqsSupport | undefined,
-  remotePath: string,
-  globalDeps: GlobalDeps
-): string | undefined {
-  let bestCandidate: { k: string; v: string } | undefined = undefined;
-  if (lang) {
-    Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
+export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
+  const rawWorkspaceDeps: Record<string, string> = {};
+  
+  try {
+    for await (const entry of Deno.readDir("dependencies")) {
+      if (entry.isDirectory) continue;
+      
+      const filePath = `dependencies/${entry.name}`;
+      const content = await Deno.readTextFile(filePath);
+      
+      // Find matching language
+      for (const lang of workspaceDependenciesLanguages) {
+        if (entry.name.endsWith(lang.filename)) {
+          // Check if out of sync
+          const contentHash = await generateHash(content + filePath);
+          const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
+          
+          if (!isUpToDate) {
+            rawWorkspaceDeps[filePath] = content;
+          }
+          break;
+        }
       }
-    });
+    }
+  } catch {
+    // dependencies directory doesn't exist
   }
-  // @ts-ignore
-  return bestCandidate?.v;
+    return rawWorkspaceDeps;
+}
+
+export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
+    const relativePath = path.replace("dependencies/", "");
+    for (const { filename, language } of workspaceDependenciesLanguages) {
+      if (relativePath.endsWith(filename)) {
+        return {
+          name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
+          language
+        };
+      }
+    }
 }
 
 // on windows, when using powershell, blue is not readable
@@ -64,7 +84,7 @@ export async function generateScriptMetadataInternal(
   },
   dryRun: boolean,
   noStaleMessage: boolean,
-  globalDeps: GlobalDeps,
+  rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
@@ -74,19 +94,26 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
-  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+  // Filter workspace dependencies to only include those matching the script's language
+  const filteredRawWorkspaceDependencies: Record<string, string> = {};
+  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
+    if (depInfo && depInfo.language === language) {
+      filteredRawWorkspaceDependencies[depPath] = depContent;
+    }
+  }
+
+  const metadataWithType = await parseMetadataFile(
+    remotePath,
+    undefined,
+  );
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
-
-  const rrLang = languagesWithRawReqsSupport.find(
-    (l) => language == l.language
-  );
-
-  const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
-
-  let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
+  
+  // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
+  let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
 
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
@@ -127,7 +154,7 @@ export async function generateScriptMetadataInternal(
         language,
         remotePath,
         metadataParsedContent,
-        rawReqs
+        filteredRawWorkspaceDependencies
       );
     } else {
       metadataParsedContent.lock = "";
@@ -146,7 +173,7 @@ export async function generateScriptMetadataInternal(
   const metadataContentUsedForHash = newMetadataContent;
 
   hash = await generateScriptHash(
-    rawReqs,
+    filteredRawWorkspaceDependencies,
     scriptContent,
     metadataContentUsedForHash
   );
@@ -189,11 +216,11 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawDeps: string | undefined
+  rawWorkspaceDependencies: Record<string, string>
 ): Promise<void> {
   if (
     !(
-      languagesWithRawReqsSupport.some((l) => l.language == language) ||
+      workspaceDependenciesLanguages.some((l) => l.language == language) ||
       language == "deno" ||
       language == "rust" ||
       language == "ansible"
@@ -202,9 +229,12 @@ async function updateScriptLock(
     return;
   }
 
-  if (rawDeps) {
-    log.info(`Generating script lock for ${remotePath} with raw deps`);
+
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+    const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
+    log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
+  
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const extraHeaders = getHeaders();
@@ -225,7 +255,8 @@ async function updateScriptLock(
             script_path: remotePath,
           },
         ],
-        raw_deps: rawDeps,
+        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+          ? rawWorkspaceDependencies : null,
         entrypoint: remotePath,
       }),
     }
@@ -510,8 +541,8 @@ export async function parseMetadataFile(
         path: string;
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
-        globalDeps: GlobalDeps;
-        codebases: SyncCodebase[];
+        rawWorkspaceDependencies: Record<string, string>;
+        codebases: SyncCodebase[]
       })
     | undefined
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
@@ -571,7 +602,7 @@ export async function parseMetadataFile(
             generateMetadataIfMissing,
             false,
             false,
-            generateMetadataIfMissing.globalDeps,
+            generateMetadataIfMissing.rawWorkspaceDependencies,
             generateMetadataIfMissing.codebases,
             false
           );
@@ -653,12 +684,12 @@ export async function checkifMetadataUptodate(
 }
 
 export async function generateScriptHash(
-  rawReqs: string | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
   scriptContent: string,
   newMetadataContent: string
 ) {
   return await generateHash(
-    (rawReqs ?? "") + scriptContent + newMetadataContent
+    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
   );
 }
 

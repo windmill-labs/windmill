@@ -14,25 +14,23 @@ import {
   clearGlobalLock,
   updateMetadataGlobalLock,
   LockfileGenerationError,
-  findClosestRawReqs,
+  getRawWorkspaceDependencies,
 } from "../../utils/metadata.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
-import {
-  inferContentTypeFromFilePath,
-  languagesWithRawReqsSupport,
-} from "../../utils/script_common.ts";
+
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
-import { exts, findGlobalDeps } from "../script/script.ts";
+import { exts,  } from "../script/script.ts";
 import { FSFSElement } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
-  rawReqs: Record<string, string> | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
   folder: string,
   defaultTs: "bun" | "deno" | undefined
 ) {
@@ -40,17 +38,9 @@ async function generateFlowHash(
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
-      let reqs: string | undefined;
-      if (rawReqs) {
-        // Get language name from path
-        const lang = inferContentTypeFromFilePath(f.path, defaultTs);
-        // Get lock for that language
-        [, reqs] =
-          Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
-      }
-      // Embed lock into hash
+      // Embed workspace dependencies into hash
       hashes[f.path] = await generateHash(
-        (await f.getContentText()) + (reqs ?? "")
+        (await f.getContentText()) + JSON.stringify(rawWorkspaceDependencies)
       );
     }
   }
@@ -64,8 +54,7 @@ export async function generateFlowLockInternal(
     defaultTs?: "bun" | "deno";
   },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean,
-  useRawReqs?: boolean
+  noStaleMessage?: boolean
 ): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -77,24 +66,9 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let rawReqs: Record<string, string> | undefined = undefined;
-  if (useRawReqs) {
-    // Find all dependency files in the workspace
-    const globalDeps = await findGlobalDeps();
-
-    // Find closest dependency files for this flow
-    rawReqs = {};
-
-    // TODO: PERF: Only include raw reqs for the languages that are in the flow
-    languagesWithRawReqsSupport.map((lang) => {
-      const dep = findClosestRawReqs(lang, folder, globalDeps);
-      if (dep) {
-        // @ts-ignore
-        rawReqs[lang.language] = dep;
-      }
-    });
-  }
-  let hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
+  // Always get out-of-sync workspace dependencies
+  const rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
+  let hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -108,15 +82,12 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (useRawReqs) {
-    log.warn(
-      "If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)"
-    );
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (${languagesWithRawReqsSupport
-          .map((l) => l.rrFilename)
-          .join("/")}) for ${folder}, using it`
+        `Found workspace dependencies (${workspaceDependenciesLanguages
+          .map((l) => l.filename)
+          .join("/")}) for ${folder}, using them`
       )
     );
   }
@@ -144,7 +115,7 @@ export async function generateFlowLockInternal(
       log,
       folder + SEP!,
       SEP,
-      changedScripts
+      changedScripts,
       // (path: string, newPath: string) => Deno.renameSync(path, newPath),
       // (path: string) => Deno.removeSync(path)
     );
@@ -154,7 +125,7 @@ export async function generateFlowLockInternal(
       workspace,
       flowValue.value,
       remote_path,
-      rawReqs
+      rawWorkspaceDependencies
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -174,7 +145,7 @@ export async function generateFlowLockInternal(
     );
   }
 
-  hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
+  hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
   await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -182,16 +153,18 @@ export async function generateFlowLockInternal(
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
 
+
+
 export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  rawDeps?: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>
 ): Promise<FlowValue | undefined> {
   let rawResponse;
 
-  if (rawDeps != undefined) {
-    log.info(colors.blue("Using raw requirements for flow dependencies"));
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+    log.info(colors.blue("Using raw workspace dependencies for flow dependencies"));
 
     // generate the script lock running a dependency job in Windmill and update it inplace
     const extraHeaders = getHeaders();
@@ -208,7 +181,9 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_deps: rawDeps,
+          raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+          ? rawWorkspaceDependencies
+          : null,
         }),
       }
     );

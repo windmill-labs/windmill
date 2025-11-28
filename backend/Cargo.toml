@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.585.1"
+version = "1.586.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.585.1"
+version = "1.586.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -137,6 +137,7 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }

@@ -44,6 +44,7 @@ use axum::{
 use http::HeaderName;
 use itertools::Itertools;
 
+use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::{
     db::UserDB,
@@ -52,6 +53,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{Schema, Script, ScriptLang},
     variables::{build_crypt, ExportableListableVariable},
+    workspace_dependencies::WorkspaceDependencies,
 };
 
 use hyper::header;
@@ -177,6 +179,7 @@ pub(crate) struct ArchiveQueryParams {
     include_groups: Option<bool>,
     include_settings: Option<bool>,
     include_key: Option<bool>,
+    include_workspace_dependencies: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -310,10 +313,19 @@ pub(crate) async fn tarball_workspace(
         include_groups,
         include_settings,
         include_key,
+        include_workspace_dependencies,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     // require_admin(authed.is_admin, &authed.username)?;
+
+    tracing::info!(
+        "tarball_workspace called for workspace {}: include_workspace_dependencies={:?}, skip_variables={:?}, skip_resources={:?}",
+        w_id,
+        include_workspace_dependencies,
+        skip_variables,
+        skip_resources
+    );
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -545,6 +557,33 @@ pub(crate) async fn tarball_workspace(
                 .write_to_archive(&app_str, &format!("{}.{}.json", app.path, kind))
                 .await?;
         }
+    }
+
+    if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        tracing::info!("Including workspace dependencies in tarball export");
+        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
+        tracing::info!(
+            "Found {} workspace dependencies",
+            workspace_dependencies.len()
+        );
+        for dep in workspace_dependencies {
+            // let dep_str = &to_string_without_metadata(&dep, false, None).unwrap();
+            let filename = WorkspaceDependencies::to_path(&dep.name, dep.language)?;
+            tracing::info!(
+                "Adding workspace dependency: name={:?}, language={:?}, filename={}",
+                dep.name,
+                dep.language,
+                filename
+            );
+            archive.write_to_archive(&dep.content, &filename).await?;
+        }
+    } else {
+        tracing::info!(
+            "Skipping workspace dependencies: include_workspace_dependencies={:?}",
+            include_workspace_dependencies
+        );
     }
 
     if include_schedules.unwrap_or(false) {

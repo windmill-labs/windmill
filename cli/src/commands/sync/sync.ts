@@ -28,14 +28,13 @@ import { downloadZip } from "./pull.ts";
 import {
   exts,
   findContentFile,
-  findGlobalDeps,
   findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
-import { deepEqual, isFileResource, isRawAppFile } from "../../utils/utils.ts";
+import { deepEqual, isFileResource, isRawAppFile, isWorkspaceDependencies } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
@@ -57,7 +56,9 @@ import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
   generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
   readLockfile,
+  workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
@@ -349,7 +350,7 @@ function ZipFSElement(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" | "raw_app" =
+    const kind: "flow" | "app" | "script" | "resource" | "other" | "raw_app" | "dependencies" =
       p.endsWith(".flow.json")
         ? "flow"
         : p.endsWith(".app.json")
@@ -360,6 +361,8 @@ function ZipFSElement(
         ? "script"
         : p.endsWith(".resource.json")
         ? "resource"
+        : p.startsWith("dependencies/")
+      ? "dependencies"
         : "other";
 
     const isJson = p.endsWith(".json");
@@ -371,6 +374,8 @@ function ZipFSElement(
         return p.replace("app.json", "app");
       } else if (kind == "raw_app") {
         return p.replace("raw_app.json", "raw_app");
+      } else if (kind == "dependencies") {
+        return p;
       } else {
         return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
       }
@@ -616,7 +621,7 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson
+          return useYaml && isJson && kind != "dependencies"
             ? (() => {
                 try {
                   return yamlStringify(JSON.parse(content), yamlOptions);
@@ -749,7 +754,6 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
-    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
       if (e2.isDirectory) {
@@ -760,7 +764,7 @@ export async function* readDirRecursiveWithIgnore(
       }
       stack.push({
         path: e2.path,
-        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
+        ignored: e.ignored || e2.isDirectory && e2.path == "dependencies" ? false : ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -787,15 +791,19 @@ export async function elementsToMap(
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
   skips: Skips,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
-
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (entry.isDirectory || entry.ignored) continue;
+    if (entry.isDirectory || entry.ignored) {
+      if (entry.path.includes("dependencies/")) {
+        log.info(`Ignoring dependencies-related path: ${entry.path} (isDirectory: ${entry.isDirectory}, ignored: ${entry.ignored})`);
+      }
+      continue;
+    }
     const path = entry.path;
-    if (!isFileResource(path) && !isRawAppFile(path)) {
+    if (!isFileResource(path) && !isRawAppFile(path) && !isWorkspaceDependencies(path)) {
       if (json && path.endsWith(".yaml")) continue;
       if (!json && path.endsWith(".json")) continue;
 
@@ -853,6 +861,7 @@ export async function elementsToMap(
       continue;
     }
 
+
     // Use getTypeStrFromPath for consistent type detection
     try {
       const fileType = getTypeStrFromPath(path);
@@ -861,9 +870,11 @@ export async function elementsToMap(
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
+      if (skips.skipWorkspaceDependencies && fileType === "workspace_dependencies") continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
+
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
@@ -928,7 +939,7 @@ export async function elementsToMap(
       // No specific items configuration, use regular path
       map[entry.path] = content;
     }
-  }
+      }
   return map;
 }
 
@@ -941,6 +952,7 @@ export interface Skips {
   skipFlows?: boolean | undefined;
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
+  skipWorkspaceDependencies?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -1009,11 +1021,14 @@ async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
+      if (k.startsWith("dependencies/")) {
+        log.info(`Adding workspace dependencies file: ${k}`);
+      }
       changes.push({ name: "added", path: k, content: v });
     } else {
       if (m2[k] == v) {
         continue;
-      } else if (k.endsWith(".json")) {
+      } else if (k.endsWith(".json") && !isWorkspaceDependencies(k)) {
         let parsedV, parsedM2;
         try {
           parsedV = JSON.parse(v);
@@ -1224,6 +1239,7 @@ export async function ignoreF(wmillconf: {
   excludes?: string[];
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
+  skipWorkspaceDependencies?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -1281,6 +1297,9 @@ export async function ignoreF(wmillconf: {
         }
         if (wmillconf.includeKey && fileType === "encryption_key") {
           return false; // Don't ignore, always include
+        }
+        if (!wmillconf.skipWorkspaceDependencies && fileType === "workspace_dependencies") {
+          return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
         }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
@@ -1410,8 +1429,7 @@ export async function pull(
   } catch {
     // ignore
   }
-  const remote = ZipFSElement(
-    (await downloadZip(
+  const zipFile = await downloadZip(
       workspace,
       opts.plainSecrets,
       opts.skipVariables,
@@ -1424,8 +1442,12 @@ export async function pull(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
+      opts.skipWorkspaceDependencies,
       opts.defaultTs
-    ))!,
+    );
+  
+  const remote = ZipFSElement(
+    zipFile!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
@@ -1449,6 +1471,19 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
+  
+  
+  // Debug: show all changes for push operation
+  if (changes.length > 0) {
+    log.info("All changes:");
+    changes.forEach(change => {
+      if (change.path.startsWith("dependencies/")) {
+        log.info(`  ${change.name}: ${change.path} [WORKSPACE DEPS]`);
+      } else {
+        log.info(`  ${change.name}: ${change.path}`);
+      }
+    });
+  }
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -1636,9 +1671,9 @@ export async function pull(
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
     await readLockfile(); // ensure wmill-lock.yaml exists
-    const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);
+    const rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
 
     for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
@@ -1647,14 +1682,14 @@ export async function pull(
         opts,
         false,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         true
       );
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, opts, true);
+      await generateFlowLockInternal(change, false, workspace, opts, true, false);
     }
     if (tracker.apps.length > 0) {
       log.info(
@@ -1885,6 +1920,7 @@ export async function push(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
+      opts.skipWorkspaceDependencies,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1906,7 +1942,8 @@ export async function push(
     specificItems
   );
 
-  const globalDeps = await findGlobalDeps();
+
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1919,7 +1956,7 @@ export async function push(
       opts,
       true,
       true,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases,
       false
     );
@@ -2084,7 +2121,7 @@ export async function push(
                   workspace,
                   alreadySynced,
                   opts.message,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases,
                   opts
                 )
@@ -2100,7 +2137,7 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases
                 )
               ) {
@@ -2192,7 +2229,7 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases
                 )
               ) {
@@ -2378,6 +2415,22 @@ export async function push(
                     ),
                   });
                   break;
+                case "workspace_dependencies":
+                  const relativePath = removePathPrefix(change.path, "dependencies");
+                  
+                  const res = workspaceDependenciesPathToLanguageAndFilename(change.path);
+                  if (!res) {
+                    throw new Error(`Unknown workspace dependencies file format: ${change.path}`);
+                  }
+                  const { name, language } = res;
+
+                  await wmill.deleteWorkspaceDependencies({
+                    workspace: workspaceId,
+                    language,
+                    name
+                  });
+
+                  break;
                 default:
                   break;
               }
@@ -2474,6 +2527,7 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option("--skip-workspace-dependencies", "Skip syncing workspace dependencies")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2522,6 +2576,7 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option("--skip-workspace-dependencies", "Skip syncing workspace dependencies")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

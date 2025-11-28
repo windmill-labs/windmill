@@ -154,6 +154,10 @@ export function isRawAppFile(path: string): boolean {
   return path.includes(".raw_app" + SEP);
 }
 
+export function isWorkspaceDependencies(path: string): boolean {
+  return path.startsWith("dependencies/")
+}
+
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
   let bytesWritten = 0;
   const bytes =
