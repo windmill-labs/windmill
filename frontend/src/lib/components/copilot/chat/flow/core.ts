@@ -119,29 +119,78 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+/**
+ * Recursively resolves all $ref references in a JSON Schema by inlining them.
+ * This ensures the schema is fully self-contained for AI providers that don't
+ * support external references or have strict schema validation (e.g., Google/Gemini).
+ *
+ * @param schema - The schema object to resolve
+ * @param rootSchema - The root schema document containing all definitions
+ * @param visited - Set of visited $ref paths to prevent infinite recursion
+ * @returns Fully resolved schema with all $ref references inlined
+ */
+function resolveSchemaRefs(schema: any, rootSchema: any, visited = new Set<string>()): any {
+	if (!schema || typeof schema !== 'object') return schema
+
+	// Handle $ref
+	if (schema.$ref) {
+		const refPath = schema.$ref.replace('#/', '').split('/')
+
+		// Prevent infinite recursion with circular refs
+		if (visited.has(schema.$ref)) {
+			return { type: 'object' } // Fallback for circular refs
+		}
+		visited.add(schema.$ref)
+
+		let resolved = rootSchema
+		for (const part of refPath) {
+			resolved = resolved[part]
+		}
+
+		// Recursively resolve the referenced schema
+		return resolveSchemaRefs(resolved, rootSchema, new Set(visited))
+	}
+
+	// Handle arrays
+	if (Array.isArray(schema)) {
+		return schema.map((item) => resolveSchemaRefs(item, rootSchema, visited))
+	}
+
+	// Handle objects - recursively process all properties
+	const result: any = {}
+	for (const key in schema) {
+		result[key] = resolveSchemaRefs(schema[key], rootSchema, visited)
+	}
+	return result
+}
+
 const addModuleToolDef: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		strict: false,
 		name: 'add_module',
-		description: 'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.',
+		description:
+			'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.',
 		parameters: {
 			type: 'object',
 			properties: {
 				afterId: {
 					type: ['string', 'null'],
-					description: 'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
+					description:
+						'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
 				},
 				insideId: {
 					type: ['string', 'null'],
-					description: 'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
+					description:
+						'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
 				},
 				branchPath: {
 					type: ['string', 'null'],
-					description: "Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
+					description:
+						"Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
 				},
 				value: {
-					...openFlowSchema.components.schemas.FlowModule,
+					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
 					description: 'Complete module object including id, summary, and value fields'
 				}
 			},
@@ -165,7 +214,8 @@ const modifyModuleToolDef: ChatCompletionFunctionTool = {
 	function: {
 		strict: false,
 		name: 'modify_module',
-		description: 'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.',
+		description:
+			'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -174,8 +224,9 @@ const modifyModuleToolDef: ChatCompletionFunctionTool = {
 					description: 'ID of the module to modify'
 				},
 				value: {
-					...openFlowSchema.components.schemas.FlowModule,
-					description: 'Complete new module object (full replacement). Use this to change module configuration, input_transforms, branch conditions, etc. Do NOT use this to add/remove modules inside branches/loops - use add_module/remove_module for that.'
+					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
+					description:
+						'Complete new module object (full replacement). Use this to change module configuration, input_transforms, branch conditions, etc. Do NOT use this to add/remove modules inside branches/loops - use add_module/remove_module for that.'
 				}
 			},
 			required: ['id', 'value']
@@ -212,43 +263,67 @@ const moveModuleToolDef = createToolDef(
 	'Move a module to a new position. Can move within same level or between different nesting levels (e.g., from main flow into a branch).'
 )
 
-const setFlowSchemaSchema = z.object({
-	schema: z.any().describe('Flow input schema defining the parameters the flow accepts')
-})
+const setFlowSchemaToolDef: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		strict: false,
+		name: 'set_flow_schema',
+		description:
+			'Set or update the flow input schema. Defines what parameters the flow accepts when executed.',
+		parameters: {
+			type: 'object',
+			properties: {
+				schema: {
+					type: 'object',
+					description: 'Flow input schema defining the parameters the flow accepts'
+				}
+			},
+			required: ['schema']
+		}
+	}
+}
 
-const setFlowSchemaToolDef = createToolDef(
-	setFlowSchemaSchema,
-	'set_flow_schema',
-	'Set or update the flow input schema. Defines what parameters the flow accepts when executed.'
-)
+const setPreprocessorModuleToolDef: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		strict: false,
+		name: 'set_preprocessor_module',
+		description:
+			'Set or update the preprocessor module. The preprocessor runs before the main flow execution starts. The module id is automatically set to "preprocessor".',
+		parameters: {
+			type: 'object',
+			properties: {
+				module: {
+					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
+					description:
+						'Preprocessor module object. The id will be automatically set to "preprocessor" (do not specify a different id). The preprocessor runs before the main flow starts.'
+				}
+			},
+			required: ['module']
+		}
+	}
+}
 
-const setPreprocessorModuleSchema = z.object({
-	module: z
-		.any()
-		.describe(
-			'Preprocessor module object. The id will be automatically set to "preprocessor" (do not specify a different id). The preprocessor runs before the main flow starts.'
-		)
-})
-
-const setPreprocessorModuleToolDef = createToolDef(
-	setPreprocessorModuleSchema,
-	'set_preprocessor_module',
-	'Set or update the preprocessor module. The preprocessor runs before the main flow execution starts. The module id is automatically set to "preprocessor".'
-)
-
-const setFailureModuleSchema = z.object({
-	module: z
-		.any()
-		.describe(
-			'Failure handler module object. The id will be automatically set to "failure" (do not specify a different id). Runs when any step in the flow fails.'
-		)
-})
-
-const setFailureModuleToolDef = createToolDef(
-	setFailureModuleSchema,
-	'set_failure_module',
-	'Set or update the failure handler module. This runs automatically when any flow step fails. The module id is automatically set to "failure".'
-)
+const setFailureModuleToolDef: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		strict: false,
+		name: 'set_failure_module',
+		description:
+			'Set or update the failure handler module. This runs automatically when any flow step fails. The module id is automatically set to "failure".',
+		parameters: {
+			type: 'object',
+			properties: {
+				module: {
+					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
+					description:
+						'Failure handler module object. The id will be automatically set to "failure" (do not specify a different id). Runs when any step in the flow fails.'
+				}
+			},
+			required: ['module']
+		}
+	}
+}
 
 class WorkspaceScriptsSearch {
 	private uf: uFuzzy
@@ -1406,8 +1481,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: { ...setFlowSchemaToolDef, function: { ...setFlowSchemaToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			console.log('[tool_set_flow_schema]', args)
-			const parsedArgs = setFlowSchemaSchema.parse(args)
-			let { schema } = parsedArgs
+			let { schema } = args
 
 			// If schema is a JSON string, parse it to an object
 			if (typeof schema === 'string') {
@@ -1442,8 +1516,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			console.log('[tool_set_preprocessor_module]', args)
-			const parsedArgs = setPreprocessorModuleSchema.parse(args)
-			let { module } = parsedArgs
+			let { module } = args
 
 			// Parse module if it's a JSON string
 			if (typeof module === 'string') {
@@ -1457,7 +1530,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			// Handle character-indexed object (bug case) - reconstruct string
 			if (module && typeof module === 'object' && !Array.isArray(module)) {
 				const keys = Object.keys(module)
-				if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+				if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
 					const reconstructed = Object.values(module).join('')
 					try {
 						module = JSON.parse(reconstructed)
@@ -1515,8 +1588,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			console.log('[tool_set_failure_module]', args)
-			const parsedArgs = setFailureModuleSchema.parse(args)
-			let { module } = parsedArgs
+			let { module } = args
 
 			// Parse module if it's a JSON string
 			if (typeof module === 'string') {
@@ -1530,7 +1602,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			// Handle character-indexed object (bug case) - reconstruct string
 			if (module && typeof module === 'object' && !Array.isArray(module)) {
 				const keys = Object.keys(module)
-				if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+				if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
 					const reconstructed = Object.values(module).join('')
 					try {
 						module = JSON.parse(reconstructed)
