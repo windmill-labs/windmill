@@ -281,7 +281,7 @@ function extractFields(fields: Record<string, any>) {
 }
 
 
-export function extractFieldsForApps(runnables: Record<string, any>) {
+export function extractFieldsForRawApps(runnables: Record<string, any>) {
   Object.values(runnables).forEach((v) => {
     if (typeof v == "object") {
       if (v.fields !== undefined) {
@@ -490,7 +490,7 @@ function ZipFSElement(
             let inlineScripts;
             const value = rawApp?.["value"];
             // console.log("FOOB", value?.["runnables"])
-            extractFieldsForApps(value?.["runnables"]);
+            extractFieldsForRawApps(value?.["runnables"]);
             try {
               inlineScripts = extractInlineScriptsForApps(
                 undefined,
