@@ -12,7 +12,7 @@
 		PostgresTriggerService,
 		CaptureService,
 		type ScriptLang,
-		WorkerService
+		WorkerService,
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -189,7 +189,7 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-
+	
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -1759,6 +1759,7 @@
 							/>
 						</div>
 					{/if}
+					
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
