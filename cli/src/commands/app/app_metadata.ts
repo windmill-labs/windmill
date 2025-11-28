@@ -14,15 +14,14 @@ import {
   clearGlobalLock,
   updateMetadataGlobalLock,
   inferSchema,
-  findClosestRawReqs,
+  getRawWorkspaceDependencies,
 } from "../../utils/metadata.ts";
-import { ScriptLanguage } from "../../utils/script_common.ts";
+import { ScriptLanguage, workspaceDependenciesLanguages } from "../../utils/script_common.ts";
 import {
   inferContentTypeFromFilePath,
-  languagesWithRawReqsSupport,
 } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
-import { exts, findGlobalDeps } from "../script/script.ts";
+import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { AppFile } from "./raw_apps.ts";
@@ -86,7 +85,6 @@ export async function generateAppLocksInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  useRawReqs?: boolean
 ): Promise<string | void> {
   if (appFolder.endsWith(SEP)) {
     appFolder = appFolder.substring(0, appFolder.length - 1);
@@ -98,24 +96,10 @@ export async function generateAppLocksInternal(
     log.info(`Generating locks for app ${appFolder} at ${remote_path}`);
   }
 
-  let rawReqs: Record<string, string> | undefined = undefined;
-  if (useRawReqs) {
-    // Find all dependency files in the workspace
-    const globalDeps = await findGlobalDeps();
+  const rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
 
-    // Find closest dependency files for this app
-    rawReqs = {};
 
-    languagesWithRawReqsSupport.map((lang) => {
-      const dep = findClosestRawReqs(lang, appFolder, globalDeps);
-      if (dep) {
-        // @ts-ignore
-        rawReqs[lang.language] = dep;
-      }
-    });
-  }
-
-  let hashes = await generateAppHash(rawReqs, appFolder, opts.defaultTs);
+  let hashes = await generateAppHash(rawWorkspaceDependencies, appFolder, opts.defaultTs);
 
   const conf = await import("../../utils/metadata.ts").then((m) =>
     m.readLockfile()
@@ -133,15 +117,12 @@ export async function generateAppLocksInternal(
     return remote_path;
   }
 
-  if (useRawReqs) {
-    log.warn(
-      "If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)"
-    );
+  if (Object.keys(rawWorkspaceDependencies).length > 0) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (${languagesWithRawReqsSupport
-          .map((l) => l.rrFilename)
-          .join("/")}) for ${appFolder}, using it`
+        `Found workspace dependencies (${workspaceDependenciesLanguages
+          .map((l) => l.filename)
+          .join("/")}) for ${appFolder}, using them`
       )
     );
   }
@@ -178,7 +159,7 @@ export async function generateAppLocksInternal(
         appFile.runnables,
         remote_path,
         appFolder,
-        rawReqs,
+        rawWorkspaceDependencies,
         opts.defaultTs
       );
 
@@ -193,7 +174,7 @@ export async function generateAppLocksInternal(
   }
 
   // Regenerate hashes after updates
-  hashes = await generateAppHash(rawReqs, appFolder, opts.defaultTs);
+  hashes = await generateAppHash(rawWorkspaceDependencies, appFolder, opts.defaultTs);
   await clearGlobalLock(appFolder);
   for (const [scriptPath, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(appFolder, hash, scriptPath);

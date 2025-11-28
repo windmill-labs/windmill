@@ -210,7 +210,6 @@ export async function generateLocksCommand(
       opts,
       false,
       false,
-      true
     );
   } else {
     // Generate metadata for all apps
@@ -238,7 +237,6 @@ export async function generateLocksCommand(
         opts,
         false,
         true,
-        true
       );
       if (candidate) {
         hasAny = true;
@@ -273,7 +271,6 @@ export async function generateLocksCommand(
         opts,
         false,
         true,
-        true
       );
     }
   }

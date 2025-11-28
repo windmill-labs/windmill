@@ -8,6 +8,7 @@ import {
 import { Workspace } from "../commands/workspace/workspace.ts";
 import {
   ScriptLanguage,
+  workspaceDependenciesLanguages,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
