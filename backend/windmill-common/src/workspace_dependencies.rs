@@ -585,7 +585,7 @@ impl WorkspaceDependenciesPrefetched {
 }
 
 #[derive(Debug, Clone)]
-pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
+pub struct WorkspaceDependenciesAnnotatedRefs<T> {
     /// ```python
     /// # requirements:
     /// # rich==x.y.z    <<
@@ -602,21 +602,8 @@ pub struct WorkspaceDependenciesAnnotatedRefs<T: Container> {
     /// The workflow is following:
     /// 1. You create Self with <[[String]]> - this will fetch a minimal amount of info (just the name).
     /// 2. You [[Self::expand]] to replace all external names with <[[WorkspaceDependencies]]>
-    pub external: Vec<T::Ty>,
+    pub external: Vec<T>,
     pub mode: Mode,
-}
-
-/// Trait allowing the same struct to hold either String names (fast parsing without DB)
-/// or resolved WorkspaceDependencies objects (after DB expansion).
-pub trait Container {
-    // TODO(#29661): Use default associated type
-    type Ty;
-}
-impl Container for String {
-    type Ty = Self;
-}
-impl Container for WorkspaceDependencies {
-    type Ty = Self;
 }
 
 /// `# extra_requirements:` - Extra
@@ -682,7 +669,7 @@ impl WorkspaceDependenciesPrefetchedInternal {
     }
 }
 
-impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRefs<T> {
+impl WorkspaceDependenciesAnnotatedRefs<WorkspaceDependencies> {
     fn assert_no_inline(&self) -> Result<(), String> {
         if self.inline.is_none() {
             Ok(())
@@ -733,7 +720,7 @@ impl<T: Container<Ty = WorkspaceDependencies>> WorkspaceDependenciesAnnotatedRef
     }
 }
 
-impl<T: Container<Ty = String>> WorkspaceDependenciesAnnotatedRefs<T> {
+impl WorkspaceDependenciesAnnotatedRefs<String> {
     pub(super) async fn expand(
         self,
         language: ScriptLang,
