@@ -617,13 +617,6 @@
 				/>
 				<Tab
 					small
-					value="dependencies"
-					aiId="workspace-settings-dependencies"
-					aiDescription="Enforced dependencies settings"
-					label="Enforced Dependencies"
-				/>
-				<Tab
-					small
 					value="deploy_to"
 					aiId="workspace-settings-deploy-to"
 					aiDescription="Deployment UI workspace settings"
@@ -700,6 +693,13 @@
 					aiId="workspace-settings-general"
 					aiDescription="General workspace settings"
 					label="General"
+				/>
+				<Tab
+					small
+					value="dependencies"
+					aiId="workspace-settings-dependencies"
+					aiDescription="Workspace dependencies settings"
+					label="Dependencies"
 				/>
 			</Tabs>
 		</div>
