@@ -221,6 +221,7 @@
 				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
 				refreshStateStore(flowStore)
 			} catch (error) {
+				console.error('setFlowJson error:', error)
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
 				)
