@@ -309,9 +309,13 @@ function reconstructMergedFlow(
 	// Create a Set for faster lookup
 	const removedModulesSet = new Set(removedModules)
 
+	// Cache beforeFlow modules map and merged IDs to avoid recomputing in the loop
+	const beforeModulesMap = getAllModulesMap(beforeFlow)
+	const mergedIds = getAllModuleIds(merged)
+
 	// For each removed module, find its parent and insert it
 	for (const removedId of removedModules) {
-		const beforeModule = getAllModulesMap(beforeFlow).get(removedId)
+		const beforeModule = beforeModulesMap.get(removedId)
 		if (!beforeModule) continue
 
 		const parentLocation = findModuleParent(beforeFlow, removedId)
@@ -335,10 +339,12 @@ function reconstructMergedFlow(
 		// Check for ID collision - this happens when a module type changed
 		// In this case, the new module is already in the merged flow as 'added'
 		// We prepend the duplicate prefix to the removed module's ID so both can coexist
-		const existingIds = getAllModuleIds(merged)
-		if (existingIds.has(clonedModule.id)) {
+		if (mergedIds.has(clonedModule.id)) {
 			clonedModule = prependModuleId(clonedModule, DUPLICATE_MODULE_PREFIX)
 		}
+
+		// Track the newly added module ID
+		mergedIds.add(clonedModule.id)
 
 		// Insert based on parent location
 		if (parentLocation.type === 'failure') {
