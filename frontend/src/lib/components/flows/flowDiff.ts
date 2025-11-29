@@ -7,6 +7,25 @@ import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 export const DUPLICATE_MODULE_PREFIX = 'old__'
 
 /**
+ * Normalizes a FlowModule for comparison by removing properties that
+ * should be ignored when determining if a module has changed.
+ * Specifically, removes empty `assets` arrays since their presence/absence
+ * is not a meaningful difference.
+ */
+function normalizeModuleForComparison(module: FlowModule): FlowModule {
+	const normalized = { ...module }
+	if ('value' in normalized && normalized.value && typeof normalized.value === 'object') {
+		const value = { ...normalized.value } as Record<string, unknown>
+		// Remove empty assets array - it's not a meaningful difference
+		if (Array.isArray(value.assets) && value.assets.length === 0) {
+			delete value.assets
+		}
+		normalized.value = value as FlowModule['value']
+	}
+	return normalized
+}
+
+/**
  * The complete diff result with action maps and merged flow
  */
 export type FlowTimeline = {
@@ -66,7 +85,7 @@ export function computeFlowModuleDiff(
 				// Type changed -> treat as removed + added
 				beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
 				afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
-			} else if (!deepEqual(beforeModule, afterModule)) {
+			} else if (!deepEqual(normalizeModuleForComparison(beforeModule), normalizeModuleForComparison(afterModule))) {
 				// Same type but different content -> modified
 				beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
 				afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }
