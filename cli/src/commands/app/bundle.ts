@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
+import { spawn } from "node:child_process";
 import { log, colors } from "../../../deps.ts";
 import { windmillUtils } from "../../../deps.ts";
 export interface BundleOptions {
@@ -31,6 +32,66 @@ export const DEFAULT_BUILD_OPTIONS = {
 };
 
 /**
+ * Detects which frontend frameworks are present in package.json
+ */
+export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolean } {
+  const packageJsonPath = path.join(appDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return { svelte: false, vue: false };
+  }
+
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+    const allDeps = {
+      ...packageJson.dependencies,
+      ...packageJson.devDependencies,
+    };
+
+    return {
+      svelte: "svelte" in allDeps,
+      vue: "vue" in allDeps,
+    };
+  } catch {
+    return { svelte: false, vue: false };
+  }
+}
+
+/**
+ * Creates framework-specific esbuild plugins based on detected dependencies
+ */
+export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
+  const frameworks = detectFrameworks(appDir);
+  const plugins: any[] = [];
+
+  if (frameworks.svelte) {
+    log.info(colors.blue("🔧 Svelte detected, adding svelte plugin..."));
+    try {
+      const esbuildSvelte = await import("npm:esbuild-svelte@0.9.3");
+      const sveltePreprocess = await import("npm:svelte-preprocess@6.0.3");
+      plugins.push(
+        esbuildSvelte.default({
+          preprocess: sveltePreprocess.default(),
+        })
+      );
+    } catch (error: any) {
+      log.warn(colors.yellow(`Failed to load svelte plugin: ${error.message}`));
+    }
+  }
+
+  if (frameworks.vue) {
+    log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
+    try {
+      const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
+      plugins.push(esbuildPluginVue.default());
+    } catch (error: any) {
+      log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
+    }
+  }
+
+  return plugins;
+}
+
+/**
  * Ensures node_modules exists in the specified directory
  * Runs npm install if node_modules is missing
  * @param appDir Directory to check for node_modules (defaults to entry point directory)
@@ -41,13 +102,15 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 
   if (!fs.existsSync(nodeModulesPath)) {
     log.info(colors.yellow("📦 node_modules not found, running npm install..."));
-    const npmInstall = new Deno.Command("npm", {
-      args: ["install"],
-      cwd: targetDir,
-      stdout: "inherit",
-      stderr: "inherit",
+    const code = await new Promise<number>((resolve, reject) => {
+      const npmInstall = spawn("npm", ["install"], {
+        cwd: targetDir,
+        stdio: "inherit",
+        shell: true,
+      });
+      npmInstall.on("close", (code) => resolve(code ?? 0));
+      npmInstall.on("error", reject);
     });
-    const { code } = await npmInstall.output();
     if (code !== 0) {
       throw new Error(`npm install failed with exit code ${code}`);
     }
@@ -66,12 +129,15 @@ export async function createBundle(
   // Dynamically import esbuild
   const esbuild = await import("npm:esbuild@0.24.2");
 
-  const entryPoint = options.entryPoint ?? "index.tsx";
+  // Detect frameworks to determine default entry point
+  const frameworks = detectFrameworks(process.cwd());
+  const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+
+  const entryPoint = options.entryPoint ?? defaultEntry;
   const outDir = options.outDir ?? "dist";
   const sourcemap = options.sourcemap ?? false;
   const minify = options.minify ?? true;
   const production = options.production ?? true;
-
 
   // Verify entry point exists
   if (!fs.existsSync(entryPoint)) {
@@ -81,8 +147,11 @@ export async function createBundle(
   }
 
   // Ensure node_modules exists in the app directory
-  const appDir = path.dirname(entryPoint);
+  const appDir = path.dirname(entryPoint) || process.cwd();
   await ensureNodeModules(appDir);
+
+  // Load framework-specific plugins (svelte, vue) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir);
 
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
@@ -131,7 +200,7 @@ export async function createBundle(
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
-    plugins: [wmillPlugin],
+    plugins: [...frameworkPlugins, wmillPlugin],
   };
 
   log.info(colors.blue("📦 Building bundle..."));

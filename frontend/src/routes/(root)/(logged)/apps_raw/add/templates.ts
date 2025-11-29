@@ -122,7 +122,7 @@ export const svelte5Template = {
   '/index.css': indexCss,
   '/package.json': `{
     "dependencies": {
-        "svelte": "5.16.1",
+        "svelte": "5.45.2",
         "windmill-client": "^1"
     }
 }`,

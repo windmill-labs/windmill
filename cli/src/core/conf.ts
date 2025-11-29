@@ -102,7 +102,9 @@ export interface Codebase {
   inject?: string[];
   loader?: any;
   format?: "cjs" | "esm";
-  banner?: string | { js?: string };
+  banner?: {
+    [type: string]: string;
+};
 }
 
 function getGitRepoRoot(): string | null {
