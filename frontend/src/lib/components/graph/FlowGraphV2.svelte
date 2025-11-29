@@ -472,12 +472,6 @@
 
 	// Sync props to diffManager
 	$effect(() => {
-		console.log('[FlowDiff] FlowGraphV2 effect: syncing currentFlow to diffManager', {
-			modulesCount: modules?.length,
-			hasFailureModule: !!failureModule,
-			hasPreprocessorModule: !!preprocessorModule
-		})
-
 		// Always sync current flow state to diffManager
 		const currentFlowValue = {
 			modules: modules,
@@ -491,7 +485,6 @@
 
 		// Handle diff mode setup
 		if (diffBeforeFlow) {
-			console.log('[FlowDiff] FlowGraphV2 effect: diff mode enabled')
 			diffManager.setEditMode(editMode)
 			diffManager.setSnapshot(diffBeforeFlow)
 			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)

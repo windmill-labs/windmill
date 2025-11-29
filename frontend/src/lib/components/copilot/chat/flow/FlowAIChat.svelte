@@ -160,7 +160,6 @@
 		setFlowJson: async (json: string) => {
 			try {
 				// Parse JSON to JavaScript object
-				console.log('HERE JSON', json)
 				const parsed = JSON.parse(json)
 
 				// Validate that it has the expected structure
@@ -218,13 +217,9 @@
 
 				diffManager?.setEditMode(true)
 
-				console.log('[FlowDiff] setFlowJson: modifying flowStore and calling refreshStateStore')
-
 				// Refresh the state store to update UI
 				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
 				refreshStateStore(flowStore)
-
-				console.log('[FlowDiff] setFlowJson: done, FlowGraphV2 effect will sync automatically')
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`

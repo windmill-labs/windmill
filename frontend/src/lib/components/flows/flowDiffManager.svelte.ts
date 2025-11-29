@@ -82,12 +82,6 @@ export function createFlowDiffManager() {
 	// Auto-compute diff when beforeFlow or currentFlow changes
 	$effect(() => {
 		if (beforeFlow && currentFlow) {
-			console.log('[FlowDiff] diffManager effect: computing diff', {
-				beforeModulesCount: beforeFlow.value.modules?.length,
-				currentModulesCount: currentFlow.modules?.length,
-				editMode
-			})
-
 			const timeline = buildFlowTimeline(beforeFlow.value, currentFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: editMode
@@ -110,7 +104,6 @@ export function createFlowDiffManager() {
 				}
 			}
 
-			console.log('[FlowDiff] diffManager effect: computed actions', Object.keys(newActions))
 			updateModuleActions(newActions)
 
 			// If no more actions, clear the snapshot (exit diff mode)
@@ -142,7 +135,6 @@ export function createFlowDiffManager() {
 	 * Set the current flow state for diff computation
 	 */
 	function setCurrentFlow(flow: FlowValue | undefined) {
-		console.log('[FlowDiff] setCurrentFlow called', { modulesCount: flow?.modules?.length })
 		currentFlow = flow
 	}
 
