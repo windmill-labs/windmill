@@ -68,19 +68,15 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
-${Object.entries(runnables)
-	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)};`)
-	.join('\n\n')}
-
 export declare const runBg: {
-${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>;`)
+${Object.entries(runnables)
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
 	.join('\n')}
 };
 
 export declare const runBgAsync: {
-${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>;`)
+${Object.entries(runnables)
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
 	.join('\n')}
 };
 
