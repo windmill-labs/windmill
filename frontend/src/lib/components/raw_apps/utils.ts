@@ -1,7 +1,6 @@
 import type { ScriptLang } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
-import { capitalize } from '../../sharedUtils'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
 

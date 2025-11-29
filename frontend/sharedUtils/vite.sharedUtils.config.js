@@ -5,7 +5,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
-const VERSION = '1.0.9'
+const VERSION = '1.0.10'
 
 export default defineConfig({
 	build: {
