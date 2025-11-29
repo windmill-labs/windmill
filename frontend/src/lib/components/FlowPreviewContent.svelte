@@ -36,8 +36,6 @@
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowChat from './flows/conversations/FlowChat.svelte'
 
 	interface Props {

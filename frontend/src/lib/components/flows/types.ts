@@ -14,7 +14,6 @@ import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
-import type { createFlowDiffManager } from './flowDiffManager.svelte'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
 
