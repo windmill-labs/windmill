@@ -10,10 +10,10 @@
 	import { sendUserToast } from '$lib/toast'
 
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
-	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
 	import { react18Template, react19Template, svelte5Template, vueTemplate } from './templates'
+	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -43,7 +43,7 @@
 		execution_mode: 'publisher'
 	}
 
-	let runnables: Record<string, HiddenRunnable> = {
+	let runnables: Record<string, Runnable> = {
 		a: {
 			name: 'a',
 			fields: {},
