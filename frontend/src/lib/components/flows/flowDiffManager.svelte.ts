@@ -207,32 +207,46 @@ export function createFlowDiffManager() {
 
 	/**
 	 * Internal helper to delete a module from a flow object
+	 * Returns true if the module was found and deleted, false otherwise
 	 */
-	function deleteModuleInternal(id: string, flow: ExtendedOpenFlow) {
+	function deleteModuleInternal(id: string, flow: ExtendedOpenFlow): boolean {
 		if (flow.value.preprocessor_module?.id === id) {
 			flow.value.preprocessor_module = undefined
+			return true
 		} else if (flow.value.failure_module?.id === id) {
 			flow.value.failure_module = undefined
+			return true
 		} else {
-			const { modules } = getIndexInNestedModules(flow, id)
+			const result = getIndexInNestedModules(flow, id)
+			if (!result) {
+				// Module not found (may have been deleted along with a parent)
+				return false
+			}
+			const { modules } = result
 			const index = modules.findIndex((m) => m.id === id)
 			if (index >= 0) {
 				modules.splice(index, 1)
+				return true
 			}
+			return false
 		}
 	}
 
 	/**
 	 * Helper to delete a module from the flow
+	 * Returns true if the module was found and deleted, false otherwise
 	 */
 	function deleteModuleFromFlow(
 		id: string,
 		flowStore: StateStore<ExtendedOpenFlow>,
 		selectNextIdFn?: (id: string) => void
-	) {
+	): boolean {
 		selectNextIdFn?.(id)
-		deleteModuleInternal(id, flowStore.val)
-		refreshStateStore(flowStore)
+		const deleted = deleteModuleInternal(id, flowStore.val)
+		if (deleted) {
+			refreshStateStore(flowStore)
+		}
+		return deleted
 	}
 
 	/**
@@ -341,6 +355,7 @@ export function createFlowDiffManager() {
 				currentInputSchema = flowStore.val.schema
 			} else if (info.action === 'added') {
 				// Added in after: Remove from flowStore (currentFlow)
+				// deleteModuleFromFlow handles the case where the module was already deleted (e.g., with its parent)
 				deleteModuleFromFlow(actualId, flowStore)
 			} else if (info.action === 'removed') {
 				// Removed in after: Restore to flowStore (currentFlow)
