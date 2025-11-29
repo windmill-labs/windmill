@@ -30,3 +30,4 @@ async-recursion.workspace = true
 toml.workspace = true
 serde.workspace = true
 pep440_rs.workspace = true
+tracing.workspace = true

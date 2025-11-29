@@ -31,8 +31,8 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_mini_completed_job, CanceledBy, JobCompleted, MiniCompletedJob, MiniPulledJob,
-    ValidableJson, WrappedError, INIT_SCRIPT_TAG,
+    append_logs, get_mini_completed_job, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob,
+    MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -66,6 +66,7 @@ async fn process_jc(
     same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
     stats_map: &JobStatsMap,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let success: bool = jc.success;
@@ -155,6 +156,7 @@ async fn process_jc(
         same_worker_tx,
         &worker_name,
         job_completed_sender.clone(),
+        killpill_rx,
         #[cfg(feature = "benchmark")]
         bench,
     )
@@ -285,6 +287,7 @@ pub fn start_background_processor(
                         Some(&same_worker_tx),
                         &job_completed_sender,
                         &stats_map,
+                        &killpill_rx,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -350,6 +353,8 @@ pub fn start_background_processor(
                         stop_early_override,
                         &worker_name,
                         job_completed_sender.clone(),
+                        None,
+                        &killpill_rx,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -413,6 +418,7 @@ pub async fn process_result(
     conn: &Connection,
     duration: Option<i64>,
     has_stream: bool,
+    flow_runners: Option<Arc<FlowRunners>>,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -431,6 +437,8 @@ pub async fn process_result(
                     duration,
                     has_stream: Some(has_stream),
                     from_cache: None,
+                    flow_runners,
+                    done_tx: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -495,6 +503,8 @@ pub async fn process_result(
                     duration,
                     has_stream: Some(has_stream),
                     from_cache: None,
+                    flow_runners,
+                    done_tx: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -512,6 +522,7 @@ pub async fn handle_receive_completed_job(
     same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
     let token = jc.token.clone();
@@ -529,6 +540,7 @@ pub async fn handle_receive_completed_job(
         same_worker_tx.clone(),
         worker_name,
         job_completed_tx.clone(),
+        killpill_rx,
         #[cfg(feature = "benchmark")]
         bench,
     )
@@ -548,6 +560,7 @@ pub async fn handle_receive_completed_job(
                 &worker_dir,
                 worker_name,
                 job_completed_tx,
+                killpill_rx,
                 #[cfg(feature = "benchmark")]
                 bench,
             )
@@ -571,6 +584,8 @@ pub async fn process_completed_job(
         preprocessed_args,
         has_stream,
         from_cache,
+        flow_runners,
+        done_tx,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -579,6 +594,7 @@ pub async fn process_completed_job(
     same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     if success {
@@ -661,12 +677,19 @@ pub async fn process_completed_job(
                     None,
                     worker_name,
                     job_completed_tx,
+                    flow_runners,
+                    killpill_rx,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
                 .warn_after_seconds(10)
                 .await?;
                 add_time!(bench, "updated flow status END");
+                if let Some(done_tx) = done_tx {
+                    done_tx
+                        .send(())
+                        .expect("done receiver should still be alive");
+                }
                 return Ok(r);
             }
         }
@@ -707,11 +730,18 @@ pub async fn process_completed_job(
                     None,
                     worker_name,
                     job_completed_tx,
+                    flow_runners,
+                    killpill_rx,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
                 .warn_after_seconds(10)
                 .await?;
+                if let Some(done_tx) = done_tx {
+                    done_tx
+                        .send(())
+                        .expect("done receiver should still be alive");
+                }
                 return Ok(r);
             }
         }
@@ -761,6 +791,7 @@ pub async fn handle_job_error(
     worker_dir: &str,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let err_string = format!("{}: {}", err.name(), err.to_string());
@@ -809,6 +840,8 @@ pub async fn handle_job_error(
             None,
             worker_name,
             job_completed_tx.clone(),
+            None,
+            killpill_rx,
             #[cfg(feature = "benchmark")]
             bench,
         )

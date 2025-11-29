@@ -1,7 +1,16 @@
-import type { Schema } from '$lib/common'
-import { schemaToTsType } from '$lib/schema'
-import { capitalize } from '$lib/utils'
-import type { HiddenRunnable } from '../apps/types'
+import type { ScriptLang } from '../../gen/types.gen'
+import type { Schema } from '../../common'
+import { schemaToTsType } from '../../schema'
+import { capitalize } from '../../sharedUtils'
+import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
+import type { InlineScript } from '../apps/sharedTypes'
+
+// export type RunnableWithFields = any
+
+type RunnableWithInlineScript = RunnableWithFields & {
+	inlineScript?: InlineScript & { language: ScriptLang }
+}
+export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
@@ -39,71 +48,63 @@ function removeStaticFields(schema: Schema, fields: Record<string, { type: strin
 	}
 }
 
-function hiddenRunnableToTsType(runnable: HiddenRunnable) {
-	if (runnable.type == 'runnableByName') {
-		if (runnable.inlineScript?.schema) {
-			return schemaToTsType(removeStaticFields(runnable.inlineScript?.schema, runnable.fields))
+function hiddenRunnableToTsType(runnable: Runnable) {
+	if (isRunnableByName(runnable)) {
+		if (runnable?.inlineScript?.schema) {
+			return schemaToTsType(
+				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
+			)
 		} else {
 			return '{}'
 		}
-	} else if (runnable.type == 'runnableByPath') {
-		return schemaToTsType(removeStaticFields(runnable.schema, runnable.fields))
+	} else if (isRunnableByPath(runnable)) {
+		return schemaToTsType(removeStaticFields(runnable?.schema, runnable?.fields ?? {}))
 	} else {
 		return '{}'
 	}
 }
 
-export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
+export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
-	
+
 ${Object.entries(runnables)
-			.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)};`)
+	.join('\n\n')}
 
-			.join('\n')}
+export declare const runBg: {
+${Object.keys(runnables)
+	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>;`)
+	.join('\n')}
+};
 
-export const runBg = {
+export declare const runBgAsync: {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
-			.join(',\n')}
-}
-	
-export const runBgAsync = {
-${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
-			.join(',\n')}
-}
-	
+	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>;`)
+	.join('\n')}
+};
 
 export type Job = {
-	type: 'QueuedJob' | 'CompletedJob'
-	id: string
-	created_at: number
-	started_at: number | undefined
-	duration_ms: number
-	success: boolean
-	args: any
-	result: any
-}
+  type: "QueuedJob" | "CompletedJob";
+  id: string;
+  created_at: number;
+  started_at: number | undefined;
+  duration_ms: number;
+  success: boolean;
+  args: any;
+  result: any;
+};
 
 /**
-* Execute a job and wait for it to complete and return the completed job
-* @param id
-*/
-// @ts-ignore
-export function waitJob(id: string): Promise<Job> {
-	// implementation passed when bundling/deploying
-	return null as unknown as Promise<Job>
-}
+ * Execute a job and wait for it to complete and return the completed job
+ * @param id
+ */
+export declare function waitJob(id: string): Promise<Job>;
 
 /**
-* Get a job by id and return immediately with the current state of the job
-* @param id
-*/
-// @ts-ignore
-export function getJob(id: string): Promise<Job> {
-	// implementation passed when bundling/deploying
-	return null as unknown as Promise<Job>
-}
+ * Get a job by id and return immediately with the current state of the job
+ * @param id
+ */
+export declare function getJob(id: string): Promise<Job>;
 `
 }

@@ -83,7 +83,7 @@ export function getDeleteInput(
 	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 	const deleteRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: {
 			content: query,
 			language: getLanguageByResourceType(dbType),

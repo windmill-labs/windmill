@@ -111,7 +111,7 @@ export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnD
 	return {
 		runnable: {
 			name: 'AppDbExplorer',
-			type: 'runnableByName',
+			type: 'inline',
 			inlineScript: {
 				content: query,
 				language: getLanguageByResourceType(dbType),

@@ -15,15 +15,69 @@ import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
+import devCommand from "./dev.ts";
 
 export interface AppFile {
   value: any;
+  public?: boolean;
   summary: string;
   policy: Policy;
 }
 
 const alreadySynced: string[] = [];
 
+function respecializeFields(fields: Record<string, any>) {
+  Object.entries(fields).forEach(([k, v]) => {
+    if (typeof v == "object") {
+      if (v.value !== undefined) {
+        fields[k] = { value: v.value, type: "static" }
+      } else if (v.expr !== undefined) {
+        fields[k] = { expr: v.expr, allowUserResources: v.allowUserResources, type: "javascript" }
+      }
+    }
+  })
+}
+
+export function repopulateFields(runnables: Record<string, any>) {
+  Object.values(runnables).forEach((v) => {
+    if (typeof v == "object") {
+      if (v.fields !== undefined) {
+        respecializeFields(v.fields)
+      }
+    }
+  })
+}
+export function replaceInlineScripts(rec: any, localPath: string) {
+  if (!rec) {
+    return;
+  }
+  if (typeof rec == "object") {
+    return Object.entries(rec).flatMap(([k, v]) => {
+      if (k == 'runType') {
+        rec["type"] = 'path'
+        
+      } else if (k == "inlineScript" && typeof v == "object") {
+        rec["type"] = 'inline'
+        const o: Record<string, any> = v as any;
+
+        if (o["content"] && o["content"].startsWith("!inline")) {
+          const basePath = localPath + o["content"].split(" ")[1];
+          o["content"] = readInlinePathSync(basePath);
+        }
+        if (o["lock"] && o["lock"].startsWith("!inline")) {
+          const basePath = localPath + o["lock"].split(" ")[1];
+          o["lock"] = readInlinePathSync(basePath);
+        }
+      } else {
+        replaceInlineScripts(v, localPath);
+      }
+    });
+  }
+  return [];
+}
+export function isExecutionModeAnonymous(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "anonymous";
+}
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -45,6 +99,10 @@ export async function pushApp(
   } catch {
     //ignore
   }
+  if (isExecutionModeAnonymous(app)) {
+    app.public = true;
+  }
+  // console.log(app);
   if (app) {
     app.policy = undefined;
   }
@@ -55,32 +113,8 @@ export async function pushApp(
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
 
-  function replaceInlineScripts(rec: any) {
-    if (!rec) {
-      return;
-    }
-    if (typeof rec == "object") {
-      return Object.entries(rec).flatMap(([k, v]) => {
-        if (k == "inlineScript" && typeof v == "object") {
-          const o: Record<string, any> = v as any;
-          if (o["content"] && o["content"].startsWith("!inline")) {
-            const basePath = localPath + o["content"].split(" ")[1];
-            o["content"] = readInlinePathSync(basePath);
-          }
-          if (o["lock"] && o["lock"].startsWith("!inline")) {
-            const basePath = localPath + o["lock"].split(" ")[1];
-            o["lock"] = readInlinePathSync(basePath);
-          }
-        } else {
-          replaceInlineScripts(v);
-        }
-      });
-    }
-    return [];
-  }
-
-  replaceInlineScripts(localApp.value);
-  await generatingPolicy(localApp, remotePath);
+  replaceInlineScripts(localApp.value, localPath);
+  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -109,11 +143,15 @@ export async function pushApp(
   }
 }
 
-async function generatingPolicy(app: any, path: string) {
+export async function generatingPolicy(
+  app: any,
+  path: string,
+  publicApp: boolean
+) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = "publisher";
+    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
@@ -157,7 +195,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   await requireLogin(opts);
 
   await pushApp(workspace.workspaceId, remotePath, filePath);
-  log.info(colors.bold.underline.green("Flow pushed"));
+  log.info(colors.bold.underline.green("App pushed"));
 }
 
 const command = new Command()
@@ -165,6 +203,22 @@ const command = new Command()
   .action(list as any)
   .command("push", "push a local app ")
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command("dev", devCommand)
+  .command(
+    "generate-locks",
+    "re-generate the lockfiles for app runnables inline scripts that have changed"
+  )
+  .arguments("[app_folder:string]")
+  .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
+  .option(
+    "--default-ts <runtime:string>",
+    "Default TypeScript runtime (bun or deno)"
+  )
+  .action(async (opts: any, appFolder: string | undefined) => {
+    const { generateLocksCommand } = await import("./raw_apps.ts");
+    await generateLocksCommand(opts, appFolder);
+  });
 
 export default command;

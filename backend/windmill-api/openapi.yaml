@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.583.3
+  version: 1.586.0
   title: Windmill API
 
   contact:
@@ -687,6 +687,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
+
+  /w/{workspace}/workspaces/get_as_superadmin:
+    get:
+      summary: get workspace as super admin (require to be super admin)
+      operationId: getWorkspaceAsSuperAdmin
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
 
   /workspaces/list_as_superadmin:
     get:
@@ -2233,6 +2249,56 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/workspaces/get_dependents/{imported_path}:
+    get:
+      summary: get dependents of an imported path
+      operationId: getDependents
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: imported_path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The imported path to get dependents for
+      responses:
+        "200":
+          description: list of dependents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyDependent"
+
+  /w/{workspace}/workspaces/get_dependents_amounts:
+    post:
+      summary: get dependents amounts for multiple imported paths
+      operationId: getDependentsAmounts
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: List of imported paths to get dependents counts for
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: list of dependents amounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependentsAmount"
 
   /w/{workspace}/workspaces/get_dependency_map:
     get:
@@ -5383,6 +5449,126 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/workspace_dependencies/create:
+    post:
+      summary: create workspace dependencies
+      operationId: createWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New workspace dependencies
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewWorkspaceDependencies"
+
+      responses:
+        "201":
+          description: workspace dependencies created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspace_dependencies/archive/{language}:
+    post:
+      summary: archive workspace dependencies (require admin)
+      operationId: archiveWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspace_dependencies/delete/{language}:
+    post:
+      summary: delete workspace dependencies (require admin)
+      operationId: deleteWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspace_dependencies/list:
+    get:
+      summary: list all workspace dependencies
+      operationId: listWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: All workspace dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkspaceDependencies"
+
+  /w/{workspace}/workspace_dependencies/get_latest/{language}:
+    get:
+      summary: get latest workspace dependencies by language and name
+      operationId: getLatestWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest workspace dependencies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDependencies"
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
@@ -15743,6 +15929,52 @@ components:
           items:
             $ref: "#/components/schemas/Alert"
 
+    WorkspaceDependencies:
+      type: object
+      properties:
+        id:
+          type: integer
+        archived:
+          type: boolean
+        name:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        workspace_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - workspace_id
+        - language
+        - created_at
+        - content
+        - id
+        - archived
+
+    NewWorkspaceDependencies:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        name:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+      required:
+        - workspace_id
+        - language
+        - content
+
     Script:
       type: object
       properties:
@@ -18940,6 +19172,38 @@ components:
         importer_node_id:
           type: string
           nullable: true
+
+    DependencyDependent:
+      type: object
+      properties:
+        importer_path:
+          type: string
+        importer_kind:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        importer_node_ids:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - importer_path
+        - importer_kind
+
+    DependentsAmount:
+      type: object
+      properties:
+        imported_path:
+          type: string
+        count:
+          type: integer
+          format: int64
+      required:
+        - imported_path
+        - count
 
     WorkspaceInvite:
       type: object

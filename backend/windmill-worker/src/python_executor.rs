@@ -18,6 +18,8 @@ use tokio::{
     sync::Semaphore,
     task,
 };
+use windmill_queue::MiniPulledJob;
+
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
@@ -28,7 +30,8 @@ use windmill_common::{
     },
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, write_file, Connection, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -120,13 +123,13 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics, StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
+        read_result, start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
-    PyV, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -546,7 +549,6 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -565,7 +567,7 @@ pub async fn handle_python_job(
         canceled_by,
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
-        annotations,
+        annotations.clone(),
     )
     .await?;
 
@@ -837,10 +839,7 @@ mount {{
     } else {
         let args = vec!["-u", "-m", "wrapper"];
 
-        let mut python_cmd = build_command_with_isolation(
-            &python_path,
-            &args,
-        );
+        let mut python_cmd = build_command_with_isolation(&python_path, &args);
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -1176,36 +1175,43 @@ async fn handle_python_deps(
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
         Some(r) => {
-            let rl = split_requirements(r);
+            let rl = split_python_requirements(r);
             (PyV::parse_from_requirements(&rl), rl)
         }
         // Preview
         None => {
             let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
-                    let mut version_specifiers = vec![];
+                    let (mut version_specifiers, mut locked_v) = (vec![], None);
                     let (r, h) = Box::pin(windmill_parser_py_imports::parse_python_imports(
                         inner_content,
                         w_id,
                         script_path,
                         db,
                         &mut version_specifiers,
+                        &mut locked_v,
+                        &None,
                     ))
                     .await?;
 
-                    let v = PyV::resolve(
-                        version_specifiers,
-                        job_id,
-                        w_id,
-                        annotations.py_select_latest,
-                        Some(conn.clone()),
-                        None,
-                        None,
-                    )
-                    .await?;
+                    let v = if let Some(v) = locked_v {
+                        v.into()
+                    } else {
+                        PyV::resolve(
+                            version_specifiers,
+                            job_id,
+                            w_id,
+                            annotations.py_select_latest,
+                            Some(conn.clone()),
+                            None,
+                            None,
+                        )
+                        .await?
+                    };
 
                     (v, r, h)
                 }
+
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python {
                         requirements,
@@ -1236,7 +1242,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
                             }
                         };
 
-                        let r = split_requirements(requirements.unwrap_or_default());
+                        let r = split_python_requirements(requirements.unwrap_or_default());
                         let h = None;
 
                         (v, r, h)
@@ -2112,15 +2118,6 @@ pub async fn handle_python_reqs(
     };
 }
 
-pub fn split_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
-    requirements
-        .as_ref()
-        .lines()
-        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
-        .map(String::from)
-        .collect()
-}
-
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
@@ -2130,16 +2127,16 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     }
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 use crate::JobCompletedSender;
-#[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{common::build_envs_map, dedicated_worker_oss::handle_dedicated_process};
+#[cfg(feature = "private")]
 use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-use windmill_queue::MiniPulledJob;
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2152,10 +2149,12 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> error::Result<()> {
-    use crate::{PyV, PyVAlias};
+    use crate::PyV;
+    tracing::info!("script path: {}", script_path);
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2314,7 +2313,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        PyV::parse_from_requirements(&split_requirements(requirements.as_str()))
+        PyV::parse_from_requirements(&split_python_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVAlias::Py311.into()
@@ -2346,6 +2345,7 @@ for line in sys.stdin:
         db,
         script_path,
         "python",
+        client,
     )
     .await
 }

@@ -1,8 +1,19 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { getActiveWorkspaceConfigFilePath, getWorkspaceConfigFilePath } from "../../../windmill-utils-internal/src/config/config.ts";
+import {
+  getActiveWorkspaceConfigFilePath,
+  getWorkspaceConfigFilePath,
+} from "../../../windmill-utils-internal/src/config/config.ts";
 import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
-import { colors, Command, Confirm, Input, log, setClient, Table } from "../../../deps.ts";
+import {
+  colors,
+  Command,
+  Confirm,
+  Input,
+  log,
+  setClient,
+  Table,
+} from "../../../deps.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 
@@ -15,7 +26,9 @@ export interface Workspace {
   token: string;
 }
 
-export async function allWorkspaces(configDirOverride?: string): Promise<Workspace[]> {
+export async function allWorkspaces(
+  configDirOverride?: string
+): Promise<Workspace[]> {
   try {
     const file = await getWorkspaceConfigFilePath(configDirOverride);
     const txt = await Deno.readTextFile(file);
@@ -119,15 +132,21 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
   }
 
   await setActiveWorkspace(workspaceName, opts.configDir);
+  const workspace = await getWorkspaceByName(workspaceName, opts.configDir);
+  log.info(
+    colors.green.bold(
+      `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
+    )
+  );
   return;
 }
 
-export async function setActiveWorkspace(workspaceName: string, configDirOverride?: string) {
+export async function setActiveWorkspace(
+  workspaceName: string,
+  configDirOverride?: string
+) {
   const file = await getActiveWorkspaceConfigFilePath(configDirOverride);
-  await Deno.writeTextFile(
-    file,
-    workspaceName
-  );
+  await Deno.writeTextFile(file, workspaceName);
 }
 
 export async function add(
@@ -264,26 +283,44 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
 
   // Check for conflicts before adding
   const existingWorkspaces = await allWorkspaces(opts.configDir);
-  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal() && !opts.force;
+  const isInteractive =
+    Deno.stdin.isTerminal() && Deno.stdout.isTerminal() && !opts.force;
 
   // Check 1: Workspace name already exists
-  const nameConflict = existingWorkspaces.find(w => w.name === workspace.name);
+  const nameConflict = existingWorkspaces.find(
+    (w) => w.name === workspace.name
+  );
   if (nameConflict) {
     // If it's the exact same workspace (same remote + workspaceId), just update the token
-    if (nameConflict.remote === workspace.remote && nameConflict.workspaceId === workspace.workspaceId) {
-      log.info(colors.yellow(`Updating token for existing workspace "${workspace.name}"`));
+    if (
+      nameConflict.remote === workspace.remote &&
+      nameConflict.workspaceId === workspace.workspaceId
+    ) {
+      log.info(
+        colors.yellow(
+          `Updating token for existing workspace "${workspace.name}"`
+        )
+      );
     } else {
       // Different remote or workspaceId - this is a conflict
-      log.info(colors.red.bold(`❌ Workspace name "${workspace.name}" already exists!`));
-      log.info(`   Existing: ${nameConflict.workspaceId} on ${nameConflict.remote}`);
+      log.info(
+        colors.red.bold(`❌ Workspace name "${workspace.name}" already exists!`)
+      );
+      log.info(
+        `   Existing: ${nameConflict.workspaceId} on ${nameConflict.remote}`
+      );
       log.info(`   New:      ${workspace.workspaceId} on ${workspace.remote}`);
 
       if (!isInteractive) {
         // In non-interactive mode (tests, scripts), auto-overwrite with force flag
         if (opts.force) {
-          log.info(colors.yellow("Force flag enabled, overwriting existing workspace."));
+          log.info(
+            colors.yellow("Force flag enabled, overwriting existing workspace.")
+          );
         } else {
-          throw new Error("Workspace name conflict. Use --force to overwrite or choose a different name.");
+          throw new Error(
+            "Workspace name conflict. Use --force to overwrite or choose a different name."
+          );
         }
       } else {
         const overwrite = await Confirm.prompt({
@@ -364,7 +401,9 @@ async function bind(
   opts: GlobalOptions & { branch?: string },
   bindWorkspace?: boolean
 ) {
-  const { isGitRepository, getCurrentGitBranch } = await import("../../utils/git.ts");
+  const { isGitRepository, getCurrentGitBranch } = await import(
+    "../../utils/git.ts"
+  );
 
   if (!isGitRepository()) {
     log.error(colors.red("Not in a Git repository"));
@@ -382,13 +421,19 @@ async function bind(
 
   const activeWorkspace = await getActiveWorkspace(opts);
   if (!activeWorkspace && bindWorkspace) {
-    log.error(colors.red("No active workspace. Use 'wmill workspace add' or 'wmill workspace switch' first"));
+    log.error(
+      colors.red(
+        "No active workspace. Use 'wmill workspace add' or 'wmill workspace switch' first"
+      )
+    );
     return;
   }
 
   // For unbind, check if branch exists
   if (!bindWorkspace && (!config.gitBranches || !config.gitBranches[branch])) {
-    log.error(colors.red(`Branch '${branch}' not found in wmill.yaml gitBranches`));
+    log.error(
+      colors.red(`Branch '${branch}' not found in wmill.yaml gitBranches`)
+    );
     return;
   }
 
@@ -404,16 +449,20 @@ async function bind(
     config.gitBranches[branch].baseUrl = activeWorkspace.remote;
     config.gitBranches[branch].workspaceId = activeWorkspace.workspaceId;
 
-    log.info(colors.green(
-      `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
-      `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
-    ));
+    log.info(
+      colors.green(
+        `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
+          `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+      )
+    );
   } else {
     // Unbind
     delete config.gitBranches[branch].baseUrl;
     delete config.gitBranches[branch].workspaceId;
 
-    log.info(colors.green(`✓ Removed workspace binding from branch '${branch}'`));
+    log.info(
+      colors.green(`✓ Removed workspace binding from branch '${branch}'`)
+    );
   }
 
   // Write back the updated config

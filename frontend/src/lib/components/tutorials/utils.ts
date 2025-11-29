@@ -3,6 +3,7 @@ import { deepEqual } from 'fast-equals'
 import { emptyApp } from '../apps/editor/appUtils'
 import type { App } from '../apps/types'
 import { findGridItem } from '../apps/editor/appUtilsCore'
+import { isRunnableByName } from '../apps/inputType'
 
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement
@@ -102,7 +103,7 @@ export function updateFlowModuleById(
 
 export function updateBackgroundRunnableCode(app: App, index: number, newCode: string) {
 	const script = app.hiddenInlineScripts[index]
-	if (script.type === 'runnableByName' && script.inlineScript) {
+	if (isRunnableByName(script) && script.inlineScript) {
 		script.inlineScript.content = newCode
 	}
 }
@@ -111,7 +112,7 @@ export function updateInlineRunnableCode(app: App, componentId: string, newCode:
 	const gridItem = findGridItem(app, componentId)
 	if (gridItem?.data.componentInput?.type === 'runnable') {
 		if (
-			gridItem.data.componentInput.runnable?.type === 'runnableByName' &&
+			isRunnableByName(gridItem.data.componentInput.runnable) &&
 			gridItem.data.componentInput.runnable.inlineScript
 		) {
 			gridItem.data.componentInput.runnable.inlineScript.content = newCode

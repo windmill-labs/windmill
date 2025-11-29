@@ -3,29 +3,25 @@
 
 	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
-	import type { Preview } from '$lib/gen'
+	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onMount } from 'svelte'
-	import { Maximize2, Trash2 } from 'lucide-svelte'
+	import { Trash2 } from 'lucide-svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema } from '$lib/utils'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import EditorSettings from '$lib/components/EditorSettings.svelte'
-	import InlineScriptEditorDrawer from '../apps/editor/inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
-	import type { InlineScript } from '../apps/types'
-	import type { AppInput } from '../apps/inputType'
+	import type { AppInput, InlineScript } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
-
-	let inlineScriptEditorDrawer = $state() as InlineScriptEditorDrawer | undefined
+	import EditorBar from '../EditorBar.svelte'
+	import { LanguageIcon } from '../common/languageIcons'
 
 	interface Props {
-		inlineScript: InlineScript | undefined
+		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
 		name?: string | undefined
 		id: string
 		fields?: Record<string, AppInput>
@@ -34,18 +30,20 @@
 		onRun: () => Promise<void>
 		onCancel: () => Promise<void>
 		editor?: Editor | undefined
+		lastDeployedCode?: string | undefined
 	}
 
 	let {
 		inlineScript = $bindable(),
 		name = $bindable(undefined),
 		id,
-		fields = $bindable({}),
+		fields = $bindable(undefined),
 		path,
 		isLoading = false,
 		onRun,
 		onCancel,
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		lastDeployedCode
 	}: Props = $props()
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
@@ -66,15 +64,36 @@
 		return schema
 	}
 
+	let websocketAlive = $state({
+		pyright: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	})
+
+	let diffMode = $state(false)
+
+	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
+		diffMode = true
+		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
+		editor?.hide()
+	}
+	function hideDiffMode() {
+		diffMode = false
+		diffEditor?.hide()
+		editor?.show()
+	}
+
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
-			if (inlineScript.language != 'frontend') {
-				inlineScript.schema = await inferInlineScriptSchema(
-					inlineScript?.language,
-					inlineScript?.content,
-					emptySchema()
-				)
-			}
+			inlineScript.schema = await inferInlineScriptSchema(
+				inlineScript?.language,
+				inlineScript?.content,
+				emptySchema()
+			)
 		}
 		syncFields()
 	})
@@ -82,32 +101,20 @@
 	async function syncFields() {
 		if (inlineScript) {
 			const newSchema = inlineScript.schema ?? emptySchema()
-			fields = computeFields(newSchema, true, fields)
+			fields = computeFields(newSchema, true, fields ?? {})
 		}
 	}
 
 	const dispatch = createEventDispatcher()
-
-	let drawerIsOpen: boolean | undefined = $state(undefined)
+	let width = $state(0)
 </script>
 
 {#if inlineScript}
-	{#if inlineScript.language != 'frontend'}
-		<InlineScriptEditorDrawer
-			{id}
-			appPath={path}
-			bind:isOpen={drawerIsOpen}
-			{editor}
-			bind:this={inlineScriptEditorDrawer}
-			bind:inlineScript
-			on:createScriptFromInlineScript={() => {
-				dispatch('createScriptFromInlineScript')
-				drawerIsOpen = false
-			}}
-		/>
-	{/if}
-	<div class="h-full flex flex-col gap-1">
+	<div class="h-full flex flex-col gap-1" bind:clientWidth={width}>
 		<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
+			<div class="mx-0.5">
+				<LanguageIcon lang={inlineScript.language} width={20} height={20} />
+			</div>
 			{#if name !== undefined}
 				<div class="flex flex-row gap-2 w-full items-center">
 					<input
@@ -115,57 +122,22 @@
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-sm !shadow-none"
-						onkeyup={() => {
-							// $app = $app
-							// if (stateId) {
-							// 	$stateId++
-							// }
-						}}
 					/>
-					<div
-						title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-						class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-					></div>
 				</div>
-			{/if}
-			<div class="flex w-full flex-row gap-1 items-center justify-end">
-				{#if inlineScript}
-					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
-				{/if}
-				<ScriptGen
-					lang={inlineScript?.language}
-					{editor}
-					{diffEditor}
-					inlineScript
-					args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
-						acc[key] = obj.type === 'static' ? obj.value : undefined
-						return acc
-					}, {})}
-				/>
-				<EditorSettings />
-
 				<Button
-					title="Delete"
+					title="Clear script"
 					size="xs2"
 					color="light"
 					variant="contained"
-					aria-label="Delete"
+					aria-label="Clear script"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>
-				{#if inlineScript.language != 'frontend'}
-					<Button
-						size="xs2"
-						color="light"
-						title="Full Editor"
-						variant="contained"
-						on:click={() => {
-							inlineScriptEditorDrawer?.openDrawer()
-						}}
-						endIcon={{ icon: Maximize2 }}
-						iconOnly
-					/>
+			{/if}
+			<div class="flex w-full flex-row gap-2 items-center justify-end">
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
 				{/if}
 
 				<Button
@@ -174,9 +146,6 @@
 					on:click={async () => {
 						editor?.format()
 					}}
-					shortCut={{
-						key: 'S'
-					}}
 				>
 					Format
 				</Button>
@@ -184,51 +153,66 @@
 			</div>
 		</div>
 
-		<!-- {inlineScript.content} -->
+		<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
+			<EditorBar
+				{validCode}
+				{editor}
+				lang={inlineScript.language}
+				{websocketAlive}
+				iconOnly={width < 950}
+				kind={'script'}
+				template={'script'}
+				on:showDiffMode={showDiffMode}
+				on:hideDiffMode={hideDiffMode}
+				{lastDeployedCode}
+				{diffMode}
+				openAiChat
+				moduleId={id}
+			/>
+		</div>
 
-		<div class="border-y h-full w-full">
-			{#if !drawerIsOpen && inlineScript.language != 'frontend'}
-				<Editor
-					path={path + '/' + id}
-					bind:this={editor}
-					small
-					class="flex flex-1 grow h-full"
-					scriptLang={inlineScript.language}
-					bind:code={inlineScript.content}
-					fixedOverflowWidgets={true}
-					cmdEnterAction={() => onRun()}
-					on:change={async (e) => {
-						if (inlineScript && inlineScript.language != 'frontend') {
-							if (inlineScript.lock != undefined) {
-								inlineScript.lock = undefined
-							}
-							const oldSchema = JSON.stringify(inlineScript.schema)
-							if (inlineScript.schema == undefined) {
-								inlineScript.schema = emptySchema()
-							}
-							await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
-							if (JSON.stringify(inlineScript.schema) != oldSchema) {
-								inlineScript = inlineScript
-								syncFields()
-							}
+		<div class="border-y h-full w-full relative">
+			<Editor
+				path={path + '/' + id}
+				bind:this={editor}
+				class="flex flex-1 grow h-full"
+				scriptLang={inlineScript.language}
+				bind:code={inlineScript.content}
+				fixedOverflowWidgets={true}
+				cmdEnterAction={() => onRun()}
+				bind:websocketAlive
+				on:change={async (e) => {
+					if (inlineScript) {
+						if (inlineScript.lock != undefined) {
+							inlineScript.lock = undefined
 						}
-						// $app = $app
-					}}
-					args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
-						acc[key] = obj.type === 'static' ? obj.value : undefined
-						return acc
-					}, {})}
-				/>
+						const oldSchema = JSON.stringify(inlineScript.schema)
+						if (inlineScript.schema == undefined) {
+							inlineScript.schema = emptySchema()
+						}
+						await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
+						if (JSON.stringify(inlineScript.schema) != oldSchema) {
+							inlineScript = inlineScript
+							syncFields()
+						}
+					}
+					// $app = $app
+				}}
+				args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
+					acc[key] = obj.type === 'static' ? obj.value : undefined
+					return acc
+				}, {})}
+			/>
 
-				<DiffEditor
-					open={false}
-					bind:this={diffEditor}
-					className="h-full"
-					automaticLayout
-					fixedOverflowWidgets
-					defaultLang={scriptLangToEditorLang(inlineScript?.language)}
-				/>
-			{/if}
+			<DiffEditor
+				open={false}
+				bind:this={diffEditor}
+				modifiedModel={editor?.getModel()}
+				className="h-full"
+				automaticLayout
+				fixedOverflowWidgets
+				defaultLang={scriptLangToEditorLang(inlineScript?.language)}
+			/>
 		</div>
 	</div>
 {/if}

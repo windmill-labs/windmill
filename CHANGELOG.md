@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.586.0](https://github.com/windmill-labs/windmill/compare/v1.585.1...v1.586.0) (2025-11-27)
+
+
+### Features
+
+* add license key expiration warning on workers page ([#7225](https://github.com/windmill-labs/windmill/issues/7225)) ([d876c2c](https://github.com/windmill-labs/windmill/commit/d876c2c31c1183226e47443c5fb2f5885647d303))
+* **app:** Add progress bar app component ([#7242](https://github.com/windmill-labs/windmill/issues/7242)) ([267171f](https://github.com/windmill-labs/windmill/commit/267171f2c9b1639ade8bf717d7f50d55ec2b9767))
+
+
+### Bug Fixes
+
+* **bun:** do not add builtin to lockfiles ([e3b5975](https://github.com/windmill-labs/windmill/commit/e3b59752bd0a3f278465c783a0508c5394b58119))
+* **cli:** support better esm mode for codebases ([e8fd36e](https://github.com/windmill-labs/windmill/commit/e8fd36e2e7578e21aeccb094bc4526c7fa4ff70c))
+* **cli:** update jszip to 3.8.0 ([d22d8b7](https://github.com/windmill-labs/windmill/commit/d22d8b7af020afbf2f448047ceee0e9c7d46b3f0))
+* **frontend:** check resource type name conflict in frontend ([#7237](https://github.com/windmill-labs/windmill/issues/7237)) ([fc1a52c](https://github.com/windmill-labs/windmill/commit/fc1a52c1b3bc4f3077de862162d65f81360484b7))
+
+## [1.585.1](https://github.com/windmill-labs/windmill/compare/v1.585.0...v1.585.1) (2025-11-26)
+
+
+### Bug Fixes
+
+* clone group members on workspace forks ([#7232](https://github.com/windmill-labs/windmill/issues/7232)) ([faad000](https://github.com/windmill-labs/windmill/commit/faad0006b430262f1ab6b749ccf60a6860a54405))
+
+## [1.585.0](https://github.com/windmill-labs/windmill/compare/v1.584.0...v1.585.0) (2025-11-26)
+
+
+### Features
+
+* flow for loop squashing ([#7107](https://github.com/windmill-labs/windmill/issues/7107)) ([93c34c6](https://github.com/windmill-labs/windmill/commit/93c34c6d769dd56da02064c0abdaa060efe0259d))
+* **frontend:** move app reports script to hub ([#7227](https://github.com/windmill-labs/windmill/issues/7227)) ([f8a0bfc](https://github.com/windmill-labs/windmill/commit/f8a0bfc20d1ccb6ce36e3adf4188533470270bdb))
+
+
+### Bug Fixes
+
+* **cli:** improve back-compatibility with app.yaml with policy still present ([c0a92f8](https://github.com/windmill-labs/windmill/commit/c0a92f83b00341b0eee36e2dc88d301a75b6fdfb))
+* **frontend:** workspace color race condition for superadmins ([#7229](https://github.com/windmill-labs/windmill/issues/7229)) ([8922be1](https://github.com/windmill-labs/windmill/commit/8922be11a6935d200e1909f14aa410c6eff67a13))
+* workspace forks shouldn't inherit promotion mode repo ([#7223](https://github.com/windmill-labs/windmill/issues/7223)) ([f56f3b0](https://github.com/windmill-labs/windmill/commit/f56f3b0fe6185167e9c4c8541ddefba01c509b8d))
+
+## [1.584.0](https://github.com/windmill-labs/windmill/compare/v1.583.3...v1.584.0) (2025-11-25)
+
+
+### Features
+
+* **app:** add chat component ([#7199](https://github.com/windmill-labs/windmill/issues/7199)) ([c47669b](https://github.com/windmill-labs/windmill/commit/c47669be0bffb0821afe9d4182cc071cb3b675f0))
+
+
+### Bug Fixes
+
+* **cli:** handle better public apps ([de7739a](https://github.com/windmill-labs/windmill/commit/de7739a3ee7ef76a8eb4fe6570ef0bdfbdb92293))
+* **frontend:** forking UI issues ([#7215](https://github.com/windmill-labs/windmill/issues/7215)) ([dccee1d](https://github.com/windmill-labs/windmill/commit/dccee1dba08b4c4b170336b3f3e959fbe7bca8ce))
+* **frontend:** improve preprocessor discoverability ([#7214](https://github.com/windmill-labs/windmill/issues/7214)) ([a2d3297](https://github.com/windmill-labs/windmill/commit/a2d3297343338ba0b559481723e64db5f4acf3a7))
+* **frontend:** loading saved/history inputs when json view is on ([#7217](https://github.com/windmill-labs/windmill/issues/7217)) ([e87f814](https://github.com/windmill-labs/windmill/commit/e87f81470904578467f42598cfce5fad2249f131))
+* **frontend:** show trigger table when no trigger selected ([#7219](https://github.com/windmill-labs/windmill/issues/7219)) ([c37dde0](https://github.com/windmill-labs/windmill/commit/c37dde096c301a502c6ff2c570b91153a5717fcd))
+* list scripts without 1000 limits ([897faf0](https://github.com/windmill-labs/windmill/commit/897faf085b49ada0648594797cfe627decb50952))
+
 ## [1.583.3](https://github.com/windmill-labs/windmill/compare/v1.583.2...v1.583.3) (2025-11-24)
 
 

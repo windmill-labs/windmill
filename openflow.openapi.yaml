@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.583.3
+  version: 1.586.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -544,6 +544,8 @@ components:
         parallelism:
           description: Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - iterator
@@ -572,6 +574,8 @@ components:
         parallelism:
           description: Maximum number of concurrent iterations when parallel=true
           $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
       required:
         - modules
         - skip_failures

@@ -856,6 +856,7 @@ export async function parseOpenAICompletion(
 	helpers: any
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	const streamingTools: Record<number, boolean> = {} // Track which tools should stream
 
 	let answer = ''
 	for await (const chunk of completion) {
@@ -913,14 +914,36 @@ export async function parseOpenAICompletion(
 				} = finalToolCall
 				if (funcName && toolCallId) {
 					const tool = tools.find((t) => t.def.function.name === funcName)
+
+					// Track if this tool should stream (only set once per tool)
+					if (streamingTools[index] === undefined) {
+						streamingTools[index] = tool?.streamArguments ?? false
+					}
+
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
 
-					// Display tool call immediately in loading state
+					const shouldStream = streamingTools[index]
+					const accumulatedArgs = finalToolCall.function.arguments
+					let parameters: any = undefined
+					if (accumulatedArgs) {
+						try {
+							parameters = JSON.parse(accumulatedArgs)
+						} catch {
+							parameters = accumulatedArgs
+						}
+					}
+
+					// Display tool call with streaming parameters if enabled
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: `Calling ${funcName} tool...`
+						content: `Calling ${funcName}...`,
+						toolName: funcName,
+						isStreamingArguments: shouldStream,
+						showFade: tool?.showFade,
+						showDetails: tool?.showDetails,
+						parameters: parameters
 					})
 				}
 			}
@@ -934,6 +957,13 @@ export async function parseOpenAICompletion(
 	}
 
 	callbacks.onMessageEnd()
+
+	// Clear streaming state for all tool calls
+	for (const toolCall of Object.values(finalToolCalls)) {
+		if (toolCall.id) {
+			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+		}
+	}
 
 	const toolCalls = Object.values(finalToolCalls).filter(
 		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
