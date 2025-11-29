@@ -435,6 +435,7 @@
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 

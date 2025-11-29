@@ -129,6 +129,7 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
