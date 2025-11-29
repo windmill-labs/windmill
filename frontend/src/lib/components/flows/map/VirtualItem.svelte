@@ -7,10 +7,9 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses } from '$lib/components/graph'
+	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
 
 	interface Props {
 		label?: string | undefined
@@ -87,7 +86,9 @@
 					: undefined
 			: undefined
 	)
-	let colorClasses = $derived(getNodeColorClasses(outputType ?? '_VirtualItem', selected))
+	// Execution state takes priority over AI action colors, fallback to _VirtualItem
+	const effectiveState = $derived(outputType ?? aiActionToNodeState(action) ?? '_VirtualItem')
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 </script>
 
 <VirtualItemWrapper
@@ -95,7 +96,6 @@
 	{selectable}
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
-	className={action ? aiModuleActionToBgColor(action) : ''}
 	{colorClasses}
 	on:select
 >

@@ -1,6 +1,5 @@
 import { dfs } from '$lib/components/flows/previousResults'
 import type { FlowModule, OpenFlow } from '$lib/gen'
-import type { AIModuleAction } from './core'
 
 // Helper to find module by ID in a flow
 export function getModuleById(flow: OpenFlow, moduleId: string): FlowModule | undefined {
@@ -97,49 +96,5 @@ export function getNestedModules(flow: OpenFlow, id: string, branchIndex?: numbe
 		return module.value.tools
 	} else {
 		throw new Error('Module is not a loop or branch')
-	}
-}
-
-export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
-	switch (action) {
-		case 'modified':
-			return '!bg-orange-200 dark:!bg-orange-800'
-		case 'added':
-			return '!bg-green-200 dark:!bg-green-800'
-		case 'removed':
-			return '!bg-red-200/50 dark:!bg-red-800/50'
-		case 'shadowed':
-			return '!bg-gray-200/30 dark:!bg-gray-800/30 !opacity-50'
-		default:
-			return ''
-	}
-}
-export function aiModuleActionToBorderColor(action: AIModuleAction | undefined) {
-	switch (action) {
-		case 'modified':
-			return '!border-orange-300 dark:!border-orange-700'
-		case 'added':
-			return '!border-green-400 dark:!border-green-700'
-		case 'removed':
-			return '!border-red-300 dark:!border-red-700'
-		case 'shadowed':
-			return '!border-gray-300 dark:!border-gray-600'
-		default:
-			return ''
-	}
-}
-
-export function aiModuleActionToTextColor(action: AIModuleAction | undefined) {
-	switch (action) {
-		case 'modified':
-			return '!text-orange-800 dark:!text-orange-200'
-		case 'added':
-			return '!text-green-800 dark:!text-green-200'
-		case 'removed':
-			return '!text-red-800 dark:!text-red-200'
-		case 'shadowed':
-			return '!text-gray-600 dark:!text-gray-400'
-		default:
-			return ''
 	}
 }

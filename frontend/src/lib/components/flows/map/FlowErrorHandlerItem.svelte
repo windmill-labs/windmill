@@ -10,7 +10,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DiffActionBar from './DiffActionBar.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
 
 	let {
 		disableAi,
@@ -32,6 +32,9 @@
 	const failureModuleId = $derived(flowStore.val?.value?.failure_module?.id)
 	const moduleAction = $derived(
 		failureModuleId ? diffManager?.moduleActions?.[failureModuleId] : undefined
+	)
+	const aiColorClasses = $derived(
+		moduleAction ? getNodeColorClasses(aiActionToNodeState(moduleAction.action), false) : undefined
 	)
 
 	async function insertFailureModule(
@@ -72,7 +75,7 @@
 					selectionManager.selectId('failure')
 				}
 			}}
-			btnClasses={moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : ''}
+			btnClasses={aiColorClasses?.bg ?? ''}
 		>
 			{#if failureModuleId}
 				<DiffActionBar

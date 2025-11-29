@@ -39,9 +39,8 @@
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
+	import { getNodeColorClasses, aiActionToNodeState, type FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
@@ -123,7 +122,9 @@
 		maximizeSubflow = undefined
 	}: Props = $props()
 
-	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
+	// Execution state takes priority over AI action colors
+	let effectiveState = $derived(nodeState ?? aiActionToNodeState(moduleAction?.action))
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const flowInputsStore = flowEditorContext?.flowInputsStore
@@ -267,13 +268,11 @@
 {/if}
 
 <div class="relative">
-	<!-- TODO: Use existing function to get module color classes instead of using aiModuleActionToBgColor -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
