@@ -38,7 +38,7 @@ export function getJob(jobId: string) {
 
 
 window.addEventListener('message', (e) => {
-    if (e.data.type == 'runBgRes' || e.data.type == 'runBgAsyncRes') {
+    if (e.data.type == 'backendRes' || e.data.type == 'backendAsyncRes') {
         console.log('Message from parent backend', e.data)
         let job = reqs[e.data.reqId]
         if (job) {
