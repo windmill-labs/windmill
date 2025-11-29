@@ -232,7 +232,7 @@ export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParen
  * Deep clones a module to avoid mutation
  */
 function cloneModule(module: FlowModule): FlowModule {
-	return structuredClone(module)
+	return JSON.parse(JSON.stringify(module))
 }
 
 /**
@@ -299,7 +299,7 @@ function reconstructMergedFlow(
 	beforeActions: Record<string, ModuleActionInfo>
 ): FlowValue {
 	// Deep clone afterFlow to avoid mutation
-	const merged: FlowValue = structuredClone(afterFlow)
+	const merged: FlowValue = JSON.parse(JSON.stringify(afterFlow))
 
 	// Get all removed/shadowed modules from beforeFlow
 	const removedModules = Object.entries(beforeActions)

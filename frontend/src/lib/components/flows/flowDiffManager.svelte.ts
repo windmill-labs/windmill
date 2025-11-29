@@ -38,7 +38,7 @@ export type ComputeDiffOptions = {
  * Creates a flow diff manager instance
  */
 function createSkeletonModule(module: FlowModule): FlowModule {
-	const clone = structuredClone(module)
+	const clone = JSON.parse(JSON.stringify(module))
 	if (clone.value.type === 'forloopflow' || clone.value.type === 'whileloopflow') {
 		clone.value.modules = []
 	} else if (clone.value.type === 'branchone') {
@@ -254,7 +254,7 @@ export function createFlowDiffManager() {
 		if (id === SPECIAL_MODULE_IDS.INPUT) {
 			// Accept input schema changes: update beforeFlow to match currentInputSchema
 			if (beforeFlow.schema && currentInputSchema) {
-				beforeFlow.schema = structuredClone(currentInputSchema)
+				beforeFlow.schema = JSON.parse(JSON.stringify(currentInputSchema))
 			}
 		} else if (info.action === 'removed') {
 			// Removed in after: Remove from beforeFlow
