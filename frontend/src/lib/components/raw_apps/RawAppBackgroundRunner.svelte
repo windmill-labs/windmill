@@ -42,12 +42,12 @@
 				result = e
 			}
 
-			if (event.data.type == 'runBg') {
+			if (event.data.type == 'backend') {
 				respond({ result, error })
 			}
 			return result
 		}
-		if (event.data.type == 'runBg' || event.data.type == 'runBgAsync') {
+		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -80,7 +80,7 @@
 					undefined
 				)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
-				if (event.data.type == 'runBgAsync') {
+				if (event.data.type == 'backendAsync') {
 					let result = uuid
 					respond({ result })
 				}
