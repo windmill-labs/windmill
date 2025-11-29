@@ -751,6 +751,19 @@ class AIChatManager {
 			this.confirmationCallback = undefined
 		}
 		this.abortController?.abort()
+
+		// Mark all tool messages in loading state as canceled
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.isLoading) {
+				return {
+					...message,
+					isLoading: false,
+					content: 'Canceled',
+					error: 'Canceled'
+				}
+			}
+			return message
+		})
 	}
 
 	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
