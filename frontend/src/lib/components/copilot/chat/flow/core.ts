@@ -1396,6 +1396,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: setModuleCodeToolDef,
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setModuleCodeSchema.parse(args)
 			const { moduleId, code } = parsedArgs
@@ -1414,6 +1417,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: { ...addModuleToolDef, function: { ...addModuleToolDef.function, strict: false } },
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const afterId = (args.afterId ?? null) as string | null
 			const insideId = (args.insideId ?? null) as string | null
@@ -1485,7 +1491,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
 
-			toolCallbacks.setToolStatus(toolId, { content: `Module '${value.id}' added successfully` })
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${value.id}' added successfully`, result: 'Success' })
 			return `Module '${value.id}' has been added to the flow.`
 		}
 	},
@@ -1522,6 +1528,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			let { id, value } = args
 
@@ -1577,7 +1586,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
 
-			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' modified successfully` })
+			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' modified successfully`, result: 'Success' })
 			return `Module '${id}' has been modified.`
 		}
 	},
