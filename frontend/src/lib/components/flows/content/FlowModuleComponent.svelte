@@ -225,10 +225,11 @@
 	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+
+		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
 		editor?.hide()
 	}
 
@@ -426,7 +427,6 @@
 							customUi={customUi?.editorBar}
 							{validCode}
 							{editor}
-							{diffEditor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}

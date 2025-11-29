@@ -1,8 +1,15 @@
 <script lang="ts">
 	import EmptyInlineScript from '../apps/editor/inlineScriptsPanel/EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from '../apps/editor/inlineScriptsPanel/InlineScriptRunnableByPath.svelte'
-	import type { Runnable, RunnableWithFields, StaticAppInput } from '../apps/inputType'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import {
+		isRunnableByName,
+		isRunnableByPath,
+		type InlineScript,
+		type RunnableWithFields,
+		type StaticAppInput,
+		type UserAppInput
+	} from '../apps/inputType'
+	import { createEventDispatcher } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -12,19 +19,24 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import type { Job } from '$lib/gen'
+	import type { Job, ScriptLang } from '$lib/gen'
 
+	type RunnableWithInlineScript = RunnableWithFields & {
+		inlineScript?: InlineScript & { language: ScriptLang }
+	}
+	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
-		runnable: RunnableWithFields | undefined
+		runnable: Runnable
 		id: string
 		appPath: string
+		lastDeployedCode?: string | undefined
 	}
 
 	let { runnable = $bindable(), id, appPath }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	async function fork(nrunnable: RunnableWithFields) {
+	async function fork(nrunnable: Runnable) {
 		runnable = nrunnable == undefined ? undefined : { ...runnable, ...nrunnable }
 	}
 
@@ -43,9 +55,9 @@
 	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
-		if (runnable?.type == 'runnableByPath') {
+		if (isRunnableByPath(runnable)) {
 			return runnable.schema
-		} else if (runnable?.type == 'runnableByName' && runnable.inlineScript) {
+		} else if (isRunnableByName(runnable) && runnable.inlineScript) {
 			return runnable.inlineScript.schema
 		}
 		return {}
@@ -56,7 +68,7 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(0)
 
-	function onFieldsChange(fields: Record<string, StaticAppInput>) {
+	function onFieldsChange(fields: Record<string, StaticAppInput | UserAppInput>) {
 		if (args == undefined) {
 			args = {}
 		}
@@ -69,7 +81,7 @@
 
 	async function testPreview() {
 		selectedTab = 'test'
-		if (runnable?.type == 'runnableByName' && runnable.inlineScript?.language != 'frontend') {
+		if (isRunnableByName(runnable)) {
 			await jobLoader?.runPreview(
 				appPath + '/' + id,
 				runnable.inlineScript?.content ?? '',
@@ -77,8 +89,8 @@
 				args,
 				undefined
 			)
-		} else if (runnable?.type == 'runnableByPath') {
-			if (jobLoader && runnable?.type == 'runnableByPath') {
+		} else if (isRunnableByPath(runnable)) {
+			if (jobLoader && isRunnableByPath(runnable)) {
 				if (runnable.runType == 'flow') {
 					await jobLoader.runFlowByPath(runnable.path, args)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
@@ -88,8 +100,7 @@
 		}
 	}
 	$effect(() => {
-		;[runnable?.fields]
-		untrack(() => onFieldsChange(runnable?.fields ?? {}))
+		onFieldsChange(runnable?.fields ?? {})
 	})
 </script>
 
@@ -100,32 +111,28 @@
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
-{#if runnable?.type == 'runnableByPath' || (runnable?.type == 'runnableByName' && runnable.inlineScript)}
+
+{#if isRunnableByPath(runnable) || (isRunnableByName(runnable) && runnable.inlineScript)}
 	<Splitpanes>
 		<Pane size={55}>
-			{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
-				{#if runnable.inlineScript.language == 'frontend'}
-					<div class="text-sm text-primary">Frontend scripts not supported for raw apps</div>
-				{:else}
-					<RawAppInlineScriptEditor
-						on:createScriptFromInlineScript={() =>
-							dispatch('createScriptFromInlineScript', runnable)}
-						{id}
-						bind:inlineScript={runnable.inlineScript}
-						bind:name={runnable.name}
-						bind:fields={runnable.fields}
-						isLoading={testIsLoading}
-						onRun={testPreview}
-						onCancel={async () => {
-							if (jobLoader) {
-								await jobLoader.cancelJob()
-							}
-						}}
-						on:delete
-						path={appPath}
-					/>
-				{/if}
-			{:else if runnable?.type == 'runnableByPath'}
+			{#if isRunnableByName(runnable)}
+				<RawAppInlineScriptEditor
+					on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+					{id}
+					bind:inlineScript={runnable.inlineScript}
+					bind:name={runnable.name}
+					bind:fields={runnable.fields}
+					isLoading={testIsLoading}
+					onRun={testPreview}
+					onCancel={async () => {
+						if (jobLoader) {
+							await jobLoader.cancelJob()
+						}
+					}}
+					on:delete
+					path={appPath}
+				/>
+			{:else if isRunnableByPath(runnable)}
 				<InlineScriptRunnableByPath
 					rawApps
 					bind:runnable
@@ -178,13 +185,13 @@
 						{/if}
 					{:else if selectedTab == 'test'}
 						<SplitPanesWrapper>
-							<Splitpanes class="grow">
+							<Splitpanes horizontal class="grow">
 								<Pane size={50}>
 									<div class="px-2 py-3 h-full overflow-auto">
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
-												.filter(([k, v]) => v.type == 'static')
+												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}
 											schema={runnable ? getSchema(runnable) : {}}
 											bind:args
@@ -205,12 +212,13 @@
 	<EmptyInlineScript
 		unusedInlineScripts={[]}
 		rawApps
-		on:pick={(e) => onPick(e.detail)}
+		on:pick={(e) =>
+			onPick(e.detail as { runnable: Runnable; fields: Record<string, StaticAppInput> })}
 		on:delete
 		showScriptPicker
 		on:new={(e) => {
 			runnable = {
-				type: 'runnableByName',
+				type: 'inline',
 				inlineScript: e.detail,
 				name: runnable?.name ?? 'Background Runnable'
 			}

@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
+import { isRunnableByName, isRunnableByPath, type AppInput, type InputType, type ResultAppInput, type StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -18,7 +18,7 @@ export function migrateApp(app: App) {
 	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
-			x.type = 'runnableByName'
+			x.type = 'inline'
 		}
 		//TODO: remove after migration is done
 		if (x.doNotRecomputeOnInputChanged != undefined) {
@@ -133,7 +133,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
+	if (appInput.type === 'runnable' &&  isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -145,7 +145,7 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByPath') {
+	if (appInput.type === 'runnable' && isRunnableByPath(appInput.runnable)) {
 		return Boolean(appInput.runnable?.path)
 	}
 
@@ -404,7 +404,7 @@ export function getAllScriptNames(app: App): string[] {
 
 		if (
 			componentInput?.type === 'runnable' &&
-			componentInput?.runnable?.type === 'runnableByName'
+			isRunnableByName(componentInput.runnable)
 		) {
 			acc.push(componentInput.runnable.name)
 		}
@@ -412,7 +412,7 @@ export function getAllScriptNames(app: App): string[] {
 		if (gridItem.data.type === 'tablecomponent') {
 			gridItem.data.actionButtons.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton?.componentInput?.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -428,7 +428,7 @@ export function getAllScriptNames(app: App): string[] {
 		) {
 			gridItem.data.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton.componentInput.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -438,7 +438,7 @@ export function getAllScriptNames(app: App): string[] {
 		if (gridItem.data.type === 'menucomponent') {
 			gridItem.data.menuItems.forEach((menuItem) => {
 				if (menuItem.componentInput?.type === 'runnable') {
-					if (menuItem.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(menuItem.componentInput.runnable)) {
 						acc.push(menuItem.componentInput.runnable.name)
 					}
 				}

@@ -5,6 +5,7 @@
 	import type { AppViewerContext, HiddenRunnable } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
 	import InitializeComponent from './InitializeComponent.svelte'
+	import { isRunnableByName, isRunnableByPath } from '../../inputType'
 
 	interface Props {
 		id: string
@@ -37,7 +38,7 @@
 	})
 </script>
 
-{#if runnable && (runnable.type == 'runnableByPath' || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined))}
+{#if runnable && (isRunnableByPath(runnable) || (isRunnableByName(runnable) && runnable.inlineScript != undefined))}
 	<RunnableComponent
 		render={false}
 		{id}

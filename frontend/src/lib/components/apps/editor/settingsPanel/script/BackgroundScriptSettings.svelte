@@ -6,6 +6,7 @@
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
+	import { isRunnableByPath } from '$lib/components/apps/inputType'
 
 	interface Props {
 		runnable: HiddenRunnable
@@ -31,11 +32,11 @@
 	<ScriptSettingHeader name={runnable.name} noBorder />
 	<div class="p-2">
 		<ScriptTransformer bind:appInput={runnable} {id} />
-		{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
+		{#if isRunnableByPath(runnable) || runnable.inlineScript}
 			<ScriptRunConfiguration
 				bind:autoRefresh={runnable.autoRefresh}
 				bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
-				canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
+				canConfigureRecomputeOnInputChanged={isRunnableByPath(runnable) ||
 					runnable.inlineScript?.language !== 'frontend'}
 				on:updateAutoRefresh={updateAutoRefresh}
 			>

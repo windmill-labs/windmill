@@ -214,6 +214,7 @@ where
                     "error",
                     "last_server_ping",
                     "server_id",
+                    "raw_app",
                 ],
                 ignore_keys.unwrap_or(vec![]),
             ]
@@ -541,8 +542,8 @@ pub(crate) async fn tarball_workspace(
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
-             app_version.created_at, app_version.created_by from app, app_version
-             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)] AND app_version.raw_app IS false
+             app_version.created_at, app_version.created_by, app_version.raw_app from app, app_version
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
              AND (app.draft_only IS NULL OR app.draft_only = false)",
          )
          .bind(&w_id)
@@ -551,8 +552,9 @@ pub(crate) async fn tarball_workspace(
 
         for app in apps {
             let app_str = &to_string_without_metadata(&app, false, None).unwrap();
+            let kind = if app.raw_app { "raw_app" } else { "app" };
             archive
-                .write_to_archive(&app_str, &format!("{}.app.json", app.path))
+                .write_to_archive(&app_str, &format!("{}.{}.json", app.path, kind))
                 .await?;
         }
     }

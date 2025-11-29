@@ -282,7 +282,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							fieldType: 'any',
 							fields: convertSchemaToFields(schema),
 							runnable: {
-								type: 'runnableByPath',
+								type: 'path',
 								path: path,
 								runType: 'script',
 								schema: schema,
@@ -848,7 +848,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							fieldType: 'any',
 							fields: convertSchemaToFields(schema),
 							runnable: {
-								type: 'runnableByPath',
+								type: 'path',
 								path: path,
 								runType: 'flow',
 								schema: schema,

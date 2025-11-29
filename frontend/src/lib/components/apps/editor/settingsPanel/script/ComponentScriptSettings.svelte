@@ -8,7 +8,11 @@
 </script>
 
 <script lang="ts">
-	import type { ResultAppInput } from '$lib/components/apps/inputType'
+	import {
+		isRunnableByName,
+		isRunnableByPath,
+		type ResultAppInput
+	} from '$lib/components/apps/inputType'
 	import type { ButtonType } from '$lib/components/common/button/model'
 	import { isTriggerable, isFrontend } from './utils'
 
@@ -59,9 +63,9 @@
 	{#key $stateId}
 		{@const runnable = appInput.runnable}
 		<ScriptSettingHeader
-			name={runnable?.type === 'runnableByName'
+			name={isRunnableByName(runnable)
 				? runnable.name
-				: runnable?.type === 'runnableByPath'
+				: isRunnableByPath(runnable)
 					? runnable.path
 					: ''}
 			{actions}

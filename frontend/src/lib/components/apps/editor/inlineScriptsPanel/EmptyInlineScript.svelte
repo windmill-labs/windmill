@@ -17,8 +17,8 @@
 	import { defaultScripts, isCurrentlyInTutorial } from '$lib/stores'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
-	import type { InlineScript } from '../../types'
 	import { twMerge } from 'tailwind-merge'
+	import type { InlineScript } from '../../sharedTypes'
 
 	interface Props {
 		componentType?: string | undefined

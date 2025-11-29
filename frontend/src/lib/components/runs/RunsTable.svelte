@@ -7,8 +7,8 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import './runs-grid.css'
+	import type { RunsSelectionMode } from '$lib/utils'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'

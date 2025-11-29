@@ -164,7 +164,7 @@
 				...item.data.componentInput,
 				type: 'runnable',
 				runnable: {
-					type: 'runnableByName',
+					type: 'inline',
 					name: `Eval of ${id}`,
 					inlineScript: {
 						content: `return ${item.data.componentInput?.['expr']}`,

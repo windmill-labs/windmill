@@ -12,9 +12,9 @@
 		PhoneIncoming,
 		RefreshCcw,
 		Repeat,
-		Save,
 		Square,
-		Pin
+		Pin,
+		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'

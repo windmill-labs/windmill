@@ -2,8 +2,8 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import type Editor from '$lib/components/Editor.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import type { InlineScript } from '../../types'
 	import { Save } from 'lucide-svelte'
+	import type { InlineScript } from '../../sharedTypes'
 
 	let scriptEditorDrawer: Drawer | undefined = $state(undefined)
 	interface Props {

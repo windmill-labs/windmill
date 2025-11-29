@@ -1,4 +1,4 @@
-import type { EvalAppInput, Runnable } from '$lib/components/apps/inputType'
+import { isRunnableByName, type EvalAppInput, type Runnable } from '$lib/components/apps/inputType'
 import type { AppComponent } from '../../component'
 import type {
 	StaticAppInput,
@@ -29,7 +29,7 @@ export function getDependencies(
 }
 
 export function isFrontend(runnable: Runnable): boolean {
-	return runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend'
+	return isRunnableByName(runnable) && runnable.inlineScript?.language === 'frontend'
 }
 
 export function isTriggerable(componentType: string): boolean {

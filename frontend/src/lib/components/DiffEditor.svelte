@@ -32,7 +32,7 @@
 		defaultModified?: string
 		readOnly?: boolean
 		buttons?: ButtonProp[]
-		modifiedModel?: meditor.ITextModel
+		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
 	}
 
 	let {
@@ -75,6 +75,7 @@
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 
+		console.log('defaultModified', defaultModified)
 		if (defaultLang !== undefined) {
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
 		}
@@ -90,7 +91,7 @@
 		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
 			original: o,
-			modified: m
+			modified: m as meditor.ITextModel
 		})
 	}
 
@@ -117,6 +118,14 @@
 		})
 	}
 
+	export function showWithModelAndOriginal(
+		original: string,
+		model: meditor.ITextModel | meditor.IEditorModel
+	) {
+		setOriginal(original)
+		setModifiedModel(model as meditor.ITextModel)
+		show()
+	}
 	export function getModified(): string {
 		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}

@@ -9,7 +9,7 @@
 	import { allsubIds } from '../../appUtils'
 	import IdEditor from './IdEditor.svelte'
 	import type { AppComponent } from '../../component'
-	import type { Runnable } from '$lib/components/apps/inputType'
+	import { isRunnableByName, type Runnable } from '$lib/components/apps/inputType'
 	import DocLink from '../../settingsPanel/DocLink.svelte'
 	import { findGridItem, allItems } from '../../appUtilsCore'
 
@@ -159,7 +159,7 @@
 
 	function processRunnable(from: string, to: string, runnable: Runnable) {
 		if (
-			runnable?.type === 'runnableByName' &&
+			isRunnableByName(runnable) &&
 			runnable?.inlineScript?.refreshOn?.find((x) => x.id === from)
 		) {
 			runnable.inlineScript.refreshOn = runnable.inlineScript.refreshOn.map((x) => {

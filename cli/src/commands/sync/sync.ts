@@ -5,13 +5,13 @@ import {
   Command,
   Confirm,
   ensureDir,
-  minimatch,
   JSZip,
-  path,
   log,
-  yamlStringify,
-  yamlParseContent,
+  minimatch,
+  path,
   SEP,
+  yamlParseContent,
+  yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -34,28 +34,27 @@ import {
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
-import { deepEqual, isFileResource, isWorkspaceDependencies } from "../../utils/utils.ts";
+import { deepEqual, isFileResource, isRawAppFile, isWorkspaceDependencies } from "../../utils/utils.ts";
 import {
-  SyncOptions,
   getEffectiveSettings,
-  validateBranchConfiguration,
   mergeConfigWithConfigFile,
+  SyncOptions,
+  validateBranchConfiguration,
 } from "../../core/conf.ts";
 import {
-  SpecificItemsConfig,
-  getSpecificItemsForCurrentBranch,
-  isSpecificItem,
-  getBranchSpecificPath,
   fromBranchSpecificPath,
-  isCurrentBranchFile,
+  getBranchSpecificPath,
+  getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
+  isCurrentBranchFile,
+  isSpecificItem,
+  SpecificItemsConfig,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
-  generateFlowLockInternal,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
@@ -68,6 +67,7 @@ import {
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/apps.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -90,6 +90,7 @@ async function resolveEffectiveSyncOptions(
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
+  whitelistedExt?: boolean;
   // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
   getChildren(): AsyncIterable<DynFSElement>;
@@ -262,19 +263,55 @@ export interface InlineScript {
   content: string;
 }
 
+function extractFields(fields: Record<string, any>) {
+  Object.entries(fields).forEach(([k, v]) => {
+    if (typeof v == "object") {
+      if (v.type == "static") {
+        fields[k] = { value: v.value }
+      } else if (v.type == "javascript") {
+        fields[k] = { expr: v.expr, allowUserResources: v.allowUserResources }
+      } else if (v.type == "user") {
+        fields[k] = undefined
+      }
+    }
+    // if (k == 'runType') {
+    //   fields["type"] = undefined
+    //   fields["schema"] = undefined
+    // }
+  })
+}
+
+
+export function extractFieldsForRawApps(runnables: Record<string, any>) {
+  Object.values(runnables).forEach((v) => {
+    if (typeof v == "object") {
+      if (v.fields !== undefined) {
+        extractFields(v.fields)
+      }
+    }
+  })
+}
 export function extractInlineScriptsForApps(
+  key: string | undefined,
   rec: any,
-  pathAssigner: PathAssigner
+  pathAssigner: PathAssigner,
+  toId: (key: string, val: any) => string
 ): InlineScript[] {
   if (!rec) {
     return [];
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == 'runType') {
+        rec["type"] = undefined
+        rec["schema"] = undefined
+        return []
+      } else if (k == "inlineScript" && typeof v == "object") {
+        rec["type"] = undefined
         const o: Record<string, any> = v as any;
-        const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const name = toId(key ?? "", rec);
+        const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);
+        const basePath = basePathO.replaceAll(SEP, "/");
         const r = [];
         if (o["content"]) {
           const content = o["content"];
@@ -292,9 +329,10 @@ export function extractInlineScriptsForApps(
             content: lock,
           });
         }
+        o.schema = undefined;
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
+        return extractInlineScriptsForApps(k, v, pathAssigner, toId);
       }
     });
   }
@@ -312,19 +350,20 @@ function ZipFSElement(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "dependencies" | "other" = p.endsWith(
-      "flow.json"
-    )
-      ? "flow"
-      : p.endsWith("app.json")
-      ? "app"
-      : p.endsWith("script.json")
-      ? "script"
-      : p.endsWith("resource.json")
-      ? "resource"
-      : p.startsWith("dependencies/")
+    const kind: "flow" | "app" | "script" | "resource" | "other" | "raw_app" | "dependencies" =
+      p.endsWith(".flow.json")
+        ? "flow"
+        : p.endsWith(".app.json")
+        ? "app"
+        : p.endsWith(".raw_app.json")
+        ? "raw_app"
+        : p.endsWith(".script.json")
+        ? "script"
+        : p.endsWith(".resource.json")
+        ? "resource"
+        : p.startsWith("dependencies/")
       ? "dependencies"
-      : "other";
+        : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -333,6 +372,8 @@ function ZipFSElement(
         return p.replace("flow.json", "flow");
       } else if (kind == "app") {
         return p.replace("app.json", "app");
+      } else if (kind == "raw_app") {
+        return p.replace("raw_app.json", "raw_app");
       } else if (kind == "dependencies") {
         return p;
       } else {
@@ -341,9 +382,10 @@ function ZipFSElement(
     }
 
     const finalPath = transformPath();
+
     const r = [
       {
-        isDirectory: kind == "flow" || kind == "app",
+        isDirectory: kind == "flow" || kind == "app" || kind == "raw_app",
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
@@ -400,8 +442,10 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
+                undefined,
                 app?.["value"],
-                newPathAssigner(defaultTs)
+                newPathAssigner(defaultTs),
+                (_, val) => val["name"]
               );
             } catch (error) {
               log.error(
@@ -409,6 +453,7 @@ function ZipFSElement(
               );
               throw error;
             }
+
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -432,6 +477,88 @@ function ZipFSElement(
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
+              },
+            };
+          } else if (kind == "raw_app") {
+            let rawApp;
+            try {
+              rawApp = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse app.yaml at path: ${p}`);
+              throw error;
+            }
+            if (rawApp?.["policy"]?.["execution_mode"] == "anonymous") {
+              rawApp.public = true;
+            }
+            // console.log("rawApp", rawApp);
+            rawApp.policy = undefined;
+            let inlineScripts;
+            const value = rawApp?.["value"];
+            // console.log("FOOB", value?.["runnables"])
+            extractFieldsForRawApps(value?.["runnables"]);
+            try {
+              inlineScripts = extractInlineScriptsForApps(
+                undefined,
+                value,
+                newPathAssigner(defaultTs),
+                (key, val_) => key 
+              );
+            } catch (error) {
+              log.error(
+                `Failed to extract inline scripts for raw app at path: ${p}`
+              );
+              throw error;
+            }
+
+            try {
+              for (const [filePath, content] of Object.entries(
+                value?.["files"] ?? []
+              )) {
+                yield {
+                  isDirectory: false,
+                  path: path.join(finalPath, filePath.substring(1)),
+                  async *getChildren() {},
+                  // deno-lint-ignore require-await
+                  async getContentText() {
+                    if (typeof content !== "string") {
+                      throw new Error(
+                        `Content of raw app file ${filePath} is not a string`
+                      );
+                    }
+                    return content as string;
+                  },
+                };
+              }
+            } catch (error) {
+              log.error(`Failed to extract files for raw app at path: ${p}`);
+              throw error;
+            }
+
+            for (const s of inlineScripts) {
+              yield {
+                isDirectory: false,
+                path: path.join(finalPath, "runnables", s.path),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return s.content;
+                },
+              };
+            }
+
+            const runnables = value?.["runnables"];
+            if (runnables) {
+              rawApp.runnables = runnables;
+              delete rawApp?.["value"];
+            }
+
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "raw_app.yaml"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return yamlStringify(rawApp, yamlOptions);
               },
             };
           }
@@ -637,7 +764,7 @@ export async function* readDirRecursiveWithIgnore(
       }
       stack.push({
         path: e2.path,
-        ignored: e.ignored || e2.isDirectory && e2.path == "dependencies" ? false : ignore(e2.path, e2.isDirectory),
+        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -669,15 +796,51 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
+    // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
-      if (entry.path.includes("dependencies/")) {
-        log.info(`Ignoring dependencies-related path: ${entry.path} (isDirectory: ${entry.isDirectory}, ignored: ${entry.ignored})`);
-      }
       continue;
     }
     const path = entry.path;
-    if (json && path.endsWith(".yaml") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
-    if (!json && path.endsWith(".json") && !isFileResource(path) && !isWorkspaceDependencies(path)) continue;
+    if (!isFileResource(path) && !isRawAppFile(path) && !isWorkspaceDependencies(path)) {
+      if (json && path.endsWith(".yaml")) continue;
+      if (!json && path.endsWith(".json")) continue;
+
+      if (
+        ![
+          "json",
+          "yaml",
+          "go",
+          "sh",
+          "ts",
+          "py",
+          "sql",
+          "gql",
+          "ps1",
+          "php",
+          "js",
+          "lock",
+          "rs",
+          "cs",
+          "yml",
+          "nu",
+          "java",
+          "rb",
+          // for related places search: ADD_NEW_LANG
+        ].includes(path.split(".").pop() ?? "")
+      ) {
+        continue;
+      }
+    }
+
+    if (isRawAppFile(path)) {
+      const suffix = path.split(".raw_app" + SEP).pop();
+      if (suffix?.startsWith("dist/") || suffix == "wmill.d.ts" || suffix == "package-lock.json") {
+        continue;
+      }
+    }
+
+    if (skips.skipResources && isFileResource(path)) continue;
+
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (
@@ -691,15 +854,17 @@ export async function elementsToMap(
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext))
-    )
+    ) {
       continue;
+    }
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
-    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) {
       continue;
+    }
 
 
     // Use getTypeStrFromPath for consistent type detection
@@ -715,35 +880,6 @@ export async function elementsToMap(
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    if (skips.skipResources && isFileResource(path)) continue;
-
-    if (
-      ![
-        "json",
-        "yaml",
-        "go",
-        "sh",
-        "ts",
-        "py",
-        "sql",
-        "gql",
-        "ps1",
-        "php",
-        "js",
-        "lock",
-        "rs",
-        "cs",
-        "yml",
-        "nu",
-        "java",
-        "rb",
-        "in",     // Python requirements.in files
-        "mod",    // Go go.mod files
-        // for related places search: ADD_NEW_LANG
-      ].includes(path.split(".").pop() ?? "") &&
-      !isFileResource(path)
-    )
-      continue;
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
@@ -953,6 +1089,7 @@ async function compareDynFSElement(
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
+
     if (m1[k] === undefined) {
       if (
         !ignoreMetadataDeletion ||
@@ -960,7 +1097,7 @@ async function compareDynFSElement(
       ) {
         changes.push({ name: "deleted", path: k });
       } else if (k?.endsWith(".script.yaml")) {
-        let o = parseYaml(k, m2[k]);
+        const o = parseYaml(k, m2[k]);
         if (o.codebase != undefined) {
           remoteCodebase[k] = o.codebase;
         }
@@ -1065,7 +1202,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("f" + SEP) &&
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
-      !p.startsWith("groups" + SEP)
+      !p.startsWith("groups" + SEP) &&
+      !p.startsWith("dependencies" + SEP)
     );
   }
 
@@ -1083,7 +1221,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
         !p.startsWith("f" + SEP) &&
         !p.startsWith("g" + SEP) &&
         !p.startsWith("users" + SEP) &&
-        !p.startsWith("groups" + SEP)
+        !p.startsWith("groups" + SEP) &&
+        !p.startsWith("dependencies" + SEP)
       );
     }
   } catch {
@@ -1099,7 +1238,8 @@ export const isWhitelisted = (p: string) => {
     p == "f" ||
     p == "g" ||
     p == "users" ||
-    p == "groups"
+    p == "groups" || 
+    p == "dependencies"
   );
 };
 
@@ -1187,21 +1327,30 @@ interface ChangeTracker {
   scripts: string[];
   flows: string[];
   apps: string[];
+  rawApps: string[];
 }
 
+const FLOW_EXT = ".flow" + SEP;
+const APP_EXT = ".app" + SEP;
+const RAW_APP_EXT = ".raw_app" + SEP;
 // deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
-    if (p.includes(".flow" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+    if (p.includes(FLOW_EXT)) {
+      const folder = p.substring(0, p.indexOf(FLOW_EXT)) + FLOW_EXT;
       if (!tracker.flows.includes(folder)) {
         tracker.flows.push(folder);
       }
-    } else if (p.includes(".app" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+    } else if (p.includes(APP_EXT)) {
+      const folder = p.substring(0, p.indexOf(APP_EXT)) + APP_EXT;
       if (!tracker.apps.includes(folder)) {
         tracker.apps.push(folder);
+      }
+    } else if (p.includes(RAW_APP_EXT)) {
+      const folder = p.substring(0, p.indexOf(RAW_APP_EXT)) + RAW_APP_EXT;
+      if (!tracker.rawApps.includes(folder)) {
+        tracker.rawApps.push(folder);
       }
     } else {
       if (!tracker.scripts.includes(p)) {
@@ -1225,6 +1374,7 @@ async function buildTracker(changes: Change[]) {
     scripts: [],
     flows: [],
     apps: [],
+    rawApps: [],
   };
   for (const change of changes) {
     if (change.name == "added" || change.name == "edited") {
@@ -1330,19 +1480,7 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
-  
-  
-  // Debug: show all changes for push operation
-  if (changes.length > 0) {
-    log.info("All changes:");
-    changes.forEach(change => {
-      if (change.path.startsWith("dependencies/")) {
-        log.info(`  ${change.name}: ${change.path} [WORKSPACE DEPS]`);
-      } else {
-        log.info(`  ${change.name}: ${change.path}`);
-      }
-    });
-  }
+
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -1552,9 +1690,20 @@ export async function pull(
     }
     if (tracker.apps.length > 0) {
       log.info(
-        `Apps ${tracker.apps.join(
-          ", "
-        )} scripts were changed but ignoring for now`
+        colors.gray(
+          `Apps ${tracker.apps.join(
+            ", "
+          )} inline scripts were changed but ignoring metadata regeneration for now`
+        )
+      );
+    }
+    if (tracker.rawApps.length > 0) {
+      log.info(
+        colors.gray(
+          `Raw apps ${tracker.rawApps.join(
+            ", "
+          )} inline scripts were changed but ignoring metadata regeneration for now`
+        )
       );
     }
     if (opts.jsonOutput) {
@@ -1947,10 +2096,19 @@ export async function push(
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
       while (pool.size < parallelizationFactor && queue.length > 0) {
-        const [_basePath, changes] = queue.shift()!;
+        let [_basePath, changes] = queue.shift()!;
         const promise = (async () => {
           const alreadySynced: string[] = [];
-
+          const isRawApp = isRawAppFile(changes[0].path);
+          if (isRawApp) {
+            const deleteRawApp = changes.find(change => change.name === "deleted" && change.path.endsWith(".raw_app/raw_app.yaml"))
+            if (deleteRawApp) {
+              changes = [deleteRawApp];
+            } else {
+              changes.splice(1, changes.length - 1);
+            }
+          }
+            
           for await (const change of changes) {
             let stateTarget = undefined;
             if (stateful) {
@@ -2169,6 +2327,14 @@ export async function push(
                     path: removeSuffix(target, ".app/app.json"),
                   });
                   break;
+                case "raw_app":
+                  if (target.endsWith(".raw_app/raw_app.yaml") || target.endsWith(".raw_app/raw_app.json")) {
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, ".raw_app/raw_app.json"),
+                    });
+                  }
+                  break;                
                 case "schedule":
                   await wmill.deleteSchedule({
                     workspace: workspaceId,
@@ -2355,7 +2521,6 @@ const command = new Command()
   .description(
     "sync local with a remote workspaces or the opposite (push or pull)"
   )
-
   .action(() =>
     log.info("2 actions available, pull and push. Use -h to display help.")
   )

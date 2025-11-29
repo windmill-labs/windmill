@@ -2,13 +2,14 @@
 	import { executeRunnable } from '../apps/components/helpers/executeRunnable'
 	import { userStore } from '$lib/stores'
 	import { waitJob } from '../waitJob'
-	import type { HiddenRunnable, JobById } from '../apps/types'
+	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
+	import type { Runnable } from './rawAppPolicy'
 
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
 		path: string
-		runnables: Record<string, HiddenRunnable>
+		runnables: Record<string, Runnable>
 		jobs?: string[]
 		jobsById?: Record<string, JobById>
 		editor: boolean
@@ -60,15 +61,21 @@
 					{
 						component: runnable_id,
 						args: data.v,
-						force_viewer_allow_user_resources: Object.keys(runnable.fields).filter(
-							(k) => runnable.fields[k]?.type == 'user' && runnable.fields[k]?.allowUserResources
-						),
-						force_viewer_one_of_fields: {},
-						force_viewer_static_fields: Object.fromEntries(
-							Object.entries(runnable.fields)
-								.filter(([k, v]) => v.type == 'static')
-								.map(([k, v]) => [k, v?.['value']])
-						)
+						force_viewer_allow_user_resources: editor
+							? Object.keys(runnable?.fields ?? {}).filter(
+									(k) =>
+										runnable?.fields?.[k]?.type == 'user' &&
+										runnable?.fields?.[k]?.allowUserResources
+								)
+							: undefined,
+						force_viewer_one_of_fields: editor ? {} : undefined,
+						force_viewer_static_fields: editor
+							? Object.fromEntries(
+									Object.entries(runnable?.fields ?? {})
+										.filter(([k, v]) => v.type == 'static')
+										.map(([k, v]) => [k, v?.['value']])
+								)
+							: undefined
 					},
 					undefined
 				)

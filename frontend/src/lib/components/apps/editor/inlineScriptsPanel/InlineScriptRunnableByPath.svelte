@@ -100,7 +100,7 @@
 			await inferArgs(language, content, schema)
 		}
 		dispatch('fork', {
-			type: 'runnableByName',
+			type: 'inline',
 			name: path,
 			inlineScript: {
 				content,

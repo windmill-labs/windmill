@@ -1,13 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type {
-		AppEditorContext,
-		AppViewerContext,
-		CancelablePromise,
-		InlineScript
-	} from '../../types'
+	import type { AppEditorContext, AppViewerContext, CancelablePromise } from '../../types'
 	import { Button } from '$lib/components/common'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import type { InlineScript } from '../../sharedTypes'
 
 	interface Props {
 		id: string
