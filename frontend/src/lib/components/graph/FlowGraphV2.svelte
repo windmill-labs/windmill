@@ -303,6 +303,8 @@
 		if (isSimplifiable(modules)) {
 			triggerContext?.simplifiedPoll?.set(undefined)
 		}
+		// Clean up diffDrawer reference to prevent memory leaks
+		diffManager.setDiffDrawer(undefined)
 	})
 
 	function onModulesChange(modules: FlowModule[]) {
