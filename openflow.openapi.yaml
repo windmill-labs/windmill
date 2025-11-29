@@ -720,9 +720,32 @@ components:
       properties:
         input_transforms:
           type: object
-          description: Input parameters for the agent (typically includes 'prompt' or 'task'). Map parameter names to their values
-          additionalProperties:
-            $ref: "#/components/schemas/InputTransform"
+          description: Input parameters for the AI agent mapped to their values
+          properties:
+            provider:
+              $ref: "#/components/schemas/InputTransform"
+            output_type:
+              $ref: "#/components/schemas/InputTransform"
+            user_message:
+              $ref: "#/components/schemas/InputTransform"
+            system_prompt:
+              $ref: "#/components/schemas/InputTransform"
+            streaming:
+              $ref: "#/components/schemas/InputTransform"
+            messages_context_length:
+              $ref: "#/components/schemas/InputTransform"
+            output_schema:
+              $ref: "#/components/schemas/InputTransform"
+            user_images:
+              $ref: "#/components/schemas/InputTransform"
+            max_completion_tokens:
+              $ref: "#/components/schemas/InputTransform"
+            temperature:
+              $ref: "#/components/schemas/InputTransform"
+          required:
+            - provider
+            - user_message
+            - output_type
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task

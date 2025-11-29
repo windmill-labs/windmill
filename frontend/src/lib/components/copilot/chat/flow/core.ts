@@ -1099,7 +1099,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		// set strict to false to avoid issues with open ai models
 		def: { ...testRunStepToolDef, function: { ...testRunStepToolDef.function, strict: false } },
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-						const { flow } = helpers.getFlowAndSelectedId()
+			const { flow } = helpers.getFlowAndSelectedId()
 
 			if (!flow || !flow.value) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -1216,7 +1216,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: inspectInlineScriptToolDef,
 		fn: async ({ args, toolCallbacks, toolId }) => {
-						const parsedArgs = inspectInlineScriptSchema.parse(args)
+			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1249,7 +1249,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: setModuleCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						const parsedArgs = setModuleCodeSchema.parse(args)
+			const parsedArgs = setModuleCodeSchema.parse(args)
 			const { moduleId, code } = parsedArgs
 
 			toolCallbacks.setToolStatus(toolId, { content: `Setting code for module '${moduleId}'...` })
@@ -1344,7 +1344,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...removeModuleToolDef, function: { ...removeModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						const parsedArgs = removeModuleSchema.parse(args)
+			const parsedArgs = removeModuleSchema.parse(args)
 			const { id } = parsedArgs
 
 			toolCallbacks.setToolStatus(toolId, { content: `Removing module '${id}'...` })
@@ -1375,7 +1375,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						let { id, value } = args
+			let { id, value } = args
 
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
@@ -1481,7 +1481,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...setFlowSchemaToolDef, function: { ...setFlowSchemaToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						let { schema } = args
+			let { schema } = args
 
 			// If schema is a JSON string, parse it to an object
 			if (typeof schema === 'string') {
@@ -1515,7 +1515,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			function: { ...setPreprocessorModuleToolDef.function, strict: false }
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						let { module } = args
+			let { module } = args
 
 			// Parse module if it's a JSON string
 			if (typeof module === 'string') {
@@ -1586,7 +1586,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			function: { ...setFailureModuleToolDef.function, strict: false }
 		},
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-						let { module } = args
+			let { module } = args
 
 			// Parse module if it's a JSON string
 			if (typeof module === 'string') {
@@ -1679,6 +1679,10 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
   - Use \`insideId\` + \`branchPath\` to insert into branches/loops
   - Example: \`add_module({ afterId: "step_a", value: {...} })\`
   - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
+  - Example to add modules inside a loop: \`add_module({ insideId: "loop_step", branchPath: "modules", value: {...} })\`
+  - To add to first branch: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
+  - To add to second branch: \`add_module({ insideId: "branch_step", branchPath: "branches.1", value: {...} })\`
+  - To add to default: \`add_module({ insideId: "branch_step", branchPath: "default", value: {...} })\`
 
 - **remove_module**: Remove a module by ID
   - Example: \`remove_module({ id: "step_b" })\`
@@ -1687,6 +1691,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
   - Use for changing configuration, input_transforms, branch conditions, etc.
   - Do NOT use for adding/removing nested modules - use add_module/remove_module instead
   - Example: \`modify_module({ id: "step_a", value: {...} })\`
+  - To modify branch conditions: \`modify_module({ id: "branch_step", value: {...} })\`
 
 - **move_module**: Reposition a module
   - Can move within same level or between different nesting levels
@@ -1719,60 +1724,6 @@ Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
 ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
-
-## Module Structure
-
-Modules have this basic structure:
-\`\`\`json
-{
-  "id": "step_a",
-  "summary": "Description of what this step does",
-  "value": {
-    "type": "rawscript",
-    "language": "bun",
-    "content": "export async function main() {
-		return "Hello, world!";
-	}",
-    "input_transforms": {}
-  }
-}
-\`\`\`
-
-### Container Module Types
-
-**For loops:**
-\`\`\`json
-{
-  "id": "loop_step",
-  "value": {
-    "type": "forloopflow",
-    "iterator": { "type": "javascript", "expr": "results.step_a" },
-    "skip_failures": true,
-    "parallel": true,
-    "modules": []
-  }
-}
-\`\`\`
-- To add modules inside a loop: \`add_module({ insideId: "loop_step", branchPath: "modules", value: {...} })\`
-
-**Branches (if/else):**
-\`\`\`json
-{
-  "id": "branch_step",
-  "value": {
-    "type": "branchone",
-    "branches": [
-      { "expr": "results.step_a > 10", "modules": [] },
-      { "expr": "results.step_a > 5", "modules": [] }
-    ],
-    "default": []
-  }
-}
-\`\`\`
-- To add to first branch: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
-- To add to second branch: \`add_module({ insideId: "branch_step", branchPath: "branches.1", value: {...} })\`
-- To add to default: \`add_module({ insideId: "branch_step", branchPath: "default", value: {...} })\`
-- To modify branch conditions: \`modify_module({ id: "branch_step", value: {...} })\`
 
 ### Inline Script References (Token Optimization)
 
@@ -1892,7 +1843,7 @@ On Windmill, credentials and configuration are stored in resources. Resource typ
 - If the user wants a specific resource as step input, set the step value to a static string in the format: "$res:path/to/resource"
 
 ### OpenFlow Schema Reference
-Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow YAML:
+Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow JSON:
 
 \`\`\`json
 ${formatOpenFlowSchemaForPrompt()}
