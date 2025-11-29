@@ -1956,6 +1956,21 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
 - **Module IDs**: Must be unique and valid identifiers. Used to reference results via \`results.step_id\`
 - **Module types**: Use 'bun' as default language for rawscript if unspecified
 
+### Writing Code for Modules
+
+**IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions including:
+- Required function signature format
+- How to handle imports and dependencies
+- Language-specific patterns for resources, error handling, etc.
+- Code style and formatting requirements
+
+Always call this tool first when:
+- Creating a new rawscript module
+- Modifying existing code in a module
+- Setting code via \`set_module_code\`
+
+Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_generation({ id: "step_a", language: "bun" })\`
+
 ### Creating New Steps
 
 1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
@@ -1967,7 +1982,7 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
    - If using existing script: \`add_module({ afterId: "previous_step", value: { id: "new_step", value: { type: "script", path: "f/folder/script" } } })\`
    - If creating rawscript:
      - Default language is 'bun' if not specified
-     - Use \`get_instructions_for_code_generation\` to get the correct code format
+     - **First call \`get_instructions_for_code_generation\` to get the correct code format**
      - Include full code in the content field
      - Example: \`add_module({ afterId: "step_a", value: { id: "step_b", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
 
