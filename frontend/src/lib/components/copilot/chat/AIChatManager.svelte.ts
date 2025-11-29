@@ -959,6 +959,13 @@ class AIChatManager {
 			this.scriptEditorOptions = undefined
 		}
 
+		untrack(() =>
+			this.contextManager?.setSelectedModuleContext(
+				selectedId,
+				untrack(() => this.contextManager.getAvailableContext())
+			)
+		)
+
 		return () => {
 			this.scriptEditorOptions = undefined
 		}

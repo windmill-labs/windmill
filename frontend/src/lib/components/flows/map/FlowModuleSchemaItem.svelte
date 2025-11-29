@@ -132,9 +132,6 @@
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
 
-	// Disable delete/move operations when there are pending changes
-	const effectiveDeletable = $derived(deletable && !diffManager?.hasPendingChanges)
-
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
@@ -253,7 +250,7 @@
 	</Drawer>
 {/if}
 
-{#if effectiveDeletable && id && flowStore && outputPickerVisible}
+{#if deletable && id && flowStore && outputPickerVisible}
 	{@const flowStoreVal = flowStore.val}
 	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
@@ -276,7 +273,7 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			effectiveDeletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
+			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -474,7 +471,7 @@
 			{/if}
 		</div>
 
-		{#if effectiveDeletable}
+		{#if deletable}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}

@@ -244,38 +244,38 @@ export async function fetchAvailableModels(
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (model.startsWith('gpt-5')) {
+	if (model.includes('gpt-5')) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
 		return 100000
 	} else if (
-		model.startsWith('claude-sonnet') ||
-		model.startsWith('gemini-2.5') ||
-		model.startsWith('claude-haiku')
+		model.includes('claude-sonnet') ||
+		model.includes('gemini-2.5') ||
+		model.includes('claude-haiku')
 	) {
 		return 64000
-	} else if (model.startsWith('gpt-4.1')) {
+	} else if (model.includes('gpt-4.1')) {
 		return 32768
-	} else if (model.startsWith('claude-opus')) {
+	} else if (model.includes('claude-opus')) {
 		return 32000
-	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+	} else if (model.includes('gpt-4o') || model.includes('codestral')) {
 		return 16384
-	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
+	} else if (model.includes('gpt-4-turbo') || model.includes('gpt-3.5')) {
 		return 4096
 	}
 	return 8192
 }
 
 export function getModelContextWindow(model: string) {
-	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+	if (model.includes('gpt-4.1') || model.includes('gemini')) {
 		return 1000000
-	} else if (model.startsWith('gpt-5')) {
+	} else if (model.includes('gpt-5')) {
 		return 400000
-	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
 		return 128000
-	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
 		return 200000
-	} else if (model.startsWith('codestral')) {
+	} else if (model.includes('codestral')) {
 		return 32000
 	} else {
 		return 128000
