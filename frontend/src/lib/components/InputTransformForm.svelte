@@ -41,6 +41,7 @@
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import SchemaFormTransform from './SchemaFormTransform.svelte'
 
 	// We add 'ai' for ai agent tools. 'ai' means the field will be filled by the AI agent dynamically.
 	type PropertyType = InputTransform['type'] | 'ai'
@@ -160,6 +161,52 @@
 		})
 	}
 
+	// Try to parse JavaScript expression back to static object/array for visual editing
+	function tryParseJsToStatic(expr: string, schemaType: string): any | null {
+		if (!expr || typeof expr !== 'string') return null
+
+		try {
+			// Remove wrapping parentheses if present
+			let code = expr.trim()
+			if (code.startsWith('(') && code.endsWith(')')) {
+				code = code.slice(1, -1).trim()
+			}
+
+			// Try to parse as object literal or array
+			// This is a simple heuristic - check if it looks like a static structure
+			if (schemaType === 'object' && code.startsWith('{') && code.endsWith('}')) {
+				// Try to evaluate it safely
+				// For now, use a simple regex-based approach to extract static-looking values
+				// If the object contains only simple expressions, convert it
+				const hasComplexLogic = /\bif\b|\bfor\b|\bwhile\b|\bfunction\b|\breturn\b/.test(code)
+				if (!hasComplexLogic) {
+					// Attempt to parse it
+					try {
+						const parsed = new Function(`return ${code}`)()
+						return parsed
+					} catch {
+						return null
+					}
+				}
+			} else if (schemaType === 'array' && code.startsWith('[') && code.endsWith(']')) {
+				// Similar for arrays
+				const hasComplexLogic = /\bif\b|\bfor\b|\bwhile\b|\bfunction\b|\breturn\b/.test(code)
+				if (!hasComplexLogic) {
+					try {
+						const parsed = new Function(`return ${code}`)()
+						return parsed
+					} catch {
+						return null
+					}
+				}
+			}
+		} catch (e) {
+			return null
+		}
+
+		return null
+	}
+
 	function getPropertyType(arg: InputTransform | any): PropertyType {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
 		if (
@@ -183,6 +230,16 @@
 			if (newValue) {
 				type = 'static'
 				arg.value = newValue
+			}
+		}
+
+		// Try to parse javascript expressions for objects/arrays back to static for visual editing
+		if (type == 'javascript' && (inputCat === 'object' || inputCat === 'list')) {
+			const parsed = tryParseJsToStatic(arg.expr, inputCat === 'object' ? 'object' : 'array')
+			if (parsed !== null) {
+				type = 'static'
+				arg.value = parsed
+				// Keep the expr for reference but switch to static mode for UI
 			}
 		}
 
@@ -763,62 +820,278 @@
 								{/if}
 							</div>
 						{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
-							<ArgInput
-								{resourceTypes}
-								noMargin
-								compact
-								on:focus={onFocus}
-								on:blur={() => {
-									focused = false
-								}}
-								shouldDispatchChanges
-								on:change={() => {
-									dispatch('change', { argName, arg })
-								}}
-								label={argName}
-								bind:editor={monaco}
-								bind:description={schema.properties[argName].description}
-								bind:value={arg.value}
-								type={schema.properties[argName].type}
-								oneOf={schema.properties[argName].oneOf}
-								required={schema.required?.includes(argName)}
-								bind:pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck}
-								defaultValue={schema.properties[argName].default}
-								bind:enum_={schema.properties[argName].enum}
-								bind:format={schema.properties[argName].format}
-								contentEncoding={schema.properties[argName].contentEncoding}
-								bind:itemsType={schema.properties[argName].items}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								displayHeader={false}
-								extra={argExtra}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								showSchemaExplorer
-								nullable={schema.properties[argName].nullable}
-								bind:title={schema.properties[argName].title}
-								bind:placeholder={schema.properties[argName].placeholder}
-								{helperScript}
-								{s3StorageConfigured}
-								otherArgs={Object.fromEntries(
-									Object.entries(otherArgs).map(([key, transform]) => [
-										key,
-										transform?.type === 'static' ? transform.value : transform?.expr
-									])
-								)}
-							>
-								{#snippet innerBottomSnippet()}
-									{#if shouldShowS3ArrayHelper}
-										<S3ArrayHelperButton
-											{connecting}
-											onClick={() =>
-												switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
-										/>
-									{/if}
-								{/snippet}
-							</ArgInput>
+							{@const schemaProperty = schema.properties[argName]}
+							{@const isObjectWithProperties =
+								(schemaProperty.type === 'object' && schemaProperty.properties) ||
+								(schemaProperty.type === 'array' &&
+									schemaProperty.items?.type === 'object' &&
+									schemaProperty.items?.properties)}
+
+							{#if isObjectWithProperties}
+								<!-- Use recursive InputTransformForm for nested objects/arrays with properties -->
+								{#if schemaProperty.type === 'object' && schemaProperty.properties}
+									<!-- Direct object with properties -->
+									<div class="border rounded-md px-4 pt-4 pb-2">
+										{#if arg.value && typeof arg.value === 'object' && !Array.isArray(arg.value)}
+											<!-- Convert arg.value (plain values) to InputTransform format for nested fields -->
+											{@const nestedArgs = Object.fromEntries(
+												Object.keys(schemaProperty.properties).map((key) => {
+													const val = arg.value?.[key]
+													// If already an InputTransform, keep it; otherwise wrap as static
+													if (val && typeof val === 'object' && ('type' in val || 'expr' in val)) {
+														return [key, val]
+													}
+													return [key, { type: 'static', value: val }]
+												})
+											)}
+											<SchemaFormTransform
+												schema={{
+													properties: schemaProperty.properties,
+													required: schemaProperty.required ?? [],
+													$schema: '',
+													type: 'object'
+												}}
+												bind:args={
+													() => nestedArgs,
+													(v) => {
+														// Check if any nested field uses javascript mode
+														let hasJavascriptField = false
+														const plainValues = {}
+														const jsExprParts = []
+
+														Object.keys(v ?? {}).forEach((key) => {
+															const transform = v[key]
+															if (transform?.type === 'javascript') {
+																hasJavascriptField = true
+																// Remove wrapping if it's already wrapped
+																let expr = transform.expr
+																if (expr.startsWith('(') && expr.endsWith(')')) {
+																	expr = expr.slice(1, -1)
+																}
+																jsExprParts.push(`"${key}": ${expr}`)
+															} else {
+																const val =
+																	transform?.type === 'static' ? transform.value : transform?.value
+																plainValues[key] = val
+																// For JS object construction
+																jsExprParts.push(`"${key}": ${JSON.stringify(val)}`)
+															}
+														})
+
+														if (hasJavascriptField) {
+															// Switch parent to javascript mode with full object expression
+															// BUT keep propertyType as 'static' so UI stays in visual mode
+															arg.type = 'javascript'
+															arg.expr = `({\n  ${jsExprParts.join(',\n  ')}\n})`
+															// Keep arg.value for visual editing
+															arg.value = plainValues
+														} else {
+															// All fields are static, keep as static object
+															arg.type = 'static'
+															arg.value = plainValues
+															arg.expr = undefined
+														}
+														dispatch('change', { argName, arg })
+													}
+												}
+												{extraLib}
+												{previousModuleId}
+												{pickableProperties}
+												{enableAi}
+												{otherArgs}
+												{isAgentTool}
+												{s3StorageConfigured}
+											/>
+										{/if}
+									</div>
+								{:else if schemaProperty.type === 'array' && schemaProperty.items?.type === 'object' && schemaProperty.items?.properties}
+									<!-- Array of objects with properties - each item should support template strings -->
+									<div class="flex flex-col gap-2">
+										{#if Array.isArray(arg.value)}
+											{#each arg.value as item, i}
+												<div class="border rounded-md px-4 pt-4 pb-2 relative">
+													<button
+														class="absolute top-2 right-2 p-1 hover:bg-surface-hover rounded"
+														onclick={() => {
+															arg.value = arg.value.filter((_, idx) => idx !== i)
+															dispatch('change', { argName, arg })
+														}}
+													>
+														<span class="text-xs">✕</span>
+													</button>
+													{@const itemArgs = Object.fromEntries(
+														Object.keys(schemaProperty.items.properties).map((key) => {
+															const val = item?.[key]
+															if (
+																val &&
+																typeof val === 'object' &&
+																('type' in val || 'expr' in val)
+															) {
+																return [key, val]
+															}
+															return [key, { type: 'static', value: val }]
+														})
+													)}
+													<SchemaFormTransform
+														schema={{
+															properties: schemaProperty.items.properties,
+															required: schemaProperty.items.required ?? [],
+															$schema: '',
+															type: 'object'
+														}}
+														bind:args={
+															() => itemArgs,
+															(v) => {
+																// Check if any field in this array item uses javascript
+																let hasJavascriptField = false
+																const plainValues = {}
+																const jsExprParts = []
+
+																Object.keys(v ?? {}).forEach((key) => {
+																	const transform = v[key]
+																	if (transform?.type === 'javascript') {
+																		hasJavascriptField = true
+																		let expr = transform.expr
+																		if (expr.startsWith('(') && expr.endsWith(')')) {
+																			expr = expr.slice(1, -1)
+																		}
+																		jsExprParts.push(`"${key}": ${expr}`)
+																	} else {
+																		const val =
+																			transform?.type === 'static'
+																				? transform.value
+																				: transform?.value
+																		plainValues[key] = val
+																		jsExprParts.push(`"${key}": ${JSON.stringify(val)}`)
+																	}
+																})
+
+																// Update the array item
+																arg.value[i] = plainValues
+
+																// Check if ANY item in the array has javascript
+																let arrayHasJavascript = hasJavascriptField
+																if (!arrayHasJavascript && Array.isArray(arg.value)) {
+																	// Check other items for javascript expressions stored as strings
+																	arrayHasJavascript = arg.value.some((item, idx) => {
+																		if (idx === i) return false
+																		return Object.values(item ?? {}).some(
+																			(val) =>
+																				typeof val === 'string' &&
+																				(val.includes('${') ||
+																					val.startsWith('`') ||
+																					val.includes('results.'))
+																		)
+																	})
+																}
+
+																if (arrayHasJavascript) {
+																	// Convert entire array to javascript mode
+																	// BUT keep UI in visual mode by preserving arg.value
+																	const arrayExprParts = arg.value.map((item, idx) => {
+																		if (idx === i && hasJavascriptField) {
+																			return `{\n    ${jsExprParts.join(',\n    ')}\n  }`
+																		} else {
+																			const itemParts = Object.keys(item ?? {}).map((key) => {
+																				return `"${key}": ${JSON.stringify(item[key])}`
+																			})
+																			return `{\n    ${itemParts.join(',\n    ')}\n  }`
+																		}
+																	})
+																	arg.type = 'javascript'
+																	arg.expr = `([\n  ${arrayExprParts.join(',\n  ')}\n])`
+																	// Keep arg.value for visual editing - don't set to undefined!
+																}
+
+																dispatch('change', { argName, arg })
+															}
+														}
+														{extraLib}
+														{previousModuleId}
+														{pickableProperties}
+														{enableAi}
+														{otherArgs}
+														{isAgentTool}
+														{s3StorageConfigured}
+													/>
+												</div>
+											{/each}
+										{/if}
+										<Button
+											variant="default"
+											color="light"
+											size="xs"
+											on:click={() => {
+												if (!Array.isArray(arg.value)) {
+													arg.value = []
+												}
+												arg.value = [...arg.value, {}]
+												dispatch('change', { argName, arg })
+											}}
+										>
+											Add item
+										</Button>
+									</div>
+								{/if}
+							{:else}
+								<!-- Use ArgInput for simple types and objects without properties -->
+								<ArgInput
+									{resourceTypes}
+									noMargin
+									compact
+									on:focus={onFocus}
+									on:blur={() => {
+										focused = false
+									}}
+									shouldDispatchChanges
+									on:change={() => {
+										dispatch('change', { argName, arg })
+									}}
+									label={argName}
+									bind:editor={monaco}
+									bind:description={schema.properties[argName].description}
+									bind:value={arg.value}
+									type={schema.properties[argName].type}
+									oneOf={schema.properties[argName].oneOf}
+									required={schema.required?.includes(argName)}
+									bind:pattern={schema.properties[argName].pattern}
+									bind:valid={inputCheck}
+									defaultValue={schema.properties[argName].default}
+									bind:enum_={schema.properties[argName].enum}
+									bind:format={schema.properties[argName].format}
+									contentEncoding={schema.properties[argName].contentEncoding}
+									bind:itemsType={schema.properties[argName].items}
+									properties={schema.properties[argName].properties}
+									nestedRequired={schema.properties[argName].required}
+									displayHeader={false}
+									extra={argExtra}
+									{variableEditor}
+									{itemPicker}
+									bind:pickForField
+									showSchemaExplorer
+									nullable={schema.properties[argName].nullable}
+									bind:title={schema.properties[argName].title}
+									bind:placeholder={schema.properties[argName].placeholder}
+									{helperScript}
+									{s3StorageConfigured}
+									otherArgs={Object.fromEntries(
+										Object.entries(otherArgs).map(([key, transform]) => [
+											key,
+											transform?.type === 'static' ? transform.value : transform?.expr
+										])
+									)}
+								>
+									{#snippet innerBottomSnippet()}
+										{#if shouldShowS3ArrayHelper}
+											<S3ArrayHelperButton
+												{connecting}
+												onClick={() =>
+													switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
+											/>
+										{/if}
+									{/snippet}
+								</ArgInput>
+							{/if}
 						{:else if arg.expr != undefined}
 							<div
 								class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
