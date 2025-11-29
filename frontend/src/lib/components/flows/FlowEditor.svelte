@@ -197,24 +197,24 @@
 					</div>
 				</div>
 			{:else}
-			<FlowEditorPanel
-				{disabledFlowInputs}
-				{newFlow}
-				{savedFlow}
-				enableAi={!disableAi}
-				on:applyArgs
-				on:testWithArgs
-				{onDeployTrigger}
-				{forceTestTab}
-				{highlightArg}
-				{onTestFlow}
-				{job}
-				{isOwner}
-				{suspendStatus}
-				onOpenDetails={onOpenPreview}
-				{previewOpen}
-				{flowModuleSchemaMap}
-			/>
+				<FlowEditorPanel
+					{disabledFlowInputs}
+					{newFlow}
+					{savedFlow}
+					enableAi={!disableAi}
+					on:applyArgs
+					on:testWithArgs
+					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
+					{onTestFlow}
+					{job}
+					{isOwner}
+					{suspendStatus}
+					onOpenDetails={onOpenPreview}
+					{previewOpen}
+					{flowModuleSchemaMap}
+				/>
 			{/if}
 		</Pane>
 		{#if !disableAi}

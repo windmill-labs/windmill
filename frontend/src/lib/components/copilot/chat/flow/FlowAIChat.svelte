@@ -255,7 +255,9 @@
 
 	$effect(() => {
 		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
-		return cleanup
+		return () => {
+			cleanup()
+		}
 	})
 
 	$effect(() => {
@@ -265,11 +267,15 @@
 			flowStateStore.val,
 			$currentEditor
 		)
-		return cleanup
+		return () => {
+			cleanup()
+		}
 	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
-		return cleanup
+		return () => {
+			cleanup()
+		}
 	})
 </script>
