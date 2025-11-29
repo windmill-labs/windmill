@@ -656,8 +656,22 @@ pub async fn transform_json_value<'c>(
                 if let Some(Some(v)) = v {
                     let value_str = if v.is_string() {
                         v.as_str().unwrap().to_string()
-                    } else {
+                    } else if v.is_number() {
                         v.to_string()
+                    } else if v.is_boolean() {
+                        v.to_string()
+                    } else if v.is_null() {
+                        String::new()
+                    } else {
+                        // Object or Array - not suitable for string interpolation
+                        return Err(Error::BadRequest(format!(
+                            "Cannot interpolate resource '$res:{path}' into string. \
+                            The resource contains an object or array with multiple fields. \
+                            \nTo fix this:\n\
+                            1. Use the resource as a separate parameter (e.g., set the whole parameter to '$res:{path}'), OR\n\
+                            2. Create a simpler variable/resource with just the single value you need, OR\n\
+                            3. Extract the field in your script code after receiving the full resource object."
+                        )));
                     };
                     result = result.replace(full_match, &value_str);
                 } else {
