@@ -20,6 +20,7 @@ import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import { dfs } from './previousResults'
 import type DiffDrawer from '../DiffDrawer.svelte'
+import { SPECIAL_MODULE_IDS } from '../copilot/chat/shared'
 
 export type FlowDiffManager = ReturnType<typeof createFlowDiffManager>
 
@@ -97,7 +98,7 @@ export function createFlowDiffManager() {
 			if (beforeFlow.schema && currentInputSchema) {
 				const schemaChanged = JSON.stringify(beforeFlow.schema) !== JSON.stringify(currentInputSchema)
 				if (schemaChanged) {
-					newActions['Input'] = {
+					newActions[SPECIAL_MODULE_IDS.INPUT] = {
 						action: 'modified',
 						pending: editMode
 					}
@@ -250,7 +251,7 @@ export function createFlowDiffManager() {
 			? id.substring(DUPLICATE_MODULE_PREFIX.length)
 			: id
 
-		if (id === 'Input') {
+		if (id === SPECIAL_MODULE_IDS.INPUT) {
 			// Accept input schema changes: update beforeFlow to match currentInputSchema
 			if (beforeFlow.schema && currentInputSchema) {
 				beforeFlow.schema = JSON.parse(JSON.stringify(currentInputSchema))
@@ -334,7 +335,7 @@ export function createFlowDiffManager() {
 
 		// Only perform revert operations if flowStore is provided
 		if (flowStore) {
-			if (id === 'Input') {
+			if (id === SPECIAL_MODULE_IDS.INPUT) {
 				// Revert input schema changes
 				flowStore.val.schema = beforeFlow.schema
 				currentInputSchema = flowStore.val.schema
@@ -425,7 +426,7 @@ export function createFlowDiffManager() {
 	function showModuleDiff(moduleId: string) {
 		if (!diffDrawer || !beforeFlow) return
 
-		if (moduleId === 'Input') {
+		if (moduleId === SPECIAL_MODULE_IDS.INPUT) {
 			// Show input schema diff
 			diffDrawer.openDrawer()
 			diffDrawer.setDiff({

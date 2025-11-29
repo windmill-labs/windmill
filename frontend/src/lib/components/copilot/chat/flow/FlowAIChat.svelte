@@ -10,6 +10,7 @@
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
+	import { SPECIAL_MODULE_IDS } from '../shared'
 
 	let {
 		flowModuleSchemaMap,
@@ -27,9 +28,9 @@
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
 
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
-		if (id === 'preprocessor') {
+		if (id === SPECIAL_MODULE_IDS.PREPROCESSOR) {
 			return flow.value.preprocessor_module
-		} else if (id === 'failure') {
+		} else if (id === SPECIAL_MODULE_IDS.FAILURE) {
 			return flow.value.failure_module
 		} else {
 			return dfs(id, flow, false)[0]

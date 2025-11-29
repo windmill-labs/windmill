@@ -3,6 +3,18 @@ import type {
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
+
+/**
+ * Special module IDs used throughout the flow system
+ */
+export const SPECIAL_MODULE_IDS = {
+	/** The flow input schema node */
+	INPUT: 'Input',
+	/** The preprocessor module that runs before the flow */
+	PREPROCESSOR: 'preprocessor',
+	/** The failure handler module */
+	FAILURE: 'failure'
+} as const
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'

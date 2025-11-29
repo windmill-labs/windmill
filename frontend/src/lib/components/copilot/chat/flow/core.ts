@@ -22,7 +22,8 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	applyCodePiecesToFlowModules,
-	findModuleById
+	findModuleById,
+	SPECIAL_MODULE_IDS
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -1044,7 +1045,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
 				allowResourcesFetch: true,
-				isPreprocessor: parsedArgs.id === 'preprocessor'
+				isPreprocessor: parsedArgs.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 			})
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
@@ -1141,7 +1142,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 								content: moduleValue.content ?? '',
 								language: moduleValue.language,
 								args:
-									module.id === 'preprocessor'
+									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
 										: stepArgs
 							}
@@ -1172,7 +1173,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 								content: script.content,
 								language: script.language,
 								args:
-									module.id === 'preprocessor'
+									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
 										: stepArgs
 							}
@@ -1543,7 +1544,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			// Ensure the ID is always 'preprocessor'
-			if (module?.id && module.id !== 'preprocessor') {
+			if (module?.id && module.id !== SPECIAL_MODULE_IDS.PREPROCESSOR) {
 				console.warn(
 					`Preprocessor module ID should always be 'preprocessor', but received '${module.id}'. Correcting to 'preprocessor'.`
 				)
@@ -1614,7 +1615,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const { flow } = helpers.getFlowAndSelectedId()
 
 			// Ensure the ID is always 'failure'
-			if (module?.id && module.id !== 'failure') {
+			if (module?.id && module.id !== SPECIAL_MODULE_IDS.FAILURE) {
 				console.warn(
 					`Failure module ID should always be 'failure', but received '${module.id}'. Correcting to 'failure'.`
 				)
