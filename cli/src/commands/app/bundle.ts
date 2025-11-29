@@ -162,7 +162,13 @@ export async function createBundle(
       ? fs.readFileSync(cssPath, "utf-8")
       : "";
 
+    try {
+      fs.rmSync(distDir, { recursive: true });
+    } catch {
+      //ignore
+    }
     return { js: jsContent, css: cssContent };
+    
   } finally {
     // Stop esbuild
     await esbuild.stop();

@@ -151,7 +151,7 @@ export function isFileResource(path: string): boolean {
 }
 
 export function isRawAppFile(path: string): boolean {
-  return path.includes(".raw_app" + SEP);
+  return path.includes(".raw_app" + SEP) ;
 }
 
 export function isWorkspaceDependencies(path: string): boolean {

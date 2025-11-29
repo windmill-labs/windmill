@@ -832,6 +832,13 @@ export async function elementsToMap(
       }
     }
 
+    if (isRawAppFile(path)) {
+      const suffix = path.split(".raw_app" + SEP).pop();
+      if (suffix?.startsWith("dist/") || suffix == "wmill.d.ts" || suffix == "package-lock.json") {
+        continue;
+      }
+    }
+
     if (skips.skipResources && isFileResource(path)) continue;
 
     const ext = json ? ".json" : ".yaml";
@@ -1473,19 +1480,7 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
-  
-  
-  // Debug: show all changes for push operation
-  if (changes.length > 0) {
-    log.info("All changes:");
-    changes.forEach(change => {
-      if (change.path.startsWith("dependencies/")) {
-        log.info(`  ${change.name}: ${change.path} [WORKSPACE DEPS]`);
-      } else {
-        log.info(`  ${change.name}: ${change.path}`);
-      }
-    });
-  }
+
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -2101,10 +2096,19 @@ export async function push(
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
       while (pool.size < parallelizationFactor && queue.length > 0) {
-        const [_basePath, changes] = queue.shift()!;
+        let [_basePath, changes] = queue.shift()!;
         const promise = (async () => {
           const alreadySynced: string[] = [];
-
+          const isRawApp = isRawAppFile(changes[0].path);
+          if (isRawApp) {
+            const deleteRawApp = changes.find(change => change.name === "deleted" && change.path.endsWith(".raw_app/raw_app.yaml"))
+            if (deleteRawApp) {
+              changes = [deleteRawApp];
+            } else {
+              changes.splice(1, changes.length - 1);
+            }
+          }
+            
           for await (const change of changes) {
             let stateTarget = undefined;
             if (stateful) {
@@ -2323,6 +2327,14 @@ export async function push(
                     path: removeSuffix(target, ".app/app.json"),
                   });
                   break;
+                case "raw_app":
+                  if (target.endsWith(".raw_app/raw_app.yaml") || target.endsWith(".raw_app/raw_app.json")) {
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, ".raw_app/raw_app.json"),
+                    });
+                  }
+                  break;                
                 case "schedule":
                   await wmill.deleteSchedule({
                     workspace: workspaceId,
