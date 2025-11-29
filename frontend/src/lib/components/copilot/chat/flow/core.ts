@@ -464,6 +464,16 @@ function findModuleInFlow(modules: FlowModule[], id: string): FlowModule | undef
 					}
 				}
 			}
+		} else if (module.value.type === 'aiagent') {
+			// Search in AI agent tools
+			if (module.value.tools) {
+				for (const tool of module.value.tools) {
+					if (tool.id === id) {
+						// Return a pseudo-FlowModule for compatibility
+						return { id: tool.id, value: tool.value, summary: tool.summary } as FlowModule
+					}
+				}
+			}
 		}
 	}
 	return undefined
@@ -518,6 +528,14 @@ function removeModuleFromFlow(modules: FlowModule[], id: string): FlowModule[] {
 					}))
 				}
 			}
+		} else if (newModule.value.type === 'aiagent') {
+			// Remove tool from AI agent's tools array
+			if (newModule.value.tools) {
+				newModule.value = {
+					...newModule.value,
+					tools: newModule.value.tools.filter((tool) => tool.id !== id)
+				}
+			}
 		}
 
 		result.push(newModule)
@@ -538,6 +556,9 @@ function parseBranchPath(path: string): { type: string; index?: number } {
 	}
 	if (path === 'modules') {
 		return { type: 'modules' }
+	}
+	if (path === 'tools') {
+		return { type: 'tools' }
 	}
 
 	const match = path.match(/^(branches)\.(\d+)$/)
@@ -582,6 +603,12 @@ function getTargetArray(
 			return container.value.branches?.[parsed.index]?.modules
 		}
 		throw new Error(`Invalid branchPath '${branchPath}' for branchall module. Use 'branches.N'`)
+	} else if (container.value.type === 'aiagent') {
+		if (parsed.type === 'tools') {
+			// Return tools array (AgentTool[]), caller handles the different structure
+			return (container.value.tools as any) || []
+		}
+		throw new Error(`Invalid branchPath '${branchPath}' for aiagent module. Use 'tools'`)
 	}
 
 	throw new Error(`Module '${insideId}' is not a container type`)
@@ -634,6 +661,14 @@ function updateNestedArray(
 				branches: newBranches
 			}
 		}
+	} else if (newModule.value.type === 'aiagent') {
+		if (parsed.type === 'tools') {
+			// Note: updatedArray is actually AgentTool[] when dealing with AI agents
+			newModule.value = {
+				...newModule.value,
+				tools: updatedArray as any
+			}
+		}
 	}
 
 	return newModule
@@ -653,6 +688,24 @@ function addModuleToFlow(
 	if (insideId && branchPath) {
 		return modules.map((module) => {
 			if (module.id === insideId) {
+				// Special handling for AI agent tools
+				if (module.value.type === 'aiagent' && branchPath === 'tools') {
+					// For AI agents, newModule structure is { id, summary, value: { tool_type, ...FlowModuleValue } }
+					// The value should already include tool_type from the caller
+					const newTool = {
+						id: newModule.id,
+						summary: newModule.summary,
+						value: newModule.value as any
+					}
+					return {
+						...module,
+						value: {
+							...module.value,
+							tools: [...(module.value.tools || []), newTool]
+						}
+					} as FlowModule
+				}
+
 				const targetArray = getTargetArray(modules, insideId, branchPath)
 				if (!targetArray) {
 					throw new Error(
@@ -793,6 +846,18 @@ function replaceModuleInFlow(
 					}))
 				}
 			}
+		} else if (newModuleCopy.value.type === 'aiagent') {
+			// Replace tool in AI agent's tools array
+			if (newModuleCopy.value.tools) {
+				newModuleCopy.value = {
+					...newModuleCopy.value,
+					tools: newModuleCopy.value.tools.map((tool) =>
+						tool.id === id
+							? { id, summary: newModule.summary, value: newModule.value as any }
+							: tool
+					)
+				}
+			}
 		}
 
 		return newModuleCopy
@@ -886,6 +951,34 @@ function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModule[] {
 					}))
 				}
 			}
+		} else if (newModule.value.type === 'aiagent') {
+			// Process AI agent tools
+			if (newModule.value.tools) {
+				newModule.value = {
+					...newModule.value,
+					tools: newModule.value.tools.map((tool) => {
+						if (
+							tool.value &&
+							'tool_type' in tool.value &&
+							tool.value.tool_type === 'flowmodule' &&
+							'type' in tool.value &&
+							tool.value.type === 'rawscript' &&
+							'content' in tool.value &&
+							tool.value.content
+						) {
+							inlineScriptStore.set(tool.id, tool.value.content as string)
+							return {
+								...tool,
+								value: {
+									...tool.value,
+									content: `inline_script.${tool.id}`
+								}
+							}
+						}
+						return tool
+					})
+				}
+			}
 		}
 
 		return newModule
@@ -954,6 +1047,41 @@ export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule
 					}))
 				}
 			}
+		} else if (newModule.value.type === 'aiagent') {
+			// Process AI agent tools
+			if (newModule.value.tools) {
+				newModule.value = {
+					...newModule.value,
+					tools: newModule.value.tools.map((tool) => {
+						if (
+							tool.value &&
+							'tool_type' in tool.value &&
+							tool.value.tool_type === 'flowmodule' &&
+							'type' in tool.value &&
+							tool.value.type === 'rawscript' &&
+							'content' in tool.value &&
+							tool.value.content
+						) {
+							const content = tool.value.content as string
+							const match = content.match(/^inline_script\.(.+)$/)
+							if (match) {
+								const toolId = match[1]
+								const storedContent = inlineScriptStore.get(toolId)
+								if (storedContent !== undefined) {
+									return {
+										...tool,
+										value: {
+											...tool.value,
+											content: storedContent
+										}
+									}
+								}
+							}
+						}
+						return tool
+					})
+				}
+			}
 		}
 
 		return newModule
@@ -991,6 +1119,26 @@ export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] 
 				module.value.branches.forEach((branch) => {
 					branch.modules?.forEach(checkModule)
 				})
+			}
+		} else if (module.value.type === 'aiagent') {
+			// Check AI agent tools
+			if (module.value.tools) {
+				for (const tool of module.value.tools) {
+					if (
+						tool.value &&
+						'tool_type' in tool.value &&
+						tool.value.tool_type === 'flowmodule' &&
+						'type' in tool.value &&
+						tool.value.type === 'rawscript' &&
+						'content' in tool.value &&
+						tool.value.content
+					) {
+						const match = (tool.value.content as string).match(/^inline_script\.(.+)$/)
+						if (match) {
+							unresolvedRefs.push(match[1])
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1835,6 +1983,47 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
    - Append to end: use \`afterId: null\`
    - After specific step: use \`afterId: "step_id"\`
    - Inside branch/loop: use \`insideId: "container_id"\` + \`branchPath\`
+
+### AI Agent Tools
+
+AI agents can use tools to accomplish tasks. To manage tools for an AI agent:
+
+- **Adding a tool to an AI agent**: Use \`add_module\` with \`insideId\` set to the agent's ID and \`branchPath: "tools"\`
+  - Order is not important for AI agent tools, so \`afterId\` is not needed
+  - Example: \`add_module({ insideId: "ai_agent_step", branchPath: "tools", value: { id: "search_docs", summary: "Search documentation", value: { tool_type: "flowmodule", type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+
+- **Removing a tool from an AI agent**: Use \`remove_module\` with the tool's ID
+  - The tool will be found and removed from the agent's tools array
+
+- **Modifying a tool**: Use \`modify_module\` with the tool's ID
+  - Example: \`modify_module({ id: "search_docs", value: { ... } })\`
+
+- **Tool IDs AND SUMMARIES**: Cannot contain spaces - use underscores (e.g., \`get_user_data\` not \`get user data\`)
+
+- **Tool types**:
+  - \`flowmodule\`: A script/flow that the agent can call (same as regular flow modules but with \`tool_type: "flowmodule"\`)
+  - \`mcp\`: Reference to an MCP server tool
+
+**Example - Adding a rawscript tool to an agent:**
+\`\`\`json
+add_module({
+  insideId: "my_agent",
+  branchPath: "tools",
+  value: {
+    id: "fetch_weather",
+    summary: "Get current weather for a location",
+    value: {
+      tool_type: "flowmodule",
+      type: "rawscript",
+      language: "bun",
+      content: "export async function main(location: string) { ... }",
+      input_transforms: {
+        location: { type: "static", value: "" }
+      }
+    }
+  }
+})
+\`\`\`
 
 ## Resource Types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
