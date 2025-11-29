@@ -509,9 +509,6 @@
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
 
-	$inspect('HERE', effectiveModules)
-	$inspect('HERE', effectiveModuleActions)
-
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
 
