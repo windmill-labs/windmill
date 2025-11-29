@@ -407,23 +407,23 @@ async function dev(opts: DevOptions) {
             runnableId,
             args
           );
-          log.info(colors.gray(`[runBg] Job started: ${uuid}`));
+          log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
           const result = await waitForJob(workspaceId, uuid);
           return { uuid, result };
         };
 
         switch (type) {
-          case "runBg": {
+          case "backend": {
             // Run a runnable synchronously and wait for result
-            log.info(colors.blue(`[runBg] Running runnable: ${runnable_id}`));
+            log.info(colors.blue(`[backend] Running runnable: ${runnable_id}`));
             try {
               const { result } = await runAndWaitForResult(runnable_id, v);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
-              log.error(colors.red(`[runBg] Error: ${error.message}`));
+              log.error(colors.red(`[backend] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -431,10 +431,10 @@ async function dev(opts: DevOptions) {
             break;
           }
 
-          case "runBgAsync": {
+          case "backendAsync": {
             // Run a runnable asynchronously and return job ID immediately
             log.info(
-              colors.blue(`[runBgAsync] Running runnable async: ${runnable_id}`)
+              colors.blue(`[backendAsync] Running runnable async: ${runnable_id}`)
             );
             try {
               const runnables = await loadRunnables();
@@ -451,27 +451,27 @@ async function dev(opts: DevOptions) {
                 runnable_id,
                 v
               );
-              log.info(colors.gray(`[runBgAsync] Job started: ${uuid}`));
+              log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
               // Return job ID immediately
-              respond("runBgAsyncRes", uuid, false);
+              respond("backendAsyncRes", uuid, false);
 
               // Wait for result in the background and send it when done
               waitForJob(workspaceId, uuid)
                 .then((result) => {
-                  respond("runBgRes", result, false);
+                  respond("backendRes", result, false);
                 })
                 .catch((error: any) => {
                   respond(
-                    "runBgRes",
+                    "backendRes",
                     { message: error.message, stack: error.stack },
                     true
                   );
                 });
             } catch (error: any) {
-              log.error(colors.red(`[runBgAsync] Error: ${error.message}`));
+              log.error(colors.red(`[backendAsync] Error: ${error.message}`));
               respond(
-                "runBgAsyncRes",
+                "backendAsyncRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -484,11 +484,11 @@ async function dev(opts: DevOptions) {
             log.info(colors.blue(`[waitJob] Waiting for job: ${jobId}`));
             try {
               const result = await waitForJob(workspaceId, jobId);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[waitJob] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -501,11 +501,11 @@ async function dev(opts: DevOptions) {
             log.info(colors.blue(`[getJob] Getting job status: ${jobId}`));
             try {
               const result = await getJobStatus(workspaceId, jobId);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[getJob] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
