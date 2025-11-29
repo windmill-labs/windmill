@@ -335,8 +335,8 @@
 		{/each}
 		<FileTreeNode
 			node={{
-				name: 'wmill.d.ts',
-				path: '/wmill.d.ts',
+				name: 'wmill.ts',
+				path: '/wmill.ts',
 				isFolder: false
 			}}
 			noEdit={true}
