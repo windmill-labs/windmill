@@ -112,14 +112,8 @@
 					}
 				}
 
-				// 3. Update afterFlow (needed for diff viewer)
-				diffManager?.setAfterFlow({
-					modules: flowStore.val.value.modules,
-					preprocessor_module: flowStore.val.value.preprocessor_module,
-					failure_module: flowStore.val.value.failure_module
-				})
-
-				// 4. Manually add to moduleActions, preserving existing action types
+				// 3. Manually add to moduleActions, preserving existing action types
+				// Note: currentFlow is auto-synced by FlowGraphV2's effect after refreshStateStore
 				const currentAction = diffManager?.moduleActions[id]
 				if (!currentAction) {
 					diffManager?.setModuleActions({
@@ -220,20 +214,17 @@
 				// Update schema if provided
 				if (parsed.schema !== undefined) {
 					flowStore.val.schema = parsed.schema
-					diffManager?.setAfterInputSchema(parsed.schema)
 				}
 
 				diffManager?.setEditMode(true)
-				diffManager?.setAfterFlow({
-					modules: restoredModules,
-					preprocessor_module: restoredPreprocessor || undefined,
-					failure_module: restoredFailure || undefined
-				})
-				console.log('HERE: [setFlowJson] afterFlow', diffManager?.afterFlow)
+
+				console.log('[FlowDiff] setFlowJson: modifying flowStore and calling refreshStateStore')
 
 				// Refresh the state store to update UI
-				// The $effect in FlowGraphV2 will detect changes and update afterFlow for diff computation
+				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
 				refreshStateStore(flowStore)
+
+				console.log('[FlowDiff] setFlowJson: done, FlowGraphV2 effect will sync automatically')
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`

@@ -472,28 +472,32 @@
 
 	// Sync props to diffManager
 	$effect(() => {
+		console.log('[FlowDiff] FlowGraphV2 effect: syncing currentFlow to diffManager', {
+			modulesCount: modules?.length,
+			hasFailureModule: !!failureModule,
+			hasPreprocessorModule: !!preprocessorModule
+		})
+
+		// Always sync current flow state to diffManager
+		const currentFlowValue = {
+			modules: modules,
+			failure_module: failureModule,
+			preprocessor_module: preprocessorModule,
+			skip_expr: earlyStop ? '' : undefined,
+			cache_ttl: cache ? 300 : undefined
+		}
+		diffManager.setCurrentFlow(currentFlowValue)
+		diffManager.setCurrentInputSchema(currentInputSchema)
+
+		// Handle diff mode setup
 		if (diffBeforeFlow) {
-			// Set snapshot from diffBeforeFlow
+			console.log('[FlowDiff] FlowGraphV2 effect: diff mode enabled')
 			diffManager.setEditMode(editMode)
 			diffManager.setSnapshot(diffBeforeFlow)
-			diffManager.setAfterInputSchema(currentInputSchema)
 			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
-
-			// Set afterFlow from current modules
-			const afterFlowValue = {
-				modules: modules,
-				failure_module: failureModule,
-				preprocessor_module: preprocessorModule,
-				skip_expr: earlyStop ? '' : undefined,
-				cache_ttl: cache ? 300 : undefined
-			}
-			diffManager.setAfterFlow(afterFlowValue)
 		} else if (moduleActions) {
 			// Display-only mode: just set the module actions
 			diffManager.setModuleActions(moduleActions)
-		} else {
-			// No diff mode: clear everything
-			diffManager.clearSnapshot()
 		}
 	})
 

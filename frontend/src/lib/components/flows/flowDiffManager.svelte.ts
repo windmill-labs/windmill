@@ -55,14 +55,14 @@ export function createFlowDiffManager() {
 	// State: snapshot of flow before changes
 	let beforeFlow = $state<ExtendedOpenFlow | undefined>(undefined)
 
-	// State: current flow after changes
-	let afterFlow = $state<FlowValue | undefined>(undefined)
+	// State: current flow (after changes)
+	let currentFlow = $state<FlowValue | undefined>(undefined)
 
 	// State: merged flow containing both original and modified/removed modules
 	let mergedFlow = $state<FlowValue | undefined>(undefined)
 
-	// State: input schema after changes (beforeInputSchema is just beforeFlow?.schema)
-	let afterInputSchema = $state<Record<string, any> | undefined>(undefined)
+	// State: current input schema (beforeInputSchema is just beforeFlow?.schema)
+	let currentInputSchema = $state<Record<string, any> | undefined>(undefined)
 
 	// State: whether to mark removed modules as shadowed (for side-by-side view)
 	let markRemovedAsShadowed = $state(false)
@@ -79,10 +79,16 @@ export function createFlowDiffManager() {
 	// Derived: whether there are any pending changes
 	const hasPendingChanges = $derived(Object.values(moduleActions).some((info) => info.pending))
 
-	// Auto-compute diff when beforeFlow or afterFlow changes
+	// Auto-compute diff when beforeFlow or currentFlow changes
 	$effect(() => {
-		if (beforeFlow && afterFlow) {
-			const timeline = buildFlowTimeline(beforeFlow.value, afterFlow, {
+		if (beforeFlow && currentFlow) {
+			console.log('[FlowDiff] diffManager effect: computing diff', {
+				beforeModulesCount: beforeFlow.value.modules?.length,
+				currentModulesCount: currentFlow.modules?.length,
+				editMode
+			})
+
+			const timeline = buildFlowTimeline(beforeFlow.value, currentFlow, {
 				markRemovedAsShadowed: markRemovedAsShadowed,
 				markAsPending: editMode
 			})
@@ -94,8 +100,8 @@ export function createFlowDiffManager() {
 			const newActions = { ...timeline.afterActions }
 
 			// Check for input schema changes
-			if (beforeFlow.schema && afterInputSchema) {
-				const schemaChanged = JSON.stringify(beforeFlow.schema) !== JSON.stringify(afterInputSchema)
+			if (beforeFlow.schema && currentInputSchema) {
+				const schemaChanged = JSON.stringify(beforeFlow.schema) !== JSON.stringify(currentInputSchema)
 				if (schemaChanged) {
 					newActions['Input'] = {
 						action: 'modified',
@@ -104,6 +110,7 @@ export function createFlowDiffManager() {
 				}
 			}
 
+			console.log('[FlowDiff] diffManager effect: computed actions', Object.keys(newActions))
 			updateModuleActions(newActions)
 
 			// If no more actions, clear the snapshot (exit diff mode)
@@ -132,17 +139,18 @@ export function createFlowDiffManager() {
 	}
 
 	/**
-	 * Set the after flow (current state) for diff computation
+	 * Set the current flow state for diff computation
 	 */
-	function setAfterFlow(flow: FlowValue | undefined) {
-		afterFlow = flow
+	function setCurrentFlow(flow: FlowValue | undefined) {
+		console.log('[FlowDiff] setCurrentFlow called', { modulesCount: flow?.modules?.length })
+		currentFlow = flow
 	}
 
 	/**
-	 * Set the after input schema for tracking schema changes
+	 * Set the current input schema for tracking schema changes
 	 */
-	function setAfterInputSchema(schema: Record<string, any> | undefined) {
-		afterInputSchema = schema
+	function setCurrentInputSchema(schema: Record<string, any> | undefined) {
+		currentInputSchema = schema
 	}
 
 	/**
@@ -164,9 +172,9 @@ export function createFlowDiffManager() {
 	 */
 	function clearSnapshot() {
 		beforeFlow = undefined
-		afterFlow = undefined
+		currentFlow = undefined
 		mergedFlow = undefined
-		afterInputSchema = undefined
+		currentInputSchema = undefined
 		updateModuleActions({})
 	}
 
@@ -239,8 +247,8 @@ export function createFlowDiffManager() {
 	 * Removes the action from tracking after acceptance
 	 */
 	function acceptModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>, asSkeleton = false) {
-		if (!beforeFlow || !afterFlow) {
-			throw new Error('Cannot accept module without beforeFlow and afterFlow snapshots')
+		if (!beforeFlow || !currentFlow) {
+			throw new Error('Cannot accept module without beforeFlow and currentFlow snapshots')
 		}
 
 		const info = moduleActions[id]
@@ -251,9 +259,9 @@ export function createFlowDiffManager() {
 			: id
 
 		if (id === 'Input') {
-			// Accept input schema changes: update beforeFlow to match afterInputSchema
-			if (beforeFlow.schema && afterInputSchema) {
-				beforeFlow.schema = JSON.parse(JSON.stringify(afterInputSchema))
+			// Accept input schema changes: update beforeFlow to match currentInputSchema
+			if (beforeFlow.schema && currentInputSchema) {
+				beforeFlow.schema = JSON.parse(JSON.stringify(currentInputSchema))
 			}
 		} else if (info.action === 'removed') {
 			// Removed in after: Remove from beforeFlow
@@ -262,7 +270,7 @@ export function createFlowDiffManager() {
 			// Added in after: Add to beforeFlow
 
 			// Check if parent exists in beforeFlow; if not, recursively accept parent first.
-			const parentLoc = findModuleParent(afterFlow, actualId)
+			const parentLoc = findModuleParent(currentFlow, actualId)
 			if (
 				parentLoc &&
 				parentLoc.type !== 'root' &&
@@ -277,9 +285,9 @@ export function createFlowDiffManager() {
 				}
 			}
 
-			// Use insertModuleIntoFlow targeting beforeFlow, sourcing position from afterFlow
+			// Use insertModuleIntoFlow targeting beforeFlow, sourcing position from currentFlow
 			let module = getModuleFromFlow(actualId, {
-				value: afterFlow,
+				value: currentFlow,
 				summary: ''
 			} as ExtendedOpenFlow)
 
@@ -295,14 +303,14 @@ export function createFlowDiffManager() {
 				} else {
 					// Module doesn't exist, insert it
 					const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
-					insertModuleIntoFlow(beforeFlow.value, $state.snapshot(moduleToInsert), afterFlow, actualId)
+					insertModuleIntoFlow(beforeFlow.value, $state.snapshot(moduleToInsert), currentFlow, actualId)
 				}
 			}
 		} else if (info.action === 'modified') {
 			// Modified: Apply modifications to beforeFlow module
 			const beforeModule = getModuleFromFlow(actualId, beforeFlow)
 			const afterModule = getModuleFromFlow(actualId, {
-				value: afterFlow,
+				value: currentFlow,
 				summary: ''
 			} as ExtendedOpenFlow)
 
@@ -313,7 +321,7 @@ export function createFlowDiffManager() {
 		}
 
 		// Note: The $effect will automatically recompute the diff, clearing the action
-		// since beforeFlow now matches afterFlow for this module.
+		// since beforeFlow now matches currentFlow for this module.
 	}
 
 	/**
@@ -337,12 +345,12 @@ export function createFlowDiffManager() {
 			if (id === 'Input') {
 				// Revert input schema changes
 				flowStore.val.schema = beforeFlow.schema
-				afterInputSchema = flowStore.val.schema
+				currentInputSchema = flowStore.val.schema
 			} else if (info.action === 'added') {
-				// Added in after: Remove from flowStore (afterFlow)
+				// Added in after: Remove from flowStore (currentFlow)
 				deleteModuleFromFlow(actualId, flowStore)
 			} else if (info.action === 'removed') {
-				// Removed in after: Restore to flowStore (afterFlow)
+				// Removed in after: Restore to flowStore (currentFlow)
 				// Source from beforeFlow
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				if (oldModule) {
@@ -355,7 +363,7 @@ export function createFlowDiffManager() {
 				}
 				refreshStateStore(flowStore)
 			} else if (info.action === 'modified') {
-				// Modified: Revert modifications in flowStore (afterFlow)
+				// Modified: Revert modifications in flowStore (currentFlow)
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				const newModule = getModuleFromFlow(actualId, flowStore.val)
 
@@ -366,11 +374,11 @@ export function createFlowDiffManager() {
 				refreshStateStore(flowStore)
 			}
 
-			afterFlow = flowStore.val.value
+			currentFlow = flowStore.val.value
 		}
 
 		// Note: The $effect will automatically recompute the diff, clearing the action
-		// since flowStore (afterFlow) now matches beforeFlow for this module.
+		// since flowStore (currentFlow) now matches beforeFlow for this module.
 	}
 
 	/**
@@ -432,20 +440,20 @@ export function createFlowDiffManager() {
 				mode: 'simple',
 				title: 'Flow Input Schema Diff',
 				original: { schema: beforeFlow.schema ?? {} },
-				current: { schema: afterInputSchema ?? {} }
+				current: { schema: currentInputSchema ?? {} }
 			})
 		} else {
 			// Show module diff
 			const beforeModule = getModuleFromFlow(moduleId, beforeFlow)
-			// Need to check failure_module and preprocessor_module for afterFlow as well
+			// Need to check failure_module and preprocessor_module for currentFlow as well
 			let afterModule: FlowModule | undefined = undefined
-			if (afterFlow) {
-				if (afterFlow.preprocessor_module?.id === moduleId) {
-					afterModule = afterFlow.preprocessor_module
-				} else if (afterFlow.failure_module?.id === moduleId) {
-					afterModule = afterFlow.failure_module
+			if (currentFlow) {
+				if (currentFlow.preprocessor_module?.id === moduleId) {
+					afterModule = currentFlow.preprocessor_module
+				} else if (currentFlow.failure_module?.id === moduleId) {
+					afterModule = currentFlow.failure_module
 				} else {
-					afterModule = dfs(moduleId, { value: afterFlow, summary: '' }, false)[0]
+					afterModule = dfs(moduleId, { value: currentFlow, summary: '' }, false)[0]
 				}
 			}
 
@@ -466,8 +474,8 @@ export function createFlowDiffManager() {
 		get beforeFlow() {
 			return beforeFlow
 		},
-		get afterFlow() {
-			return afterFlow
+		get currentFlow() {
+			return currentFlow
 		},
 		get mergedFlow() {
 			return mergedFlow
@@ -478,8 +486,8 @@ export function createFlowDiffManager() {
 		get hasPendingChanges() {
 			return hasPendingChanges
 		},
-		get afterInputSchema() {
-			return afterInputSchema
+		get currentInputSchema() {
+			return currentInputSchema
 		},
 		get editModeEnabled() {
 			return editMode
@@ -487,8 +495,8 @@ export function createFlowDiffManager() {
 
 		// Snapshot management
 		setSnapshot,
-		setAfterFlow,
-		setAfterInputSchema,
+		setCurrentFlow,
+		setCurrentInputSchema,
 		setMarkRemovedAsShadowed,
 		setEditMode,
 		clearSnapshot,

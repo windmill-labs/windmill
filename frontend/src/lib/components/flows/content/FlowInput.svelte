@@ -79,7 +79,7 @@
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
 
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
-	const effectiveSchema = $derived(diffManager?.afterInputSchema ?? flowStore.val.schema)
+	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
 
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
