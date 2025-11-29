@@ -248,13 +248,15 @@ const moveModuleSchema = z.object({
 		),
 	insideId: z
 		.string()
-		.nullish()
+		.nullable()
+		.optional()
 		.describe(
 			'ID of the container to move into. Requires branchPath. Must not be used together with afterId.'
 		),
 	branchPath: z
 		.string()
-		.nullish()
+		.nullable()
+		.optional()
 		.describe(
 			"Path within the new container: 'branches.0', 'default', or 'modules'. Required when using insideId."
 		)
@@ -641,9 +643,9 @@ function updateNestedArray(
  */
 function addModuleToFlow(
 	modules: FlowModule[],
-	afterId: string | null | undefined,
-	insideId: string | undefined | null,
-	branchPath: string | undefined | null,
+	afterId: string | null,
+	insideId: string | null,
+	branchPath: string | null,
 	newModule: FlowModule
 ): FlowModule[] {
 	// Case 1: Adding inside a container
@@ -657,7 +659,7 @@ function addModuleToFlow(
 					)
 				}
 				const updatedArray = afterId
-					? addModuleToFlow(targetArray, afterId, undefined, undefined, newModule)
+					? addModuleToFlow(targetArray, afterId, null, null, newModule)
 					: [...targetArray, newModule]
 				return updateNestedArray(module, branchPath, updatedArray)
 			}
@@ -723,7 +725,7 @@ function addModuleToFlow(
 	}
 
 	// Case 2: Adding at current level after a specific module
-	if (afterId !== null && afterId !== undefined) {
+	if (afterId !== null) {
 		const result: FlowModule[] = []
 		for (const module of modules) {
 			result.push(module)
@@ -1271,8 +1273,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...addModuleToolDef, function: { ...addModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			console.log('[tool_add_module]', args)
-			let { afterId, insideId, branchPath, value } = args
+			const afterId = (args.afterId ?? null) as string | null
+			const insideId = (args.insideId ?? null) as string | null
+			const branchPath = (args.branchPath ?? null) as string | null
+			let value = args.value
 
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
@@ -1284,7 +1288,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			// Validation
-			if (afterId !== undefined && afterId !== null && insideId) {
+			if (afterId !== null && insideId) {
 				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
 			}
 			if (insideId && !branchPath) {
@@ -1440,12 +1444,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: { ...moveModuleToolDef, function: { ...moveModuleToolDef.function, strict: false } },
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			console.log('[tool_move_module]', args)
 			const parsedArgs = moveModuleSchema.parse(args)
-			const { id, afterId, insideId, branchPath } = parsedArgs
+			const id = parsedArgs.id
+			const afterId = parsedArgs.afterId ?? null
+			const insideId = parsedArgs.insideId ?? null
+			const branchPath = parsedArgs.branchPath ?? null
 
 			// Validation
-			if (afterId !== undefined && afterId !== null && insideId) {
+			if (afterId !== null && insideId) {
 				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
 			}
 			if (insideId && !branchPath) {
