@@ -542,7 +542,14 @@ impl WorkspaceDependenciesPrefetched {
             (Python3, Explicit(wdar)) => wdar.assert_no_external()?,
             (Python3, wdp) => wdp.assert_no_implicit()?,
 
-            _ => return Err(format!("language is unsupported")),
+            (lang @ _, _) => {
+                tracing::warn!(
+                    self.runnable_path,
+                    "skipping workspace dependencies for unsupported language {}",
+                    lang.as_str()
+                );
+                return Ok(());
+            }
         }
         Ok(())
     }
