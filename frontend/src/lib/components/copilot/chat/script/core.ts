@@ -897,6 +897,9 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -947,7 +950,8 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Code changes applied`
+				content: `Code changes applied`,
+				result: 'Success'
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -963,6 +967,9 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 export const editCodeTool: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -984,8 +991,6 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Code parameter is required and must be a string')
 		}
 
-		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-
 		try {
 			// Save old code
 			const oldCode = scriptOptions.code
@@ -996,7 +1001,10 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			// Show revert mode
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Code changes applied',
+				result: 'Success'
+			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
