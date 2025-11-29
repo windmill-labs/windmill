@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { colors, log, encodeHex, SEP } from "../../deps.ts";
+import { colors, encodeHex, log, SEP } from "../../deps.ts";
 import crypto from "node:crypto";
 
 export function deepEqual<T>(a: T, b: T): boolean {
@@ -15,7 +15,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (Array.isArray(a)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0;) {
+      for (i = length; i-- !== 0; ) {
         if (!deepEqual(a[i], b[i])) return false;
       }
       return true;
@@ -43,7 +43,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0;) {
+      for (i = length; i-- !== 0; ) {
         if (a[i] !== b[i]) return false;
       }
       return true;
@@ -66,11 +66,11 @@ export function deepEqual<T>(a: T, b: T): boolean {
     length = keys.length;
     if (length !== Object.keys(b).length) return false;
 
-    for (i = length; i-- !== 0;) {
+    for (i = length; i-- !== 0; ) {
       if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
     }
 
-    for (i = length; i-- !== 0;) {
+    for (i = length; i-- !== 0; ) {
       const key = keys[i];
       if (!deepEqual(a[key], b[key])) return false;
     }
@@ -127,7 +127,12 @@ export async function generateHashFromBuffer(
 // }
 
 export function readInlinePathSync(path: string): string {
-  return Deno.readTextFileSync(path.replaceAll("/", SEP));
+  try {
+    return Deno.readTextFileSync(path.replaceAll("/", SEP));
+  } catch (error) {
+    log.warn(`Error reading inline path: ${path}, ${error}`);
+    return "";
+  }
 }
 
 export function sleep(ms: number) {
@@ -145,15 +150,20 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+export function isRawAppFile(path: string): boolean {
+  return path.includes(".raw_app" + SEP) ;
+}
+
 export function isWorkspaceDependencies(path: string): boolean {
   return path.startsWith("dependencies/")
 }
 
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
-  let bytesWritten = 0
-  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input
+  let bytesWritten = 0;
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
   while (bytesWritten < bytes.length) {
-    bytesWritten += to.writeSync(bytes.subarray(bytesWritten))
+    bytesWritten += to.writeSync(bytes.subarray(bytesWritten));
   }
 }
 
@@ -172,7 +182,10 @@ export async function selectRepository<T extends Repository>(
   }
 
   if (repositories.length === 1) {
-    const repoPath = repositories[0].git_repo_resource_path.replace(/^\$res:/, "");
+    const repoPath = repositories[0].git_repo_resource_path.replace(
+      /^\$res:/,
+      ""
+    );
     log.info(colors.cyan(`Auto-selected repository: ${colors.bold(repoPath)}`));
     return repositories[0];
   }
@@ -181,24 +194,34 @@ export async function selectRepository<T extends Repository>(
   const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
 
   if (!isInteractive) {
-    const repoPaths = repositories.map(r => r.git_repo_resource_path.replace(/^\$res:/, ""));
-    throw new Error(`Multiple repositories found: ${repoPaths.join(', ')}. Use --repository to specify which one to ${operation || 'use'}.`);
+    const repoPaths = repositories.map((r) =>
+      r.git_repo_resource_path.replace(/^\$res:/, "")
+    );
+    throw new Error(
+      `Multiple repositories found: ${repoPaths.join(
+        ", "
+      )}. Use --repository to specify which one to ${operation || "use"}.`
+    );
   }
 
   // Import Select dynamically to avoid dependency issues
   const { Select } = await import("../../deps.ts");
 
-  console.log(`\nMultiple repositories found. Please select which repository to ${operation || 'use'}:\n`);
+  console.log(
+    `\nMultiple repositories found. Please select which repository to ${
+      operation || "use"
+    }:\n`
+  );
 
   const selectedRepo = await Select.prompt({
-    message: `Select repository for ${operation || 'operation'}:`,
+    message: `Select repository for ${operation || "operation"}:`,
     options: repositories.map((repo, index) => {
       const displayPath = repo.git_repo_resource_path.replace(/^\$res:/, "");
       return {
         name: `${index + 1}. ${displayPath}`,
-        value: repo.git_repo_resource_path
+        value: repo.git_repo_resource_path,
       };
-    })
+    }),
   });
 
   return repositories.find((r) => r.git_repo_resource_path === selectedRepo)!;
@@ -216,7 +239,7 @@ export async function getIsWin(): Promise<boolean> {
 /**
  * Writes content to a file only if it differs from existing content.
  * Creates parent directories if they don't exist.
- * 
+ *
  * @param path - The file path to write to
  * @param content - The content to write
  * @returns true if file was written, false if skipped (content unchanged)

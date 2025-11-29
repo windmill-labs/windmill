@@ -280,7 +280,7 @@ export function getSelectInput(
 	if (dbInput.type === 'ducklake') content = wrapDucklakeQuery(content, dbInput.ducklake)
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: { content, language: getLanguageByResourceType(dbType) }
 	}
 

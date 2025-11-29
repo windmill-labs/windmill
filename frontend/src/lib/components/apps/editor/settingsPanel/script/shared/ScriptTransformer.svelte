@@ -1,9 +1,10 @@
 <script lang="ts">
-	import type { AppEditorContext, InlineScript } from '$lib/components/apps/types'
+	import type { AppEditorContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import { Plus, X } from 'lucide-svelte'
 	import Section from '$lib/components/Section.svelte'
+	import type { InlineScript } from '$lib/components/apps/sharedTypes'
 
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
