@@ -59,6 +59,9 @@ export * as open from "npm:open";
 export * as esMain from "npm:es-main";
 export * as windmillUtils from "jsr:@windmill-labs/shared-utils@1.0.10";
 
+// needed for dnt transform
+import * as wsTypes from "npm:@types/ws";
+
 import { OpenAPI } from "./gen/index.ts";
 
 export function setClient(token?: string, baseUrl?: string) {

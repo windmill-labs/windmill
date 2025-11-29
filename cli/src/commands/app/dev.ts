@@ -15,8 +15,8 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { WebSocketServer, WebSocket } from "npm:ws@8.18.0";
-import { getDevBuildOptions, ensureNodeModules } from "./bundle.ts";
+import { WebSocketServer, WebSocket } from "npm:ws";
+import { getDevBuildOptions, ensureNodeModules, createFrameworkPlugins, detectFrameworks } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
@@ -104,8 +104,12 @@ async function dev(opts: DevOptions) {
       port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
     }));
   const host = opts.host ?? DEFAULT_HOST;
-  const entryPoint = opts.entry ?? "index.tsx";
   const shouldOpen = opts.open ?? true;
+
+  // Detect frameworks to determine default entry point
+  const frameworks = detectFrameworks(process.cwd());
+  const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+  const entryPoint = opts.entry ?? defaultEntry;
 
   // Verify entry point exists
   if (!fs.existsSync(entryPoint)) {
@@ -118,7 +122,7 @@ async function dev(opts: DevOptions) {
   }
 
   // Ensure node_modules exists
-  const appDir = path.dirname(entryPoint);
+  const appDir = path.dirname(entryPoint) || process.cwd();
   await ensureNodeModules(appDir);
 
   // In-memory cache of inferred schemas (runnableId -> schema)
@@ -143,6 +147,9 @@ async function dev(opts: DevOptions) {
   }
 
   const buildOptions = getDevBuildOptions(entryPoint);
+
+  // Load framework-specific plugins (svelte, vue) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir);
 
   const wmillPlugin = {
     name: "wmill-virtual",
@@ -174,10 +181,12 @@ async function dev(opts: DevOptions) {
     },
   };
 
+  
   // Create esbuild context
   const ctx = await esbuild.context({
     ...buildOptions,
     plugins: [
+      ...frameworkPlugins,
       {
         name: "notify-on-rebuild",
         setup(build: any) {
@@ -218,7 +227,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, number> = {};
+    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -594,9 +603,7 @@ const command = new Command()
   .option("--host <host:string>", "Host to bind the dev server to", {
     default: DEFAULT_HOST,
   })
-  .option("--entry <entry:string>", "Entry point file for the application", {
-    default: "index.tsx",
-  })
+  .option("--entry <entry:string>", "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)")
   .option("--no-open", "Don't automatically open the browser")
   .action(dev as any);
 

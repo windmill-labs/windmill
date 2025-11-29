@@ -14,7 +14,7 @@ import { Policy } from "../../../gen/types.gen.ts";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./apps.ts";
-import { createBundle } from "./bundle.ts";
+import { createBundle, detectFrameworks } from "./bundle.ts";
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 
 export interface AppFile {
@@ -102,7 +102,10 @@ export async function pushRawApp(
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
-    const entryPoint = localPath + "index.tsx";
+    // Detect frameworks to determine entry point
+    const frameworks = detectFrameworks(localPath);
+    const entryFile = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+    const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
       production: true,
