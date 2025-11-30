@@ -20,7 +20,7 @@
 {#if moduleAction && diffManager}
 	<div
 		class={twMerge(
-			'absolute right-0 left-0 flex flex-row z-10',
+			'absolute right-0 left-0 flex flex-row z-20',
 			placement === 'top' ? 'top-0 -translate-y-full' : 'bottom-0 translate-y-full',
 			moduleAction.action === 'modified' ? 'justify-between' : 'justify-end'
 		)}

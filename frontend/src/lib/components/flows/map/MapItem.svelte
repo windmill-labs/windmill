@@ -121,7 +121,7 @@
 		{#if duration_ms}
 			<div
 				class={twMerge(
-					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
+					'absolute z-5 right-0 -top-4 center-center text-primary text-2xs',
 					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-16' : ''
 				)}
 			>
