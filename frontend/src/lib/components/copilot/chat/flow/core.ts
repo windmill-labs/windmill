@@ -174,7 +174,7 @@ const addModuleToolDef: ChatCompletionFunctionTool = {
 		strict: false,
 		name: 'add_module',
 		description:
-			'Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops.',
+			"Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be used.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -210,7 +210,7 @@ const removeModuleSchema = z.object({
 const removeModuleToolDef = createToolDef(
 	removeModuleSchema,
 	'remove_module',
-	'Remove a module from the flow by its ID. Searches recursively through all nested structures.'
+	"Remove a module from the flow by its ID. Searches recursively through all nested structures. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be removed."
 )
 
 const modifyModuleToolDef: ChatCompletionFunctionTool = {
@@ -219,7 +219,7 @@ const modifyModuleToolDef: ChatCompletionFunctionTool = {
 		strict: false,
 		name: 'modify_module',
 		description:
-			'Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules.',
+			"Modify an existing module (full replacement). Use for changing configuration, transforms, or conditions. Not for adding/removing nested modules. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be modified.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -258,46 +258,11 @@ const setFlowSchemaToolDef: ChatCompletionFunctionTool = {
 	}
 }
 
-const setPreprocessorModuleToolDef: ChatCompletionFunctionTool = {
-	type: 'function',
-	function: {
-		strict: false,
-		name: 'set_preprocessor_module',
-		description:
-			'Set or update the preprocessor module. The preprocessor runs before the main flow execution starts. The module id is automatically set to "preprocessor".',
-		parameters: {
-			type: 'object',
-			properties: {
-				module: {
-					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
-					description:
-						'Preprocessor module object. The id will be automatically set to "preprocessor" (do not specify a different id). The preprocessor runs before the main flow starts.'
-				}
-			},
-			required: ['module']
-		}
-	}
-}
+/** Restricted module IDs that cannot be used in add/modify/remove operations */
+const RESTRICTED_MODULE_IDS = Object.values(SPECIAL_MODULE_IDS)
 
-const setFailureModuleToolDef: ChatCompletionFunctionTool = {
-	type: 'function',
-	function: {
-		strict: false,
-		name: 'set_failure_module',
-		description:
-			'Set or update the failure handler module. This runs automatically when any flow step fails. The module id is automatically set to "failure".',
-		parameters: {
-			type: 'object',
-			properties: {
-				module: {
-					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
-					description:
-						'Failure handler module object. The id will be automatically set to "failure" (do not specify a different id). Runs when any step in the flow fails.'
-				}
-			},
-			required: ['module']
-		}
-	}
+function isRestrictedModuleId(id: string): boolean {
+	return RESTRICTED_MODULE_IDS.includes(id as typeof RESTRICTED_MODULE_IDS[number])
 }
 
 class WorkspaceScriptsSearch {
@@ -1414,6 +1379,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			if (!value.id) {
 				throw new Error('Module value must include an id field')
 			}
+			// Check for restricted IDs
+			if (isRestrictedModuleId(value.id)) {
+				throw new Error(`Restricted id '${value.id}', can't be used, should choose an other`)
+			}
 
 			toolCallbacks.setToolStatus(toolId, { content: `Adding module '${value.id}'...` })
 
@@ -1473,6 +1442,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = removeModuleSchema.parse(args)
 			const { id } = parsedArgs
 
+			// Check for restricted IDs
+			if (isRestrictedModuleId(id)) {
+				throw new Error(`Restricted id '${id}', can't be used, should choose an other`)
+			}
+
 			toolCallbacks.setToolStatus(toolId, { content: `Removing module '${id}'...` })
 
 			const { flow } = helpers.getFlowAndSelectedId()
@@ -1505,6 +1479,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			let { id, value } = args
+
+			// Check for restricted IDs
+			if (isRestrictedModuleId(id)) {
+				throw new Error(`Restricted id '${id}', can't be used, should choose an other`)
+			}
 
 			// Parse value if it's a JSON string
 			if (typeof value === 'string') {
@@ -1595,120 +1574,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Flow input schema updated successfully' })
 			return 'Flow input schema has been updated.'
 		}
-	},
-	{
-		def: {
-			...setPreprocessorModuleToolDef,
-			function: { ...setPreprocessorModuleToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			let { module } = args
-
-			// Parse module if it's a JSON string
-			if (typeof module === 'string') {
-				try {
-					module = JSON.parse(module)
-				} catch (e) {
-					throw new Error(`Failed to parse module as JSON: ${(e as Error).message}`)
-				}
-			}
-
-			// Handle character-indexed object (bug case) - reconstruct string
-			if (module && typeof module === 'object' && !Array.isArray(module)) {
-				const keys = Object.keys(module)
-				if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
-					const reconstructed = Object.values(module).join('')
-					try {
-						module = JSON.parse(reconstructed)
-					} catch (e) {
-						throw new Error(`Failed to parse reconstructed module JSON: ${(e as Error).message}`)
-					}
-				}
-			}
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting preprocessor module...' })
-
-			const { flow } = helpers.getFlowAndSelectedId()
-
-			// Ensure the ID is always 'preprocessor'
-			if (module?.id && module.id !== SPECIAL_MODULE_IDS.PREPROCESSOR) {
-				console.warn(
-					`Preprocessor module ID should always be 'preprocessor', but received '${module.id}'. Correcting to 'preprocessor'.`
-				)
-			}
-
-			// Handle inline script storage if this is a rawscript with full content
-			let processedModule = { ...module, id: 'preprocessor' }
-
-			// Update the flow with new preprocessor
-			const updatedFlow = {
-				...flow.value,
-				preprocessor_module: processedModule
-			}
-
-			await helpers.setFlowJson(JSON.stringify(updatedFlow))
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Preprocessor module updated successfully' })
-			return 'Preprocessor module has been updated.'
-		}
-	},
-	{
-		def: {
-			...setFailureModuleToolDef,
-			function: { ...setFailureModuleToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			let { module } = args
-
-			// Parse module if it's a JSON string
-			if (typeof module === 'string') {
-				try {
-					module = JSON.parse(module)
-				} catch (e) {
-					throw new Error(`Failed to parse module as JSON: ${(e as Error).message}`)
-				}
-			}
-
-			// Handle character-indexed object (bug case) - reconstruct string
-			if (module && typeof module === 'object' && !Array.isArray(module)) {
-				const keys = Object.keys(module)
-				if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
-					const reconstructed = Object.values(module).join('')
-					try {
-						module = JSON.parse(reconstructed)
-					} catch (e) {
-						throw new Error(`Failed to parse reconstructed module JSON: ${(e as Error).message}`)
-					}
-				}
-			}
-
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting failure handler module...' })
-
-			const { flow } = helpers.getFlowAndSelectedId()
-
-			// Ensure the ID is always 'failure'
-			if (module?.id && module.id !== SPECIAL_MODULE_IDS.FAILURE) {
-				console.warn(
-					`Failure module ID should always be 'failure', but received '${module.id}'. Correcting to 'failure'.`
-				)
-			}
-
-			// Handle inline script storage if this is a rawscript with full content
-			let processedModule = { ...module, id: 'failure' }
-
-			// Update the flow with new failure module
-			const updatedFlow = {
-				...flow.value,
-				failure_module: processedModule
-			}
-
-			await helpers.setFlowJson(JSON.stringify(updatedFlow))
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Failure handler module updated successfully'
-			})
-			return 'Failure handler module has been updated.'
-		}
 	}
 ]
 
@@ -1765,17 +1630,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
   - Defines what parameters the flow accepts when executed
   - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } }, required: ["user_id"] } })\`
 
-- **set_preprocessor_module**: Set/update the preprocessor
-  - The preprocessor runs before the main flow execution starts
-  - Useful for validation, setup, or preprocessing inputs
-  - **IMPORTANT**: The module id MUST BE ALWAYS "preprocessor"
-  - Example: \`set_preprocessor_module({ module: { id: "preprocessor", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
-
-- **set_failure_module**: Set/update the failure handler
-  - Runs automatically when any flow step fails
-  - Useful for cleanup, notifications, or error logging
-  - **IMPORTANT**: The module id MUST BE ALWAYS "failure"
-  - Example: \`set_failure_module({ module: { id: "failure", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+**IMPORTANT RESTRICTIONS:**
+- Do NOT use the IDs "failure", "preprocessor", or "Input" in add_module, modify_module, or remove_module - these are reserved system IDs
 
 Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
