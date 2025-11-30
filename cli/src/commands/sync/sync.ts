@@ -69,6 +69,7 @@ import {
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/apps.ts";
+import { generateAppLocksInternal } from "../app/app_metadata.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -758,7 +759,7 @@ export async function* readDirRecursiveWithIgnore(
     for await (const e2 of e.c()) {
       if (e2.isDirectory) {
         const dirName = e2.path.split(SEP).pop();
-        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+        if (dirName == "node_modules" || dirName == ".claude" || dirName?.startsWith(".")) {
           continue;
         }
       }
@@ -1697,14 +1698,9 @@ export async function pull(
         )
       );
     }
-    if (tracker.rawApps.length > 0) {
-      log.info(
-        colors.gray(
-          `Raw apps ${tracker.rawApps.join(
-            ", "
-          )} inline scripts were changed but ignoring metadata regeneration for now`
-        )
-      );
+    for (const change of tracker.rawApps) {
+      log.info(`Updating lock metadata for raw app ${change}`);
+      await generateAppLocksInternal(change, false, workspace, opts, true, true);
     }
     if (opts.jsonOutput) {
       const result = {
