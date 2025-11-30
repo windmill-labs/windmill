@@ -244,10 +244,7 @@ export async function tryResolveBranchWorkspace(
     );
   }
 
-  if (workspaceIdIfForked) {
-    workspaceId = workspaceIdIfForked;
-    log.info(`Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
-  }
+
 
   // Handle multiple profiles - use special branch-aware logic
   let selectedProfile: Workspace;
@@ -291,6 +288,14 @@ export async function tryResolveBranchWorkspace(
     );
 
     log.info(colors.green(`Using workspace profile '${selectedProfile.name}' for branch '${currentBranch}'`));
+
+
+  }
+
+  if (workspaceIdIfForked) {
+    selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
+    selectedProfile.workspaceId = workspaceIdIfForked;
+    log.info(`Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
   }
 
   return selectedProfile;
