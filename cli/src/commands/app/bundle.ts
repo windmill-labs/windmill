@@ -116,12 +116,13 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
 
   if (frameworks.vue) {
     log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
-    try {
-      const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
-      plugins.push(esbuildPluginVue.default());
-    } catch (error: any) {
-      log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
-    }
+    throw new Error("Vue plugin not supported yet");
+    // try {
+    //   const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
+    //   plugins.push(esbuildPluginVue.default());
+    // } catch (error: any) {
+    //   log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
+    // }
   }
 
   return plugins;
