@@ -20,6 +20,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { Trash } from 'lucide-svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -311,4 +312,19 @@
 			</div>
 		{/if}
 	</Label>
+
+	{#if $userStore?.is_admin}
+		<PermissionHistory
+			{name}
+			kind="group"
+			fetchHistory={async (workspace, groupName, page, perPage) => {
+				return await GroupService.getGroupPermissionHistory({
+					workspace,
+					name: groupName,
+					page,
+					perPage
+				})
+			}}
+		/>
+	{/if}
 </div>
