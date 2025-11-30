@@ -60,7 +60,7 @@
 					<div class="relative w-full flex-1 flex flex-col">
 						<div
 							class={classNames(
-								'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
+								'py-0.5 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
 								noBorder || $userStore?.operator ? 'hidden' : ''
 							)}
 						>
