@@ -238,37 +238,6 @@ const modifyModuleToolDef: ChatCompletionFunctionTool = {
 	}
 }
 
-const moveModuleSchema = z.object({
-	id: z.string().describe('ID of the module to move'),
-	afterId: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			'New position: ID to insert after (null to append). Must not be used together with insideId.'
-		),
-	insideId: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			'ID of the container to move into. Requires branchPath. Must not be used together with afterId.'
-		),
-	branchPath: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			"Path within the new container: 'branches.0', 'default', or 'modules'. Required when using insideId."
-		)
-})
-
-const moveModuleToolDef = createToolDef(
-	moveModuleSchema,
-	'move_module',
-	'Move a module to a new position. Can move within same level or between different nesting levels (e.g., from main flow into a branch).'
-)
-
 const setFlowSchemaToolDef: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
@@ -1491,7 +1460,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
 
-			toolCallbacks.setToolStatus(toolId, { content: `Module '${value.id}' added successfully`, result: 'Success' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Module '${value.id}' added successfully`,
+				result: 'Success'
+			})
 			return `Module '${value.id}' has been added to the flow.`
 		}
 	},
@@ -1586,53 +1558,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
 
-			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' modified successfully`, result: 'Success' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Module '${id}' modified successfully`,
+				result: 'Success'
+			})
 			return `Module '${id}' has been modified.`
-		}
-	},
-	{
-		def: { ...moveModuleToolDef, function: { ...moveModuleToolDef.function, strict: false } },
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = moveModuleSchema.parse(args)
-			const id = parsedArgs.id
-			const afterId = parsedArgs.afterId ?? null
-			const insideId = parsedArgs.insideId ?? null
-			const branchPath = parsedArgs.branchPath ?? null
-
-			// Validation
-			if (afterId !== null && insideId) {
-				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
-			}
-			if (insideId && !branchPath) {
-				throw new Error('branchPath is required when using insideId')
-			}
-
-			toolCallbacks.setToolStatus(toolId, { content: `Moving module '${id}'...` })
-
-			const { flow } = helpers.getFlowAndSelectedId()
-
-			// Check module exists
-			const existing = findModuleInFlow(flow.value.modules, id)
-			if (!existing) {
-				throw new Error(`Module with id '${id}' not found`)
-			}
-
-			// Remove from current location
-			const withoutModule = removeModuleFromFlow(flow.value.modules, id)
-
-			// Add to new location
-			const updatedModules = addModuleToFlow(withoutModule, afterId, insideId, branchPath, existing)
-
-			// Apply via setFlowJson to trigger proper snapshot and diff tracking
-			const updatedFlow = {
-				...flow.value,
-				modules: updatedModules
-			}
-
-			await helpers.setFlowJson(JSON.stringify(updatedFlow))
-
-			toolCallbacks.setToolStatus(toolId, { content: `Module '${id}' moved successfully` })
-			return `Module '${id}' has been moved to the new position.`
 		}
 	},
 	{
@@ -1709,21 +1639,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Handle inline script storage if this is a rawscript with full content
 			let processedModule = { ...module, id: 'preprocessor' }
-			if (
-				processedModule?.value?.type === 'rawscript' &&
-				processedModule?.value?.content &&
-				!processedModule.value.content.startsWith('inline_script.')
-			) {
-				inlineScriptStore.set('preprocessor', processedModule.value.content)
-				processedModule = {
-					...processedModule,
-					id: 'preprocessor',
-					value: {
-						...processedModule.value,
-						content: `inline_script.preprocessor`
-					}
-				}
-			}
 
 			// Update the flow with new preprocessor
 			const updatedFlow = {
@@ -1780,21 +1695,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			// Handle inline script storage if this is a rawscript with full content
 			let processedModule = { ...module, id: 'failure' }
-			if (
-				processedModule?.value?.type === 'rawscript' &&
-				processedModule?.value?.content &&
-				!processedModule.value.content.startsWith('inline_script.')
-			) {
-				inlineScriptStore.set('failure', processedModule.value.content)
-				processedModule = {
-					...processedModule,
-					id: 'failure',
-					value: {
-						...processedModule.value,
-						content: `inline_script.failure`
-					}
-				}
-			}
 
 			// Update the flow with new failure module
 			const updatedFlow = {
@@ -1868,14 +1768,14 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **set_preprocessor_module**: Set/update the preprocessor
   - The preprocessor runs before the main flow execution starts
   - Useful for validation, setup, or preprocessing inputs
-  - **IMPORTANT**: The module id is always "preprocessor" (automatically set, don't specify it)
-  - Example: \`set_preprocessor_module({ module: { value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+  - **IMPORTANT**: The module id MUST BE ALWAYS "preprocessor"
+  - Example: \`set_preprocessor_module({ module: { id: "preprocessor", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
 
 - **set_failure_module**: Set/update the failure handler
   - Runs automatically when any flow step fails
   - Useful for cleanup, notifications, or error logging
-  - **IMPORTANT**: The module id is always "failure" (automatically set, don't specify it)
-  - Example: \`set_failure_module({ module: { value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+  - **IMPORTANT**: The module id MUST BE ALWAYS "failure"
+  - Example: \`set_failure_module({ module: { id: "failure", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
 
 Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
