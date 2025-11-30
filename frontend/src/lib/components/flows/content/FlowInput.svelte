@@ -456,19 +456,22 @@
 					value: {
 						type: 'aiagent',
 						tools: [],
-						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
-							if (key === 'user_message') {
-								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-							} else if (key === 'messages_context_length') {
-								accu[key] = { type: 'static', value: 10 }
-							} else {
-								accu[key] = {
-									type: 'static',
-									value: undefined
+						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
+							(accu, key) => {
+								if (key === 'user_message') {
+									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+								} else if (key === 'messages_context_length') {
+									accu[key] = { type: 'static', value: 10 }
+								} else {
+									accu[key] = {
+										type: 'static',
+										value: undefined
+									}
 								}
-							}
-							return accu
-						}, {})
+								return accu
+							},
+							{} as AiAgent['input_transforms']
+						)
 					}
 				}
 			]
