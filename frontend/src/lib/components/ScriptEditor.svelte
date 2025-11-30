@@ -126,7 +126,6 @@
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
-	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
 
@@ -725,7 +724,6 @@
 								data-schema-picker
 							>
 								<JsonInputs
-									bind:this={jsonEditor}
 									on:select={(e) => {
 										if (e.detail) {
 											args = e.detail
