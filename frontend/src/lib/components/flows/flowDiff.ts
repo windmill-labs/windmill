@@ -1,17 +1,39 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
-import type { AIModuleAction } from '../copilot/chat/flow/core'
+import type { ModuleActionInfo } from '../copilot/chat/flow/core'
+
+/** Prefix added to module IDs when the original module coexists with a replacement */
+export const DUPLICATE_MODULE_PREFIX = 'old__'
+
+/**
+ * Normalizes a FlowModule for comparison by removing properties that
+ * should be ignored when determining if a module has changed.
+ * Specifically, removes empty `assets` arrays since their presence/absence
+ * is not a meaningful difference.
+ */
+function normalizeModuleForComparison(module: FlowModule): FlowModule {
+	const normalized = { ...module }
+	if ('value' in normalized && normalized.value && typeof normalized.value === 'object') {
+		const value = { ...normalized.value } as Record<string, unknown>
+		// Remove empty assets array - it's not a meaningful difference
+		if (Array.isArray(value.assets) && value.assets.length === 0) {
+			delete value.assets
+		}
+		normalized.value = value as FlowModule['value']
+	}
+	return normalized
+}
 
 /**
  * The complete diff result with action maps and merged flow
  */
 export type FlowTimeline = {
 	/** Actions for modules in the before flow */
-	beforeActions: Record<string, AIModuleAction>
+	beforeActions: Record<string, ModuleActionInfo>
 
 	/** Actions for modules in the after flow (adjusted based on display mode) */
-	afterActions: Record<string, AIModuleAction>
+	afterActions: Record<string, ModuleActionInfo>
 
 	/** The merged flow containing both after modules and removed modules properly nested */
 	mergedFlow: FlowValue
@@ -29,10 +51,14 @@ export type FlowTimeline = {
  */
 export function computeFlowModuleDiff(
 	beforeFlow: FlowValue,
-	afterFlow: FlowValue
-): { beforeActions: Record<string, AIModuleAction>; afterActions: Record<string, AIModuleAction> } {
-	const beforeActions: Record<string, AIModuleAction> = {}
-	const afterActions: Record<string, AIModuleAction> = {}
+	afterFlow: FlowValue,
+	options: { markAsPending: boolean } = { markAsPending: false }
+): {
+	beforeActions: Record<string, ModuleActionInfo>
+	afterActions: Record<string, ModuleActionInfo>
+} {
+	const beforeActions: Record<string, ModuleActionInfo> = {}
+	const afterActions: Record<string, ModuleActionInfo> = {}
 
 	// Get all modules from both flows using dfs
 	const beforeModules = getAllModulesMap(beforeFlow)
@@ -47,22 +73,27 @@ export function computeFlowModuleDiff(
 
 		if (!beforeModule && afterModule) {
 			// Module exists in after but not before -> added
-			afterActions[moduleId] = 'added'
+			afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
 		} else if (beforeModule && !afterModule) {
 			// Module exists in before but not after -> removed
-			beforeActions[moduleId] = 'removed'
-			afterActions[moduleId] = 'shadowed'
+			beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
+			afterActions[moduleId] = { action: 'shadowed', pending: options.markAsPending }
 		} else if (beforeModule && afterModule) {
 			// Module exists in both -> check type and content
 			const typeChanged = beforeModule.value.type !== afterModule.value.type
 			if (typeChanged) {
 				// Type changed -> treat as removed + added
-				beforeActions[moduleId] = 'removed'
-				afterActions[moduleId] = 'added'
-			} else if (!deepEqual(beforeModule, afterModule)) {
+				beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
+				afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
+			} else if (
+				!deepEqual(
+					normalizeModuleForComparison(beforeModule),
+					normalizeModuleForComparison(afterModule)
+				)
+			) {
 				// Same type but different content -> modified
-				beforeActions[moduleId] = 'modified'
-				afterActions[moduleId] = 'modified'
+				beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
+				afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }
 			}
 		}
 	}
@@ -100,7 +131,7 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 /**
  * Represents the parent location of a module
  */
-type ModuleParentLocation =
+export type ModuleParentLocation =
 	| { type: 'root'; index: number }
 	| { type: 'forloop' | 'whileloop'; parentId: string; index: number }
 	| { type: 'branchone-default'; parentId: string; index: number }
@@ -113,7 +144,7 @@ type ModuleParentLocation =
 /**
  * Finds the parent location of a module in a flow
  */
-function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
+export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
 	// Check special modules
 	if (flow.failure_module?.id === moduleId) {
 		return { type: 'failure', index: -1 }
@@ -270,22 +301,26 @@ function getAllModuleIds(flow: FlowValue): Set<string> {
 function reconstructMergedFlow(
 	afterFlow: FlowValue,
 	beforeFlow: FlowValue,
-	beforeActions: Record<string, AIModuleAction>
+	beforeActions: Record<string, ModuleActionInfo>
 ): FlowValue {
 	// Deep clone afterFlow to avoid mutation
 	const merged: FlowValue = JSON.parse(JSON.stringify(afterFlow))
 
 	// Get all removed/shadowed modules from beforeFlow
 	const removedModules = Object.entries(beforeActions)
-		.filter(([_, action]) => action === 'removed' || action === 'shadowed')
+		.filter(([_, action]) => action.action === 'removed' || action.action === 'shadowed')
 		.map(([id]) => id)
 
 	// Create a Set for faster lookup
 	const removedModulesSet = new Set(removedModules)
 
+	// Cache beforeFlow modules map and merged IDs to avoid recomputing in the loop
+	const beforeModulesMap = getAllModulesMap(beforeFlow)
+	const mergedIds = getAllModuleIds(merged)
+
 	// For each removed module, find its parent and insert it
 	for (const removedId of removedModules) {
-		const beforeModule = getAllModulesMap(beforeFlow).get(removedId)
+		const beforeModule = beforeModulesMap.get(removedId)
 		if (!beforeModule) continue
 
 		const parentLocation = findModuleParent(beforeFlow, removedId)
@@ -308,11 +343,13 @@ function reconstructMergedFlow(
 
 		// Check for ID collision - this happens when a module type changed
 		// In this case, the new module is already in the merged flow as 'added'
-		// We need to prepend "__" to the removed module's ID so both can coexist
-		const existingIds = getAllModuleIds(merged)
-		if (existingIds.has(clonedModule.id)) {
-			clonedModule = prependModuleId(clonedModule, '__')
+		// We prepend the duplicate prefix to the removed module's ID so both can coexist
+		if (mergedIds.has(clonedModule.id)) {
+			clonedModule = prependModuleId(clonedModule, DUPLICATE_MODULE_PREFIX)
 		}
+
+		// Track the newly added module ID
+		mergedIds.add(clonedModule.id)
 
 		// Insert based on parent location
 		if (parentLocation.type === 'failure') {
@@ -389,11 +426,17 @@ function insertIntoNestedParent(
 
 	// Find the parent module in merged flow
 	const parentModule = findModuleById(merged, parentLocation.parentId)
-	if (!parentModule) return
+	if (!parentModule) {
+		console.warn('Parent module not found', parentLocation)
+		return
+	}
 
 	// Get the before parent to know original ordering
 	const beforeParent = findModuleById(beforeFlow, parentLocation.parentId)
-	if (!beforeParent) return
+	if (!beforeParent) {
+		console.warn('Before parent module not found', parentLocation)
+		return
+	}
 
 	// Insert based on type
 	if (parentLocation.type === 'forloop' && parentModule.value.type === 'forloopflow') {
@@ -483,33 +526,36 @@ function findModuleById(flow: FlowValue, moduleId: string): FlowModule | null {
  * Adjusts the after actions based on display mode and adds entries for prefixed IDs
  */
 function adjustActionsForDisplay(
-	afterActions: Record<string, AIModuleAction>,
-	beforeActions: Record<string, AIModuleAction>,
+	afterActions: Record<string, ModuleActionInfo>,
+	beforeActions: Record<string, ModuleActionInfo>,
 	markRemovedAsShadowed: boolean,
 	mergedFlow: FlowValue
-): Record<string, AIModuleAction> {
-	const adjusted: Record<string, AIModuleAction> = {}
+): Record<string, ModuleActionInfo> {
+	const adjusted: Record<string, ModuleActionInfo> = {}
 
 	// Copy all existing actions
 	for (const [id, action] of Object.entries(afterActions)) {
-		if (!markRemovedAsShadowed && action === 'shadowed') {
+		if (!markRemovedAsShadowed && action.action === 'shadowed') {
 			// In unified mode, change 'shadowed' to 'removed' for proper coloring
-			adjusted[id] = 'removed'
+			adjusted[id] = { action: 'removed', pending: action.pending }
 		} else {
 			adjusted[id] = action
 		}
 	}
 
 	// Add entries for prefixed IDs (modules that had type changes or were removed)
-	// These are the old versions that got "__" prepended to their ID
+	// These are the old versions that got the duplicate prefix prepended to their ID
 	const allMergedIds = getAllModuleIds(mergedFlow)
 	for (const id of allMergedIds) {
-		if (id.startsWith('__') && !adjusted[id]) {
+		if (id.startsWith(DUPLICATE_MODULE_PREFIX) && !adjusted[id]) {
 			// This is a prefixed ID for a module that was removed
-			const originalId = id.substring(2)
+			const originalId = id.substring(DUPLICATE_MODULE_PREFIX.length)
 			// Check beforeActions to see if this module was removed
-			if (beforeActions[originalId] === 'removed') {
-				adjusted[id] = markRemovedAsShadowed ? 'shadowed' : 'removed'
+			if (beforeActions[originalId]?.action === 'removed') {
+				adjusted[id] = {
+					action: markRemovedAsShadowed ? 'shadowed' : 'removed',
+					pending: beforeActions[originalId].pending
+				}
 			}
 		}
 	}
@@ -530,10 +576,15 @@ function adjustActionsForDisplay(
 export function buildFlowTimeline(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
-	options: { markRemovedAsShadowed: boolean } = { markRemovedAsShadowed: false }
+	options: { markRemovedAsShadowed: boolean; markAsPending: boolean } = {
+		markRemovedAsShadowed: false,
+		markAsPending: false
+	}
 ): FlowTimeline {
 	// Compute the diff between the two flows
-	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
+	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow, {
+		markAsPending: options.markAsPending
+	})
 
 	// Reconstruct merged flow with removed modules properly nested
 	const mergedFlow = reconstructMergedFlow(afterFlow, beforeFlow, beforeActions)
@@ -551,6 +602,62 @@ export function buildFlowTimeline(
 		afterActions: adjustedAfterActions,
 		mergedFlow
 	}
+}
+
+/**
+ * Inserts a module into a flow at its correct position based on where it was located in the source flow.
+ * This is useful when restoring a removed module - it finds the correct parent and position.
+ *
+ * @param targetFlow - The flow to insert the module into
+ * @param moduleToInsert - The module to insert
+ * @param sourceFlow - The flow where the module originally existed (to find parent location and ordering)
+ * @param moduleId - The ID of the module being inserted
+ */
+export function insertModuleIntoFlow(
+	targetFlow: FlowValue,
+	moduleToInsert: FlowModule,
+	sourceFlow: FlowValue,
+	moduleId: string
+): void {
+	const parentLocation = findModuleParent(sourceFlow, moduleId)
+	if (!parentLocation) return
+
+	// Handle special modules
+	if (parentLocation.type === 'failure') {
+		targetFlow.failure_module = moduleToInsert
+		return
+	}
+	if (parentLocation.type === 'preprocessor') {
+		targetFlow.preprocessor_module = moduleToInsert
+		return
+	}
+
+	// Handle root level modules
+	if (parentLocation.type === 'root') {
+		const insertIndex = findBestInsertPosition(
+			targetFlow.modules ?? [],
+			sourceFlow.modules ?? [],
+			parentLocation.index,
+			moduleId
+		)
+		if (!targetFlow.modules) targetFlow.modules = []
+		targetFlow.modules.splice(insertIndex, 0, moduleToInsert)
+		return
+	}
+
+	// Handle nested modules
+	insertIntoNestedParent(targetFlow, parentLocation, moduleToInsert, sourceFlow)
+}
+
+/**
+ * Finds a module by ID anywhere in a flow (including nested modules, failure, and preprocessor)
+ *
+ * @param flow - The flow to search in
+ * @param moduleId - The ID of the module to find
+ * @returns The module if found, null otherwise
+ */
+export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule | null {
+	return findModuleById(flow, moduleId)
 }
 
 /**

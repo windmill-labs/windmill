@@ -19,3 +19,17 @@ When implementing new features in Windmill, follow these best practices:
 
 - Backend (Rust): @backend/rust-best-practices.mdc + @backend/summarized_schema.txt
 - Frontend (Svelte 5): @frontend/svelte5-best-practices.mdc
+
+## Querying the Database
+
+To query the database directly, use psql with the following connection string:
+
+```bash
+psql postgres://postgres:changeme@localhost:5432/windmill
+```
+
+This can be helpful for:
+
+- Inspecting database state during development
+- Testing queries before implementing them in Rust
+- Debugging data-related issues

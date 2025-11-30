@@ -295,8 +295,13 @@
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
+	let diffManager = $derived(getDiffManager())
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
+	export function getDiffManager() {
+		return graph?.getDiffManager()
 	}
 
 	export function enableNotes(): void {
@@ -415,6 +420,7 @@
 			{toggleAiChat}
 			{noteMode}
 			{toggleNoteMode}
+			{diffManager}
 		/>
 	</div>
 
@@ -436,6 +442,8 @@
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
+			failureModule={flowStore.val.value?.failure_module}
+			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
 			{workspace}
 			editMode

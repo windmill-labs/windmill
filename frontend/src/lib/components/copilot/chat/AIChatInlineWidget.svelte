@@ -128,7 +128,11 @@
 
 	// Cleanup function to safely remove widget and cancel requests
 	function cleanupWidget() {
-		aiChatManager.cancel()
+		// Only cancel if we're in SCRIPT mode (inline editing)
+		// Don't cancel flow requests when the editor is destroyed/recreated
+		if (aiChatManager.mode === AIMode.SCRIPT) {
+			aiChatManager.cancel()
+		}
 		if (widget) {
 			try {
 				widget.dispose()
