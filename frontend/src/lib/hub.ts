@@ -99,6 +99,7 @@ type HubPaths = {
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
 	appReport: string
+	workspaceMigrator: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths
