@@ -457,7 +457,11 @@ export async function processToolCall<T>({
 				error: 'An error occurred while calling the tool'
 			})
 			const errorMessage =
-				typeof err === 'string' ? err : 'An error occurred while calling the tool'
+				typeof err === 'object' && 'message' in err
+					? err.message
+					: typeof err === 'string'
+						? err
+						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
