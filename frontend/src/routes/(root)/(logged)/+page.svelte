@@ -20,7 +20,8 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		GraduationCap
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -34,6 +35,10 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
+	import { onMount } from 'svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -88,6 +93,18 @@
 		})
 		appViewer.openDrawer?.()
 	}
+
+	let workspaceTutorials: WorkspaceTutorials | undefined = undefined
+
+	onMount(() => {
+		// Check if user hasn't completed or ignored the workspace onboarding tutorial
+		if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding')
+			}, 500)
+		}
+	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -233,15 +250,24 @@
 			Windmill instance, such as keeping resource types up to date.
 		</Alert>
 	{/if}
-	<PageHeader title="Home">
-		<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
-			{#if !$userStore?.operator}
-				<span class="text-xs font-normal text-primary">Create a</span>
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
-			{/if}
-		</div>
+	<PageHeader
+		title="Home"
+		childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
+	>
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			wrapperClasses="mr-auto ml-4"
+			on:click={() => workspaceTutorials?.runTutorialById('workspace-onboarding')}
+		>
+			<GraduationCap size={16} /> Tutorial
+		</Button>
+		{#if !$userStore?.operator}
+			<span class="text-xs font-normal text-primary">Create a</span>
+			<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
+			{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+			{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+		{/if}
 	</PageHeader>
 
 	{#if !$userStore?.operator}
@@ -320,3 +346,5 @@
 {#if tab == 'workspace'}
 	<ItemsList bind:filter bind:subtab />
 {/if}
+
+<WorkspaceTutorials bind:this={workspaceTutorials} />
