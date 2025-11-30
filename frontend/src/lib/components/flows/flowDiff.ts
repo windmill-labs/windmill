@@ -85,7 +85,12 @@ export function computeFlowModuleDiff(
 				// Type changed -> treat as removed + added
 				beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
 				afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
-			} else if (!deepEqual(normalizeModuleForComparison(beforeModule), normalizeModuleForComparison(afterModule))) {
+			} else if (
+				!deepEqual(
+					normalizeModuleForComparison(beforeModule),
+					normalizeModuleForComparison(afterModule)
+				)
+			) {
 				// Same type but different content -> modified
 				beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
 				afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }

@@ -62,7 +62,7 @@ export function createFlowDiffManager() {
 	// State: merged flow containing both original and modified/removed modules
 	let mergedFlow = $state<FlowValue | undefined>(undefined)
 
-	// State: current input schema (beforeInputSchema is just beforeFlow?.schema)
+	// State: current input schema
 	let currentInputSchema = $state<Record<string, any> | undefined>(undefined)
 
 	// State: whether to mark removed modules as shadowed (for side-by-side view)
@@ -96,7 +96,8 @@ export function createFlowDiffManager() {
 
 			// Check for input schema changes
 			if (beforeFlow.schema && currentInputSchema) {
-				const schemaChanged = JSON.stringify(beforeFlow.schema) !== JSON.stringify(currentInputSchema)
+				const schemaChanged =
+					JSON.stringify(beforeFlow.schema) !== JSON.stringify(currentInputSchema)
 				if (schemaChanged) {
 					newActions[SPECIAL_MODULE_IDS.INPUT] = {
 						action: 'modified',
@@ -128,7 +129,7 @@ export function createFlowDiffManager() {
 	/**
 	 * Set the before flow snapshot for diff computation
 	 */
-	function setSnapshot(flow: ExtendedOpenFlow | undefined) {
+	function setBeforeFlow(flow: ExtendedOpenFlow | undefined) {
 		beforeFlow = flow
 	}
 
@@ -172,24 +173,10 @@ export function createFlowDiffManager() {
 	}
 
 	/**
-	 * Get the current before flow snapshot
-	 */
-	function getSnapshot(): ExtendedOpenFlow | undefined {
-		return beforeFlow
-	}
-
-	/**
 	 * Set module actions directly (useful when actions are computed elsewhere)
 	 */
 	function setModuleActions(actions: Record<string, ModuleActionInfo>) {
 		updateModuleActions(actions)
-	}
-
-	/**
-	 * Get current module actions
-	 */
-	function getModuleActions(): Record<string, ModuleActionInfo> {
-		return moduleActions
 	}
 
 	/**
@@ -310,7 +297,12 @@ export function createFlowDiffManager() {
 				} else {
 					// Module doesn't exist, insert it
 					const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
-					insertModuleIntoFlow(beforeFlow.value, $state.snapshot(moduleToInsert), currentFlow, actualId)
+					insertModuleIntoFlow(
+						beforeFlow.value,
+						$state.snapshot(moduleToInsert),
+						currentFlow,
+						actualId
+					)
 				}
 			}
 		} else if (info.action === 'modified') {
@@ -326,9 +318,6 @@ export function createFlowDiffManager() {
 				Object.assign(beforeModule, $state.snapshot(afterModule))
 			}
 		}
-
-		// Note: The $effect will automatically recompute the diff, clearing the action
-		// since beforeFlow now matches currentFlow for this module.
 	}
 
 	/**
@@ -502,17 +491,15 @@ export function createFlowDiffManager() {
 		},
 
 		// Snapshot management
-		setSnapshot,
+		setBeforeFlow,
 		setCurrentFlow,
 		setCurrentInputSchema,
 		setMarkRemovedAsShadowed,
 		setEditMode,
 		clearSnapshot,
-		getSnapshot,
 
 		// Module actions management
 		setModuleActions,
-		getModuleActions,
 
 		// Accept/reject operations
 		acceptModule,

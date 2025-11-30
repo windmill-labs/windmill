@@ -442,6 +442,7 @@
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
+			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
 			{workspace}

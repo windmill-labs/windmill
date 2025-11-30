@@ -58,10 +58,8 @@
 			}
 			return flowStore.val.value.modules
 		},
-
-		// Snapshot management - AI sets this when making changes
-		setLastSnapshot: (snapshot) => {
-			diffManager?.setSnapshot(snapshot)
+		setSnapshot: (snapshot: ExtendedOpenFlow) => {
+			diffManager?.setBeforeFlow(snapshot)
 		},
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
 			if (!diffManager) return
@@ -95,7 +93,7 @@
 				// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
 				if (!diffManager?.beforeFlow) {
 					const snapshot = $state.snapshot(flowStore).val
-					diffManager?.setSnapshot(snapshot)
+					diffManager?.setBeforeFlow(snapshot)
 					diffManager?.setEditMode(true)
 				}
 
@@ -197,7 +195,7 @@
 				// Take snapshot of current flowStore BEFORE making changes
 				if (!diffManager?.hasPendingChanges) {
 					const snapshot = $state.snapshot(flowStore).val
-					diffManager?.setSnapshot(snapshot)
+					diffManager?.setBeforeFlow(snapshot)
 				}
 
 				// Directly modify flowStore (immediate effect)

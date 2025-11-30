@@ -589,9 +589,8 @@ class AIChatManager {
 
 			let snapshot: ExtendedOpenFlow | undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				// this.flowAiChatHelpers!.rejectAllModuleActions()
 				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
+				this.flowAiChatHelpers!.setSnapshot(snapshot)
 			}
 
 			this.displayMessages = [

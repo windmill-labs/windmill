@@ -488,7 +488,7 @@
 		// Handle diff mode setup
 		if (diffBeforeFlow) {
 			diffManager.setEditMode(editMode)
-			diffManager.setSnapshot(diffBeforeFlow)
+			diffManager.setBeforeFlow(diffBeforeFlow)
 			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
 		} else if (moduleActions) {
 			// Display-only mode: just set the module actions

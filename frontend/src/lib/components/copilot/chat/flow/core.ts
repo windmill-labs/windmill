@@ -59,8 +59,8 @@ export interface FlowAIChatHelpers {
 	getModules: (id?: string) => FlowModule[]
 
 	// snapshot management (AI sets this when making changes)
-	/** Set a snapshot of the flow before changes for diff tracking */
-	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
+	/** Set the before flow snapshot */
+	setSnapshot: (snapshot: ExtendedOpenFlow) => void
 	/** Revert the entire flow to a previous snapshot */
 	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
 
@@ -262,7 +262,7 @@ const setFlowSchemaToolDef: ChatCompletionFunctionTool = {
 const RESTRICTED_MODULE_IDS = Object.values(SPECIAL_MODULE_IDS)
 
 function isRestrictedModuleId(id: string): boolean {
-	return RESTRICTED_MODULE_IDS.includes(id as typeof RESTRICTED_MODULE_IDS[number])
+	return RESTRICTED_MODULE_IDS.includes(id as (typeof RESTRICTED_MODULE_IDS)[number])
 }
 
 class WorkspaceScriptsSearch {
