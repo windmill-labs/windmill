@@ -89,6 +89,7 @@
     "npm:minimatch@*": "10.0.3",
     "npm:open@*": "10.2.0",
     "npm:svelte-preprocess@6.0.3": "6.0.3_svelte@5.45.2__acorn@8.14.1",
+    "npm:svelte@5.45.2": "5.45.2_acorn@8.14.1",
     "npm:ws@*": "8.18.3",
     "npm:ws@8.18.0": "8.18.0",
     "npm:ws@8.18.3": "8.18.3"
@@ -199,7 +200,10 @@
       ]
     },
     "@std/io@0.224.9": {
-      "integrity": "4414664b6926f665102e73c969cfda06d2c4c59bd5d0c603fd4f1b1c840d6ee3"
+      "integrity": "4414664b6926f665102e73c969cfda06d2c4c59bd5d0c603fd4f1b1c840d6ee3",
+      "dependencies": [
+        "jsr:@std/bytes@^1.0.2"
+      ]
     },
     "@std/io@0.225.2": {
       "integrity": "3c740cd4ee4c082e6cfc86458f47e2ab7cb353dc6234d5e9b1f91a2de5f4d6c7",
