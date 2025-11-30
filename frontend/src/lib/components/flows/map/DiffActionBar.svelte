@@ -17,7 +17,7 @@
 	let { moduleId, moduleAction, diffManager, flowStore, placement = 'top' }: Props = $props()
 </script>
 
-{#if moduleAction?.pending && diffManager}
+{#if moduleAction && diffManager}
 	<div
 		class={twMerge(
 			'absolute right-0 left-0 flex flex-row z-10',
@@ -35,28 +35,30 @@
 				<DiffIcon size={14} /> Diff
 			</button>
 		{/if}
-		<div
-			class={twMerge(
-				'flex flex-row bg-surface overflow-hidden',
-				placement === 'top' ? 'rounded-t-md' : 'rounded-b-md'
-			)}
-		>
-			<button
-				class="p-1 bg-green-500 text-white hover:bg-green-600 text-3xs font-normal flex flex-row items-center gap-1"
-				onclick={() => {
-					if (flowStore) diffManager?.acceptModule(moduleId, flowStore)
-				}}
+		{#if moduleAction.pending}
+			<div
+				class={twMerge(
+					'flex flex-row bg-surface overflow-hidden',
+					placement === 'top' ? 'rounded-t-md' : 'rounded-b-md'
+				)}
 			>
-				<Check size={14} /> Accept
-			</button>
-			<button
-				class="p-1 hover:bg-red-500 hover:text-white text-3xs font-normal flex flex-row items-center gap-1"
-				onclick={() => {
-					if (flowStore) diffManager?.rejectModule(moduleId, flowStore)
-				}}
-			>
-				<X size={14} /> Reject
-			</button>
-		</div>
+				<button
+					class="p-1 bg-green-500 text-white hover:bg-green-600 text-3xs font-normal flex flex-row items-center gap-1"
+					onclick={() => {
+						if (flowStore) diffManager?.acceptModule(moduleId, flowStore)
+					}}
+				>
+					<Check size={14} /> Accept
+				</button>
+				<button
+					class="p-1 hover:bg-red-500 hover:text-white text-3xs font-normal flex flex-row items-center gap-1"
+					onclick={() => {
+						if (flowStore) diffManager?.rejectModule(moduleId, flowStore)
+					}}
+				>
+					<X size={14} /> Reject
+				</button>
+			</div>
+		{/if}
 	</div>
 {/if}
