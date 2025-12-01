@@ -7,6 +7,7 @@
 	import type { Flow } from '$lib/gen'
 	import { wait, type StateStore } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { triggerPointerDown } from './utils'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -262,8 +263,11 @@
 					// Find the step 'a' button inside the drawer and click it with fake cursor
 					const flowPreviewContent = document.getElementById('flow-preview-content')
 					if (flowPreviewContent) {
-						// Find the module element
-						const stepButton = flowPreviewContent.querySelector('.relative.flex.gap-1.justify-between.items-center.w-full.overflow-hidden.rounded-sm.p-2.text-2xs.module.text-primary') as HTMLElement
+						// Find the button containing "Validate temperature input" text
+						const buttons = Array.from(flowPreviewContent.querySelectorAll('button'))
+						const stepButton = buttons.find(btn =>
+							btn.textContent?.includes('Validate temperature input')
+						) as HTMLElement
 
 						if (stepButton) {
 							// Create fake cursor and animate it to the button
@@ -276,7 +280,9 @@
 							fakeCursor.style.transform = 'scale(1)'
 							await wait(100)
 
-							// Click the button
+							// Trigger pointer events (flow graph uses pointer events instead of click)
+							stepButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+							stepButton.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
 							stepButton.click()
 							await wait(DELAY_SHORT)
 
