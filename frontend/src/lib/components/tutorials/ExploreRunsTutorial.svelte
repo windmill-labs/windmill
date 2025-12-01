@@ -22,6 +22,52 @@
 	const DELAY_SHORT = 100
 	const DELAY_MEDIUM = 300
 	const DELAY_LONG = 500
+	const DELAY_ANIMATION = 1500
+
+	// Helper function to create and animate a fake cursor
+	async function createFakeCursor(
+		startElement: HTMLElement | null,
+		endElement: HTMLElement,
+		transitionDuration: number = 1.5
+	): Promise<HTMLElement> {
+		const fakeCursor = document.createElement('div')
+		fakeCursor.style.cssText = `
+			position: fixed;
+			width: 20px;
+			height: 20px;
+			border-radius: 50%;
+			background-color: rgba(59, 130, 246, 0.8);
+			border: 2px solid white;
+			pointer-events: none;
+			z-index: 10000;
+			transition: all ${transitionDuration}s ease-in-out;
+		`
+		document.body.appendChild(fakeCursor)
+
+		const endRect = endElement.getBoundingClientRect()
+		let startX: number, startY: number
+
+		if (startElement) {
+			const startRect = startElement.getBoundingClientRect()
+			startX = startRect.left + startRect.width / 2
+			startY = startRect.top + startRect.height / 2
+		} else {
+			startX = endRect.left - 100
+			startY = endRect.top + endRect.height / 2
+		}
+
+		fakeCursor.style.left = `${startX}px`
+		fakeCursor.style.top = `${startY}px`
+
+		await wait(100)
+
+		fakeCursor.style.left = `${endRect.left + endRect.width / 2}px`
+		fakeCursor.style.top = `${endRect.top + endRect.height / 2}px`
+
+		await wait(transitionDuration * 1000)
+
+		return fakeCursor
+	}
 
 	export async function runTutorial() {
 		// Load the pre-built flow immediately when tutorial starts
@@ -217,95 +263,13 @@
 				popover: {
 					title: 'Flow execution graph',
 					description:
-						'This graph shows a visual representation of your flow execution. You can see each step and how data flows between them.',
-					side: 'top',
-					onNextClick: async () => {
-						if (!step4Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
-
-						// Click on the Logs tab
-						const tabs = Array.from(document.querySelectorAll('.border-b-2.py-1.cursor-pointer'))
-						const logsTab = tabs.find((tab) => tab.textContent?.trim() === 'Logs') as HTMLElement
-						if (logsTab) {
-							logsTab.click()
-							await wait(DELAY_MEDIUM)
-						}
-
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '.w-full.rounded-md.overflow-hidden.border',
-				onHighlighted: async () => {
-					step4Complete = false
-					await wait(DELAY_SHORT)
-					step4Complete = true
-				},
-				popover: {
-					title: 'Execution logs',
-					description:
-						'Here you can see detailed logs from each step of your flow execution. This is useful for debugging and understanding what happened during the run.',
+						'This graph shows a visual representation of your flow execution. You can see each step and how data flows between them. Click on any step to see its specific results and logs.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step4Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
 							return
 						}
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: 'ul.w-full',
-				onHighlighted: async () => {
-					step4Complete = false
-
-					// Click on the Details tab first
-					const tabs = Array.from(document.querySelectorAll('.border-b-2.py-1.cursor-pointer'))
-					const detailsTab = tabs.find((tab) => tab.textContent?.trim() === 'Details') as HTMLElement
-					if (detailsTab) {
-						detailsTab.click()
-						await wait(DELAY_MEDIUM)
-					}
-
-					await wait(DELAY_SHORT)
-					step4Complete = true
-				},
-				popover: {
-					title: 'Execution details',
-					description:
-						'This section shows important metadata about your flow execution, including timing, user, and resource usage.',
-					side: 'top',
-					onNextClick: () => {
-						if (!step4Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '.text-primary.whitespace-nowrap.truncate.text-xs',
-				onHighlighted: async () => {
-					step4Complete = false
-					await wait(DELAY_SHORT)
-					step4Complete = true
-				},
-				popover: {
-					title: 'Your time to explore logs!',
-					description:
-						'Click here to open the full screen view and discover all the execution details.',
-					side: 'left',
-					onNextClick: () => {
-						if (!step4Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
-
 						driver.destroy()
 					}
 				}
