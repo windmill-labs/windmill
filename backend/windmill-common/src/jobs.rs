@@ -883,7 +883,8 @@ pub struct WorkerInternalServerInlineUtils {
     >,
 }
 // To run a script inline, bypassing the db and job queue, windmill-api uses these functions.
-// windmill-worker sets these functions when it starts up.
-// The api cannot call the worker functions directly because they are independent crates
+// They should only be called by the internal server of a worker.
+// main() sets the global on startup.
+// The server cannot call the worker functions directly because they are independent crates
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
