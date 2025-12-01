@@ -815,6 +815,62 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub async fn fetch_script_for_update<'a>(
+    hash: ScriptHash,
+    w_id: &str,
+    e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+) -> crate::error::Result<Option<Script>> {
+    sqlx::query_as!(
+        Script,
+        r#"SELECT
+            archived,
+            created_at,
+            deleted,
+            workspace_id,
+            hash,
+            path,
+            parent_hashes AS "parent_hashes: ScriptHashes",
+            summary,
+            description,
+            content, 
+            created_by,
+            schema AS "schema: Schema",
+            COALESCE(is_template, false) AS "is_template!",
+            extra_perms,
+            lock,
+            language AS "language: ScriptLang",
+            kind AS "kind: ScriptKind",
+            tag, 
+            draft_only,
+            envs,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl, 
+            dedicated_worker,
+            ws_error_handler_muted,
+            priority,
+            lock_error_logs,
+            restart_unless_cancelled,
+            delete_after_use,
+            timeout,
+            concurrency_key,
+            visible_to_runner_only,
+            no_main_func,
+            codebase,
+            has_preprocessor,
+            on_behalf_of_email,
+            assets AS "assets: Vec<AssetWithAltAccessType>",
+            debounce_key,
+            debounce_delay_s
+         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE"#,
+        hash.0,
+        w_id,
+    )
+    .fetch_optional(e)
+    .await
+    .map_err(crate::error::Error::from)
+}
+
 pub struct ClonedScript {
     pub old_script: NewScript,
     pub new_hash: i64,
@@ -826,16 +882,7 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
-    // TODO:!
-    let s = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
-    )
-    .bind(base_hash.0)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    let s = if let Some(s) = s {
+    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
