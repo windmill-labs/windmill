@@ -1573,11 +1573,11 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main"):
+def datatable(name: str = "main") -> DataTableClient:
     return _client.datatable(name)
 
 @init_global_client
-def ducklake(name: str = "main"):
+def ducklake(name: str = "main") -> DucklakeClient:
     return _client.ducklake(name)
 
 def task(*args, **kwargs):
@@ -1704,7 +1704,7 @@ class DucklakeClient:
         args_def = ""
         for key, value in kwargs.items():
             args_dict[key] = value
-            args_def += f"-- ${key}\n"
+            args_def += f"-- ${key} ({infer_sql_type(value)})\n"
         attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
         sql = args_def + attach + sql
         return self.client.run_inline_script_preview(
@@ -1712,3 +1712,25 @@ class DucklakeClient:
             language="duckdb",
             args=args_dict,
         )
+
+def infer_sql_type(value) -> str:
+    """
+    DuckDB executor requires explicit argument types at declaration
+    These types exist in both DuckDB and Postgres
+    Check that the types exist if you plan to extend this function for other SQL engines.
+    """
+    if isinstance(value, bool):
+        # Check bool before int since bool is a subclass of int in Python
+        return "BOOLEAN"
+    elif isinstance(value, int):
+        return "BIGINT"
+    elif isinstance(value, float):
+        return "DOUBLE PRECISION"
+    elif value is None:
+        return "TEXT"
+    elif isinstance(value, str):
+        return "TEXT"
+    elif isinstance(value, dict) or isinstance(value, list):
+        return "JSON"
+    else:
+        return "TEXT"
