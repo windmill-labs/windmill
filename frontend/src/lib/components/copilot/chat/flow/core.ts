@@ -212,6 +212,17 @@ const removeModuleToolDef = createToolDef(
 	"Remove a module from the flow by its ID. Searches recursively through all nested structures. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be removed."
 )
 
+const removeBranchSchema = z.object({
+	insideId: z.string().describe('ID of the branchall/branchone container'),
+	branchIndex: z.number().int().min(0).describe('Index of the branch to remove (0-based)')
+})
+
+const removeBranchToolDef = createToolDef(
+	removeBranchSchema,
+	'remove_branch',
+	'Remove a branch from a branchall/branchone by its index. Use this to delete an entire branch including all modules inside it.'
+)
+
 const modifyModuleToolDef: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
@@ -475,6 +486,95 @@ function removeModuleFromFlow(modules: FlowModule[], id: string): FlowModule[] {
 	}
 
 	return result
+}
+
+/**
+ * Recursively removes a branch by index from a branchall/branchone container
+ * Returns the updated modules array
+ */
+function removeBranchFromFlow(
+	modules: FlowModule[],
+	containerId: string,
+	branchIndex: number
+): FlowModule[] {
+	return modules.map((module) => {
+		if (module.id === containerId) {
+			if (module.value.type === 'branchall') {
+				const branches = module.value.branches || []
+				if (branchIndex < 0 || branchIndex >= branches.length) {
+					throw new Error(
+						`Branch index ${branchIndex} out of bounds (0-${branches.length - 1})`
+					)
+				}
+				return {
+					...module,
+					value: {
+						...module.value,
+						branches: branches.filter((_, i) => i !== branchIndex)
+					}
+				} as FlowModule
+			}
+			if (module.value.type === 'branchone') {
+				const branches = module.value.branches || []
+				if (branchIndex < 0 || branchIndex >= branches.length) {
+					throw new Error(
+						`Branch index ${branchIndex} out of bounds (0-${branches.length - 1})`
+					)
+				}
+				return {
+					...module,
+					value: {
+						...module.value,
+						branches: branches.filter((_, i) => i !== branchIndex)
+					}
+				} as FlowModule
+			}
+			throw new Error(`Module '${containerId}' is not a branchall/branchone container`)
+		}
+
+		// Recursively search nested structures
+		const newModule = { ...module }
+		if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+			if (newModule.value.modules) {
+				newModule.value = {
+					...newModule.value,
+					modules: removeBranchFromFlow(newModule.value.modules, containerId, branchIndex)
+				}
+			}
+		} else if (newModule.value.type === 'branchone') {
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules
+							? removeBranchFromFlow(branch.modules, containerId, branchIndex)
+							: []
+					}))
+				}
+			}
+			if (newModule.value.default) {
+				newModule.value = {
+					...newModule.value,
+					default: removeBranchFromFlow(newModule.value.default, containerId, branchIndex)
+				}
+			}
+		} else if (newModule.value.type === 'branchall') {
+			if (newModule.value.branches) {
+				newModule.value = {
+					...newModule.value,
+					branches: newModule.value.branches.map((branch) => ({
+						...branch,
+						modules: branch.modules
+							? removeBranchFromFlow(branch.modules, containerId, branchIndex)
+							: []
+					}))
+				}
+			}
+		}
+
+		return newModule
+	})
 }
 
 /**
@@ -1578,6 +1678,48 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
+		def: removeBranchToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = removeBranchSchema.parse(args)
+			const { insideId, branchIndex } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Removing branch ${branchIndex} from '${insideId}'...`
+			})
+
+			const { flow } = helpers.getFlowAndSelectedId()
+
+			// Check container exists
+			const container = findModuleInFlow(flow.value.modules, insideId)
+			if (!container) {
+				throw new Error(`Container module with id '${insideId}' not found`)
+			}
+
+			// Validate it's a branchall/branchone
+			if (container.value.type !== 'branchall' && container.value.type !== 'branchone') {
+				throw new Error(
+					`Module '${insideId}' is not a branchall/branchone (type: ${container.value.type})`
+				)
+			}
+
+			// Remove the branch
+			const updatedModules = removeBranchFromFlow(flow.value.modules, insideId, branchIndex)
+
+			// Apply via setFlowJson
+			const updatedFlow = {
+				...flow.value,
+				modules: updatedModules
+			}
+
+			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Branch ${branchIndex} removed from '${insideId}'`
+			})
+			return `Branch ${branchIndex} has been removed from '${insideId}'.`
+		}
+	},
+	{
 		def: { ...modifyModuleToolDef, function: { ...modifyModuleToolDef.function, strict: false } },
 		streamArguments: true,
 		showDetails: true,
@@ -1711,6 +1853,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 **Flow Modification:**
 - **Add a new module** → \`add_module\`
 - **Remove a module** → \`remove_module\`
+- **Add a new branch to branchall/branchone** → \`add_module\` with \`branchPath: null\`
+- **Remove a branch from branchall/branchone** → \`remove_branch\`
 - **Change module code only** → \`set_module_code\`
 - **Change module config/transforms/conditions** → \`modify_module\`
 - **Update flow input parameters** → \`set_flow_schema\`
@@ -1784,6 +1928,17 @@ Remove a module by ID.
 \`\`\`javascript
 remove_module({ id: "step_b" })
 \`\`\`
+
+### remove_branch
+Remove a branch from a branchall/branchone by its index (0-based).
+\`\`\`javascript
+// Remove the first branch (index 0) from a branchall
+remove_branch({ insideId: "my_branchall", branchIndex: 0 })
+
+// Remove the second branch (index 1) from a branchone
+remove_branch({ insideId: "my_branchone", branchIndex: 1 })
+\`\`\`
+**Note:** This removes the entire branch including all modules inside it.
 
 ### modify_module
 Update an existing module (full replacement). Use for changing configuration, input_transforms, branch conditions, etc.
