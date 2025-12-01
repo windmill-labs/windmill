@@ -22,6 +22,8 @@ use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
+use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
+use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -111,6 +113,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::MaybeLock;
 use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
@@ -155,10 +158,9 @@ use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRu
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::{
-    python_executor::handle_python_job,
-    python_versions::{PyV, PyVAlias},
-};
+use crate::{python_executor::handle_python_job, python_versions::PyV};
+#[cfg(feature = "python")]
+use windmill_common::worker::PyVAlias;
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -2859,6 +2861,16 @@ pub async fn handle_queued_job(
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
+
+        let raw_workspace_dependencies_o = if job.kind.is_dependency() {
+            job.args
+                .as_ref()
+                .and_then(|x| x.get("raw_workspace_dependencies"))
+                .map(|v| v.get())
+                .and_then(|v| serde_json::from_str::<RawWorkspaceDependencies>(v).ok())
+        } else {
+            None
+        };
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -2875,6 +2887,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }
@@ -2898,6 +2911,7 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
+                        raw_workspace_dependencies_o,
                     ))
                     .await
                 }
@@ -2919,6 +2933,7 @@ pub async fn handle_queued_job(
                     base_internal_url,
                     &client.token,
                     occupancy_metrics,
+                    raw_workspace_dependencies_o,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -3706,14 +3721,43 @@ mount {{
 
     let envs = build_envs(envs.as_ref())?;
 
+    let Some(language) = language else {
+        return Err(Error::ExecutionErr(
+            "Require language to be not null".to_string(),
+        ))?;
+    };
+
+    /// Resolves MaybeLock for languages that need workspace dependencies prefetching.
+    /// Only call this for Bun, Bunnative, Go, and Php.
+    async fn resolve_maybe_lock(
+        lock: &Option<String>,
+        code: &str,
+        language: ScriptLang,
+        workspace_id: &str,
+        runnable_path: &str,
+        conn: Connection,
+    ) -> error::Result<MaybeLock> {
+        if let Some(lock) = lock.clone() {
+            Ok(MaybeLock::Resolved { lock })
+        } else {
+            Ok(MaybeLock::Unresolved {
+                workspace_dependencies: WorkspaceDependenciesPrefetched::extract(
+                    code,
+                    language,
+                    workspace_id,
+                    // TODO: implement
+                    &None,
+                    runnable_path,
+                    conn,
+                )
+                .await?,
+            })
+        }
+    }
+
     // Box::pin all language handlers to prevent large match enum on stack
     let result: error::Result<Box<RawValue>> = match language {
-        None => {
-            return Err(Error::ExecutionErr(
-                "Require language to be not null".to_string(),
-            ))?;
-        }
-        Some(ScriptLang::Python3) => {
+        ScriptLang::Python3 => {
             #[cfg(not(feature = "python"))]
             return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
@@ -3780,8 +3824,17 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_bun_job(
-                lock.as_ref(),
+                maybe_lock,
                 codebase.as_ref(),
                 mem_peak,
                 canceled_by,
@@ -3808,6 +3861,15 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_go_job(
                 mem_peak,
                 canceled_by,
@@ -3817,12 +3879,12 @@ mount {{
                 parent_runnable_path,
                 &code,
                 job_dir,
-                lock.as_ref(),
                 &shared_mount,
                 base_internal_url,
                 worker_name,
                 envs,
                 occupancy_metrics,
+                maybe_lock,
             ))
             .await
         }
@@ -3873,7 +3935,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Php) => {
+        ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
             return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
@@ -3886,8 +3948,17 @@ mount {{
                         "Inline execution is not yet supported for this language".to_string(),
                     ));
                 }
+                let maybe_lock = resolve_maybe_lock(
+                    &lock,
+                    &code,
+                    language,
+                    &job.workspace_id,
+                    job.runnable_path(),
+                    conn.clone(),
+                )
+                .await?;
                 Box::pin(handle_php_job(
-                    lock.as_ref(),
+                    maybe_lock,
                     mem_peak,
                     canceled_by,
                     job,
@@ -3905,7 +3976,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::Rust) => {
+        ScriptLang::Rust => {
             #[cfg(not(feature = "rust"))]
             return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
@@ -3937,7 +4008,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::Ansible) => {
+        ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
             return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
@@ -3994,7 +4065,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Nu) => {
+        ScriptLang::Nu => {
             #[cfg(not(feature = "nu"))]
             return Err(
                 anyhow::anyhow!("Nu is not available because the feature is not enabled").into(),
@@ -4026,7 +4097,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::Java) => {
+        ScriptLang::Java => {
             #[cfg(not(feature = "java"))]
             return Err(anyhow::anyhow!(
                 "Java is not available because the feature is not enabled"
@@ -4059,7 +4130,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::Ruby) => {
+        ScriptLang::Ruby => {
             #[cfg(not(feature = "ruby"))]
             return Err(anyhow::anyhow!(
                 "Ruby is not available because the feature is not enabled"

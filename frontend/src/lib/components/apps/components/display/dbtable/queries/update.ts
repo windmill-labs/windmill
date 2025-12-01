@@ -95,7 +95,7 @@ export function getUpdateInput(
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: {
 			content: query,
 			language: getLanguageByResourceType(dbType),

@@ -414,7 +414,7 @@ pub enum JobPayload {
     /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
-        /// Will reflect raw requirements content (e.g. requirements.txt)
+        /// Will reflect raw requirements content (e.g. requirements.in)
         content: String,
         language: ScriptLang,
     },

@@ -33,6 +33,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
@@ -69,6 +70,7 @@ aws-smithy-types.workspace = true
 base64.workspace = true
 bitflags.workspace = true
 once_cell.workspace = true
+phf.workspace = true
 
 aws-smithy-types-convert = { workspace = true, optional = true }
 aws-sdk-rds = { workspace = true, optional = true }
@@ -92,6 +94,7 @@ strum_macros.workspace = true
 url.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
+pep440_rs.workspace = true
 
 semver.workspace = true
 croner = "2.2.0"

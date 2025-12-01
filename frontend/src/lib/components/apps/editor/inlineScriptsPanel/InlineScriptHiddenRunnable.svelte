@@ -3,7 +3,12 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
-	import type { Runnable, StaticAppInput } from '../../inputType'
+	import {
+		isRunnableByName,
+		isRunnableByPath,
+		type Runnable,
+		type StaticAppInput
+	} from '../../inputType'
 	import { createEventDispatcher, getContext } from 'svelte'
 
 	interface Props {
@@ -53,7 +58,7 @@
 			Selected editor component is a transformer but component has no transformer
 		</div>
 	{/if}
-{:else if runnable?.type === 'runnableByName' && runnable.inlineScript}
+{:else if isRunnableByName(runnable) && runnable.inlineScript}
 	<InlineScriptEditor
 		on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
 		{id}
@@ -63,7 +68,7 @@
 		syncFields
 		on:delete
 	/>
-{:else if runnable?.type == 'runnableByPath'}
+{:else if isRunnableByPath(runnable)}
 	<InlineScriptRunnableByPath
 		bind:runnable
 		bind:fields={runnable.fields}
@@ -79,7 +84,7 @@
 		showScriptPicker
 		on:new={(e) => {
 			runnable = {
-				type: 'runnableByName',
+				type: 'inline',
 				inlineScript: e.detail,
 				name: runnable.name,
 				fields: {},
