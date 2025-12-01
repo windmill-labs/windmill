@@ -92,7 +92,7 @@ const searchScriptsSchema = z.object({
 const searchScriptsToolDef = createToolDef(
 	searchScriptsSchema,
 	'search_scripts',
-	'Search for scripts in the workspace'
+	'Search for scripts in the workspace. Returns array of {path, summary} objects.'
 )
 
 const langSchema = z.enum(
