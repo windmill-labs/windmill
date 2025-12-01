@@ -361,7 +361,8 @@ pub struct Script {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub deleted: bool,
-    pub is_template: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_template: Option<bool>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
@@ -835,7 +836,7 @@ pub async fn fetch_script_for_update<'a>(
             archived,
             schema AS "schema: Schema",
             deleted,
-            COALESCE(is_template, false) AS "is_template!",
+            is_template,
             extra_perms,
             lock,
             lock_error_logs,
@@ -898,7 +899,7 @@ pub async fn clone_script<'c>(
         description: s.description,
         content: s.content,
         schema: s.schema,
-        is_template: Some(s.is_template),
+        is_template: s.is_template,
         // TODO: Make it either None everywhere (particularly when raw reqs are calculated)
         // Or handle this case and conditionally make Some (only with raw reqs)
         lock: None,
