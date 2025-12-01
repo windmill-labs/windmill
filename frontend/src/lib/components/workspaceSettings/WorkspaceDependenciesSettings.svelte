@@ -386,7 +386,6 @@
 		importedPath={currentImportedPath}
 		title={warningTitle}
 		confirmText={warningConfirmText}
-		cancelText="Cancel"
 		onConfirm={handleWarningConfirm}
 		onCancel={handleWarningCancel}
 	/>
