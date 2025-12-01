@@ -1464,7 +1464,8 @@
 		ata?.(deps)
 	}
 
-	let customTsTypesData = resource([], async () => {
+	let customTsTypesData = resource([() => lang], async () => {
+		if (lang !== 'typescript') return undefined
 		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
 		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
 		return { datatables, ducklakes }
@@ -1486,12 +1487,13 @@
 		const isDataTableOptional = datatableNames.includes('main')
 
 		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
-			`declare module 'windmill-client' {
-				// Completely replace the module's types
+			`export {};
+			declare module 'windmill-client' {
+				import { type SqlTemplateFunction } from 'windmill-client';
 				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
 				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
 			}`,
-			'ts:custom_wmill_types.d.ts'
+			'file:///custom_wmill_types.d.ts'
 		)
 		return () => {
 			disposeTs.dispose()
