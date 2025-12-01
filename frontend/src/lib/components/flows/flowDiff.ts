@@ -1,10 +1,27 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
-import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 
 /** Prefix added to module IDs when the original module coexists with a replacement */
 export const DUPLICATE_MODULE_PREFIX = 'old__'
+
+/**
+ * Action types for flow module changes during diff tracking
+ * - added: Module was added to the flow
+ * - modified: Module content was changed
+ * - removed: Module was deleted from the flow
+ * - shadowed: Module is shown as removed (visualization mode)
+ */
+export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
+
+/**
+ * Tracks the action performed on a module and whether it requires user approval
+ */
+export type ModuleActionInfo = {
+	action: AIModuleAction
+	/** Whether this change is pending user approval (accept/reject) */
+	pending: boolean
+}
 
 /**
  * Normalizes a FlowModule for comparison by removing properties that

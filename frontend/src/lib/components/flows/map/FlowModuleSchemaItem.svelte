@@ -40,8 +40,12 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses, aiActionToNodeState, type FlowNodeState } from '$lib/components/graph'
-	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
+	import {
+		getNodeColorClasses,
+		aiActionToNodeState,
+		type FlowNodeState
+	} from '$lib/components/graph'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 

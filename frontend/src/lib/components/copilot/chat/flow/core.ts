@@ -30,24 +30,6 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import openFlowSchema from './openFlow.json'
 
 /**
- * Action types for flow module changes during diff tracking
- * - added: Module was added to the flow
- * - modified: Module content was changed
- * - removed: Module was deleted from the flow
- * - shadowed: Module is shown as removed (visualization mode)
- */
-export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
-
-/**
- * Tracks the action performed on a module and whether it requires user approval
- */
-export type ModuleActionInfo = {
-	action: AIModuleAction
-	/** Whether this change is pending user approval (accept/reject) */
-	pending: boolean
-}
-
-/**
  * Helper interface for AI chat flow operations
  *
  * Note: AI chat is only responsible for setting the beforeFlow snapshot when making changes.

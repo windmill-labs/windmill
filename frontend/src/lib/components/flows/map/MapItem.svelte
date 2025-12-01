@@ -15,7 +15,7 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
-	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {

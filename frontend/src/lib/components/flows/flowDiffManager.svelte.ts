@@ -8,7 +8,7 @@
 
 import type { ExtendedOpenFlow } from './types'
 import type { FlowModule, FlowValue } from '$lib/gen'
-import type { ModuleActionInfo } from '../copilot/chat/flow/core'
+import type { ModuleActionInfo } from './flowDiff'
 import {
 	buildFlowTimeline,
 	insertModuleIntoFlow,

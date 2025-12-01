@@ -1,4 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
+import type { AIModuleAction } from '$lib/components/flows/flowDiff'
 
 export const NODE = {
 	width: 275,
@@ -27,8 +28,6 @@ export type FlowNodeState =
 	| '_AIRemoved'
 	| '_AIShadowed'
 	| undefined
-
-export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
 
 /**
  * Convert AI module action to FlowNodeState

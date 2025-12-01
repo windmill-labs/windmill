@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { DiffIcon, Check, X } from 'lucide-svelte'
-	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import type { StateStore } from '$lib/utils'
 	import type { OpenFlow } from '$lib/gen'

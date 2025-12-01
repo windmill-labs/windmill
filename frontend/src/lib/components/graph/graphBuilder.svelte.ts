@@ -7,7 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
-import { type ModuleActionInfo } from '../copilot/chat/flow/core'
+import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 
 export type InsertKind =
 	| 'script'
