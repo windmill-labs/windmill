@@ -185,12 +185,12 @@ const addModuleToolDef: ChatCompletionFunctionTool = {
 				insideId: {
 					type: ['string', 'null'],
 					description:
-						'ID of the container module (branch/loop) to insert into. Requires branchPath.'
+						'ID of the container module (branch/loop/branchall/branchone) to insert into. Use with branchPath to add a module inside a container, or with branchPath=null to add a new branch to branchall/branchone.'
 				},
 				branchPath: {
 					type: ['string', 'null'],
 					description:
-						"Path within the container: 'modules' (for loops), 'branches.0'/'branches.1'/etc (for branchone/branchall), 'default' (for branchone), or 'tools' (for aiagent). Required when using insideId."
+						"Path to insert a module inside a container: 'modules' (for loops), 'branches.0'/'branches.1'/etc (to add inside a specific branch), 'default' (for branchone default branch), or 'tools' (for aiagent). Use null with insideId pointing to a branchall/branchone to add a NEW branch (value should be a branch object with summary, modules, etc.)."
 				},
 				value: {
 					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
@@ -617,7 +617,105 @@ function addModuleToFlow(
 	branchPath: string | null,
 	newModule: FlowModule
 ): FlowModule[] {
-	// Case 1: Adding inside a container
+	// Case 1a: Adding a NEW branch to branchall/branchone (insideId set, branchPath null)
+	if (insideId && branchPath === null) {
+		return modules.map((module) => {
+			if (module.id === insideId) {
+				// Adding a new branch to branchall
+				if (module.value.type === 'branchall') {
+					const newBranch = {
+						summary: (newModule as any).summary || '',
+						skip_failure: (newModule as any).skip_failure ?? false,
+						modules: (newModule as any).modules || []
+					}
+					return {
+						...module,
+						value: {
+							...module.value,
+							branches: [...(module.value.branches || []), newBranch]
+						}
+					} as FlowModule
+				}
+				// Adding a new branch to branchone
+				if (module.value.type === 'branchone') {
+					const newBranch = {
+						summary: (newModule as any).summary || '',
+						expr: (newModule as any).expr || 'false',
+						modules: (newModule as any).modules || []
+					}
+					return {
+						...module,
+						value: {
+							...module.value,
+							branches: [...(module.value.branches || []), newBranch]
+						}
+					} as FlowModule
+				}
+				throw new Error(
+					`Cannot add branch to module '${insideId}': branchPath=null is only valid for branchall/branchone containers`
+				)
+			}
+
+			// Recursively search nested structures for the target container
+			const newModuleCopy = { ...module }
+			if (
+				newModuleCopy.value.type === 'forloopflow' ||
+				newModuleCopy.value.type === 'whileloopflow'
+			) {
+				if (newModuleCopy.value.modules) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						modules: addModuleToFlow(
+							newModuleCopy.value.modules,
+							afterId,
+							insideId,
+							branchPath,
+							newModule
+						)
+					}
+				}
+			} else if (newModuleCopy.value.type === 'branchone') {
+				if (newModuleCopy.value.branches) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						branches: newModuleCopy.value.branches.map((branch) => ({
+							...branch,
+							modules: branch.modules
+								? addModuleToFlow(branch.modules, afterId, insideId, branchPath, newModule)
+								: []
+						}))
+					}
+				}
+				if (newModuleCopy.value.default) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						default: addModuleToFlow(
+							newModuleCopy.value.default,
+							afterId,
+							insideId,
+							branchPath,
+							newModule
+						)
+					}
+				}
+			} else if (newModuleCopy.value.type === 'branchall') {
+				if (newModuleCopy.value.branches) {
+					newModuleCopy.value = {
+						...newModuleCopy.value,
+						branches: newModuleCopy.value.branches.map((branch) => ({
+							...branch,
+							modules: branch.modules
+								? addModuleToFlow(branch.modules, afterId, insideId, branchPath, newModule)
+								: []
+						}))
+					}
+				}
+			}
+			return newModuleCopy
+		})
+	}
+
+	// Case 1b: Adding inside a container (insideId + branchPath both set)
 	if (insideId && branchPath) {
 		return modules.map((module) => {
 			if (module.id === insideId) {
@@ -1369,42 +1467,52 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			// Validation
-			// afterId can be used with insideId+branchPath to specify position within a container
-			if (insideId && !branchPath) {
-				throw new Error('branchPath is required when using insideId')
-			}
-			if (!value.id) {
-				throw new Error('Module value must include an id field')
-			}
-			// Check for restricted IDs
-			if (isRestrictedModuleId(value.id)) {
-				throw new Error(`Restricted id '${value.id}', can't be used, should choose an other`)
+			// branchPath can be null when adding a new branch to branchall/branchone
+			// In that case, value should be a branch object with summary, modules, etc.
+			const isAddingNewBranch = insideId && branchPath === null
+
+			if (!isAddingNewBranch) {
+				// Adding a regular module - requires id
+				if (!value.id) {
+					throw new Error('Module value must include an id field')
+				}
+				// Check for restricted IDs
+				if (isRestrictedModuleId(value.id)) {
+					throw new Error(`Restricted id '${value.id}', can't be used, should choose an other`)
+				}
 			}
 
-			toolCallbacks.setToolStatus(toolId, { content: `Adding module '${value.id}'...` })
+			const statusMessage = isAddingNewBranch
+				? `Adding new branch to '${insideId}'...`
+				: `Adding module '${value.id}'...`
+			toolCallbacks.setToolStatus(toolId, { content: statusMessage })
 
 			const { flow } = helpers.getFlowAndSelectedId()
 
-			// Check for duplicate ID
-			const existing = findModuleInFlow(flow.value.modules, value.id)
-			if (existing) {
-				throw new Error(`Module with id '${value.id}' already exists`)
-			}
-
-			// Handle inline script storage if this is a rawscript with full content
 			let processedValue = value
-			if (
-				processedValue.value?.type === 'rawscript' &&
-				processedValue.value?.content &&
-				!processedValue.value.content.startsWith('inline_script.')
-			) {
-				// Store the content and replace with reference
-				inlineScriptStore.set(processedValue.id, processedValue.value.content)
-				processedValue = {
-					...processedValue,
-					value: {
-						...processedValue.value,
-						content: `inline_script.${processedValue.id}`
+
+			// When adding a branch (not a module), skip ID checks and inline script handling
+			if (!isAddingNewBranch) {
+				// Check for duplicate ID
+				const existing = findModuleInFlow(flow.value.modules, value.id)
+				if (existing) {
+					throw new Error(`Module with id '${value.id}' already exists`)
+				}
+
+				// Handle inline script storage if this is a rawscript with full content
+				if (
+					processedValue.value?.type === 'rawscript' &&
+					processedValue.value?.content &&
+					!processedValue.value.content.startsWith('inline_script.')
+				) {
+					// Store the content and replace with reference
+					inlineScriptStore.set(processedValue.id, processedValue.value.content)
+					processedValue = {
+						...processedValue,
+						value: {
+							...processedValue.value,
+							content: `inline_script.${processedValue.id}`
+						}
 					}
 				}
 			}
@@ -1632,18 +1740,20 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 ## Flow Modification Tools
 
 ### add_module
-Add a new module to the flow.
+Add a new module to the flow, or add a new branch to a branchall/branchone.
 
 **Parameters:**
 - \`afterId\`: ID of module to insert after, or \`null\` to insert at beginning
 - \`insideId\` + \`branchPath\`: For inserting into containers (branches/loops/AI agents)
-- \`value\`: The module object
+- \`insideId\` + \`branchPath: null\`: For adding a NEW branch to branchall/branchone
+- \`value\`: The module object (or branch object when adding a new branch)
 
 **Valid \`branchPath\` values:**
 - \`"modules"\` - for forloopflow/whileloopflow
-- \`"branches.0"\`, \`"branches.1"\`, etc. - for branchone/branchall
+- \`"branches.0"\`, \`"branches.1"\`, etc. - to add inside a specific branch
 - \`"default"\` - for branchone only
 - \`"tools"\` - for aiagent
+- \`null\` - to add a NEW branch to branchall/branchone
 
 **Examples:**
 \`\`\`javascript
@@ -1661,6 +1771,12 @@ add_module({ insideId: "branch_step", branchPath: "branches.0", afterId: "step_x
 
 // Insert into loop
 add_module({ insideId: "loop_step", branchPath: "modules", afterId: null, value: {...} })
+
+// Add a NEW branch to branchall (branchPath: null)
+add_module({ insideId: "my_branchall", branchPath: null, value: { summary: "New Branch", skip_failure: false, modules: [] } })
+
+// Add a NEW branch to branchone (branchPath: null)
+add_module({ insideId: "my_branchone", branchPath: null, value: { summary: "New Condition", expr: "results.step_a > 10", modules: [] } })
 \`\`\`
 
 ### remove_module
