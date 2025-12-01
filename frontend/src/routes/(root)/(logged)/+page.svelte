@@ -36,7 +36,7 @@
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
@@ -94,7 +94,11 @@
 		appViewer.openDrawer?.()
 	}
 
-	let workspaceTutorials: WorkspaceTutorials | undefined = undefined
+	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
+
+	// Provide workspaceTutorials to child components via a reactive wrapper
+	let workspaceTutorialsContext = $derived(workspaceTutorials)
+	setContext('workspaceTutorials', { get value() { return workspaceTutorialsContext } })
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
