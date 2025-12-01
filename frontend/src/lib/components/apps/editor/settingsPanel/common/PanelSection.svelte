@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from '../../../../Tooltip.svelte'
 
 	interface Props {
@@ -13,6 +14,9 @@
 		class?: string | undefined
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		size?: 'lg' | 'md' | 'sm' | 'xs'
+		collapsible?: boolean
+		initiallyCollapsed?: boolean
 	}
 
 	let {
@@ -25,8 +29,27 @@
 		id = undefined,
 		class: clazz = undefined,
 		action,
-		children
+		children,
+		size = 'xs',
+		collapsible = false,
+		initiallyCollapsed = false
 	}: Props = $props()
+
+	function textSize() {
+		switch (size) {
+			case 'lg':
+				return 'text-lg'
+			case 'md':
+				return 'text-md'
+			case 'sm':
+				return 'text-sm'
+			case 'xs':
+			default:
+				return 'text-xs'
+		}
+	}
+
+	let collapsed = $state(initiallyCollapsed)
 </script>
 
 <div
@@ -39,7 +62,9 @@
 	{id}
 >
 	<div class="flex justify-between flex-wrap items-center w-full gap-1">
-		<div class="text-xs inline-flex items-center font-semibold text-primary {titlePadding} gap-1">
+		<div
+			class="{textSize()} inline-flex items-center font-semibold text-primary {titlePadding} gap-1"
+		>
 			<span class="truncate">
 				{title}
 			</span>
@@ -49,7 +74,18 @@
 				</Tooltip>
 			{/if}
 		</div>
+		{#if collapsible}
+			<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
+				{#if collapsed}
+					<ChevronRight size={16} />
+				{:else}
+					<ChevronDown size={16} />
+				{/if}
+			</button>
+		{/if}
 		{@render action?.()}
 	</div>
-	{@render children?.()}
+	{#if !collapsed}
+		{@render children?.()}
+	{/if}
 </div>

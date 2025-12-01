@@ -631,7 +631,8 @@ pub mod script {
                 envs AS \"envs: Vec<String>\", \
                 schema AS \"schema: String\", \
                 schema_validation AS \"schema_validation: bool\", \
-                codebase LIKE '%.tar' as use_tar \
+                codebase LIKE '%.tar' as use_tar, \
+                codebase LIKE '%.esm%' as is_esm \
             FROM script WHERE hash = $1 LIMIT 1",
             hash.0
         )
@@ -647,12 +648,14 @@ pub mod script {
                     language: r.language,
                     envs: r.envs,
                     codebase: if let Some(use_tar) = r.use_tar {
-                        let sh = hash.to_string();
-                        if use_tar {
-                            Some(format!("{sh}.tar"))
-                        } else {
-                            Some(sh)
+                        let mut sh = hash.to_string();
+                        if r.is_esm.unwrap_or(false) {
+                            sh = format!("{sh}.esm");
                         }
+                        if use_tar {
+                            sh = format!("{sh}.tar");
+                        }
+                        Some(sh)
                     } else {
                         None
                     },

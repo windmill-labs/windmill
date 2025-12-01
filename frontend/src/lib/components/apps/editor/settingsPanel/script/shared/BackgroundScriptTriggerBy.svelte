@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isRunnableByName } from '$lib/components/apps/inputType'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 
 	import { getDependencies } from '../utils'
@@ -13,12 +14,12 @@
 	let { script = $bindable(), recomputeOnInputChanged = undefined, id }: Props = $props()
 
 	let isFrontend = $derived(
-		script.type == 'runnableByName' && script.inlineScript?.language === 'frontend'
+		isRunnableByName(script) && script.inlineScript?.language === 'frontend'
 	)
 	let triggerEvents = $derived(script.autoRefresh ? ['start', 'refresh'] : [])
 </script>
 
-{#if script.type == 'runnableByName' && script.inlineScript}
+{#if isRunnableByName(script) && script.inlineScript}
 	<ScriptTriggers
 		{id}
 		bind:inlineScript={script.inlineScript}
@@ -27,7 +28,7 @@
 		{isFrontend}
 		shoudlDisplayChangeEvents={recomputeOnInputChanged || isFrontend}
 	/>
-{:else if script.type === 'runnableByName'}
+{:else if isRunnableByName(script)}
 	<ScriptTriggers
 		{id}
 		dependencies={getDependencies(script.fields)}

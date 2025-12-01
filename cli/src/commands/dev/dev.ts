@@ -167,7 +167,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       ws.on("message", (message: WebSocket.RawData) => {
         let data;
         try {
-          data = JSON.parse(message);
+          data = JSON.parse(message.toString());
         } catch (e) {
           console.log("Received invalid JSON: " + message + " " + e);
           return;

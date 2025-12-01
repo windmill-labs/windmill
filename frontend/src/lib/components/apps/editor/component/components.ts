@@ -83,7 +83,7 @@ export type BaseComponent<T extends string> = {
 }
 
 export type RecomputeOthersSource = {
-	recomputeIds: string[] | undefined
+	recomputeIds?: string[] | undefined
 }
 
 export type CustomComponentConfig = {
@@ -215,6 +215,7 @@ export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
+export type JobProgressBarComponent = BaseComponent<'jobprogressbarcomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> &
@@ -345,6 +346,7 @@ export type TypedComponent =
 	| JobIdLogComponent
 	| FlowStatusComponent
 	| JobIdFlowStatusComponent
+	| JobProgressBarComponent
 	| TextInputComponent
 	| QuillComponent
 	| CodeInputComponent
@@ -1272,6 +1274,26 @@ export const components = {
 					fieldType: 'text',
 					value: '',
 					tooltip: 'Job id to display status from'
+				}
+			}
+		}
+	},
+	jobprogressbarcomponent: {
+		name: 'Progress Bar by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/progress_bar`,
+		dims: '2:2-6:2' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display progress from'
 				}
 			}
 		}

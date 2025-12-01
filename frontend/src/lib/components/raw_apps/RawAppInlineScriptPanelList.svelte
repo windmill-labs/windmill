@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plus } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import DocLink from '../apps/editor/settingsPanel/DocLink.svelte'
-	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
+
 	import type { Runnable } from '../apps/inputType'
 	import { getNextId } from '$lib/components/flows/idUtils'
 
@@ -21,27 +19,16 @@
 		runnables[nid] = {
 			name: newScriptPath,
 			inlineScript: undefined,
-			type: 'runnableByName'
+			type: 'inline'
 		}
 
 		selectedRunnable = nid
 	}
-
-	const dispatch = createEventDispatcher()
 </script>
 
-<PanelSection title="Backend Runnables" id="app-editor-runnable-panel">
+<PanelSection size="lg" fullHeight={false} title="Backend" id="app-editor-runnable-panel">
 	{#snippet action()}
 		<div class="flex flex-row gap-1">
-			<HideButton
-				direction="bottom"
-				on:click={() => {
-					dispatch('hidePanel')
-				}}
-			/>
-			<DocLink
-				docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable"
-			/>
 			<Button
 				size="xs"
 				variant="default"

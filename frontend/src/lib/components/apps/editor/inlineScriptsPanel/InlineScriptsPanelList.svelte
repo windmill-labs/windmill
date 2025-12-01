@@ -67,7 +67,7 @@
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
-			type: 'runnableByName',
+			type: 'inline',
 			fields: {},
 			recomputeIds: undefined
 		})

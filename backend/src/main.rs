@@ -271,8 +271,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             let job_id = Uuid::new_v4();
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
             create_dir_all(&job_dir)?;
-            if let Some(lockfile) = res.lockfile {
-                let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
+            if let Some(lock) = res.lockfile {
+                let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
@@ -292,7 +292,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
                 if let Err(e) = windmill_worker::prebundle_bun_script(
                     &res.content,
-                    Some(&lockfile),
+                    &lock,
                     &path,
                     &job_id,
                     "admins",

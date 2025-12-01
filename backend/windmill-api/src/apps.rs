@@ -174,6 +174,7 @@ pub struct AppWithLastVersion {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
+    pub raw_app: bool,
 }
 
 #[derive(Serialize, FromRow)]
@@ -510,7 +511,7 @@ async fn get_app(
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app
             FROM app
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -530,7 +531,7 @@ async fn get_app(
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, NULL as starred
+            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         )
@@ -557,7 +558,7 @@ async fn get_app_lite(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
-        app_version.created_at, app_version.created_by, NULL as starred
+        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -596,7 +597,8 @@ async fn get_app_w_draft(
             app_version.created_at, 
             app_version.created_by,
             app.draft_only,
-            draft.value AS "draft"
+            draft.value AS "draft",
+            app_version.raw_app
         FROM app
         INNER JOIN app_version 
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -739,7 +741,8 @@ async fn get_app_by_id(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by from app, app_version 
+        app_version.created_at, app_version.created_by, app_version.raw_app
+        FROM app, app_version 
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
     .bind(&id)
@@ -766,7 +769,8 @@ async fn get_public_app_by_secret(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
-        app_version.created_at, app_version.created_by from app, app_version 
+        app_version.created_at, app_version.created_by, app_version.raw_app
+        FROM app, app_version 
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
