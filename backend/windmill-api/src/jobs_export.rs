@@ -683,7 +683,6 @@ pub async fn import_queued_jobs(
     }
 
     tx.commit().await?;
-    tracing::info!("Successfully imported jobs");
     Ok(format!("Successfully imported jobs"))
 }
 

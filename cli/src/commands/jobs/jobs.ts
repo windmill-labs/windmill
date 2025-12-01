@@ -110,7 +110,7 @@ async function pullJobs(
   const allJobs = [...queuedJobs, ...completedJobs];
   if (allJobs.length > 0) {
     const confirmed = await Confirm.prompt({
-      message: `Do you want to delete the ${allJobs.length} pulled jobs (queued + completed) from the workspace? If you don't, you won't be able to import them again on the same instance.`,
+      message: `Do you want to delete the ${allJobs.length} pulled jobs (queued + completed) from the workspace? If you don't, you won't be able to import them again on the same instance because of the unique constraint on the job ID.`,
       default: false,
     });
 
@@ -249,10 +249,6 @@ const pull = new Command()
   .option(
     "-q, --queued-output <file:string>",
     "Queued jobs output file (default: queued_jobs.json)"
-  )
-  .option(
-    "-d, --delete-queued",
-    "Prompt to delete queued jobs from workspace after pulling"
   )
   .option(
     "--skip-worker-check",
