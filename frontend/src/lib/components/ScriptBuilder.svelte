@@ -12,7 +12,7 @@
 		PostgresTriggerService,
 		CaptureService,
 		type ScriptLang,
-		WorkerService,
+		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -189,7 +189,7 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-	
+
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -1065,13 +1065,11 @@
 												<MetadataGen
 													aiId="create-script-summary-input"
 													aiDescription="Summary / Title of the new script"
-													label="Summary"
 													bind:content={script.summary}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => onSummaryChange(script.summary)}
+													onChange={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1101,7 +1099,6 @@
 											<Label label="Description">
 												<MetadataGen
 													bind:content={script.description}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="description"
 													elementType="textarea"
@@ -1759,7 +1756,6 @@
 							/>
 						</div>
 					{/if}
-					
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}

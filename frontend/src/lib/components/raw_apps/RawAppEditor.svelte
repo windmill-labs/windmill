@@ -15,6 +15,9 @@
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName } from '../apps/inputType'
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { langToExt } from '$lib/editorLangUtils'
+	import { extToScriptLang, scriptLangToEditorLang } from '$lib/scripts'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -117,6 +120,70 @@
 		)
 	}
 
+	$effect(() => {
+		return aiChatManager.setAppHelpers({
+			getFiles: () => {
+				let allFiles = $state.snapshot(files ?? {})
+				allFiles['/wmill.d.ts'] = genWmillTs(runnables)
+				let backendRunnables: Record<string, Runnable> = {}
+				Object.entries(runnables).forEach(([key, runnable]) => {
+					if (runnable?.inlineScript?.content) {
+						allFiles[
+							'/backend/' +
+								key +
+								'.' +
+								langToExt(scriptLangToEditorLang(runnable.inlineScript.language))
+						] = runnable.inlineScript?.content ?? ''
+					} else {
+						backendRunnables[key] = runnable
+					}
+				})
+				allFiles['/raw_app.json'] = JSON.stringify({
+					summary: summary,
+					backend: backendRunnables
+				})
+				console.log('allFiles:', allFiles)
+				return allFiles ?? {}
+			},
+			setFile: (path, content, name) => {
+				console.log('setFile:', path, content)
+				if (!files) {
+					files = {}
+				}
+				if (path.startsWith('/backend/')) {
+					console.log('backend file changed:', path, name)
+					let splitted = path.substring(9).split('.')
+					let key = splitted[0]
+					let language = splitted[1]
+					runnables[key] = {
+						name: name ?? key,
+						type: 'inline',
+						inlineScript: {
+							content: content,
+							language: extToScriptLang(language) ?? runnables[key]?.inlineScript?.language ?? 'bun'
+						}
+					}
+				} else {
+					files[path] = content
+					setFilesInIframe(files)
+				}
+			},
+			deleteFile: (path) => {
+				console.log('deleteFile:', path)
+				if (!files) {
+					files = {}
+				}
+
+				if (path.startsWith('/backend/')) {
+					let key = path.substring(9).split('.')[0]
+					delete runnables[key]
+				} else {
+					delete files[path]
+				}
+				setFilesInIframe(files)
+			}
+		})
+	})
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
 

@@ -6,6 +6,12 @@ import {
 	prepareFlowUserMessage,
 	type FlowAIChatHelpers
 } from './flow/core'
+import {
+	appTools,
+	prepareAppSystemMessage,
+	prepareAppUserMessage,
+	type AppAIChatHelpers
+} from './app/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
 import {
@@ -93,6 +99,7 @@ class AIChatManager {
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
+	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
@@ -258,6 +265,11 @@ class AIChatManager {
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
+		} else if (mode === AIMode.APP) {
+			const customPrompt = getCombinedCustomPrompt(mode)
+			this.systemMessage = prepareAppSystemMessage(customPrompt)
+			this.tools = [...appTools]
+			this.helpers = this.appAiChatHelpers
 		}
 	}
 
@@ -646,6 +658,12 @@ class AIChatManager {
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
+				case AIMode.APP:
+					userMessage = prepareAppUserMessage(
+						oldInstructions,
+						this.appAiChatHelpers?.getFiles()
+					)
+					break
 			}
 
 			this.messages.push(userMessage)
@@ -978,6 +996,14 @@ class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+		}
+	}
+
+	setAppHelpers = (appHelpers: AppAIChatHelpers) => {
+		this.appAiChatHelpers = appHelpers
+
+		return () => {
+			this.appAiChatHelpers = undefined
 		}
 	}
 }
