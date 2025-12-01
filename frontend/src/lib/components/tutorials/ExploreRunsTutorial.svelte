@@ -258,12 +258,40 @@
 				onHighlighted: async () => {
 					step4Complete = false
 					await wait(DELAY_SHORT)
+
+					// Find the step 'a' button inside the drawer and click it with fake cursor
+					const flowPreviewContent = document.getElementById('flow-preview-content')
+					if (flowPreviewContent) {
+						// Find the module element
+						const stepButton = flowPreviewContent.querySelector('.relative.flex.gap-1.justify-between.items-center.w-full.overflow-hidden.rounded-sm.p-2.text-2xs.module.text-primary') as HTMLElement
+
+						if (stepButton) {
+							// Create fake cursor and animate it to the button
+							const fakeCursor = await createFakeCursor(null, stepButton, 1.5)
+							await wait(DELAY_MEDIUM)
+
+							// Animate click (shrink cursor briefly)
+							fakeCursor.style.transform = 'scale(0.8)'
+							await wait(100)
+							fakeCursor.style.transform = 'scale(1)'
+							await wait(100)
+
+							// Click the button
+							stepButton.click()
+							await wait(DELAY_SHORT)
+
+							// Remove fake cursor
+							fakeCursor.remove()
+							await wait(DELAY_MEDIUM)
+						}
+					}
+
 					step4Complete = true
 				},
 				popover: {
 					title: 'Flow execution graph',
 					description:
-						'This graph shows a visual representation of your flow execution. You can see each step and how data flows between them. Click on any step to see its specific results and logs.',
+						'Watch as we click on a step to explore its details. You can click on any step to see its specific results and logs.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step4Complete) {
