@@ -109,7 +109,7 @@ const resourceTypeToolSchema = z.object({
 const resourceTypeToolDef = createToolDef(
 	resourceTypeToolSchema,
 	'resource_type',
-	'Search for resource types'
+	'Search for resource types (e.g., postgresql, stripe). Returns formatted resource type definitions with usage examples.'
 )
 
 const getInstructionsForCodeGenerationToolSchema = z.object({
