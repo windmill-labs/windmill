@@ -345,7 +345,7 @@ const inspectInlineScriptSchema = z.object({
 const inspectInlineScriptToolDef = createToolDef(
 	inspectInlineScriptSchema,
 	'inspect_inline_script',
-	'Inspect the full content of an inline script that was replaced with a reference. Use this when you need to see or modify the actual script code for a specific module.'
+	'Inspect the full content of an inline script. Use this to view the actual script code before making changes with set_module_code.'
 )
 
 const setModuleCodeSchema = z.object({
