@@ -113,7 +113,6 @@ const resourceTypeToolDef = createToolDef(
 )
 
 const getInstructionsForCodeGenerationToolSchema = z.object({
-	id: z.string().describe('The id of the step to generate code for'),
 	language: langSchema.describe('The programming language the code will be written in')
 })
 
@@ -1127,8 +1126,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
-				allowResourcesFetch: true,
-				isPreprocessor: parsedArgs.id === SPECIAL_MODULE_IDS.PREPROCESSOR
+				allowResourcesFetch: true
 			})
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
@@ -1787,7 +1785,7 @@ Always call this tool first when:
 - Modifying existing code in a module
 - Setting code via \`set_module_code\`
 
-Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_generation({ id: "step_a", language: "bun" })\`
+Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_generation({ language: "bun" })\`
 
 ### Creating New Steps
 
