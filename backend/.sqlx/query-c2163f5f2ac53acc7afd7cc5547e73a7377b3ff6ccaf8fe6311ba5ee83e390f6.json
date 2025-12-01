@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n            workspace_id,\n            hash,\n            path,\n            parent_hashes AS \"parent_hashes: ScriptHashes\",\n            summary,\n            description,\n            content,\n            created_by,\n            created_at,\n            archived,\n            schema AS \"schema: Schema\",\n            deleted,\n            COALESCE(is_template, false) AS \"is_template!\",\n            extra_perms,\n            lock,\n            lock_error_logs,\n            language AS \"language: ScriptLang\",\n            kind AS \"kind: ScriptKind\",\n            tag,\n            draft_only,\n            envs,\n            concurrency_key,\n            concurrent_limit,\n            concurrency_time_window_s,\n            debounce_key,\n            debounce_delay_s,\n            dedicated_worker,\n            ws_error_handler_muted,\n            priority,\n            cache_ttl,\n            timeout,\n            delete_after_use,\n            restart_unless_cancelled,\n            visible_to_runner_only,\n            no_main_func,\n            codebase,\n            has_preprocessor,\n            on_behalf_of_email,\n            assets AS \"assets: Vec<AssetWithAltAccessType>\"\n         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+  "query": "SELECT\n            workspace_id,\n            hash,\n            path,\n            parent_hashes AS \"parent_hashes: ScriptHashes\",\n            summary,\n            description,\n            content,\n            created_by,\n            created_at,\n            archived,\n            schema AS \"schema: Schema\",\n            deleted,\n            is_template,\n            extra_perms,\n            lock,\n            lock_error_logs,\n            language AS \"language: ScriptLang\",\n            kind AS \"kind: ScriptKind\",\n            tag,\n            draft_only,\n            envs,\n            concurrency_key,\n            concurrent_limit,\n            concurrency_time_window_s,\n            debounce_key,\n            debounce_delay_s,\n            dedicated_worker,\n            ws_error_handler_muted,\n            priority,\n            cache_ttl,\n            timeout,\n            delete_after_use,\n            restart_unless_cancelled,\n            visible_to_runner_only,\n            no_main_func,\n            codebase,\n            has_preprocessor,\n            on_behalf_of_email,\n            assets AS \"assets: Vec<AssetWithAltAccessType>\"\n         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -65,7 +65,7 @@
       },
       {
         "ordinal": 12,
-        "name": "is_template!",
+        "name": "is_template",
         "type_info": "Bool"
       },
       {
@@ -263,7 +263,7 @@
       false,
       true,
       false,
-      null,
+      true,
       false,
       true,
       true,
@@ -292,5 +292,5 @@
       true
     ]
   },
-  "hash": "04bacef35dfe9978fc46deb4fe00adc393aa58a987d55abe6c327efe585c2eab"
+  "hash": "c2163f5f2ac53acc7afd7cc5547e73a7377b3ff6ccaf8fe6311ba5ee83e390f6"
 }
