@@ -1812,7 +1812,7 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 AI agents can use tools to accomplish tasks. To manage tools for an AI agent:
 
 - **Adding a tool to an AI agent**: Use \`add_module\` with \`insideId\` set to the agent's ID and \`branchPath: "tools"\`
-  - Order is not important for AI agent tools, so \`afterId\` is not needed
+  - Tool order doesn't affect execution, so you can omit \`afterId\` (defaults to inserting at beginning)
   - Example: \`add_module({ insideId: "ai_agent_step", branchPath: "tools", value: { id: "search_docs", summary: "Search documentation", value: { tool_type: "flowmodule", type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
 
 - **Removing a tool from an AI agent**: Use \`remove_module\` with the tool's ID
