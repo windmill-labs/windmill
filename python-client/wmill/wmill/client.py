@@ -1682,24 +1682,27 @@ class DataTableClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
         self.name = name
-    def fetch(self, sql: str, *args):
+    def query(self, sql: str, *args):
         args_dict = {}
         args_def = ""
         for i, arg in enumerate(args):
             args_dict[f"arg{i+1}"] = arg
             args_def += f"-- ${i+1} arg{i+1}\n"
         sql = args_def + sql
-        return self.client.run_inline_script_preview(
-            content=sql,
-            language="postgresql",
-            args={"database": f"datatable://{self.name}", **args_dict},
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="postgresql",
+                args={"database": f"datatable://{self.name}", **args_dict},
+            )
         )
 
 class DucklakeClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
         self.name = name
-    def fetch(self, sql: str, **kwargs):
+    def query(self, sql: str, **kwargs):
         args_dict = {}
         args_def = ""
         for key, value in kwargs.items():
@@ -1707,11 +1710,26 @@ class DucklakeClient:
             args_def += f"-- ${key} ({infer_sql_type(value)})\n"
         attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
         sql = args_def + attach + sql
-        return self.client.run_inline_script_preview(
-            content=sql,
-            language="duckdb",
-            args=args_dict,
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="duckdb",
+                args=args_dict,
+            )
         )
+
+class SqlQuery:
+    def __init__(self, sql: str, fetch_fn):
+        self.sql = sql
+        self.fetch_fn = fetch_fn
+    def fetch(self, result_collection: str | None = None):
+        sql = self.sql
+        if result_collection is not None:
+            sql = f'-- result_collection={result_collection}\n{sql}'
+        return self.fetch_fn(sql)
+    def fetchOne(self):
+        return self.fetch(result_collection="last_statement_first_row")
 
 def infer_sql_type(value) -> str:
     """
