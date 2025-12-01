@@ -231,7 +231,7 @@ impl From<i64> for ScriptHash {
     }
 }
 
-#[derive(PartialEq, sqlx::Type)]
+#[derive(PartialEq, sqlx::Type, Debug)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
 
@@ -347,7 +347,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
     let is_esm = id.contains(".esm");
     CodebaseInfo { is_tar, is_esm }
 }
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, Debug)]
 pub struct Script {
     pub workspace_id: String,
     pub hash: ScriptHash,
@@ -821,27 +821,26 @@ pub async fn fetch_script_for_update<'a>(
     w_id: &str,
     e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
 ) -> crate::error::Result<Option<Script>> {
-    sqlx::query_as!(
-        Script,
-        r#"SELECT
+    sqlx::query_as::<_, Script>(
+        "SELECT
             workspace_id,
             hash,
             path,
-            parent_hashes AS "parent_hashes: ScriptHashes",
+            parent_hashes,
             summary,
             description,
             content,
             created_by,
             created_at,
             archived,
-            schema AS "schema: Schema",
+            schema,
             deleted,
             is_template,
             extra_perms,
             lock,
             lock_error_logs,
-            language AS "language: ScriptLang",
-            kind AS "kind: ScriptKind",
+            language,
+            kind,
             tag,
             draft_only,
             envs,
@@ -862,11 +861,11 @@ pub async fn fetch_script_for_update<'a>(
             codebase,
             has_preprocessor,
             on_behalf_of_email,
-            assets AS "assets: Vec<AssetWithAltAccessType>"
-         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE"#,
-        hash.0,
-        w_id,
+            assets
+         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
     )
+    .bind(hash.0)
+    .bind(w_id)
     .fetch_optional(e)
     .await
     .map_err(crate::error::Error::from)
@@ -883,7 +882,7 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
-    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
+    let s = if let Some(s) = dbg!(fetch_script_for_update(base_hash, w_id, &mut **tx).await?) {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
