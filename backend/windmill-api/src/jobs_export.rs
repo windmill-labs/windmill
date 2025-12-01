@@ -12,14 +12,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::FromRow;
-use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::{
-    db::{UserDB, UserDbWithAuthed},
-    error::{self, JsonResult},
+    db::UserDB,
+    error,
     jobs::{JobKind, JobStatus, JobTriggerKind},
-    scripts::{ScriptHash, ScriptLang},
+    scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
 };
 
