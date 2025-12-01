@@ -38,8 +38,7 @@
                 "flowscript",
                 "flownode",
                 "appscript",
-                "aiagent",
-                "unassigned"
+                "aiagent"
               ]
             }
           }
@@ -102,8 +101,7 @@
                 "postgres",
                 "sqs",
                 "gcp",
-                "mqtt",
-                "nextcloud"
+                "mqtt"
               ]
             }
           }
