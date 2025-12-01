@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import Highlight from 'svelte-highlight'
 	import type { LanguageType } from 'svelte-highlight/languages'
 
@@ -23,7 +23,7 @@
 	}}
 >
 	<div class="absolute top-2 right-1 z-10 pointer-events-none">
-		<Clipboard size={14} class="w-8 cursor-pointer pointer-events-auto" />
+		<Copy size={14} class="w-8 cursor-pointer pointer-events-auto" />
 	</div>
 	<div class="p-2 overflow-auto w-full">
 		<Highlight {language} {code} class="pointer-events-none" />
