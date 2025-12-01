@@ -21,8 +21,8 @@
 	}
 
 	function startRunsTutorial() {
-		// Placeholder for future runs tutorial
-		window.location.href = `${base}/runs`
+		// Navigate to flow editor with pre-built flow for the runs tutorial
+		window.location.href = `${base}/flows/add?tutorial=explore-runs&nodraft=true`
 	}
 </script>
 

@@ -6,6 +6,7 @@
 	import FlowBuilderTutorialForLoop from './tutorials/FlowBuilderTutorialForLoop.svelte'
 	import FlowBuilderTutorialErrorHandler from './tutorials/FlowBuilderTutorialErrorHandler.svelte'
 	import FlowBuilderLiveTutorial from './tutorials/FlowBuilderLiveTutorial.svelte'
+	import ExploreRunsTutorial from './tutorials/ExploreRunsTutorial.svelte'
 
 	let flowBuilderTutorialSimpleFlow: FlowBuilderTutorialSimpleFlow | undefined = $state(undefined)
 	let flowBuilderTutorialForLoop: FlowBuilderTutorialForLoop | undefined = $state(undefined)
@@ -15,6 +16,7 @@
 		$state(undefined)
 	let flowBuilderLiveTutorial: FlowBuilderLiveTutorial | undefined =
 		$state(undefined)
+	let exploreRunsTutorial: ExploreRunsTutorial | undefined = $state(undefined)
 
 	export function runTutorialById(id: string, indexToInsertAt?: number | undefined) {
 		if (id === 'forloop') {
@@ -29,6 +31,8 @@
 			flowBuilderTutorialErrorHandler?.runTutorial()
 		} else if (id === 'flow-live-tutorial') {
 			flowBuilderLiveTutorial?.runTutorial()
+		} else if (id === 'explore-runs') {
+			exploreRunsTutorial?.runTutorial()
 		}
 	}
 
@@ -73,3 +77,4 @@
 	on:skipAll={skipAll}
 	on:reload
 />
+<ExploreRunsTutorial bind:this={exploreRunsTutorial} on:error on:skipAll={skipAll} on:reload />
