@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "409b452cfe4d1e36b2152e86ada52ca3f1137dd26c85963863f4a73150fcc0e0"
+}

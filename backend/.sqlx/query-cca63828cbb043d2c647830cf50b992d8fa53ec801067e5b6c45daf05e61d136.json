@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_perms WHERE workspace_id = $1 AND job_id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cca63828cbb043d2c647830cf50b992d8fa53ec801067e5b6c45daf05e61d136"
+}
