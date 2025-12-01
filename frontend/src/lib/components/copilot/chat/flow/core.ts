@@ -174,19 +174,19 @@ const addModuleToolDef: ChatCompletionFunctionTool = {
 		strict: false,
 		name: 'add_module',
 		description:
-			"Add a new module to the flow. Use afterId to insert after a specific module (null to append), or insideId+branchPath to insert into branches/loops. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be used.",
+			"Add a new module to the flow. Use afterId to insert after a specific module (null to insert at the beginning), or insideId+branchPath to insert into branches/loops. Note: The IDs 'failure', 'preprocessor', and 'Input' are reserved and cannot be used.",
 		parameters: {
 			type: 'object',
 			properties: {
 				afterId: {
 					type: ['string', 'null'],
 					description:
-						'ID of the module to insert after. Use null to append to the end. Must not be used together with insideId.'
+						'ID of the module to insert after. Use null to insert at the beginning. Can be used with insideId+branchPath to specify position within a container.'
 				},
 				insideId: {
 					type: ['string', 'null'],
 					description:
-						'ID of the container module (branch/loop) to insert into. Requires branchPath. Must not be used together with afterId.'
+						'ID of the container module (branch/loop) to insert into. Requires branchPath.'
 				},
 				branchPath: {
 					type: ['string', 'null'],
@@ -646,9 +646,10 @@ function addModuleToFlow(
 						`Cannot find target array for insideId '${insideId}' with branchPath '${branchPath}'`
 					)
 				}
-				const updatedArray = afterId
-					? addModuleToFlow(targetArray, afterId, null, null, newModule)
-					: [...targetArray, newModule]
+				const updatedArray =
+					afterId !== null
+						? addModuleToFlow(targetArray, afterId, null, null, newModule)
+						: [newModule, ...targetArray] // afterId null = insert at beginning
 				return updateNestedArray(module, branchPath, updatedArray)
 			}
 
@@ -724,8 +725,8 @@ function addModuleToFlow(
 		return result
 	}
 
-	// Case 3: Appending to end of current level
-	return [...modules, newModule]
+	// Case 3: afterId is null - insert at the beginning
+	return [newModule, ...modules]
 }
 
 /**
@@ -1370,9 +1371,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			// Validation
-			if (afterId !== null && insideId) {
-				throw new Error('Cannot use both afterId and insideId. Use one or the other.')
-			}
+			// afterId can be used with insideId+branchPath to specify position within a container
 			if (insideId && !branchPath) {
 				throw new Error('branchPath is required when using insideId')
 			}
@@ -1597,10 +1596,13 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 ## Flow Modification Tools
 
 - **add_module**: Add a new module to the flow
-  - Use \`afterId\` to insert after a specific module (null to append to end)
+  - Use \`afterId\` to insert after a specific module (null to insert at the beginning)
   - Use \`insideId\` + \`branchPath\` to insert into branches/loops
-  - Example: \`add_module({ afterId: "step_a", value: {...} })\`
-  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
+  - \`afterId\` can be combined with \`insideId\` + \`branchPath\` to specify position within a container
+  - Example: \`add_module({ afterId: "step_a", value: {...} })\` - insert after step_a
+  - Example: \`add_module({ afterId: null, value: {...} })\` - insert at the beginning
+  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\` - insert at beginning of first branch
+  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", afterId: "step_x", value: {...} })\` - insert after step_x within first branch
   - Example to add modules inside a loop: \`add_module({ insideId: "loop_step", branchPath: "modules", value: {...} })\`
   - To add to first branch: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
   - To add to second branch: \`add_module({ insideId: "branch_step", branchPath: "branches.1", value: {...} })\`
@@ -1615,16 +1617,9 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
   - Example: \`modify_module({ id: "step_a", value: {...} })\`
   - To modify branch conditions: \`modify_module({ id: "branch_step", value: {...} })\`
 
-- **move_module**: Reposition a module
-  - Can move within same level or between different nesting levels
-  - Example: \`move_module({ id: "step_c", afterId: "step_a" })\`
-  - Example: \`move_module({ id: "step_b", insideId: "loop_step", branchPath: "modules" })\`
-
 - **set_module_code**: Modify only the code of an existing inline script module
   - Use this for quick code-only changes
   - Example: \`set_module_code({ moduleId: "step_a", code: "..." })\`
-
-## Flow Configuration Tools
 
 - **set_flow_schema**: Set/update flow input parameters
   - Defines what parameters the flow accepts when executed
@@ -1723,11 +1718,7 @@ Rawscript modules use \`input_transforms\` to map function parameters to values.
 
 ### Writing Code for Modules
 
-**IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions including:
-- Required function signature format
-- How to handle imports and dependencies
-- Language-specific patterns for resources, error handling, etc.
-- Code style and formatting requirements
+**IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions.
 
 Always call this tool first when:
 - Creating a new rawscript module
@@ -1760,9 +1751,11 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
    - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } } } })\`
 
 5. **For positioning:**
-   - Append to end: use \`afterId: null\`
+   - Insert at beginning: use \`afterId: null\`
    - After specific step: use \`afterId: "step_id"\`
+   - Append to end: use \`afterId: "<last_module_id>"\` (insert after the last module)
    - Inside branch/loop: use \`insideId: "container_id"\` + \`branchPath\`
+   - Position within container: combine \`insideId\` + \`branchPath\` with \`afterId\`
 
 ### AI Agent Tools
 
