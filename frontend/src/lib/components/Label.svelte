@@ -2,6 +2,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { enterpriseLicense } from '$lib/stores'
+	import { TriangleAlert } from 'lucide-svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -12,6 +14,7 @@
 		class?: string | undefined
 		for?: string | undefined
 		tooltip?: string | undefined
+		eeOnly?: boolean
 		header?: import('svelte').Snippet
 		error?: import('svelte').Snippet
 		action?: import('svelte').Snippet
@@ -27,6 +30,7 @@
 		class: clazz = undefined,
 		for: forAttr = undefined,
 		tooltip = undefined,
+		eeOnly = false,
 		header,
 		error,
 		action,
@@ -49,6 +53,19 @@
 						<Tooltip>{tooltip}</Tooltip>
 					{/if}
 				</span>
+				{#if eeOnly}
+					{#if !$enterpriseLicense}
+						<div
+							class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap"
+							title="Enterprise Edition only feature"
+							aria-label="Enterprise Edition only feature"
+							role="tooltip"
+						>
+							<TriangleAlert size={16} />
+							EE only
+						</div>
+					{/if}
+				{/if}
 				{@render header?.()}
 			</div>
 		{/if}

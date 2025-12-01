@@ -7,6 +7,10 @@
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import CollapseLink from './CollapseLink.svelte'
+	import Label from './Label.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
+	import { shell, json } from 'svelte-highlight/languages'
 
 	type Props = {
 		customTags: string[] | undefined
@@ -112,114 +116,121 @@
 	<Tab value="create" label="Create" />
 	<Tab value="blacklist" label="Blacklist" />
 	{#snippet content()}
-		<div class="flex flex-col gap-y-4 pt-2">
+		<div class="flex flex-col gap-y-6 pt-2">
 			{#if selectedTab === 'create'}
 				<Alert type="info" title="HTTP agent workers "
 					>Use HTTP agent workers only when the workers need to be deployed remotely OR with only
 					HTTP connectivity OR in untrusted environments. HTTP agent workers have more latency and
 					less capabilities than normal workers.</Alert
 				>
-				<div class="flex flex-col gap-y-4 mt-4">
-					<Section
-						label="Worker group"
-						tooltip="This is only used to give a name prefix to the agent worker and to group workers in the workers page, no worker group config is passed to an agent worker."
-					>
-						<input class="max-w-md" type="text" bind:value={workerGroup} />
-					</Section>
-					<Section label="Tags to listen to" eeOnly>
-						{#if !$enterpriseLicense}
-							<div class="text-sm text-secondary mb-2 max-w-md">
-								Agent workers are only available in the enterprise edition. For evaluation purposes,
-								you can only use the tag `agent_test` tag and it is limited to 100 jobs.
-							</div>
-						{/if}
-						<TagsToListenTo
-							disabled={!$enterpriseLicense}
-							bind:worker_tags={selectedTags}
-							{customTags}
-						/>
-					</Section>
 
-					<Section label="Generated JWT token">
-						{#if !$enterpriseLicense}
-							<div class="text-sm text-secondary mb-2 max-w-md">
-								Agent workers are only available in the enterprise edition. For evaluation purposes,
-								you can only use the tag `agent_test` tag and it is limited to 100 jobs.
-							</div>
-						{/if}
-						<div class="relative max-w-md group">
-							<input
-								onclick={(e) => {
+				<Label
+					label="Worker group"
+					tooltip="This is only used to give a name prefix to the agent worker and to group workers in the workers page, no worker group config is passed to an agent worker."
+				>
+					<input class="max-w-md" type="text" bind:value={workerGroup} />
+				</Label>
+				<Label label="Tags to listen to" eeOnly>
+					{#if !$enterpriseLicense}
+						<div class="text-sm text-secondary mb-2 max-w-md">
+							Agent workers are only available in the enterprise edition. For evaluation purposes,
+							you can only use the tag `agent_test` tag and it is limited to 100 jobs.
+						</div>
+					{/if}
+					<TagsToListenTo
+						disabled={!$enterpriseLicense}
+						bind:worker_tags={selectedTags}
+						{customTags}
+					/>
+				</Label>
+
+				<Label label="Generated JWT token">
+					{#if !$enterpriseLicense}
+						<div class="text-sm text-secondary mb-2 max-w-md">
+							Agent workers are only available in the enterprise edition. For evaluation purposes,
+							you can only use the tag `agent_test` tag and it is limited to 100 jobs.
+						</div>
+					{/if}
+					<div class="relative max-w-md group">
+						<TextInput
+							inputProps={{
+								onclick: (e) => {
 									e.preventDefault()
 									e.stopPropagation()
 									if (token) {
 										navigator.clipboard.writeText(token)
 										sendUserToast('Copied to clipboard')
 									}
-								}}
-								placeholder="Select tags to generate a JWT token"
-								type="text"
-								disabled
-								value={token}
-								class="w-full pr-10 pl-3 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition truncatere"
-							/>
+								},
+								readonly: true,
+								placeholder: 'Select tags to generate a JWT token'
+							}}
+							bind:value={token}
+							class="pr-10"
+						/>
 
-							<button
-								class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 group-hover:text-blue-600 hover:scale-105 transition"
-								aria-label="Copy token to clipboard"
-								onclick={(e) => {
-									e.preventDefault()
-									e.stopPropagation()
+						{#if token}
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								wrapperClasses="absolute right-2 top-1/2 -translate-y-1/2"
+								onClick={(e) => {
+									e?.preventDefault()
+									e?.stopPropagation()
 									if (token) {
 										navigator.clipboard.writeText(token)
 										sendUserToast('Copied to clipboard')
 									}
 								}}
 							>
-								<Copy size={18} />
-							</button>
-						</div>
+								<Copy size={14} />
+							</Button>
+						{/if}
+					</div>
 
-						<div class="flex flex-col gap-2 text-sm mt-3 leading-relaxed">
-							Set the following environment variables:
-							<ul class="list-disc list-inside mt-1">
-								<li><code>MODE=agent</code></li>
-								<li><code>AGENT_TOKEN=&lt;token&gt;</code></li>
-								<li><code>BASE_INTERNAL_URL=&lt;base url&gt;</code></li>
-							</ul>
-							<p class="text-sm leading-relaxed">
-								to a worker to have it act as an HTTP agent worker.
-								<code>INIT_SCRIPT</code>, if needed, must be passed as an env variable.
-							</p>
-							<Alert type="warning" size="sm" title="Agent Worker Limitations">
-								Ensure at least one normal worker is running and listening to the tags
-								<code>flow</code> and <code>dependency</code>
-								(or <code>flow-&lt;workspace&gt;</code> and
-								<code>dependency-&lt;workspace&gt;</code>
-								if using workspace-specific default tags), because agent workers
-								<strong>cannot run dependency jobs</strong>
-								nor execute the
-								<strong>flow state machine</strong>. They can, however, run subjobs within flows.
-							</Alert>
-							<CollapseLink text="Automate JWT token generation" small>
-								<div class="text-xs mt-2">
-									Use the following API endpoint with a superadmin bearer token:
-									<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
-									<pre class=" p-2 rounded-lg text-xs overflow-auto">
-	<code
-											>{`
-	  "worker_group": "agent",
-	  "tags": ["tag1", "tag2"],
-	  "exp": 1717334400
-	`}</code
-										>
-									</pre>
-									The JSON response will contain the generated JWT token.
-								</div>
-							</CollapseLink>
-						</div>
-					</Section>
-				</div>
+					<div class="flex flex-col gap-2 text-xs mt-2 leading-relaxed border rounded-md p-4">
+						Set the following environment variables:
+						<CopyableCodeBlock
+							code={`MODE=agent
+AGENT_TOKEN=<token>
+BASE_INTERNAL_URL=<base url>
+`}
+							language={shell}
+						/>
+						<p class="text-sm leading-relaxed">
+							to a worker to have it act as an HTTP agent worker.
+							<code>INIT_SCRIPT</code>, if needed, must be passed as an env variable.
+						</p>
+						<Alert type="warning" size="sm" title="Agent Worker Limitations">
+							Ensure at least one normal worker is running and listening to the tags
+							<code>flow</code> and <code>dependency</code>
+							(or <code>flow-&lt;workspace&gt;</code> and
+							<code>dependency-&lt;workspace&gt;</code>
+							if using workspace-specific default tags), because agent workers
+							<strong>cannot run dependency jobs</strong>
+							nor execute the
+							<strong>flow state machine</strong>. They can, however, run subjobs within flows.
+						</Alert>
+
+						<div class="mt-2"></div>
+						<Section small collapsable label="Automate JWT token generation">
+							<div class="text-xs">
+								Use the following API endpoint with a superadmin bearer token:
+								<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
+								<CopyableCodeBlock
+									code={`"worker_group": "agent",
+"tags": ["tag1", "tag2"],
+"exp": 1717334400`}
+									language={json}
+								/>
+
+								<span class="text-xs mt-1"
+									>The JSON response will contain the generated JWT token.</span
+								>
+							</div>
+						</Section>
+					</div>
+				</Label>
 			{:else if selectedTab === 'blacklist'}
 				<div class="flex flex-col gap-y-4 mt-4">
 					<Section label="Agent Token Blacklist" eeOnly>
