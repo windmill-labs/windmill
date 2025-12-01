@@ -25,7 +25,7 @@
 			moduleAction.action === 'modified' ? 'justify-between' : 'justify-end'
 		)}
 	>
-		{#if moduleAction.action === 'modified' && diffManager.beforeFlow}
+		{#if moduleAction?.action === 'modified' && diffManager.beforeFlow}
 			<button
 				class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
 				onclick={() => {
@@ -35,7 +35,7 @@
 				<DiffIcon size={14} /> Diff
 			</button>
 		{/if}
-		{#if moduleAction.pending}
+		{#if moduleAction?.pending}
 			<div
 				class={twMerge(
 					'flex flex-row bg-surface overflow-hidden',
