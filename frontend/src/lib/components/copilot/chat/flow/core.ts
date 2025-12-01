@@ -1821,7 +1821,8 @@ AI agents can use tools to accomplish tasks. To manage tools for an AI agent:
 - **Modifying a tool**: Use \`modify_module\` with the tool's ID
   - Example: \`modify_module({ id: "search_docs", value: { ... } })\`
 
-- **Tool IDs AND SUMMARIES**: Cannot contain spaces - use underscores (e.g., \`get_user_data\` not \`get user data\`)
+- **Tool IDs**: Cannot contain spaces - use underscores (e.g., \`get_user_data\` not \`get user data\`)
+- **Tool summaries**: Human-readable descriptions (spaces allowed)
 
 - **Tool types**:
   - \`flowmodule\`: A script/flow that the agent can call (same as regular flow modules but with \`tool_type: "flowmodule"\`)
