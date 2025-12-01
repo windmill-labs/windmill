@@ -34,11 +34,7 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>
             anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
         })?
         .body;
-    let mut assets_finder = AssetsFinder {
-        assets: vec![],
-        datatable_identifiers: HashMap::new(),
-        ducklake_identifiers: HashMap::new(),
-    };
+    let mut assets_finder = AssetsFinder { assets: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
     Ok(merge_assets(assets_finder.assets))
 }
@@ -52,10 +48,7 @@ struct AssetsFinder {
     // The goal is to remember that the identifier "sql" corresponds to the datatable "main"
     // so that when we see a tagged template expression with tag "sql" we know which datatable it
     // corresponds to. This allows us to infer if a datatable is Read or Write based on the SQL query.
-    datatable_identifiers: HashMap<String, String>,
-
-    // Similar to datatable_identifiers but for ducklakes
-    ducklake_identifiers: HashMap<String, String>,
+    var_identifiers: HashMap<String, (AssetKind, String)>,
 }
 
 impl Visit for AssetsFinder {
@@ -85,56 +78,32 @@ impl Visit for AssetsFinder {
 
     fn visit_block_stmt(&mut self, node: &swc_ecma_ast::BlockStmt) {
         // Save current state before entering the block
-        let saved_datatable = self.datatable_identifiers.clone();
-        let saved_ducklake = self.ducklake_identifiers.clone();
+        let saved_var_identifiers = self.var_identifiers.clone();
 
         // Visit children (this may add new identifiers)
         node.visit_children_with(self);
 
-        // If we found 'let sql = wmill.datatable(...)',
+        // If we find 'let sql = wmill.datatable(...)',
         // but no sql`` tagged templates were used, we add
         // the asset with unknown access type
-        for datatable in self.datatable_identifiers.keys() {
-            if saved_datatable.contains_key(datatable) {
+        for var in self.var_identifiers.keys() {
+            if saved_var_identifiers.contains_key(var) {
                 continue;
             }
-            let path = &self.datatable_identifiers[datatable];
+            let (kind, ref path) = self.var_identifiers[var];
             if self
                 .assets
                 .iter()
-                .any(|a| a.kind == AssetKind::DataTable && a.path == *path)
+                .any(|a| a.kind == kind && &a.path == path)
             {
                 continue;
             }
-            self.assets.push(ParseAssetsResult {
-                kind: AssetKind::DataTable,
-                access_type: None,
-                path: path.clone(),
-            });
-        }
-        // Same as above but for ducklake
-        for ducklake in self.ducklake_identifiers.keys() {
-            if saved_ducklake.contains_key(ducklake) {
-                continue;
-            }
-            let path = &self.ducklake_identifiers[ducklake];
-            if self
-                .assets
-                .iter()
-                .any(|a| a.kind == AssetKind::Ducklake && a.path == *path)
-            {
-                continue;
-            }
-            self.assets.push(ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                access_type: None,
-                path: path.clone(),
-            });
+            self.assets
+                .push(ParseAssetsResult { kind, access_type: None, path: path.clone() });
         }
 
         // Restore state - identifiers declared in this block go out of scope
-        self.datatable_identifiers = saved_datatable;
-        self.ducklake_identifiers = saved_ducklake;
+        self.var_identifiers = saved_var_identifiers;
     }
 
     fn visit_var_declarator(&mut self, node: &swc_ecma_ast::VarDeclarator) {
@@ -171,11 +140,13 @@ impl Visit for AssetsFinder {
 
                             match prop.sym.as_str() {
                                 "datatable" => {
-                                    self.datatable_identifiers.insert(var_name, asset_name);
+                                    self.var_identifiers
+                                        .insert(var_name, (AssetKind::DataTable, asset_name));
                                     return;
                                 }
                                 "ducklake" => {
-                                    self.ducklake_identifiers.insert(var_name, asset_name);
+                                    self.var_identifiers
+                                        .insert(var_name, (AssetKind::Ducklake, asset_name));
                                     return;
                                 }
                                 _ => {}
@@ -200,11 +171,9 @@ impl Visit for AssetsFinder {
             }
         };
 
-        // Check if it's a known datatable or ducklake identifier
-        let (kind, asset_name) = if let Some(name) = self.datatable_identifiers.get(tag_name) {
-            (AssetKind::DataTable, name.clone())
-        } else if let Some(name) = self.ducklake_identifiers.get(tag_name) {
-            (AssetKind::Ducklake, name.clone())
+        // Check if it's a known identifier
+        let (kind, asset_name) = if let Some((kind, name)) = self.var_identifiers.get(tag_name) {
+            (*kind, name.clone())
         } else {
             node.visit_children_with(self);
             return;
