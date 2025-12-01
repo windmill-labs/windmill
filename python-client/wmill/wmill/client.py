@@ -1728,7 +1728,7 @@ class SqlQuery:
         if result_collection is not None:
             sql = f'-- result_collection={result_collection}\n{sql}'
         return self.fetch_fn(sql)
-    def fetchOne(self):
+    def fetch_one(self):
         return self.fetch(result_collection="last_statement_first_row")
 
 def infer_sql_type(value) -> str:
