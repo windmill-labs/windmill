@@ -1216,29 +1216,6 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    // Check that all ducklake catalog resources exist to prevent
-    // exploiting the shared property to see any resource
-    for dl in new_config.settings.ducklakes.values() {
-        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            continue;
-        }
-        let catalog_res = sqlx::query_scalar!(
-            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &dl.catalog.resource_path
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
-
-        if catalog_res.is_none() {
-            return Err(Error::BadRequest(format!(
-                "Ducklake catalog resource {} not found in workspace {}",
-                dl.catalog.resource_path, &w_id
-            )));
-        }
-    }
-
     // Check that non-superadmins are not abusing Instance catalogs
     if !is_superadmin {
         let old_ducklakes = sqlx::query_scalar!(
@@ -1310,29 +1287,6 @@ async fn edit_datatable_config(
         Some([("datatable", args_for_audit.as_str())].into()),
     )
     .await?;
-
-    // Check that all database resources exist to prevent
-    // exploiting the shared property to see any resource
-    for dl in new_config.settings.datatables.values() {
-        if dl.database.resource_type == DataTableCatalogResourceType::Instance {
-            continue;
-        }
-        let database_res = sqlx::query_scalar!(
-            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &dl.database.resource_path
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
-
-        if database_res.is_none() {
-            return Err(Error::BadRequest(format!(
-                "Data table database resource {} not found in workspace {}",
-                dl.database.resource_path, &w_id
-            )));
-        }
-    }
 
     // Check that non-superadmins are not abusing Instance catalogs
     if !is_superadmin {
