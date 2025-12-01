@@ -56,6 +56,8 @@
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import Toggle from './Toggle.svelte'
 
 	interface Props {
 		// Exported
@@ -124,6 +126,8 @@
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
+	let jsonView = $state(false)
+	let schemaHeight = $state(0)
 
 	$effect.pre(() => {
 		if (schema == undefined) {
@@ -489,10 +493,10 @@
 	}
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
 		editor?.hide()
 	}
 
@@ -572,7 +576,7 @@
 				}}
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
-				customUi={{ ...customUi?.editorBar, aiGen: false }}
+				customUi={customUi?.editorBar}
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
@@ -585,7 +589,6 @@
 				collabUsers={peers}
 				kind={asKind(kind)}
 				{template}
-				{diffEditor}
 				{args}
 				{noHistory}
 				{saveToWorkspace}
@@ -708,29 +711,50 @@
 							{/if}
 						</div>
 					{/if}
+					<div class="absolute top-2 right-2"
+						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
+					>
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-4">
-							<div class="break-words relative font-sans">
-								{#key argsRender}
-									<SchemaForm
-										helperScript={{
-											source: 'inline',
-											code,
-											//@ts-ignore
-											lang
-										}}
-										compact
-										{schema}
-										bind:args
-										bind:isValid
-										noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-										showSchemaExplorer
-									/>
-								{/key}
+						{#if jsonView}
+							<div
+								class="py-2"
+								style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+								data-schema-picker
+							>
+								<JsonInputs
+									on:select={(e) => {
+										if (e.detail) {
+											args = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
 							</div>
-						</div>
+						{:else}
+							<div class="px-4">
+								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+									{#key argsRender}
+										<SchemaForm
+											helperScript={{
+												source: 'inline',
+												code,
+												//@ts-ignore
+												lang
+											}}
+											compact
+											{schema}
+											bind:args
+											bind:isValid
+											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+											showSchemaExplorer
+										/>
+									{/key}
+								</div>
+							</div>
+						{/if}
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel

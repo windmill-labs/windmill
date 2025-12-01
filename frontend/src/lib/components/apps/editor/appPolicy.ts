@@ -5,7 +5,7 @@ import { getInsertInput } from '../components/display/dbtable/queries/insert'
 import { getSelectInput } from '../components/display/dbtable/queries/select'
 import { getUpdateInput } from '../components/display/dbtable/queries/update'
 import { getPrimaryKeys, type ColumnDef } from '../components/display/dbtable/utils'
-import type { AppInput, Runnable } from '../inputType'
+import { isRunnableByName, isRunnableByPath, type AppInput, type Runnable } from '../inputType'
 import type { App } from '../types'
 import {
 	computeS3FileInputPolicy,
@@ -145,7 +145,7 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 				const props =
 					c.type === 'schemaformcomponent'
 						? (c.componentInput as any)?.value?.properties
-						: (c.componentInput as any)?.runnable?.type === 'runnableByName'
+						: isRunnableByName((c.componentInput as any)?.runnable)
 							? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
 							: (c.componentInput as any)?.runnable?.schema?.properties
 				return (
@@ -181,7 +181,7 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	}
 }
 
-async function processRunnable(
+export async function processRunnable(
 	id: string,
 	runnable: Runnable,
 	fields: Record<string, any>,
@@ -195,7 +195,7 @@ async function processRunnable(
 		})
 		.filter(Boolean) as string[]
 
-	if (runnable?.type == 'runnableByName') {
+	if (isRunnableByName(runnable)) {
 		let hex = await hash(runnable.inlineScript?.content)
 		console.debug('hex', hex, id)
 		return [
@@ -206,7 +206,7 @@ async function processRunnable(
 				allow_user_resources: allowUserResources
 			}
 		]
-	} else if (runnable?.type == 'runnableByPath') {
+	} else if (isRunnableByPath(runnable)) {
 		let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
 		return [
 			`${id}:${prefix}/${runnable.path}`,

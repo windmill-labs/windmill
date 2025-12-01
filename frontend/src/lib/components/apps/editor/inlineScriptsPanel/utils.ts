@@ -1,8 +1,8 @@
 import type { Schema } from '$lib/common'
 import { ScriptService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type { AppInputs, Runnable, RunnableByName } from '../../inputType'
-import type { GridItem, HiddenRunnable, InlineScript } from '../../types'
+import { isRunnableByName, isRunnableByPath, type AppInputs, type InlineScript, type Runnable, type RunnableByName } from '../../inputType'
+import type { GridItem, HiddenRunnable } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
 
@@ -138,9 +138,9 @@ function processRunnable(
 	if (runnable?.type === undefined) {
 		return
 	}
-	const type: keyof AppScriptsList = runnable.type === 'runnableByPath' ? 'imported' : 'inline'
+	const type: keyof AppScriptsList = isRunnableByPath(runnable) ? 'imported' : 'inline'
 	list[type].push({
-		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],
+		name: runnable[isRunnableByPath(runnable) ? 'path' : 'name'],
 		id,
 		transformer: transformer !== undefined
 	})
@@ -152,7 +152,7 @@ export async function createScriptFromInlineScript(
 	workspace: string,
 	appPath: string
 ) {
-	if (runnable.type != 'runnableByName') {
+	if (!isRunnableByName(runnable)) {
 		sendUserToast('Only inline scripts can be saved to workspace', true)
 		return
 	}
@@ -180,7 +180,7 @@ export async function createScriptFromInlineScript(
 	})
 
 	Object.assign(runnable, {
-		type: 'runnableByPath',
+		type: 'path',
 		schema: runnable.inlineScript.schema,
 		runType: 'script',
 		recomputeIds: undefined,

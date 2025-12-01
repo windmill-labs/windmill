@@ -228,7 +228,7 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("npm:esbuild");
+        const esbuild = await import("npm:esbuild@0.24.2");
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -246,10 +246,15 @@ export async function handleFile(
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
+          banner: codebase.banner,
+          // ...(codebase.banner != null && { banner: codebase.banner }),
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
-        outputFiles = out.outputFiles;
+        outputFiles = out.outputFiles ?? [];
+        if (outputFiles.length == 0) {
+          throw new Error(`No output files found for ${path}`);
+        }
         log.info(
           `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
             0

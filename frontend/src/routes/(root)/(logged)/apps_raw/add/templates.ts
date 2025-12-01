@@ -8,7 +8,7 @@ const root = createRoot(document.getElementById('root')!);
 root.render(<App/>);
 `
 const appTsx = `import React, { useState } from 'react'
-import { runBg } from './wmill'
+import { backend } from './wmill'
 import './index.css'
 
 const App = () => {
@@ -18,7 +18,7 @@ const App = () => {
     async function runA() {
         setLoading(true)
         try {
-            setValue(await runBg.a({ x: 42 }))
+            setValue(await backend.a({ x: 42 }))
         } catch (e) {
             console.error()
         }
@@ -122,7 +122,7 @@ export const svelte5Template = {
   '/index.css': indexCss,
   '/package.json': `{
     "dependencies": {
-        "svelte": "5.16.1",
+        "svelte": "5.45.2",
         "windmill-client": "^1"
     }
 }`,

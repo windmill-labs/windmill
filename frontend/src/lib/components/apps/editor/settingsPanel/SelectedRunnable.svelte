@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { ResultAppInput } from '../../inputType'
+	import { isRunnableByName, isRunnableByPath, type ResultAppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import type { AppComponent } from '../component'
@@ -31,7 +31,7 @@
 	})
 
 	function detach() {
-		if (appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript) {
+		if (isRunnableByName(appInput.runnable) && appInput.runnable.inlineScript) {
 			$app.unusedInlineScripts.push({
 				name: appInput.runnable.name,
 				inlineScript: appInput.runnable.inlineScript
@@ -46,14 +46,13 @@
 	}
 
 	let hasScript = $derived(
-		appInput?.runnable?.type === 'runnableByPath' ||
-			(appInput?.runnable?.type === 'runnableByName' &&
-				appInput.runnable?.inlineScript !== undefined)
+		isRunnableByPath(appInput?.runnable) ||
+			(isRunnableByName(appInput?.runnable) && appInput.runnable?.inlineScript !== undefined)
 	)
 
 	function getActions(_hasScript: boolean): ActionType[] {
 		return [
-			...(appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript
+			...(isRunnableByName(appInput.runnable) && appInput.runnable.inlineScript
 				? ([
 						{
 							label: 'Detach',
