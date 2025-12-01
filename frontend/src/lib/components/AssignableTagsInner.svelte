@@ -8,7 +8,6 @@
 	import { superadmin, devopsRole } from '$lib/stores'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
-	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
 	let newTag: string = $state('')
@@ -160,9 +159,11 @@
 				<span class="text-2xs text-primary">superadmin or devops only</span>
 			{/if}
 		</Button>
-		<span class="text-sm text-primary"
-			>Configure <a href="{base}/workers" target="_blank" class="inline-flex gap-1 items-baseline"
-				>worker groups <ExternalLink size={12} /></a
+		<span class="text-xs text-primary"
+			>Configure <a
+				href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+				target="_blank"
+				class="inline-flex gap-1 items-baseline">worker groups <ExternalLink size={12} /></a
 			> to listen to tags</span
 		>
 		<span class="text-2xs text-primary"

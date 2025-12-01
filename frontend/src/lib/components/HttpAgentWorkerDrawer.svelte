@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { AgentWorkersService, type ListBlacklistedAgentTokensResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Copy, Trash2, RefreshCw } from 'lucide-svelte'
+	import { Copy, RefreshCw, Trash } from 'lucide-svelte'
 	import { Alert, Button, Tab, Tabs } from './common'
 	import Section from './Section.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
-	import CollapseLink from './CollapseLink.svelte'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
@@ -20,6 +19,7 @@
 	let workerGroup: string = $state('agent')
 	let token: string = $state('')
 	let blacklistToken: string = $state('')
+	let blacklistTokenError: string = $state('')
 	let selectedTab: 'create' | 'blacklist' = $state('create')
 	let blacklistedTokens: ListBlacklistedAgentTokensResponse | undefined = $state(undefined)
 	let isLoadingBlacklist: boolean = $state(false)
@@ -54,9 +54,24 @@
 		}
 	}
 
+	function validateBlacklistToken(token: string) {
+		if (!blacklistToken.trim()) {
+			blacklistTokenError = 'Token cannot be empty'
+		} else if (token && !token.startsWith('jwt_agent_')) {
+			blacklistTokenError = 'Token must start with jwt_agent_'
+		} else {
+			blacklistTokenError = ''
+		}
+	}
+
 	async function addToBlacklist() {
 		if (!blacklistToken.trim()) {
 			sendUserToast('Please enter a token to blacklist', true)
+			return
+		}
+
+		if (blacklistTokenError) {
+			sendUserToast('Invalid token format', true)
 			return
 		}
 
@@ -69,6 +84,7 @@
 
 			sendUserToast('Token successfully added to blacklist')
 			blacklistToken = ''
+			blacklistTokenError = ''
 			// Refresh the blacklist after adding a new token
 			await loadBlacklistedTokens()
 		} catch (error) {
@@ -118,10 +134,10 @@
 	{#snippet content()}
 		<div class="flex flex-col gap-y-6 pt-2">
 			{#if selectedTab === 'create'}
-				<Alert type="info" title="HTTP agent workers "
-					>Use HTTP agent workers only when the workers need to be deployed remotely OR with only
-					HTTP connectivity OR in untrusted environments. HTTP agent workers have more latency and
-					less capabilities than normal workers.</Alert
+				<Alert type="info" title="HTTP agent workers"
+					>Remote workers with unreliable connectivity, workers behind firewalls (HTTP-only),
+					untrusted environments (no database access), or large deployments (thousands of workers).
+					More latency than normal workers.</Alert
 				>
 
 				<Label
@@ -130,7 +146,11 @@
 				>
 					<input class="max-w-md" type="text" bind:value={workerGroup} />
 				</Label>
-				<Label label="Tags to listen to" eeOnly>
+				<Label
+					label="Tags to listen to"
+					eeOnly
+					tooltip="Tags determine which jobs this worker can execute. They are encoded in the JWT token and cannot be changed by the worker. You can use dynamic tags like 'tag-$args[argName]' or 'tag-$workspace' to target different workers based on job arguments or workspace."
+				>
 					{#if !$enterpriseLicense}
 						<div class="text-sm text-secondary mb-2 max-w-md">
 							Agent workers are only available in the enterprise edition. For evaluation purposes,
@@ -144,7 +164,10 @@
 					/>
 				</Label>
 
-				<Label label="Generated JWT token">
+				<Label
+					label="Generated JWT token"
+					tooltip="This JWT token contains the worker's tags and group. It authenticates the worker and controls which jobs it can pull. The token is valid for 3 years."
+				>
 					{#if !$enterpriseLicense}
 						<div class="text-sm text-secondary mb-2 max-w-md">
 							Agent workers are only available in the enterprise edition. For evaluation purposes,
@@ -189,7 +212,9 @@
 					</div>
 
 					<div class="flex flex-col gap-2 text-xs mt-2 leading-relaxed border rounded-md p-4">
-						Set the following environment variables:
+						<p class="text-xs text-primary">
+							Set these environment variables for your agent worker.
+						</p>
 						<CopyableCodeBlock
 							code={`MODE=agent
 AGENT_TOKEN=<token>
@@ -197,9 +222,10 @@ BASE_INTERNAL_URL=<base url>
 `}
 							language={shell}
 						/>
-						<p class="text-sm leading-relaxed">
-							to a worker to have it act as an HTTP agent worker.
-							<code>INIT_SCRIPT</code>, if needed, must be passed as an env variable.
+						<p class="text-xs text-primary">
+							<strong>BASE_INTERNAL_URL:</strong> Base URL without trailing slash (e.g.,
+							<code>http://windmill.example.com</code>). Can be same as BASE_URL or private network
+							URL. <code>INIT_SCRIPT</code> can be passed as env variable if needed.
 						</p>
 						<Alert type="warning" size="sm" title="Agent Worker Limitations">
 							Ensure at least one normal worker is running and listening to the tags
@@ -214,19 +240,24 @@ BASE_INTERNAL_URL=<base url>
 
 						<div class="mt-2"></div>
 						<Section small collapsable label="Automate JWT token generation">
-							<div class="text-xs">
-								Use the following API endpoint with a superadmin bearer token:
+							<div class="text-xs text-primary">
+								<p class="mb-2">
+									Generate tokens programmatically using this endpoint with superadmin bearer token:
+								</p>
 								<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
+								<p class="mb-2">Request body:</p>
 								<CopyableCodeBlock
-									code={`"worker_group": "agent",
-"tags": ["tag1", "tag2"],
-"exp": 1717334400`}
+									code={`{
+  "worker_group": "agent",
+  "tags": ["tag1", "tag2"],
+  "exp": 1717334400
+}`}
 									language={json}
 								/>
 
-								<span class="text-xs mt-1"
-									>The JSON response will contain the generated JWT token.</span
-								>
+								<p class="mt-2">
+									<code>exp</code> is Unix timestamp. Response contains the JWT token.
+								</p>
 							</div>
 						</Section>
 					</div>
@@ -235,85 +266,106 @@ BASE_INTERNAL_URL=<base url>
 				<div class="flex flex-col gap-y-4 mt-4">
 					<Section label="Agent Token Blacklist" eeOnly>
 						{#if !$enterpriseLicense}
-							<div class="text-sm text-secondary mb-2 max-w-md">
+							<div class="text-xs text-secondary mb-2 max-w-md">
 								Token blacklist management is only available in the enterprise edition.
 							</div>
 						{:else}
-							<div class="text-sm text-secondary mb-4 max-w-md">
-								Add tokens to the blacklist to prevent them from being used by agent workers.
-								Blacklisted tokens may take up to 5 minutes to be effective because of caching.
+							<div class="text-xs text-secondary mb-4 max-w-md">
+								Revoke tokens to prevent agent workers from authenticating. Blacklisted tokens may
+								take up to 5 minutes to be effective because of caching.
 							</div>
 
 							<div class="flex flex-col gap-3 w-full mb-6">
-								<div>
-									<label class="block text-sm font-medium mb-1" for="blacklistTokenInput"
-										>Token</label
-									>
-									<input
-										id="blacklistTokenInput"
-										class="w-full"
-										type="text"
-										bind:value={blacklistToken}
-										placeholder="jwt_agent_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ3b3JrZXJfZ3JvdXAiOiJhZ2VudCIsInN1ZmZpeCI6bnVsbCwidGFncyI6WyJiYXNoIl0sImV4cCI6MTg0NDk1NDYxMX0.JQWb-_ERGaomukbl_cEPPmmCAEepTR79d9oIrKREscE"
-									/>
-								</div>
-								<div class="flex">
-									<Button color="red" on:click={addToBlacklist} disabled={!$superadmin}
-										>Blacklist</Button
-									>
-								</div>
-
-								{#if !$superadmin}
-									<div class="text-xs text-amber-600">
-										Only superadmins can manage the token blacklist.
+								<Label
+									label="Token"
+									for="blacklistTokenInput"
+									tooltip="Blacklisted tokens cannot be used by agent workers to authenticate. Useful for revoking compromised tokens or decommissioning workers."
+								>
+									<div class="flex gap-2">
+										<TextInput
+											size="md"
+											inputProps={{
+												id: 'blacklistTokenInput',
+												placeholder:
+													'jwt_agent_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ3b3JrZXJfZ3JvdXAiOiJhZ2VudCIsInN1ZmZpeCI6bnVsbCwidGFncyI6WyJiYXNoIl0sImV4cCI6MTg0NDk1NDYxMX0.JQWb-_ERGaomukbl_cEPPmmCAEepTR79d9oIrKREscE',
+												type: 'text',
+												disabled: !$superadmin,
+												oninput: (e) =>
+													validateBlacklistToken((e.target as HTMLInputElement)?.value ?? '')
+											}}
+											bind:value={blacklistToken}
+											error={blacklistTokenError}
+										/>
+										<Button
+											variant="accent"
+											unifiedSize="md"
+											on:click={addToBlacklist}
+											disabled={!$superadmin || blacklistTokenError !== ''}>Blacklist</Button
+										>
 									</div>
-								{/if}
+
+									{#if blacklistTokenError !== ''}
+										<div class="text-xs text-red-600">
+											{blacklistTokenError}
+										</div>
+									{/if}
+
+									{#if !$superadmin}
+										<div class="text-xs text-amber-600">
+											Only superadmins can manage the token blacklist.
+										</div>
+									{/if}
+								</Label>
 							</div>
 
 							<!-- Blacklisted Tokens List -->
 							<div class="border-t pt-6">
-								<div class="flex items-center justify-between mb-4">
-									<h3 class="text-lg font-medium">Blacklisted Tokens</h3>
-									<button
-										class="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition"
-										onclick={loadBlacklistedTokens}
+								<div class="flex items-center justify-between mb-2">
+									<h3 class="text-sm font-semibold text-emphasis">Blacklisted tokens</h3>
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										on:click={loadBlacklistedTokens}
 										disabled={isLoadingBlacklist}
 										title="Refresh blacklist"
-									>
-										<RefreshCw size={16} class={isLoadingBlacklist ? 'animate-spin' : ''} />
-									</button>
+										startIcon={{ icon: RefreshCw }}
+										iconProps={{ class: isLoadingBlacklist ? 'animate-spin' : '' }}
+									/>
 								</div>
 
 								{#if isLoadingBlacklist}
-									<div class="text-center py-4 text-gray-500"> Loading blacklisted tokens... </div>
+									<div class="text-center py-4 text-xs text-secondary">
+										Loading blacklisted tokens...
+									</div>
 								{:else if blacklistedTokens?.length === 0}
-									<div class="text-center py-4 text-gray-500">
+									<div class="text-center py-4 text-xs text-secondary">
 										No tokens are currently blacklisted.
 									</div>
 								{:else}
 									<div class="space-y-2">
 										{#each blacklistedTokens ?? [] as blacklistedToken}
 											<div
-												class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
+												class="flex items-center justify-between p-3 surface-tertiary rounded-lg border border-light"
 											>
 												<div class="flex-1 min-w-0">
-													<div class="font-mono text-xs text-gray-700 pr-4 break-all">
+													<div class="font-mono text-2xs text-emphasis pr-4 break-all">
 														{blacklistedToken.token}
 													</div>
 													{#if blacklistedToken.expires_at}
-														<div class="text-xs text-gray-500 mt-1">
+														<div class="text-2xs text-secondary mt-1">
 															Expires: {new Date(blacklistedToken.expires_at).toLocaleString()}
 														</div>
 													{/if}
 												</div>
 												{#if $superadmin}
-													<button
-														class="ml-3 p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition"
-														onclick={() => removeFromBlacklist(blacklistedToken.token)}
+													<Button
+														variant="subtle"
+														destructive
+														unifiedSize="sm"
+														on:click={() => removeFromBlacklist(blacklistedToken.token)}
 														title="Remove from blacklist"
-													>
-														<Trash2 size={16} />
-													</button>
+														startIcon={{ icon: Trash }}
+													/>
 												{/if}
 											</div>
 										{/each}

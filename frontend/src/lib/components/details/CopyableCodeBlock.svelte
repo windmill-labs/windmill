@@ -12,7 +12,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="flex flex-col flex-1 border rounded-md relative"
+	class="flex flex-col flex-1 border rounded-md relative bg-surface-input"
 	class:cursor-not-allowed={disabled}
 	on:click={(e) => {
 		if (disabled) {
