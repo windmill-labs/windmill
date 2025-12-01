@@ -44,8 +44,8 @@
 		type Preview,
 		ResourceService,
 		type ScriptLang,
-		SettingService,
-		UserService
+		UserService,
+		WorkspaceService
 	} from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
@@ -1464,17 +1464,17 @@
 		ata?.(deps)
 	}
 
-	let customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
+	let customTsTypesData = resource([], async () => {
+		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		return { datatables, ducklakes }
+	})
 	function setTypescriptCustomTypes() {
+		if (!customTsTypesData.current) return
 		if (lang !== 'typescript') return
-		if (!Object.keys(customInstanceDbs.current ?? {}).length) return
 
-		const ducklakeNames = Object.entries(customInstanceDbs.current ?? {})
-			.filter(([_, { tag }]) => tag === 'ducklake')
-			.map(([name, _]) => name)
-		const datatableNames = Object.entries(customInstanceDbs.current ?? {})
-			.filter(([_, { tag }]) => tag === 'datatable')
-			.map(([name, _]) => name)
+		const ducklakeNames = customTsTypesData.current.ducklakes
+		const datatableNames = customTsTypesData.current.datatables
 
 		const ducklakeNameType = ducklakeNames.length
 			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
@@ -1482,19 +1482,20 @@
 		const datatableNameType = datatableNames.length
 			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
 			: 'string'
+		const isDucklakeOptional = ducklakeNames.includes('main')
+		const isDataTableOptional = datatableNames.includes('main')
 
-		languages.typescript.typescriptDefaults.addExtraLib(
+		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
 			`declare module 'windmill-client' {
 				// Completely replace the module's types
-				export function ducklake(name: ${ducklakeNameType}): SqlTemplateFunction;
-				export function datatable(name: ${datatableNameType}): SqlTemplateFunction;
+				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
 			}`,
 			'ts:custom_wmill_types.d.ts'
 		)
-		console.log('added custom windmill types', {
-			ducklakeNameType,
-			datatableNameType
-		})
+		return () => {
+			disposeTs.dispose()
+		}
 	}
 
 	async function setTypescriptRTNamespace() {
@@ -1805,7 +1806,7 @@
 		})
 	})
 
-	watch([() => lang, () => customInstanceDbs.current], setTypescriptCustomTypes)
+	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
