@@ -219,6 +219,66 @@
 					description:
 						'This graph shows a visual representation of your flow execution. You can see each step and how data flows between them.',
 					side: 'top',
+					onNextClick: async () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+
+						// Click on the Logs tab
+						const tabs = Array.from(document.querySelectorAll('.border-b-2.py-1.cursor-pointer'))
+						const logsTab = tabs.find((tab) => tab.textContent?.trim() === 'Logs') as HTMLElement
+						if (logsTab) {
+							logsTab.click()
+							await wait(DELAY_MEDIUM)
+						}
+
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.w-full.rounded-md.overflow-hidden.border',
+				onHighlighted: async () => {
+					step4Complete = false
+					await wait(DELAY_SHORT)
+					step4Complete = true
+				},
+				popover: {
+					title: 'Execution logs',
+					description:
+						'Here you can see detailed logs from each step of your flow execution. This is useful for debugging and understanding what happened during the run.',
+					side: 'top',
+					onNextClick: () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: 'ul.w-full',
+				onHighlighted: async () => {
+					step4Complete = false
+
+					// Click on the Details tab first
+					const tabs = Array.from(document.querySelectorAll('.border-b-2.py-1.cursor-pointer'))
+					const detailsTab = tabs.find((tab) => tab.textContent?.trim() === 'Details') as HTMLElement
+					if (detailsTab) {
+						detailsTab.click()
+						await wait(DELAY_MEDIUM)
+					}
+
+					await wait(DELAY_SHORT)
+					step4Complete = true
+				},
+				popover: {
+					title: 'Execution details',
+					description:
+						'This section shows important metadata about your flow execution, including timing, user, and resource usage.',
+					side: 'top',
 					onNextClick: () => {
 						if (!step4Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
