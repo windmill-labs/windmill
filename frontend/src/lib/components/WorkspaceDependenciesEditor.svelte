@@ -353,7 +353,7 @@ numpy>=1.24.0
 			{#if showWarning && currentImportedPath}
 				<DependenciesDeploymentWarning
 					importedPath={currentImportedPath}
-					title={workspaceDependenciesType === 'workspace' ? "Default Dependencies Deployment" : "Deployment Warning"}
+					title={workspaceDependenciesType === 'workspace' ? "Redeploy impacted runnables?" : "Deployment Warning"}
 					confirmText={workspaceDependenciesType === 'workspace' ? "I'm Sure - Deploy Default" : "Deploy Anyway"}
 					onConfirm={confirmDeploy}
 					onCancel={cancelDeploy}
