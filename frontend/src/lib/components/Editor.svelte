@@ -40,7 +40,13 @@
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
+	import {
+		type Preview,
+		ResourceService,
+		type ScriptLang,
+		SettingService,
+		UserService
+	} from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -95,6 +101,7 @@
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
+	import { resource, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -1457,6 +1464,39 @@
 		ata?.(deps)
 	}
 
+	let customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
+	function setTypescriptCustomTypes() {
+		if (lang !== 'typescript') return
+		if (!Object.keys(customInstanceDbs.current ?? {}).length) return
+
+		const ducklakeNames = Object.entries(customInstanceDbs.current ?? {})
+			.filter(([_, { tag }]) => tag === 'ducklake')
+			.map(([name, _]) => name)
+		const datatableNames = Object.entries(customInstanceDbs.current ?? {})
+			.filter(([_, { tag }]) => tag === 'datatable')
+			.map(([name, _]) => name)
+
+		const ducklakeNameType = ducklakeNames.length
+			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const datatableNameType = datatableNames.length
+			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+
+		languages.typescript.typescriptDefaults.addExtraLib(
+			`declare module 'windmill-client' {
+				// Completely replace the module's types
+				export function ducklake(name: ${ducklakeNameType}): SqlTemplateFunction;
+				export function datatable(name: ${datatableNameType}): SqlTemplateFunction;
+			}`,
+			'ts:custom_wmill_types.d.ts'
+		)
+		console.log('added custom windmill types', {
+			ducklakeNameType,
+			datatableNameType
+		})
+	}
+
 	async function setTypescriptRTNamespace() {
 		if (
 			scriptLang &&
@@ -1483,6 +1523,7 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
+
 		if (
 			lang === 'typescript' &&
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
@@ -1763,6 +1804,8 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+
+	watch([() => lang, () => customInstanceDbs.current], setTypescriptCustomTypes)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
