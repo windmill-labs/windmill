@@ -16,6 +16,7 @@
 	let step1Complete = $state(false)
 	let step2Complete = $state(false)
 	let step3Complete = $state(false)
+	let step4Complete = $state(false)
 
 	// Constants for delays
 	const DELAY_SHORT = 100
@@ -138,7 +139,7 @@
 				popover: {
 					title: 'Test your flow',
 					description:
-						'Your temperature converter flow is ready with an input of 25°C. Let\'s test it!',
+						'Your temperature converter flow is ready with an input of 25°C. Click "Next" to test it and see the results!',
 					side: 'bottom',
 					onNextClick: async () => {
 						if (!step1Complete) {
@@ -153,42 +154,99 @@
 							await wait(DELAY_LONG)
 						}
 
+						// Click the Test button to execute the flow
+						const testButton = document.querySelector('#flow-editor-test-flow-drawer') as HTMLElement
+						if (testButton) {
+							testButton.click()
+							await wait(DELAY_LONG)
+						}
+
 						driver.moveNext()
 					}
 				}
 			},
 			{
-				element: '#flow-editor-test-flow-drawer',
+				element: '.border.rounded-md.shadow.p-2',
 				onHighlighted: async () => {
 					step2Complete = false
 					await wait(DELAY_SHORT)
 					step2Complete = true
 				},
 				popover: {
-					title: 'Run the flow',
+					title: 'View the result',
 					description:
-						'Click "Next" to execute the flow. You\'ll see it validate the temperature, convert to Fahrenheit, and categorize the result!',
+						'Here you can see the final result of your flow execution. The temperature has been converted and categorized!',
 					side: 'left',
-					onNextClick: async () => {
+					onNextClick: () => {
 						if (!step2Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
 							return
 						}
-
-						// Click the Test button to execute the flow
-						const testButton = document.querySelector('#flow-editor-test-flow-drawer') as HTMLElement
-						if (testButton) {
-							testButton.click()
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.border-b.flex.flex-row.whitespace-nowrap.scrollbar-hidden.mx-auto',
+				onHighlighted: async () => {
+					step3Complete = false
+					await wait(DELAY_SHORT)
+					step3Complete = true
+				},
+				popover: {
+					title: 'Explore the tabs',
+					description:
+						'Use these tabs to navigate between different views: Result, Logs, and Graph.',
+					side: 'bottom',
+					onNextClick: () => {
+						if (!step3Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.grid.grid-cols-3.border.h-full',
+				onHighlighted: async () => {
+					step4Complete = false
+					await wait(DELAY_SHORT)
+					step4Complete = true
+				},
+				popover: {
+					title: 'Flow execution graph',
+					description:
+						'This graph shows a visual representation of your flow execution. You can see each step and how data flows between them.',
+					side: 'top',
+					onNextClick: () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.text-primary.whitespace-nowrap.truncate.text-xs',
+				onHighlighted: async () => {
+					step4Complete = false
+					await wait(DELAY_SHORT)
+					step4Complete = true
+				},
+				popover: {
+					title: 'Your time to explore logs!',
+					description:
+						'Click here to open the full screen view and discover all the execution details.',
+					side: 'left',
+					onNextClick: () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
 						}
 
 						driver.destroy()
-						sendUserToast(
-							'Flow is running! Watch the execution and explore the results.',
-							false,
-							[],
-							undefined,
-							5000
-						)
 					}
 				}
 			}
