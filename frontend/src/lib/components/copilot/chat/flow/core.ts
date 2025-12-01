@@ -1586,7 +1586,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			// Update the flow directly via helper
 			await helpers.setCode(moduleId, code)
 
-			toolCallbacks.setToolStatus(toolId, { content: `Code updated for module '${moduleId}'` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Code updated for module '${moduleId}'`,
+				result: 'Success'
+			})
 			return `Code for module '${moduleId}' has been updated successfully.`
 		}
 	},
