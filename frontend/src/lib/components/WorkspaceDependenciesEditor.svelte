@@ -355,7 +355,6 @@ numpy>=1.24.0
 					importedPath={currentImportedPath}
 					title={workspaceDependenciesType === 'workspace' ? "Default Dependencies Deployment" : "Deployment Warning"}
 					confirmText={workspaceDependenciesType === 'workspace' ? "I'm Sure - Deploy Default" : "Deploy Anyway"}
-					cancelText="Cancel"
 					onConfirm={confirmDeploy}
 					onCancel={cancelDeploy}
 					isUnnamedDefault={workspaceDependenciesType === 'workspace'}
