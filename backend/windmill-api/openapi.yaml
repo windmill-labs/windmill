@@ -847,10 +847,10 @@ paths:
               schema:
                 type: boolean
 
-  /settings/get_custom_instance_pg_databases:
+  /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
-      operationId: getCustomInstanceDbs
+      operationId: listCustomInstanceDbs
       tags:
         - setting
       responses:

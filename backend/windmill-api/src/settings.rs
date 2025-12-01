@@ -70,8 +70,8 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route(
-            "/get_custom_instance_pg_databases",
-            post(get_custom_instance_pg_databases),
+            "/list_custom_instance_pg_databases",
+            post(list_custom_instance_pg_databases),
         )
         .route(
             "/setup_custom_instance_pg_database/:name",
@@ -606,7 +606,7 @@ struct CustomInstanceDbLogs {
     grant_permissions: String,
 }
 
-async fn get_custom_instance_pg_databases(
+async fn list_custom_instance_pg_databases(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<HashMap<String, CustomInstanceDb>> {

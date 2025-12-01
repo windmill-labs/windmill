@@ -125,7 +125,7 @@
 		)
 	)
 
-	const customInstanceDbs = resource([], SettingService.getCustomInstanceDbs)
+	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
 		try {
