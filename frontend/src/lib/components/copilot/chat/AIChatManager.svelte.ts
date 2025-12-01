@@ -54,6 +54,7 @@ const MAX_TOKENS_HARD_LIMIT = 5000
 export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
+	APP = 'app',
 	NAVIGATOR = 'navigator',
 	API = 'API',
 	ASK = 'ask'
@@ -101,6 +102,7 @@ class AIChatManager {
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
+		app: this.appAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
 		API: true

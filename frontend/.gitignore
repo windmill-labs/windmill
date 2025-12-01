@@ -13,3 +13,4 @@ dist/
 static/tsdocs/
 static/ui_builder/
 ui_builder.tar.gz
+ui_builder_serve/
