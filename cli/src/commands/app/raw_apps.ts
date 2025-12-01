@@ -39,7 +39,7 @@ async function collectAppFiles(
 
       if (entry.isDirectory) {
         // Skip the runnables and node_modules subfolders
-        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist") {
+        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist" || entry.name === ".claude") {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);

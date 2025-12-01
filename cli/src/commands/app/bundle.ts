@@ -57,6 +57,52 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
 }
 
 /**
+ * Creates a Svelte esbuild plugin
+ * Uses the svelte compiler from the project's node_modules
+ */
+function createSveltePlugin(appDir: string): any {
+  return {
+    name: "svelte",
+    setup(build: any) {
+      build.onLoad({ filter: /\.svelte$/ }, async (args: any) => {
+        // Import svelte compiler from the project's node_modules
+        const svelte = await import("npm:svelte@5.45.2/compiler");
+
+        // Load the file from the file system
+        const source = await fs.promises.readFile(args.path, "utf8");
+        const filename = path.relative(process.cwd(), args.path);
+
+        // This converts a message in Svelte's format to esbuild's format
+        const convertMessage = ({ message, start, end }: any) => {
+          let location;
+          if (start && end) {
+            const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
+            const lineEnd = start.line === end.line ? end.column : lineText.length;
+            location = {
+              file: filename,
+              line: start.line,
+              column: start.column,
+              length: lineEnd - start.column,
+              lineText,
+            };
+          }
+          return { text: message, location };
+        };
+
+        // Convert Svelte syntax to JavaScript
+        try {
+          const { js, warnings } = svelte.compile(source, { filename });
+          const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
+          return { contents, warnings: warnings.map(convertMessage) };
+        } catch (e: any) {
+          return { errors: [convertMessage(e)] };
+        }
+      });
+    },
+  };
+}
+
+/**
  * Creates framework-specific esbuild plugins based on detected dependencies
  */
 export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
@@ -65,27 +111,18 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
 
   if (frameworks.svelte) {
     log.info(colors.blue("🔧 Svelte detected, adding svelte plugin..."));
-    try {
-      const esbuildSvelte = await import("npm:esbuild-svelte@0.9.3");
-      const sveltePreprocess = await import("npm:svelte-preprocess@6.0.3");
-      plugins.push(
-        esbuildSvelte.default({
-          preprocess: sveltePreprocess.default(),
-        })
-      );
-    } catch (error: any) {
-      log.warn(colors.yellow(`Failed to load svelte plugin: ${error.message}`));
-    }
+    plugins.push(createSveltePlugin(appDir));
   }
 
   if (frameworks.vue) {
     log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
-    try {
-      const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
-      plugins.push(esbuildPluginVue.default());
-    } catch (error: any) {
-      log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
-    }
+    throw new Error("Vue plugin not supported yet");
+    // try {
+    //   const esbuildPluginVue = await import("npm:esbuild-plugin-vue3@0.5.1");
+    //   plugins.push(esbuildPluginVue.default());
+    // } catch (error: any) {
+    //   log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
+    // }
   }
 
   return plugins;

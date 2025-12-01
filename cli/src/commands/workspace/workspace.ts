@@ -397,6 +397,18 @@ async function whoami(_opts: GlobalOptions) {
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }
 
+export async function getActiveWorkspaceOrFallback(opts: GlobalOptions) {
+  let activeWorkspace = await getActiveWorkspace(opts);
+  if (!activeWorkspace && opts.baseUrl && opts.workspace) {
+    activeWorkspace = {
+      name: opts.workspace,
+      remote: opts.baseUrl,
+      workspaceId: opts.workspace,
+      token: "",
+    };
+  }
+  return activeWorkspace;
+}
 async function bind(
   opts: GlobalOptions & { branch?: string },
   bindWorkspace?: boolean
@@ -419,7 +431,7 @@ async function bind(
   const { readConfigFile } = await import("../../core/conf.ts");
   const config = await readConfigFile();
 
-  const activeWorkspace = await getActiveWorkspace(opts);
+  const activeWorkspace = await getActiveWorkspaceOrFallback(opts);
   if (!activeWorkspace && bindWorkspace) {
     log.error(
       colors.red(

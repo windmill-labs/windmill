@@ -83,16 +83,41 @@ interface DevOptions extends GlobalOptions {
 
 async function dev(opts: DevOptions) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
+
+  // Validate that we're in a .raw_app folder
+  const cwd = process.cwd();
+  const currentDirName = path.basename(cwd);
+
+  if (!currentDirName.endsWith(".raw_app")) {
+    log.error(
+      colors.red(
+        `Error: The dev command must be run inside a .raw_app folder.\n` +
+        `Current directory: ${currentDirName}\n` +
+        `Please navigate to a folder ending with '.raw_app' before running this command.`
+      )
+    );
+    Deno.exit(1);
+  }
+
+  // Check for raw_app.yaml
+  const rawAppPath = path.join(cwd, "raw_app.yaml");
+  if (!fs.existsSync(rawAppPath)) {
+    log.error(
+      colors.red(
+        `Error: raw_app.yaml not found in current directory.\n` +
+        `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`
+      )
+    );
+    Deno.exit(1);
+  }
+
   // Resolve workspace and authenticate
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
 
   // Load app path from raw_app.yaml
-  const rawAppPath = path.join(process.cwd(), "raw_app.yaml");
-  const rawApp = fs.existsSync(rawAppPath)
-    ? ((await yamlParseFile(rawAppPath)) as any)
-    : {};
+  const rawApp = (await yamlParseFile(rawAppPath)) as any;
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
   // Dynamically import esbuild only when the dev command is called

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { WorkspaceDependenciesService, WorkspaceService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
+	import { WorkspaceDependenciesService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -311,39 +311,20 @@ numpy>=1.24.0
 	}
 
 	async function handleDeployClick(): Promise<void> {
-		// For updates, check for dependents and show warning
-		if (edit) {
-			const existingPath = getWorkspaceDependenciesPath(initialName ?? null, initialLanguage)
+		const isUnnamed = workspaceDependenciesType === 'workspace'
+		const path = getWorkspaceDependenciesPath(
+			isUnnamed ? null : workspaceDependenciesName || initialName || null,
+			edit ? initialLanguage : workspaceDependencies.language
+		)
 
-			if (existingPath === null) {
-				sendUserToast('Unsupported language for enforced dependencies path generation', true)
-				return
-			}
-
-			try {
-				// Check if there are any dependents
-				const dependents = await WorkspaceService.getDependents({
-					workspace: $workspaceStore!,
-					importedPath: existingPath
-				})
-
-				// Only show warning if there are actually dependents
-				if (dependents.length > 0) {
-					currentImportedPath = existingPath
-					showWarning = true
-				} else {
-					// No dependents, proceed directly
-					await updateWorkspaceDependencies()
-				}
-			} catch (error) {
-				console.error('Error checking dependents:', error)
-				// On error, proceed without warning
-				await updateWorkspaceDependencies()
-			}
-		} else {
-			// New workspace dependencies, no need to check for dependents
-			await updateWorkspaceDependencies()
+		if (path === null) {
+			sendUserToast('Unsupported language for enforced dependencies path generation', true)
+			return
 		}
+
+		// Always show warning - for all types and operations
+		currentImportedPath = path
+		showWarning = true
 	}
 
 	function confirmDeploy(): void {
@@ -372,11 +353,12 @@ numpy>=1.24.0
 			{#if showWarning && currentImportedPath}
 				<DependenciesDeploymentWarning
 					importedPath={currentImportedPath}
-					title="Deployment Warning"
-					confirmText="Deploy Anyway"
-					cancelText="Cancel"
+					title={workspaceDependenciesType === 'workspace' ? "Redeploy impacted runnables?" : "Deployment Warning"}
+					confirmText={workspaceDependenciesType === 'workspace' ? "I'm Sure - Deploy Default" : "Deploy Anyway"}
 					onConfirm={confirmDeploy}
 					onCancel={cancelDeploy}
+					isUnnamedDefault={workspaceDependenciesType === 'workspace'}
+					language={LANGUAGE_OPTIONS.find(opt => opt.value === workspaceDependencies.language)?.label || workspaceDependencies.language}
 				/>
 			{/if}
 			
