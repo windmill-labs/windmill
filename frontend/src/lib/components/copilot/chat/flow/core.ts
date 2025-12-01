@@ -1928,7 +1928,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **Don't forget \`input_transforms\`** - Rawscript parameters won't receive values without them
 - **Don't use spaces in module IDs** - Use underscores (e.g., \`fetch_data\` not \`fetch data\`)
 - **Don't reference future steps** - \`results.step_id\` only works for steps that execute before the current one
-- **Don't create duplicate IDs** - Each module ID must be unique in the flow
+- **Don't create duplicate IDs** - Each module ID must be unique in the flow. Always generate fresh, unique IDs for new modules. Never reuse IDs from existing or previously removed modules
 
 ## Flow Modification Tools
 
