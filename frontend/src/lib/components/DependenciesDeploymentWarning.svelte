@@ -27,7 +27,6 @@
 		importedPath,
 		title = 'Dependency Warning',
 		confirmText = 'Proceed Anyway',
-		cancelText = 'Cancel',
 		onConfirm,
 		onCancel,
 		open = true,
@@ -37,7 +36,6 @@
 		importedPath: string
 		title?: string
 		confirmText?: string
-		cancelText?: string
 		onConfirm: () => void
 		onCancel: () => void
 		open?: boolean

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { WorkspaceDependenciesService, WorkspaceService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
+	import { WorkspaceDependenciesService, type ScriptLang, type WorkspaceDependencies } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
