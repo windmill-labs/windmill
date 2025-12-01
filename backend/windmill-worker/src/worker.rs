@@ -3793,7 +3793,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::Deno) => {
+        ScriptLang::Deno => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
@@ -3818,7 +3818,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+        ScriptLang::Bun | ScriptLang::Bunnative => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
@@ -3855,7 +3855,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Go) => {
+        ScriptLang::Go => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
@@ -3888,7 +3888,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Bash) => {
+        ScriptLang::Bash => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
@@ -3912,7 +3912,7 @@ mount {{
             ))
             .await
         }
-        Some(ScriptLang::Powershell) => {
+        ScriptLang::Powershell => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
@@ -4041,7 +4041,7 @@ mount {{
                 .await
             }
         }
-        Some(ScriptLang::CSharp) => {
+        ScriptLang::CSharp => {
             if run_inline {
                 return Err(Error::internal_err(
                     "Inline execution is not yet supported for this language".to_string(),
