@@ -356,7 +356,7 @@ const setModuleCodeSchema = z.object({
 const setModuleCodeToolDef = createToolDef(
 	setModuleCodeSchema,
 	'set_module_code',
-	'Set or modify the code for an existing inline script module. Use this to modify code without needing to call set_flow_json. The module must already exist in the flow.'
+	'Set or modify the code for an existing inline script module. Use this for quick code-only changes. The module must already exist in the flow.'
 )
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
