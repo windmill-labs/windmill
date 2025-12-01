@@ -882,7 +882,7 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
-    let s = if let Some(s) = dbg!(fetch_script_for_update(base_hash, w_id, &mut **tx).await?) {
+    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
