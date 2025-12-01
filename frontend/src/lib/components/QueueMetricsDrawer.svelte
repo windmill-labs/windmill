@@ -9,7 +9,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="800px">
+<Drawer bind:this={drawer} size="1000px">
 	<DrawerContent
 		title="Queues"
 		on:close={drawer.closeDrawer}

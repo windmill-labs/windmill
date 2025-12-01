@@ -35,6 +35,7 @@
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let workers: WorkerPing[] | undefined = $state(undefined)
 	let workerGroups: Record<string, any> | undefined = $state(undefined)
@@ -444,46 +445,129 @@
 				documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 			>
 				{#if $superadmin || $devopsRole}
-					<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
-						<div>
-							<AssignableTags
-								on:refresh={() => {
-									loadCustomTags()
-								}}
-								variant="default"
-							/>
-						</div>
-						<div>
-							<DefaultTags bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
-						</div>
-						<div>
-							<Button
-								unifiedSize="md"
-								variant="default"
-								startIcon={{
-									icon: LineChart
-								}}
-								on:click={() => {
-									queueMetricsDrawer?.openDrawer()
-								}}
-							>
-								Queue metrics
-							</Button>
-						</div>
-						<div>
-							<Button
-								unifiedSize="md"
-								variant="default"
-								startIcon={{
-									icon: List
-								}}
-								on:click={() => {
-									openSearchWithPrefilledText('!')
-								}}
-							>
-								Service logs
-							</Button>
-						</div>
+					<div class="flex flex-row w-full pb-2 items-center gap-4">
+						<AssignableTags
+							on:refresh={() => {
+								loadCustomTags()
+							}}
+							variant="default"
+						/>
+
+						<DefaultTags bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
+
+						<Button
+							unifiedSize="md"
+							variant="default"
+							startIcon={{
+								icon: LineChart
+							}}
+							on:click={() => {
+								queueMetricsDrawer?.openDrawer()
+							}}
+						>
+							Queue metrics
+						</Button>
+
+						<Button
+							unifiedSize="md"
+							variant="default"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								newHttpAgentWorkerDrawer?.toggleDrawer?.()
+							}}>New agent worker</Button
+						>
+						<Popover
+							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+							containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+							onKeyDown={(e) => {
+								if (
+									e.key === 'Enter' &&
+									newConfigName &&
+									newConfigName.trim() !== '' &&
+									$enterpriseLicense
+								) {
+									addConfig()
+								}
+							}}
+							onClose={() => {
+								newConfigName = ''
+							}}
+							bind:this={newGroupPopover}
+							targetId="new-group-popover-trigger"
+						>
+							{#snippet trigger()}
+								<div class="flex items-center gap-2">
+									<Button
+										id="new-group-popover-trigger"
+										variant="accent"
+										unifiedSize="md"
+										startIcon={{ icon: Plus }}
+										nonCaptureEvent
+										disabled={!$enterpriseLicense}
+										dropdownItems={$enterpriseLicense
+											? [
+													{
+														label: 'Copy groups config as YAML',
+														onClick: () => {
+															if (!workerGroups) {
+																return sendUserToast('No worker groups found', true)
+															}
+
+															const workersConfig = Object.entries(workerGroups).map(
+																([name, config]) => ({
+																	name,
+																	...config
+																})
+															)
+															navigator.clipboard.writeText(YAML.stringify(workersConfig))
+															sendUserToast('Worker groups config copied to clipboard as YAML')
+														}
+													},
+													{
+														label: 'Import groups config from YAML',
+														onClick: () => {
+															importConfigDrawer?.toggleDrawer?.()
+														}
+													}
+												]
+											: undefined}
+									>
+										<span class="hidden md:block"
+											>New group config {!$enterpriseLicense ? '(EE)' : ''}</span
+										>
+
+										<Tooltip light>
+											Worker Group configs are propagated to every workers in the worker group
+										</Tooltip>
+									</Button>
+								</div>
+							{/snippet}
+							{#snippet content()}
+								<div class="flex flex-col gap-2 p-4">
+									<input
+										class="mr-2 h-full"
+										placeholder="New group name"
+										bind:value={newConfigName}
+									/>
+
+									{#if !$enterpriseLicense}
+										<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
+											<AlertTriangle size={16} />
+											EE only
+										</div>
+									{/if}
+									<Button
+										unifiedSize="md"
+										variant="accent"
+										startIcon={{ icon: Plus }}
+										disabled={!newConfigName || !$enterpriseLicense}
+										on:click={addConfig}
+									>
+										Create
+									</Button>
+								</div>
+							{/snippet}
+						</Popover>
 					</div>
 				{/if}
 			</PageHeader>
@@ -493,131 +577,15 @@
 					<p>No workers seem to be available</p>
 				{/if}
 
-				<div class="pt-4 pb-8 w-full flex justify-between items-center"
-					><h4>
-						Worker groups ({groupWorkers?.length})<Tooltip
-							documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+				{#if (groupedWorkers ?? []).length > 5}
+					<div class="flex gap-2 items-center">
+						<div class="text-emphasis font-semibold text-sm">Worker group</div>
+						<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
+						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 							>Worker groups are groups of workers that share a config and are meant to be
 							identical. Worker groups are meant to be used with tags. Tags can be assigned to
 							scripts and flows and can be seen as dedicated queues. Only the corresponding
-						</Tooltip></h4
-					>
-					<div></div>
-
-					{#if $superadmin || $devopsRole}
-						<div class="flex flex-row gap-4 items-center">
-							<Button
-								unifiedSize="md"
-								variant="default"
-								startIcon={{ icon: Plus }}
-								on:click={() => {
-									newHttpAgentWorkerDrawer?.toggleDrawer?.()
-								}}>New agent worker</Button
-							>
-							<Popover
-								floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-								containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-								onKeyDown={(e) => {
-									if (
-										e.key === 'Enter' &&
-										newConfigName &&
-										newConfigName.trim() !== '' &&
-										$enterpriseLicense
-									) {
-										addConfig()
-									}
-								}}
-								onClose={() => {
-									newConfigName = ''
-								}}
-								bind:this={newGroupPopover}
-								targetId="new-group-popover-trigger"
-							>
-								{#snippet trigger()}
-									<div class="flex items-center gap-2">
-										<Button
-											id="new-group-popover-trigger"
-											variant="accent"
-											unifiedSize="md"
-											startIcon={{ icon: Plus }}
-											nonCaptureEvent
-											disabled={!$enterpriseLicense}
-											dropdownItems={$enterpriseLicense
-												? [
-														{
-															label: 'Copy groups config as YAML',
-															onClick: () => {
-																if (!workerGroups) {
-																	return sendUserToast('No worker groups found', true)
-																}
-
-																const workersConfig = Object.entries(workerGroups).map(
-																	([name, config]) => ({
-																		name,
-																		...config
-																	})
-																)
-																navigator.clipboard.writeText(YAML.stringify(workersConfig))
-																sendUserToast('Worker groups config copied to clipboard as YAML')
-															}
-														},
-														{
-															label: 'Import groups config from YAML',
-															onClick: () => {
-																importConfigDrawer?.toggleDrawer?.()
-															}
-														}
-													]
-												: undefined}
-										>
-											<span class="hidden md:block"
-												>New group config {!$enterpriseLicense ? '(EE)' : ''}</span
-											>
-
-											<Tooltip light>
-												Worker Group configs are propagated to every workers in the worker group
-											</Tooltip>
-										</Button>
-									</div>
-								{/snippet}
-								{#snippet content()}
-									<div class="flex flex-col gap-2 p-4">
-										<input
-											class="mr-2 h-full"
-											placeholder="New group name"
-											bind:value={newConfigName}
-										/>
-
-										{#if !$enterpriseLicense}
-											<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
-												<AlertTriangle size={16} />
-												EE only
-											</div>
-										{/if}
-										<Button
-											unifiedSize="md"
-											variant="accent"
-											startIcon={{ icon: Plus }}
-											disabled={!newConfigName || !$enterpriseLicense}
-											on:click={addConfig}
-										>
-											Create
-										</Button>
-									</div>
-								{/snippet}
-							</Popover>
-						</div>
-					{/if}</div
-				>
-
-				{#if (groupedWorkers ?? []).length > 5}
-					<div class="flex gap-2 items-center">
-						<div class="text-secondary text-xs">Worker group:</div>
-						<Select
-							items={groupedWorkers.map((x) => ({ value: x[0] }))}
-							bind:value={selectedTab}
-							inputClass="text-emphasis text-xs font-semibold"
-						/>
+						</Tooltip>
 					</div>
 				{:else}
 					<Tabs bind:selected={selectedTab}>
@@ -648,6 +616,7 @@
 						{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 						)}
+
 						<WorkspaceGroup
 							{customTags}
 							name={worker_group[0]}
@@ -666,15 +635,25 @@
 							onDeleted={handleWorkerGroupDeleted}
 						/>
 
-						<div class="flex flex-row items-center gap-2 relative my-2">
-							<input
-								class="max-w-80 border rounded-md !pl-8"
-								placeholder={`Search workers in group '${worker_group[0]}'`}
-								autocomplete="off"
-								bind:value={search}
-							/>
-							<Search class="absolute left-2 " size={14} />
-						</div>
+						<div class="mt-6"></div>
+
+						{#if worker_group?.[1].length > 0}
+							<div class="flex flex-row gap-2 items-center justify-between">
+								<div class="text-emphasis font-semibold text-xs">Active workers</div>
+								<div class="flex flex-row items-center gap-2 relative mb-2">
+									<TextInput
+										inputProps={{
+											placeholder: `Search workers in group '${worker_group[0]}'`,
+											autocomplete: 'off'
+										}}
+										class="pl-8 min-w-80"
+										bind:value={search}
+									/>
+									<Search class="absolute left-2" size={14} />
+								</div>
+							</div>
+						{/if}
+
 						{#if worker_group?.[1].length == 0 && search}
 							<div class="text-xs text-primary">
 								No workers found. Reset the search to see all workers.
@@ -720,143 +699,155 @@
 									</tr>
 								</Head>
 								<tbody>
-									{#each worker_group[1] as [section, workers], groupIdx}
-										{@const hostname = section?.split(splitter)?.[0]}
-										<tr>
-											<Cell
-												first
-												colspan={(!config || config?.dedicated_worker == undefined) &&
-												($superadmin || $devopsRole)
-													? 12
-													: 9}
-												scope="colgroup"
-												class="!text-xs {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
-											>
-												<div class="flex flex-row w-full text-2xs text-hint">
-													<div class="min-w-64">
-														Host:
-														<span class="">{hostname}</span>
-													</div>
-													<span class="ml-4">IP: </span>
-													<span class="">{workers[0].ip}</span>
+									{#if worker_group?.[1].length > 0}
+										{#each worker_group[1] as [section, workers], groupIdx}
+											{@const hostname = section?.split(splitter)?.[0]}
+											<tr>
+												<Cell
+													first
+													colspan={(!config || config?.dedicated_worker == undefined) &&
+													($superadmin || $devopsRole)
+														? 12
+														: 9}
+													scope="colgroup"
+													class="!text-xs {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
+												>
+													<div class="flex flex-row w-full text-2xs text-hint">
+														<div class="min-w-64">
+															Host:
+															<span class="">{hostname}</span>
+														</div>
+														<span class="ml-4">IP: </span>
+														<span class="">{workers[0].ip}</span>
 
-													{#if workers?.length > 1}
-														<span class="ml-8">{workers?.length} Workers</span>
-													{/if}
-												</div>
-											</Cell>
-										</tr>
-										{#if workers}
-											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
-												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
-												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
-													<Cell class="py-6 text-primary" first>
-														{@const underscorePos = worker.search('_')}
-														{#if underscorePos === -1}
-															{worker}
-														{:else}
-															{truncate(worker, underscorePos)}
-															<Tooltip>{worker}</Tooltip>
+														{#if workers?.length > 1}
+															<span class="ml-8">{workers?.length} Workers</span>
 														{/if}
-													</Cell>
-													<Cell class="text-secondary">
-														{#if custom_tags && custom_tags?.length > 2}
-															{truncate(custom_tags?.join(', ') ?? '', 10)}
-															<Tooltip>{custom_tags?.join(', ')}</Tooltip>
-														{:else}
-															{custom_tags?.join(', ') ?? ''}
-														{/if}
-													</Cell>
-													<Cell class="text-secondary"
-														>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
-													>
-													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
-													<Cell class="text-secondary">{jobs_executed}</Cell>
-													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
-														<Cell class="text-secondary">
-															{#if last_job_id}
-																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
-																	View last job
-																</a>
-																<br />
-																(workspace {last_job_workspace_id})
+													</div>
+												</Cell>
+											</tr>
+											{#if workers}
+												{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+													{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
+													<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
+														<Cell class="py-6 text-primary" first>
+															{@const underscorePos = worker.search('_')}
+															{#if underscorePos === -1}
+																{worker}
+															{:else}
+																{truncate(worker, underscorePos)}
+																<Tooltip>{worker}</Tooltip>
 															{/if}
 														</Cell>
 														<Cell class="text-secondary">
-															{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
-																occupancy_rate_5m
-															)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
-																occupancy_rate
-															)}
+															{#if custom_tags && custom_tags?.length > 2}
+																{truncate(custom_tags?.join(', ') ?? '', 10)}
+																<Tooltip>{custom_tags?.join(', ')}</Tooltip>
+															{:else}
+																{custom_tags?.join(', ') ?? ''}
+															{/if}
 														</Cell>
-													{/if}
-													<Cell class="text-secondary">
-														<div class="flex flex-col gap-1">
-															<div>
-																{memory_usage
-																	? Math.round(memory_usage / 1024 / 1024) + 'MB'
-																	: '--'}
-															</div>
-															<div>
-																({wm_memory_usage
-																	? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
-																	: '--'})
-															</div>
-														</div>
-													</Cell>
-													<Cell class="text-secondary">
-														<div class="flex flex-col gap-1">
-															<div>
-																{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
-															</div>
-															<div>
-																{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
-															</div>
-														</div>
-													</Cell>
-													<Cell class="text-secondary">
-														<div class="!text-2xs">
-															{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
-														</div>
-													</Cell>
-													<Cell class="text-secondary">
-														<Badge
-															color={isWorkerAlive != undefined
-																? isWorkerAlive
-																	? 'green'
-																	: 'red'
-																: 'gray'}
+														<Cell class="text-secondary"
+															>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
 														>
-															{isWorkerAlive != undefined
-																? isWorkerAlive
-																	? 'Alive'
-																	: 'Dead'
-																: 'Unknown'}
-														</Badge>
-													</Cell>
-													{#if $superadmin || $devopsRole}
+														<Cell class="text-secondary">{displayDate(started_at)}</Cell>
+														<Cell class="text-secondary">{jobs_executed}</Cell>
+														{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
+															<Cell class="text-secondary">
+																{#if last_job_id}
+																	<a
+																		href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}
+																	>
+																		View last job
+																	</a>
+																	<br />
+																	(workspace {last_job_workspace_id})
+																{/if}
+															</Cell>
+															<Cell class="text-secondary">
+																{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
+																	occupancy_rate_5m
+																)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
+																	occupancy_rate
+																)}
+															</Cell>
+														{/if}
 														<Cell class="text-secondary">
-															<Button
-																unifiedSize="sm"
-																color="light"
-																on:click={() => {
-																	if (isWorkerAlive === false) {
-																		sendUserToast('Worker must be alive', true)
-																		return
-																	}
-																	tag = retrieveCommonWorkerPrefix(worker)
-																	replForWorkerDrawer?.openDrawer()
-																}}
-																startIcon={{ icon: Terminal }}
-															>
-																ssh
-															</Button>
+															<div class="flex flex-col gap-1">
+																<div>
+																	{memory_usage
+																		? Math.round(memory_usage / 1024 / 1024) + 'MB'
+																		: '--'}
+																</div>
+																<div>
+																	({wm_memory_usage
+																		? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+																		: '--'})
+																</div>
+															</div>
 														</Cell>
-													{/if}
-												</tr>
-											{/each}
-										{/if}
-									{/each}
+														<Cell class="text-secondary">
+															<div class="flex flex-col gap-1">
+																<div>
+																	{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
+																</div>
+																<div>
+																	{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+																</div>
+															</div>
+														</Cell>
+														<Cell class="text-secondary">
+															<div class="!text-2xs">
+																{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
+															</div>
+														</Cell>
+														<Cell class="text-secondary">
+															<Badge
+																color={isWorkerAlive != undefined
+																	? isWorkerAlive
+																		? 'green'
+																		: 'red'
+																	: 'gray'}
+															>
+																{isWorkerAlive != undefined
+																	? isWorkerAlive
+																		? 'Alive'
+																		: 'Dead'
+																	: 'Unknown'}
+															</Badge>
+														</Cell>
+														{#if $superadmin || $devopsRole}
+															<Cell class="text-secondary">
+																<Button
+																	unifiedSize="sm"
+																	color="light"
+																	on:click={() => {
+																		if (isWorkerAlive === false) {
+																			sendUserToast('Worker must be alive', true)
+																			return
+																		}
+																		tag = retrieveCommonWorkerPrefix(worker)
+																		replForWorkerDrawer?.openDrawer()
+																	}}
+																	startIcon={{ icon: Terminal }}
+																>
+																	ssh
+																</Button>
+															</Cell>
+														{/if}
+													</tr>
+												{/each}
+											{/if}
+										{/each}
+									{:else}
+										<tr>
+											<Cell colspan="12">
+												<div class="text-xs text-primary py-2 text-center">
+													No active workers found for the group '{worker_group[0]}'
+												</div>
+											</Cell>
+										</tr>
+									{/if}
 								</tbody>
 							</DataTable>
 						{/if}
@@ -886,7 +877,7 @@
 						{/if}
 					{/if}
 				</div>
-				<div class="pb-20"></div>
+				<div class="pb-8"></div>
 				<AutoscalingEvents worker_group={selectedTab} />
 			{:else}
 				<div class="flex flex-col">

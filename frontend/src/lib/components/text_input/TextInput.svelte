@@ -45,7 +45,7 @@
 
 	type Props<UnderlyingInputElT extends 'input' | 'textarea'> = {
 		inputProps?: UnderlyingInputElT extends 'input' ? HTMLInputAttributes : HTMLTextareaAttributes
-		value?: string
+		value?: string | number
 		class?: string
 		error?: string | boolean
 		size?: ButtonType.UnifiedSize

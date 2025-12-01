@@ -208,7 +208,7 @@
 </script>
 
 <Section
-	label="Queue Alerts"
+	label="Queue alerts"
 	description="Configure alerts for queue monitoring based on worker tags and thresholds"
 >
 	{#snippet action()}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {
-		AlertTriangle,
+		TriangleAlert,
 		Copy,
 		Plus,
 		RefreshCcwIcon,
@@ -11,7 +11,6 @@
 	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
-	import Popover from './meltComponents/Popover.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
@@ -26,7 +25,7 @@
 		replaceFalseWithUndefined
 	} from '$lib/utils'
 	import { enterpriseLicense, superadmin, devopsRole } from '$lib/stores'
-	import Tooltip from './Tooltip.svelte'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
@@ -39,7 +38,6 @@
 	import Select from './select/Select.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
-	import Subsection from './Subsection.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Dropdown from './DropdownV2.svelte'
 
@@ -355,12 +353,14 @@
 								dropdownWidth={300}
 								startIcon={{ icon: RotateCcw }}
 							>
-								Reset to all tags <Tooltip
-									>{(defaultTagPerWorkspace && workspaceTag
-										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-										: defaultTags.concat(nativeTags)
-									).join(', ')}</Tooltip
-								>
+								Reset to all tags <Tooltip>
+									{#snippet text()}
+										{(defaultTagPerWorkspace && workspaceTag
+											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags.concat(nativeTags)
+										).join(', ')}
+									{/snippet}
+								</Tooltip>
 							</Button>
 
 							{#if defaultTagPerWorkspace}
@@ -394,11 +394,13 @@
 				<Label label="High-priority tags">
 					{#snippet header()}
 						<Tooltip>
-							Jobs with the following high-priority tags will be picked up in priority by this
-							worker.
-							{#if !enterpriseLicense}
-								This is a feature only available in enterprise edition.
-							{/if}
+							{#snippet text()}
+								Jobs with the following high-priority tags will be picked up in priority by this
+								worker.
+								{#if !enterpriseLicense}
+									This is a feature only available in enterprise edition.
+								{/if}
+							{/snippet}
 						</Tooltip>
 					{/snippet}
 					<MultiSelect
@@ -576,11 +578,13 @@
 							}
 						}}
 					>
-						AWS env var preset <Tooltip
-							>{`${aws_env_vars_preset.join(
-								', '
-							)} - see https://docs.aws.amazon.com/fr_fr/cli/latest/userguide/cli-configure-envvars.html for more options`}</Tooltip
-						>
+						AWS env var preset <Tooltip>
+							{#snippet text()}
+								{`${aws_env_vars_preset.join(
+									', '
+								)} - see https://docs.aws.amazon.com/fr_fr/cli/latest/userguide/cli-configure-envvars.html for more options`}
+							{/snippet}
+						</Tooltip>
 					</Button>
 					<Button
 						variant="subtle"
@@ -602,7 +606,11 @@
 							}
 						}}
 					>
-						SSL env var preset <Tooltip>{`${ssl_env_vars_preset.join(', ')}`}</Tooltip>
+						SSL env var preset <Tooltip>
+							{#snippet text()}
+								{`${ssl_env_vars_preset.join(', ')}`}
+							{/snippet}
+						</Tooltip>
 					</Button>
 				</div>
 			{/if}
@@ -743,10 +751,11 @@
 					<div class="text-xs text-secondary mb-1">
 						Run at start of the workers. More lightweight than requiring custom worker images.
 					</div>
-					<Subsection
+					<Section
+						small
 						label="Init script"
 						collapsable
-						openInitially={nconfig.init_bash !== undefined}
+						initiallyCollapsed={nconfig.init_bash === undefined}
 					>
 						{#snippet header()}
 							<div class="ml-4 flex flex-row gap-2 items-center">
@@ -776,17 +785,18 @@
 								}}
 							/>
 						</div>
-					</Subsection>
+					</Section>
 				</div>
 				<div>
 					<div class="text-xs text-secondary mb-1">
 						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
 						disk space.
 					</div>
-					<Subsection
+					<Section
+						small
 						label="Periodic script"
 						collapsable
-						openInitially={nconfig.periodic_script_bash !== undefined}
+						initiallyCollapsed={nconfig.periodic_script_bash === undefined}
 					>
 						{#snippet header()}
 							<div class="ml-4 flex flex-row gap-2 items-center">
@@ -797,17 +807,19 @@
 						{/snippet}
 
 						<div class="flex gap-4 items-center mb-4">
-							<Label class="text-sm">Execution interval (seconds):</Label>
-							<input
-								disabled={!($superadmin || $devopsRole)}
-								type="number"
-								min="60"
-								placeholder="3600"
-								class="!w-24 text-center"
-								bind:value={nconfig.periodic_script_interval_seconds}
-								onchange={() => {}}
-							/>
-							<span class="text-xs text-hint">Minimum: 60 seconds</span>
+							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
+								<TextInput
+									inputProps={{
+										disabled: !($superadmin || $devopsRole),
+										type: 'number',
+										min: '60',
+										placeholder: '3600',
+										class: '!w-24 '
+									}}
+									bind:value={nconfig.periodic_script_interval_seconds}
+								/>
+								<span class="text-2xs text-hint">Minimum: 60 seconds</span>
+							</Label>
 						</div>
 
 						<div class="border w-full h-40">
@@ -831,7 +843,7 @@
 								}}
 							/>
 						</div>
-					</Subsection>
+					</Section>
 				</div>
 			</div>
 		</Section>
@@ -903,172 +915,166 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col gap-2">
-	<div class="flex items-center justify-between mt-2">
-		<div class="text-xs flex flex-row gap-2 items-center"
-			>{pluralize(activeWorkers, 'worker')}
-			<Tooltip>Number of active workers of this group in the last 15 seconds</Tooltip>
-			{#if vcpus_memory?.vcpus}
-				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
-			{#if vcpus_memory?.memory}
-				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
-			{#if hasWorkersWithoutIsolation(workers)}
-				{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
-				<div class="flex justify-end">
-					<Popover
-						placement="bottom"
-						closeButton
-						containerClasses="border rounded-lg shadow-lg bg-surface"
-					>
-						{#snippet trigger()}
-							<Button
-								nonCaptureEvent
-								startIcon={{ icon: AlertTriangle, classes: 'text-yellow-600' }}
-								unifiedSize="md"
-								variant="subtle"
-								btnClasses="text-3xs"
-							>
-								Workers without isolation
-							</Button>
-						{/snippet}
-						{#snippet content()}
-							<div class="flex flex-col gap-2 text-sm max-w-md p-4">
-								<div class="font-semibold">Workers without job isolation</div>
-								<p class="text-secondary">
-									{unsafeWorkers.length}
-									{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
-									{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
-								</p>
-								<div class="flex flex-wrap gap-1">
-									{#each unsafeWorkers as worker}
-										<Badge color="orange" verySmall={true}>
-											{worker.worker}
-										</Badge>
-									{/each}
-								</div>
-								<a
-									href="https://www.windmill.dev/docs/advanced/security_isolation"
-									target="_blank"
-									class="text-accent hover:underline text-xs"
-								>
-									Learn more about job isolation →
-								</a>
-							</div>
-						{/snippet}
-					</Popover>
-				</div>
-			{/if}
+<div class="flex items-center justify-between mt-2">
+	<div class="text-xs flex flex-row gap-2 items-center">
+		<div class="flex flex-row gap-1 items-center">
+			{pluralize(activeWorkers, 'worker')}
+			<Tooltip
+				>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
+			>
 		</div>
-		<div class="flex gap-2 items-center justify-end flex-row">
-			{#if $superadmin}
-				{#if width > 1000}
-					{#if config}
-						<Button
-							unifiedSize="md"
-							variant="subtle"
-							on:click={() => {
+
+		{#if vcpus_memory?.vcpus}
+			- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
+		{#if vcpus_memory?.memory}
+			- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
+		{#if hasWorkersWithoutIsolation(workers)}
+			{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
+			<div class="flex justify-end">
+				<Tooltip
+					placement="bottom"
+					closeButton
+					containerClasses="border rounded-lg shadow-lg bg-surface"
+				>
+					<TriangleAlert size={14} class="text-yellow-600" />
+
+					{#snippet text()}
+						<div class="flex flex-col gap-2 text-sm max-w-md p-4">
+							<div class="font-semibold">Workers without job isolation</div>
+							<p class="text-secondary">
+								{unsafeWorkers.length}
+								{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
+								{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
+							</p>
+							<div class="flex flex-wrap gap-1">
+								{#each unsafeWorkers as worker}
+									<Badge color="orange" verySmall={true}>
+										{worker.worker}
+									</Badge>
+								{/each}
+							</div>
+							<a
+								href="https://www.windmill.dev/docs/advanced/security_isolation"
+								target="_blank"
+								class="text-accent hover:underline text-xs"
+							>
+								Learn more about job isolation →
+							</a>
+						</div>
+					{/snippet}
+				</Tooltip>
+			</div>
+		{/if}
+	</div>
+	<div class="flex gap-4 items-center justify-end flex-row">
+		{#if $superadmin}
+			{#if width > 1000}
+				{#if config}
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => {
+							if (!$enterpriseLicense) {
+								sendUserToast('Worker Management UI is an EE feature', true)
+							} else {
+								openDelete = true
+							}
+						}}
+						startIcon={{ icon: Trash }}
+						destructive
+					>
+						Delete config
+					</Button>
+				{/if}
+
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					on:click={() => {
+						loadNConfig()
+						openClean = true
+					}}
+					startIcon={{ icon: RefreshCcwIcon }}
+					destructive
+				>
+					Clean cache
+				</Button>
+
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					on:click={() => {
+						navigator.clipboard.writeText(
+							YAML.stringify({
+								name,
+								...config
+							})
+						)
+						sendUserToast('Worker config copied to clipboard as YAML')
+					}}
+					startIcon={{ icon: Copy }}
+				>
+					Copy config
+				</Button>
+			{:else}
+				<Dropdown
+					items={[
+						{
+							displayName: 'Copy config',
+							action: () => {
+								navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
+								sendUserToast('Worker config copied to clipboard as YAML')
+							},
+							disabled: !config
+						},
+						{
+							displayName: 'Clean cache',
+							action: () => {
+								loadNConfig()
+								openClean = true
+							},
+							disabled: !config,
+							type: 'delete'
+						},
+						{
+							displayName: 'Delete config',
+							action: () => {
 								if (!$enterpriseLicense) {
 									sendUserToast('Worker Management UI is an EE feature', true)
 								} else {
 									openDelete = true
 								}
-							}}
-							startIcon={{ icon: Trash }}
-							destructive
-						>
-							Delete config
-						</Button>
-					{/if}
-
-					<Button
-						unifiedSize="md"
-						variant="subtle"
-						on:click={() => {
-							loadNConfig()
-							openClean = true
-						}}
-						startIcon={{ icon: RefreshCcwIcon }}
-						destructive
-					>
-						Clean cache
-					</Button>
-
-					<Button
-						unifiedSize="md"
-						variant="subtle"
-						on:click={() => {
-							navigator.clipboard.writeText(
-								YAML.stringify({
-									name,
-									...config
-								})
-							)
-							sendUserToast('Worker config copied to clipboard as YAML')
-						}}
-						startIcon={{ icon: Copy }}
-					>
-						Copy config
-					</Button>
-				{:else}
-					<Dropdown
-						items={[
-							{
-								displayName: 'Copy config',
-								action: () => {
-									navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
-									sendUserToast('Worker config copied to clipboard as YAML')
-								},
-								disabled: !config
 							},
-							{
-								displayName: 'Clean cache',
-								action: () => {
-									loadNConfig()
-									openClean = true
-								},
-								disabled: !config,
-								type: 'delete'
-							},
-							{
-								displayName: 'Delete config',
-								action: () => {
-									if (!$enterpriseLicense) {
-										sendUserToast('Worker Management UI is an EE feature', true)
-									} else {
-										openDelete = true
-									}
-								},
-								disabled: !config,
-								type: 'delete'
-							}
-						]}
-					/>
-				{/if}
-				<Button
-					variant="accent"
-					unifiedSize="md"
-					on:click={() => {
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-					startIcon={{ icon: config == undefined ? Plus : Settings }}
-				>
-					<div class="flex flex-row gap-1 items-center">
-						{config == undefined ? 'Create' : 'Edit'} config
-					</div>
-				</Button>
-			{:else if config}
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					on:click={() => {
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-				>
-					Config
-				</Button>
+							disabled: !config,
+							type: 'delete'
+						}
+					]}
+				/>
 			{/if}
-		</div>
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				on:click={() => {
+					loadNConfig()
+					drawer?.openDrawer()
+				}}
+				startIcon={{ icon: config == undefined ? Plus : Settings }}
+			>
+				<div class="flex flex-row gap-1 items-center">
+					{config == undefined ? 'Create' : 'Edit'} config
+				</div>
+			</Button>
+		{:else if config}
+			<Button
+				unifiedSize="sm"
+				variant="accent"
+				on:click={() => {
+					loadNConfig()
+					drawer?.openDrawer()
+				}}
+			>
+				Config
+			</Button>
+		{/if}
 	</div>
 </div>

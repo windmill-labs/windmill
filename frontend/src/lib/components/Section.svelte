@@ -20,6 +20,7 @@
 		breakAll?: boolean
 		class?: string | undefined
 		description?: string | undefined
+		initiallyCollapsed?: boolean
 		header?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		badge?: import('svelte').Snippet
@@ -36,7 +37,8 @@
 		wrapperClass = '',
 		headerClass = '',
 		collapsable = false,
-		collapsed = $bindable(true),
+		initiallyCollapsed = true,
+		collapsed = $bindable(initiallyCollapsed),
 		headless = false,
 		animate = false,
 		breakAll = false,

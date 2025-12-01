@@ -187,7 +187,7 @@
 
 <DarkModeObserver bind:darkMode />
 
-<Section label="Queue Metrics">
+<Section label="Queue metrics">
 	{#if loading}
 		<Skeleton layout={[[20]]} />
 	{:else if noMetrics}
