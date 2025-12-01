@@ -14,7 +14,7 @@ export {
   UserService,
   WorkspaceService,
 } from "./index";
-export { datatable, ducklake } from "./sqlUtils";
+export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
 export type Sql = string;
 export type Email = string;
 export type Base64 = string;
