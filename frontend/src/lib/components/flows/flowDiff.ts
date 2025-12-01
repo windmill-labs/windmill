@@ -258,11 +258,66 @@ function cloneModule(module: FlowModule): FlowModule {
 }
 
 /**
- * Prepends a prefix to a module's ID to avoid collisions
+ * Prepends a prefix to a module's ID and all nested child module IDs to avoid collisions
  */
 function prependModuleId(module: FlowModule, prefix: string): FlowModule {
 	const newModule = cloneModule(module)
 	newModule.id = prefix + newModule.id
+
+	// Recursively prefix nested module IDs
+	if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
+		newModule.value.modules = newModule.value.modules.map((m) => prependModuleId(m, prefix))
+	} else if (newModule.value.type === 'branchone') {
+		newModule.value.default = newModule.value.default.map((m) => prependModuleId(m, prefix))
+		newModule.value.branches = newModule.value.branches.map((branch) => ({
+			...branch,
+			modules: branch.modules.map((m) => prependModuleId(m, prefix))
+		}))
+	} else if (newModule.value.type === 'branchall') {
+		newModule.value.branches = newModule.value.branches.map((branch) => ({
+			...branch,
+			modules: branch.modules.map((m) => prependModuleId(m, prefix))
+		}))
+	} else if (newModule.value.type === 'aiagent' && newModule.value.tools) {
+		// Handle aiagent tools - only prefix FlowModule tools, not MCP tools
+		newModule.value.tools = newModule.value.tools.map((tool) => {
+			// MCP tools have tool_type: 'mcp', FlowModule tools have tool_type: 'flowmodule' or undefined
+			if (tool.value.tool_type === 'mcp') {
+				return tool // MCP tools don't have nested module IDs
+			}
+			// For FlowModule tools, prefix the ID and recurse
+			const prefixedTool = {
+				...tool,
+				id: prefix + tool.id
+			}
+			// If the tool has nested modules (it's a container type), recurse
+			const innerValue = tool.value as FlowModule['value']
+			if (innerValue.type === 'forloopflow' || innerValue.type === 'whileloopflow') {
+				;(prefixedTool.value as any).modules = (innerValue as any).modules.map(
+					(m: FlowModule) => prependModuleId(m, prefix)
+				)
+			} else if (innerValue.type === 'branchone') {
+				;(prefixedTool.value as any).default = (innerValue as any).default.map(
+					(m: FlowModule) => prependModuleId(m, prefix)
+				)
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
+					(branch: any) => ({
+						...branch,
+						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+					})
+				)
+			} else if (innerValue.type === 'branchall') {
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
+					(branch: any) => ({
+						...branch,
+						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+					})
+				)
+			}
+			return prefixedTool
+		})
+	}
+
 	return newModule
 }
 
@@ -310,6 +365,96 @@ function getAllModuleIds(flow: FlowValue): Set<string> {
 	}
 
 	return ids
+}
+
+/**
+ * Scans the merged flow for duplicate IDs and prefixes duplicates with 'old__'.
+ * This handles the case where a module is moved from one location to another -
+ * both the old and new versions end up in the merged flow with the same ID.
+ */
+function fixDuplicateIds(merged: FlowValue, beforeFlow: FlowValue): void {
+	const seenIds = new Set<string>()
+	const beforeModulesMap = getAllModulesMap(beforeFlow)
+
+	// Process a single module - returns the (possibly prefixed) module
+	function processModule(module: FlowModule): FlowModule {
+		let result = module
+
+		if (seenIds.has(module.id)) {
+			// Duplicate found! Check if this one exists in beforeFlow
+			const beforeModule = beforeModulesMap.get(module.id)
+			if (beforeModule) {
+				// This is the "old" version - prefix it and all its children
+				result = prependModuleId(module, DUPLICATE_MODULE_PREFIX)
+			}
+		} else {
+			seenIds.add(module.id)
+		}
+
+		// Recurse into nested modules (use result which may be prefixed)
+		processNestedModules(result)
+
+		return result
+	}
+
+	// Process nested modules in-place
+	function processNestedModules(module: FlowModule): void {
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			module.value.modules = module.value.modules.map((m) => processModule(m))
+		} else if (module.value.type === 'branchone') {
+			module.value.default = module.value.default.map((m) => processModule(m))
+			for (const branch of module.value.branches) {
+				branch.modules = branch.modules.map((m) => processModule(m))
+			}
+		} else if (module.value.type === 'branchall') {
+			for (const branch of module.value.branches) {
+				branch.modules = branch.modules.map((m) => processModule(m))
+			}
+		} else if (module.value.type === 'aiagent' && module.value.tools) {
+			// For aiagent tools, we need to track IDs of FlowModule tools
+			for (const tool of module.value.tools) {
+				if (tool.value.tool_type !== 'mcp') {
+					if (seenIds.has(tool.id)) {
+						// Can't easily prefix in-place here, but aiagent tools rarely move
+						// The main use case is regular modules moving in/out of loops/branches
+					} else {
+						seenIds.add(tool.id)
+					}
+				}
+			}
+		}
+	}
+
+	// Process root modules
+	if (merged.modules) {
+		merged.modules = merged.modules.map((m) => processModule(m))
+	}
+
+	// Process special modules
+	if (merged.failure_module) {
+		if (seenIds.has(merged.failure_module.id)) {
+			const beforeModule = beforeModulesMap.get(merged.failure_module.id)
+			if (beforeModule) {
+				merged.failure_module = prependModuleId(merged.failure_module, DUPLICATE_MODULE_PREFIX)
+			}
+		} else {
+			seenIds.add(merged.failure_module.id)
+		}
+	}
+
+	if (merged.preprocessor_module) {
+		if (seenIds.has(merged.preprocessor_module.id)) {
+			const beforeModule = beforeModulesMap.get(merged.preprocessor_module.id)
+			if (beforeModule) {
+				merged.preprocessor_module = prependModuleId(
+					merged.preprocessor_module,
+					DUPLICATE_MODULE_PREFIX
+				)
+			}
+		} else {
+			seenIds.add(merged.preprocessor_module.id)
+		}
+	}
 }
 
 /**
@@ -388,6 +533,10 @@ function reconstructMergedFlow(
 			insertIntoNestedParent(merged, parentLocation, clonedModule, beforeFlow)
 		}
 	}
+
+	// Post-process: fix any duplicate IDs that may have been created
+	// This handles the case where a module moved from one location to another
+	fixDuplicateIds(merged, beforeFlow)
 
 	return merged
 }
