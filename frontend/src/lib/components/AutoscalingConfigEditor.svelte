@@ -53,8 +53,6 @@
 	}
 
 	let collapsed: boolean = $state(true)
-
-	$inspect('dbgconfig', config)
 </script>
 
 <Section

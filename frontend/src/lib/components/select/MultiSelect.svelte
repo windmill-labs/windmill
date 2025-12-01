@@ -33,6 +33,7 @@
 		hideMainClearBtn = false,
 		size = 'md',
 		id,
+		error = false,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -58,6 +59,7 @@
 		hideMainClearBtn?: boolean
 		size?: keyof typeof inputSizeClasses
 		id?: string
+		error?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -111,7 +113,7 @@
 		'flex items-center flex-wrap relative',
 		inputBaseClass,
 		inputSizeClasses[size],
-		inputBorderClass({ forceFocus: open && !disabled }),
+		inputBorderClass({ forceFocus: open && !disabled, error }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
 		disabled ? 'disabled' : '',

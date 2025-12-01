@@ -189,10 +189,6 @@
 	loadWorkerGroups()
 	loadCustomTags()
 
-	$effect(() => {
-		$superadmin && $enterpriseLicense && untrack(() => checkLicenseExpiration())
-	})
-
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
@@ -360,7 +356,7 @@
 	let newGroupPopover: Popover | undefined = $state(undefined)
 
 	$effect(() => {
-		;($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
+		;($superadmin || $devopsRole) && untrack(() => loadDefaultTagsPerWorkspace())
 	})
 
 	$effect(() => {
@@ -368,6 +364,11 @@
 			selectedTab == 'default' &&
 			untrack(() => updateSelectedTabIfDefaultDoesNotExist())
 	})
+
+	$effect(() => {
+		$superadmin && $enterpriseLicense && untrack(() => checkLicenseExpiration())
+	})
+
 	let worker_group = $derived(
 		filterWorkerGroupByNames(
 			groupedWorkers?.find((x) => x?.[0] == selectedTab),

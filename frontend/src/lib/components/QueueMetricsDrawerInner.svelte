@@ -20,6 +20,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import { Section } from './common'
 
 	let loading: boolean = true
 
@@ -186,87 +187,89 @@
 
 <DarkModeObserver bind:darkMode />
 
-{#if loading}
-	<Skeleton layout={[[20]]} />
-{:else if noMetrics}
-	<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
-{:else}
-	<div class="flex flex-col gap-4">
-		{#if countData}
-			<Line
-				data={countData}
-				options={{
-					animation: false,
-					plugins: {
-						title: {
-							display: true,
-							text: 'Number of delayed jobs per tag (> 3s)'
-						}
-					},
-					scales: {
-						x: {
-							type: 'time',
-							min: minDate.toISOString(),
-							max: new Date().toISOString()
-						},
-						y: {
+<Section label="Queue Metrics">
+	{#if loading}
+		<Skeleton layout={[[20]]} />
+	{:else if noMetrics}
+		<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if countData}
+				<Line
+					data={countData}
+					options={{
+						animation: false,
+						plugins: {
 							title: {
 								display: true,
-								text: 'count'
+								text: 'Number of delayed jobs per tag (> 3s)'
 							}
-						}
-					}
-				}}
-			/>
-		{/if}
-		{#if delayData}
-			<Line
-				data={delayData}
-				options={{
-					animation: false,
-					plugins: {
-						title: {
-							display: true,
-							text: 'Queue delay per tag (> 3s)'
 						},
-						tooltip: {
-							callbacks: {
-								label: function (context) {
-									// @ts-ignore
-									if (context.raw.y === 1) {
-										return context.dataset.label + ': 0'
-									} else {
-										// @ts-ignore
-										return context.dataset.label + ': ' + context.raw.y
-									}
+						scales: {
+							x: {
+								type: 'time',
+								min: minDate.toISOString(),
+								max: new Date().toISOString()
+							},
+							y: {
+								title: {
+									display: true,
+									text: 'count'
 								}
 							}
 						}
-					},
-					scales: {
-						x: {
-							type: 'time',
-							min: minDate.toISOString(),
-							max: new Date().toISOString()
-						},
-
-						y: {
-							type: 'logarithmic',
+					}}
+				/>
+			{/if}
+			{#if delayData}
+				<Line
+					data={delayData}
+					options={{
+						animation: false,
+						plugins: {
 							title: {
 								display: true,
-								text: 'delay (s)'
+								text: 'Queue delay per tag (> 3s)'
 							},
-							ticks: {
-								callback: (value, _) => (value === 1 ? '0' : value)
+							tooltip: {
+								callbacks: {
+									label: function (context) {
+										// @ts-ignore
+										if (context.raw.y === 1) {
+											return context.dataset.label + ': 0'
+										} else {
+											// @ts-ignore
+											return context.dataset.label + ': ' + context.raw.y
+										}
+									}
+								}
+							}
+						},
+						scales: {
+							x: {
+								type: 'time',
+								min: minDate.toISOString(),
+								max: new Date().toISOString()
+							},
+
+							y: {
+								type: 'logarithmic',
+								title: {
+									display: true,
+									text: 'delay (s)'
+								},
+								ticks: {
+									callback: (value, _) => (value === 1 ? '0' : value)
+								}
 							}
 						}
-					}
-				}}
-			/>
-		{/if}
-		<Alert title="Info">
-			Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
-			included in the graph.
-		</Alert>
-	</div>
-{/if}
+					}}
+				/>
+			{/if}
+			<Alert title="Info">
+				Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
+				included in the graph.
+			</Alert>
+		</div>
+	{/if}
+</Section>
