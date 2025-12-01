@@ -14,11 +14,67 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
 
+// AI timeout configuration constants
+const AI_TIMEOUT_MIN_SECS: u64 = 1;
+const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
+const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
+const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
+const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
+
 lazy_static::lazy_static! {
+    /// AI request timeout in seconds.
+    ///
+    /// This timeout applies to the TOTAL duration of AI HTTP requests,
+    /// including streaming responses. Default is 3600 seconds (1 hour).
+    ///
+    /// Can be configured via AI_REQUEST_TIMEOUT_SECONDS environment variable.
+    /// Valid range: 1-86400 seconds (24 hours).
+    ///   - Minimum (1s): Prevents immediate timeout, allows minimal response time
+    ///   - Maximum (24h): Prevents indefinite hangs while supporting long-running AI operations
+    ///   - Default (1h): Balances responsiveness with support for complex AI tasks
+    ///
+    /// Note: This is a total request timeout, not an idle timeout.
+    /// Long-running streaming responses that exceed this duration will be terminated,
+    /// even if actively receiving data.
+    ///
+    /// Important: Ensure your reverse proxy (NGINX, Traefik) timeout is equal to or
+    /// greater than this value to avoid premature connection termination.
+    static ref AI_TIMEOUT_SECS: u64 = {
+        match std::env::var("AI_REQUEST_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            Some(timeout) if timeout >= AI_TIMEOUT_MIN_SECS && timeout <= AI_TIMEOUT_MAX_SECS => {
+                tracing::info!("AI request timeout configured: {}s", timeout);
+                timeout
+            },
+            Some(timeout) => {
+                tracing::warn!(
+                    "AI_REQUEST_TIMEOUT_SECONDS value {} is out of range ({}-{}), using default {}s",
+                    timeout,
+                    AI_TIMEOUT_MIN_SECS,
+                    AI_TIMEOUT_MAX_SECS,
+                    AI_TIMEOUT_DEFAULT_SECS
+                );
+                AI_TIMEOUT_DEFAULT_SECS
+            },
+            None => {
+                tracing::info!(
+                    "AI_REQUEST_TIMEOUT_SECONDS not set, using default {}s",
+                    AI_TIMEOUT_DEFAULT_SECS
+                );
+                AI_TIMEOUT_DEFAULT_SECS
+            },
+        }
+    };
+
     static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(60 * 5))
+        .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
+        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+        .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
         .user_agent("windmill/beta"))
-        .build().unwrap();
+        .build()
+        .expect("Failed to build AI HTTP client - check system TLS configuration");
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 
