@@ -907,6 +907,7 @@
 	<div class="flex items-center justify-between mt-2">
 		<div class="text-xs flex flex-row gap-2 items-center"
 			>{pluralize(activeWorkers, 'worker')}
+			<Tooltip>Number of active workers of this group in the last 15 seconds</Tooltip>
 			{#if vcpus_memory?.vcpus}
 				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
 			{#if vcpus_memory?.memory}

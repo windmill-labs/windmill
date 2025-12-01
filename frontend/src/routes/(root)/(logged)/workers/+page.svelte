@@ -494,8 +494,8 @@
 				{/if}
 
 				<div class="pt-4 pb-8 w-full flex justify-between items-center"
-					><h4
-						>{groupWorkers?.length} Worker Groups <Tooltip
+					><h4>
+						Worker groups ({groupWorkers?.length})<Tooltip
 							documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 							>Worker groups are groups of workers that share a config and are meant to be
 							identical. Worker groups are meant to be used with tags. Tags can be assigned to
@@ -612,8 +612,12 @@
 
 				{#if (groupedWorkers ?? []).length > 5}
 					<div class="flex gap-2 items-center">
-						<div class="text-secondary text-sm">Worker group:</div>
-						<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
+						<div class="text-secondary text-xs">Worker group:</div>
+						<Select
+							items={groupedWorkers.map((x) => ({ value: x[0] }))}
+							bind:value={selectedTab}
+							inputClass="text-emphasis text-xs font-semibold"
+						/>
 					</div>
 				{:else}
 					<Tabs bind:selected={selectedTab}>
@@ -624,12 +628,11 @@
 								{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 									x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 								)}
-								<Tab
-									value={worker_group[0]}
-									label={`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
-								>
+								<Tab value={worker_group[0]} label={worker_group[0]}>
 									{#snippet extra()}
-										<Tooltip>Number of workers active in the last 15s</Tooltip>
+										<span class="text-2xs text-hint">
+											{pluralize(activeWorkers?.length, 'worker')}
+										</span>
 									{/snippet}
 								</Tab>
 							{:else}
@@ -666,7 +669,7 @@
 						<div class="flex flex-row items-center gap-2 relative my-2">
 							<input
 								class="max-w-80 border rounded-md !pl-8"
-								placeholder="Search workers by name..."
+								placeholder={`Search workers in group '${worker_group[0]}'`}
 								autocomplete="off"
 								bind:value={search}
 							/>
