@@ -191,7 +191,7 @@ const addModuleToolDef: ChatCompletionFunctionTool = {
 				branchPath: {
 					type: ['string', 'null'],
 					description:
-						"Path within the container: 'branches.0', 'branches.1', 'default' (for branchone), or 'modules' (for loops). Required when using insideId."
+						"Path within the container: 'modules' (for loops), 'branches.0'/'branches.1'/etc (for branchone/branchall), 'default' (for branchone), or 'tools' (for aiagent). Required when using insideId."
 				},
 				value: {
 					...resolveSchemaRefs(openFlowSchema.components.schemas.FlowModule, openFlowSchema),
@@ -1591,42 +1591,104 @@ function formatOpenFlowSchemaForPrompt(): string {
 }
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You have several tools for modifying flows:
+	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform.
+
+## IMPORTANT RULES
+
+**Reserved IDs - Do NOT use these in add_module, modify_module, or remove_module:**
+- \`failure\` - Reserved for failure handler module
+- \`preprocessor\` - Reserved for preprocessor module
+- \`Input\` - Reserved for flow input reference
+
+## Tool Selection Guide
+
+**Flow Modification:**
+- **Add a new module** → \`add_module\`
+- **Remove a module** → \`remove_module\`
+- **Change module code only** → \`set_module_code\`
+- **Change module config/transforms/conditions** → \`modify_module\`
+- **Update flow input parameters** → \`set_flow_schema\`
+
+**Code & Scripts:**
+- **View existing inline script code** → \`inspect_inline_script\`
+- **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
+- **Find workspace scripts** → \`search_scripts\`
+- **Find Windmill Hub scripts** → \`search_hub_scripts\`
+
+**Testing:**
+- **Test entire flow** → \`test_run_flow\`
+- **Test single step** → \`test_run_step\`
+
+**Resources & Schema:**
+- **Search resource types** → \`resource_type\`
+- **Get database schema** → \`get_db_schema\`
+
+## Common Mistakes to Avoid
+
+- **Don't use \`modify_module\` to add/remove nested modules** - Use \`add_module\`/\`remove_module\` instead
+- **Don't forget \`input_transforms\`** - Rawscript parameters won't receive values without them
+- **Don't use spaces in module IDs** - Use underscores (e.g., \`fetch_data\` not \`fetch data\`)
+- **Don't reference future steps** - \`results.step_id\` only works for steps that execute before the current one
+- **Don't create duplicate IDs** - Each module ID must be unique in the flow
 
 ## Flow Modification Tools
 
-- **add_module**: Add a new module to the flow
-  - Use \`afterId\` to insert after a specific module (null to insert at the beginning)
-  - Use \`insideId\` + \`branchPath\` to insert into branches/loops
-  - \`afterId\` can be combined with \`insideId\` + \`branchPath\` to specify position within a container
-  - Example: \`add_module({ afterId: "step_a", value: {...} })\` - insert after step_a
-  - Example: \`add_module({ afterId: null, value: {...} })\` - insert at the beginning
-  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\` - insert at beginning of first branch
-  - Example: \`add_module({ insideId: "branch_step", branchPath: "branches.0", afterId: "step_x", value: {...} })\` - insert after step_x within first branch
-  - Example to add modules inside a loop: \`add_module({ insideId: "loop_step", branchPath: "modules", value: {...} })\`
-  - To add to first branch: \`add_module({ insideId: "branch_step", branchPath: "branches.0", value: {...} })\`
-  - To add to second branch: \`add_module({ insideId: "branch_step", branchPath: "branches.1", value: {...} })\`
-  - To add to default: \`add_module({ insideId: "branch_step", branchPath: "default", value: {...} })\`
+### add_module
+Add a new module to the flow.
 
-- **remove_module**: Remove a module by ID
-  - Example: \`remove_module({ id: "step_b" })\`
+**Parameters:**
+- \`afterId\`: ID of module to insert after, or \`null\` to insert at beginning
+- \`insideId\` + \`branchPath\`: For inserting into containers (branches/loops/AI agents)
+- \`value\`: The module object
 
-- **modify_module**: Update an existing module (full replacement)
-  - Use for changing configuration, input_transforms, branch conditions, etc.
-  - Do NOT use for adding/removing nested modules - use add_module/remove_module instead
-  - Example: \`modify_module({ id: "step_a", value: {...} })\`
-  - To modify branch conditions: \`modify_module({ id: "branch_step", value: {...} })\`
+**Valid \`branchPath\` values:**
+- \`"modules"\` - for forloopflow/whileloopflow
+- \`"branches.0"\`, \`"branches.1"\`, etc. - for branchone/branchall
+- \`"default"\` - for branchone only
+- \`"tools"\` - for aiagent
 
-- **set_module_code**: Modify only the code of an existing inline script module
-  - Use this for quick code-only changes
-  - Example: \`set_module_code({ moduleId: "step_a", code: "..." })\`
+**Examples:**
+\`\`\`javascript
+// Insert after step_a
+add_module({ afterId: "step_a", value: {...} })
 
-- **set_flow_schema**: Set/update flow input parameters
-  - Defines what parameters the flow accepts when executed
-  - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } }, required: ["user_id"] } })\`
+// Insert at beginning of flow
+add_module({ afterId: null, value: {...} })
 
-**IMPORTANT RESTRICTIONS:**
-- Do NOT use the IDs "failure", "preprocessor", or "Input" in add_module, modify_module, or remove_module - these are reserved system IDs
+// Insert into first branch, at beginning
+add_module({ insideId: "branch_step", branchPath: "branches.0", afterId: null, value: {...} })
+
+// Insert into first branch, after step_x
+add_module({ insideId: "branch_step", branchPath: "branches.0", afterId: "step_x", value: {...} })
+
+// Insert into loop
+add_module({ insideId: "loop_step", branchPath: "modules", afterId: null, value: {...} })
+\`\`\`
+
+### remove_module
+Remove a module by ID.
+\`\`\`javascript
+remove_module({ id: "step_b" })
+\`\`\`
+
+### modify_module
+Update an existing module (full replacement). Use for changing configuration, input_transforms, branch conditions, etc.
+Do NOT use for adding/removing nested modules - use add_module/remove_module instead.
+\`\`\`javascript
+modify_module({ id: "step_a", value: {...} })
+\`\`\`
+
+### set_module_code
+Modify only the code of an existing inline script module. Use for quick code-only changes.
+\`\`\`javascript
+set_module_code({ moduleId: "step_a", code: "..." })
+\`\`\`
+
+### set_flow_schema
+Set/update flow input parameters.
+\`\`\`javascript
+set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } }, required: ["user_id"] } })
+\`\`\`
 
 Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
@@ -1740,22 +1802,10 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
      - Default language is 'bun' if not specified
      - **First call \`get_instructions_for_code_generation\` to get the correct code format**
      - Include full code in the content field
-     - Example: \`add_module({ afterId: "step_a", value: { id: "step_b", value: { type: "rawscript", language: "bun", content: "...", input_transforms: {} } } })\`
+     - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
 
-3. **Set appropriate \`input_transforms\`:**
-   - Map function parameters to flow inputs or previous step results
-   - If referencing new flow_input properties (e.g., \`flow_input.user_id\`), add them to the flow schema using \`set_flow_schema\`
-
-4. **Update flow schema if needed:**
-   - If your module uses flow inputs that don't exist yet, use \`set_flow_schema\` to add them
-   - Example: \`set_flow_schema({ schema: { type: "object", properties: { user_id: { type: "string" } } } })\`
-
-5. **For positioning:**
-   - Insert at beginning: use \`afterId: null\`
-   - After specific step: use \`afterId: "step_id"\`
-   - Append to end: use \`afterId: "<last_module_id>"\` (insert after the last module)
-   - Inside branch/loop: use \`insideId: "container_id"\` + \`branchPath\`
-   - Position within container: combine \`insideId\` + \`branchPath\` with \`afterId\`
+3. **Update flow schema if needed:**
+   - If your module references flow_input properties that don't exist yet, add them using \`set_flow_schema\`
 
 ### AI Agent Tools
 
