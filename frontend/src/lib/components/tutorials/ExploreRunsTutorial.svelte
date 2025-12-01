@@ -51,7 +51,12 @@
 						content:
 							'export async function main(celsius: number) {\n  // Validate that the temperature is within a reasonable range\n  if (celsius < -273.15) {\n    throw new Error("Temperature cannot be below absolute zero (-273.15°C)");\n  }\n  \n  if (celsius > 1000) {\n    throw new Error("Temperature seems unreasonably high. Please check your input.");\n  }\n  \n  return {\n    celsius: celsius,\n    isValid: true,\n    message: "Temperature is valid"\n  };\n}',
 						language: 'bun',
-						input_transforms: {}
+						input_transforms: {
+							celsius: {
+								expr: 'flow_input.celsius',
+								type: 'javascript'
+							}
+						}
 					},
 					summary: 'Validate temperature input'
 				},
