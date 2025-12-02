@@ -18,6 +18,7 @@
 	let step2Complete = $state(false)
 	let step3Complete = $state(false)
 	let step4Complete = $state(false)
+	let step5Complete = $state(false)
 
 	// Constants for delays
 	const DELAY_SHORT = 100
@@ -113,7 +114,7 @@
 					value: {
 						type: 'rawscript',
 						content:
-							'export async function main(celsius: number) {\n  // Convert Celsius to Fahrenheit using the formula: F = (C × 9/5) + 32\n  const fahrenheit = (celsius * 9/5) + 32;\n  \n  return {\n    celsius: celsius,\n    fahrenheit: Math.round(fahrenheit * 100) / 100 // Round to 2 decimal places\n  };\n}',
+							'export async function main(celsius: number) {\n  // Convert Celsius to Fahrenheit using the formula: F = (C × 9/5) + 32\n  const fahrenheit = (celsius * 9/5) + 32;\n  \n  return {\n    celsius: celsiu,\n    fahrenheit: Math.round(fahrenheit * 100) / 100 // Round to 2 decimal places\n  };\n}',
 						language: 'bun',
 						input_transforms: {
 							celsius: {
@@ -186,7 +187,7 @@
 				popover: {
 					title: 'Test your flow',
 					description:
-						'Your temperature converter flow is ready with an input of 25°C. Click "Next" to test it and see the results!',
+						'Your temperature converter flow is ready with an input of 25°C. Let\'s test it!',
 					side: 'bottom',
 					onNextClick: async () => {
 						if (!step1Complete) {
@@ -201,13 +202,35 @@
 							await wait(DELAY_LONG)
 						}
 
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#flow-editor-test-flow-drawer',
+				onHighlighted: async () => {
+					step2Complete = false
+					await wait(DELAY_SHORT)
+					step2Complete = true
+				},
+				popover: {
+					title: 'Run the flow',
+					description:
+						'Click "Next" to execute the flow. You\'ll see how to troubleshoot when something goes wrong!',
+					side: 'left',
+					onNextClick: async () => {
+						if (!step2Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+
 						// Click the Test button to execute the flow
 						const testButton = document.querySelector('#flow-editor-test-flow-drawer') as HTMLElement
 						if (testButton) {
 							testButton.click()
-							await wait(DELAY_LONG)
 						}
 
+						await wait(DELAY_LONG)
 						driver.moveNext()
 					}
 				}
@@ -215,36 +238,15 @@
 			{
 				element: '.border.rounded-md.shadow.p-2',
 				onHighlighted: async () => {
-					step2Complete = false
-					await wait(DELAY_SHORT)
-					step2Complete = true
-				},
-				popover: {
-					title: 'View the result',
-					description:
-						'Here you can see the final result of your flow execution. The temperature has been converted and categorized!',
-					side: 'left',
-					onNextClick: () => {
-						if (!step2Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '.border-b.flex.flex-row.whitespace-nowrap.scrollbar-hidden.mx-auto',
-				onHighlighted: async () => {
 					step3Complete = false
 					await wait(DELAY_SHORT)
 					step3Complete = true
 				},
 				popover: {
-					title: 'Explore the tabs',
+					title: 'View the result',
 					description:
-						'Use these tabs to navigate between different views: Result, Logs, and Graph.',
-					side: 'bottom',
+						'Notice step b failed! The flow encountered an error. Let\'s explore what happened.',
+					side: 'left',
 					onNextClick: () => {
 						if (!step3Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
@@ -255,18 +257,39 @@
 				}
 			},
 			{
-				element: '.grid.grid-cols-3.border.h-full',
+				element: '.border-b.flex.flex-row.whitespace-nowrap.scrollbar-hidden.mx-auto',
 				onHighlighted: async () => {
 					step4Complete = false
 					await wait(DELAY_SHORT)
+					step4Complete = true
+				},
+				popover: {
+					title: 'Explore the tabs',
+					description:
+						'Use these tabs to navigate between different views: Result, Logs, and Graph.',
+					side: 'bottom',
+					onNextClick: () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.grid.grid-cols-3.border.h-full',
+				onHighlighted: async () => {
+					step5Complete = false
+					await wait(DELAY_SHORT)
 
-					// Find the step 'a' button inside the drawer and click it with fake cursor
+					// Find the step 'b' button inside the drawer and click it with fake cursor
 					const flowPreviewContent = document.getElementById('flow-preview-content')
 					if (flowPreviewContent) {
 						// Find the button containing "Validate temperature input" text
 						const buttons = Array.from(flowPreviewContent.querySelectorAll('button'))
 						const stepButton = buttons.find(btn =>
-							btn.textContent?.includes('Validate temperature input')
+							btn.textContent?.includes('Convert to Fahrenheit')
 						) as HTMLElement
 
 						if (stepButton) {
@@ -292,7 +315,7 @@
 						}
 					}
 
-					step4Complete = true
+					step5Complete = true
 				},
 				popover: {
 					title: 'Flow execution graph',
@@ -300,7 +323,7 @@
 						'Watch as we click on a step to explore its details. You can click on any step to see its specific results and logs.',
 					side: 'top',
 					onNextClick: () => {
-						if (!step4Complete) {
+						if (!step5Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
 							return
 						}
