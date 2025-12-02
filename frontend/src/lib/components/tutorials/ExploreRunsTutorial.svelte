@@ -20,6 +20,7 @@
 	let step4Complete = $state(false)
 	let step5Complete = $state(false)
 	let step6Complete = $state(false)
+	let step7Complete = $state(false)
 
 	// Constants for delays
 	const DELAY_SHORT = 100
@@ -344,8 +345,59 @@
 					description:
 						'Here you can see the code, result, and logs for this specific step. This is where you can debug and understand what went wrong!',
 					side: 'left',
-					onNextClick: () => {
+					onNextClick: async () => {
 						if (!step6Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+
+						// Click the close button inside the drawer
+						const drawer = document.getElementById('flow-preview-content')
+						if (drawer) {
+							const closeButton = Array.from(drawer.querySelectorAll('button')).find(btn => {
+								const svg = btn.querySelector('svg.lucide-x')
+								return svg !== null
+							}) as HTMLElement
+
+							if (closeButton) {
+								// Create fake cursor and animate it to the close button
+								const fakeCursor = await createFakeCursor(null, closeButton, 1.5)
+								await wait(DELAY_MEDIUM)
+
+								// Animate click (shrink cursor briefly)
+								fakeCursor.style.transform = 'scale(0.8)'
+								await wait(100)
+								fakeCursor.style.transform = 'scale(1)'
+								await wait(100)
+
+								// Click the button
+								closeButton.click()
+								await wait(DELAY_SHORT)
+
+								// Remove fake cursor
+								fakeCursor.remove()
+							}
+						}
+
+						await wait(DELAY_LONG)
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '#b',
+				onHighlighted: async () => {
+					step7Complete = false
+					await wait(DELAY_SHORT)
+					step7Complete = true
+				},
+				popover: {
+					title: 'Open the failed step',
+					description:
+						'Now click on step b to open it and see the code where the error occurred.',
+					side: 'top',
+					onNextClick: () => {
+						if (!step7Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
 							return
 						}
