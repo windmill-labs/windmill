@@ -217,6 +217,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -396,6 +397,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Static { value: windmill_common::worker::to_raw_value(&[1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
@@ -2769,7 +2771,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let response = windmill_api::jobs::run_wait_result(
         &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
-        "test-workspace".to_string(),
+        "test-workspace",
         None,
         "test-user",
     )
@@ -2942,5 +2944,35 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
         port,
     )
     .await;
+    Ok(())
+}
+
+#[cfg(feature = "duckdb")]
+#[sqlx::test(fixtures("base"))]
+async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let content = "-- result_collection=last_statement_first_row_scalar\nSELECT 'Hello world!';";
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "value": {
+                "type": "rawscript",
+                "language": "duckdb",
+                "content": content,
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+    assert_eq!(result, serde_json::json!("Hello world!"));
     Ok(())
 }

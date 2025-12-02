@@ -2,8 +2,8 @@
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import DefaultTags from '$lib/components/DefaultTags.svelte'
@@ -112,6 +112,70 @@
 		}
 	}
 
+	function parseLicenseKey(key: string): {
+		valid: boolean
+		expiration?: Date
+	} {
+		let splitted = key.split('.')
+		if (splitted.length >= 3) {
+			try {
+				let i = parseInt(splitted[1])
+				let date = new Date(i * 1000)
+				const stringDate = date.toLocaleDateString()
+				if (stringDate !== 'Invalid Date') {
+					return {
+						valid: date.getTime() > Date.now(),
+						expiration: date
+					}
+				}
+			} catch {}
+		}
+		return {
+			valid: false
+		}
+	}
+
+	async function checkLicenseExpiration() {
+		if (!$superadmin || !$enterpriseLicense) {
+			return
+		}
+
+		try {
+			const licenseKey = (await SettingService.getGlobal({
+				key: 'license_key'
+			})) as string
+
+			if (!licenseKey) {
+				return
+			}
+
+			const { valid, expiration } = parseLicenseKey(licenseKey)
+
+			if (!valid && expiration) {
+				// License is expired
+				sendUserToast(
+					`Enterprise license key expired on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
+					true
+				)
+			} else if (expiration) {
+				// Check if expires within 7 days
+				const daysUntilExpiration = Math.floor(
+					(expiration.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+				)
+
+				if (daysUntilExpiration <= 7 && daysUntilExpiration >= 0) {
+					sendUserToast(
+						`Enterprise license key expires in ${daysUntilExpiration} day${daysUntilExpiration !== 1 ? 's' : ''} on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
+						true
+					)
+				}
+			}
+		} catch (err) {
+			// Silently fail - don't show errors for license check
+			console.error('Failed to check license expiration:', err)
+		}
+	}
+
 	onMount(() => {
 		intervalId = setInterval(() => {
 			loadWorkers()
@@ -126,6 +190,7 @@
 	loadWorkerGroups()
 	loadCustomTags()
 	$: ($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
+	$: $superadmin && $enterpriseLicense && checkLicenseExpiration()
 
 	onDestroy(() => {
 		if (intervalId) {

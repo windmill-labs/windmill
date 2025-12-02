@@ -24,6 +24,7 @@ use windmill_common::worker::{
     to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
     CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
+use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
@@ -528,6 +529,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         memory: None,
                         memory_usage: None,
                         wm_memory_usage: None,
+                        job_isolation: None,
                         ping_type: PingType::InitScript,
                     },
                 )
@@ -626,6 +628,35 @@ impl OccupancyMetrics {
 
 lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
+}
+
+pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
+    use tokio::process::Command;
+
+    if *crate::ENABLE_UNSHARE_PID {
+        if let Some(unshare_path) = crate::UNSHARE_PATH.as_ref() {
+            let mut cmd = Command::new(unshare_path);
+
+            let flags = crate::UNSHARE_ISOLATION_FLAGS.as_str();
+            for flag in flags.split_whitespace() {
+                cmd.arg(flag);
+            }
+
+            cmd.arg("--");
+            cmd.arg(program);
+            cmd.args(args);
+            cmd
+        } else {
+            panic!(
+                "BUG: ENABLE_UNSHARE_PID is true but UNSHARE_PATH is None. \
+                This should have been caught at worker startup."
+            );
+        }
+    } else {
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        cmd
+    }
 }
 
 pub async fn start_child_process(
@@ -1336,5 +1367,37 @@ pub fn s3_mode_args_to_worker_data(
             s3_mode_extension(s3.format)
         ),
         workspace_id: job.workspace_id.clone(),
+    }
+}
+
+#[derive(Debug)]
+pub enum MaybeLock {
+    /// Deployed Scripts
+    Resolved { lock: String },
+    /// Previews
+    Unresolved { workspace_dependencies: WorkspaceDependenciesPrefetched },
+}
+
+impl MaybeLock {
+    pub fn map_unresolved<B, F>(&self, mut f: F) -> Option<B>
+    where
+        Self: Sized,
+        F: FnMut(&WorkspaceDependenciesPrefetched) -> B,
+    {
+        self.get_workspace_dependencies().map(|wd| f(wd))
+    }
+
+    pub fn get_workspace_dependencies(&self) -> Option<&WorkspaceDependenciesPrefetched> {
+        match self {
+            MaybeLock::Resolved { .. } => None,
+            MaybeLock::Unresolved { ref workspace_dependencies } => Some(workspace_dependencies),
+        }
+    }
+
+    pub fn get_lock(&self) -> Option<&String> {
+        match self {
+            MaybeLock::Resolved { ref lock } => Some(lock),
+            MaybeLock::Unresolved { .. } => None,
+        }
     }
 }

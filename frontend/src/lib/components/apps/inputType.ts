@@ -1,6 +1,7 @@
 import type { ReadFileAs } from '../common/fileInput/model'
 import type { DecisionTreeNode, TypedComponent } from './editor/component'
-import type { InlineScript } from './types'
+import type { InlineScript } from './sharedTypes'
+export type { InlineScript } from './sharedTypes'
 
 export type InputType =
 	| 'integer'
@@ -132,18 +133,28 @@ export type RunnableByPath = {
 	path: string
 	schema: any
 	runType: 'script' | 'flow' | 'hubscript'
-	type: 'runnableByPath'
+	type: 'runnableByPath' | 'path'
+}
+
+export function isRunnableByPath(runnable: Runnable): runnable is RunnableByPath {
+	return runnable?.type == 'runnableByPath' || runnable?.type == 'path'
+}
+
+export function isRunnableByName(runnable: Runnable): runnable is RunnableByName {
+	return runnable?.type == 'runnableByName' || runnable?.type == 'inline'
 }
 
 export type RunnableByName = {
 	name: string
 	inlineScript: InlineScript | undefined
-	type: 'runnableByName'
+	type: 'runnableByName' | 'inline'
 }
 
 export type Runnable = RunnableByPath | RunnableByName | undefined
 
-export type RunnableWithFields = Runnable & { fields?: Record<string, StaticAppInput> }
+export type RunnableWithFields = Runnable & {
+	fields?: Record<string, StaticAppInput | UserAppInput>
+}
 
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {

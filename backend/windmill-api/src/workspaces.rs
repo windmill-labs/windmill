@@ -51,7 +51,9 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
 };
 use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
-use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
+use windmill_worker::scoped_dependency_map::{
+    DependencyDependent, DependencyMap, ScopedDependencyMap,
+};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -73,6 +75,7 @@ lazy_static::lazy_static! {
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
+        .route("/get_as_superadmin", get(get_workspace_as_superadmin))
         .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
         .route("/archive", post(archive_workspace))
@@ -81,6 +84,8 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
+        .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -2233,6 +2238,35 @@ async fn get_used_triggers(
     Ok(Json(websocket_used))
 }
 
+async fn get_workspace_as_superadmin(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Workspace> {
+    require_super_admin(&db, &authed.email).await?;
+    let workspace = sqlx::query_as!(
+        Workspace,
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        WHERE workspace.id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let workspace = not_found_if_none(workspace, "workspace", w_id)?;
+
+    Ok(Json(workspace))
+}
+
 async fn list_workspaces_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2313,6 +2347,13 @@ lazy_static::lazy_static! {
         match std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN") {
             Ok(val) => val == "true",
             Err(_) => true,
+        }
+    };
+
+    pub static ref DISABLE_WORKSPACE_FORK: bool = {
+        match std::env::var("DISABLE_WORKSPACE_FORK") {
+            Ok(val) => val == "true",
+            Err(_) => false,
         }
     };
 
@@ -2461,38 +2502,6 @@ async fn create_workspace(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
-        nw.id,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -2549,8 +2558,11 @@ async fn clone_workspace_data(
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone workspace runnable dependencies and dependency map
-    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
+    // TODO: Enable when git sync is implemented for workspace dependencies.
+    // // Clone workspace dependencies
+    // clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
     Ok(())
 }
 
@@ -2604,9 +2616,14 @@ async fn update_workspace_settings(
         WorkspaceGitSyncSettings::default()
     };
 
-    // We only keep the first git sync repo, since it is considered the main one
+    // We only keep the first git sync repo that is sync mode (use_individual_branch = false), since it is considered the main one
     // Context: see WIN-1559
-    git_sync_settings.repositories.truncate(1);
+    git_sync_settings.repositories = git_sync_settings
+        .repositories
+        .into_iter()
+        .filter(|r| !r.use_individual_branch.unwrap_or(false))
+        .take(1)
+        .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -2669,6 +2686,17 @@ async fn clone_groups(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms)
          SELECT $2, name, summary, extra_perms
          FROM group_
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr_to_group (workspace_id, group_, usr)
+         SELECT $2, group_, usr
+         FROM usr_to_group
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
@@ -2997,7 +3025,7 @@ async fn clone_raw_apps(
     Ok(())
 }
 
-async fn clone_workspace_dependencies(
+async fn clone_workspace_runnable_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
@@ -3029,6 +3057,27 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
+#[allow(dead_code)]
+async fn clone_workspace_dependencies(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // Clone workspace_runnable_dependencies
+    sqlx::query!(
+        "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
+         SELECT $1, language, name, description, content, archived, created_at
+         FROM workspace_dependencies 
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
@@ -3046,6 +3095,10 @@ async fn create_workspace_fork_branch(
         )));
     }
 
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(&db, &authed.email).await?;
+    }
+
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
     ))
@@ -3061,6 +3114,10 @@ async fn create_workspace_fork(
         return Err(Error::BadRequest(format!(
             "Forking workspaces is not available on app.windmill.dev"
         )));
+    }
+
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(&db, &authed.email).await?;
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
@@ -3553,6 +3610,75 @@ async fn rebuild_dependency_map(
         return Err(Error::BadRequest("Disabled on Cloud".into()));
     }
     ScopedDependencyMap::rebuild_map(&w_id, &db).await
+}
+
+#[axum::debug_handler]
+async fn get_dependents(
+    Extension(db): Extension<DB>,
+    Path((w_id, imported_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<DependencyDependent>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        "API: Getting dependents for imported path"
+    );
+
+    let dependents = ScopedDependencyMap::get_dependents(&imported_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_path = %imported_path,
+        dependents_count = dependents.len(),
+        "API: Found dependents: {:?}",
+        dependents
+    );
+
+    Ok(Json(dependents))
+}
+
+#[derive(Serialize, Debug)]
+struct DependentsAmount {
+    imported_path: String,
+    count: i64,
+}
+
+#[axum::debug_handler]
+async fn get_dependents_amounts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(imported_paths): Json<Vec<String>>,
+) -> JsonResult<Vec<DependentsAmount>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        imported_paths = ?imported_paths,
+        "API: Getting dependents amounts for imported paths"
+    );
+
+    let results = sqlx::query_as!(
+        DependentsAmount,
+        r#"
+        SELECT 
+            imported_path,
+            COUNT(DISTINCT importer_path) as "count!"
+        FROM dependency_map 
+        WHERE workspace_id = $1 AND imported_path = ANY($2)
+        GROUP BY imported_path
+        "#,
+        w_id,
+        &imported_paths
+    )
+    .fetch_all(&db)
+    .await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        results_count = results.len(),
+        "API: Found dependents amounts: {:?}",
+        results
+    );
+
+    Ok(Json(results))
 }
 
 #[derive(Deserialize)]

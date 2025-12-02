@@ -15,10 +15,11 @@ import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
-import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
+
+export type RunsSelectionMode = 'cancel' | 're-run'
 
 export namespace OpenApi {
 	export enum OpenApiVersion {
@@ -803,9 +804,7 @@ export function addDeterminant(word: string): string {
 	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
-export function capitalize(word: string): string {
-	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
-}
+export { capitalize } from './sharedUtils'
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
 	if (!word) {

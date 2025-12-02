@@ -100,6 +100,7 @@ ARG POWERSHELL_VERSION=7.5.0
 ARG POWERSHELL_DEB_VERSION=7.5.0-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
+# NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.25.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
@@ -114,7 +115,10 @@ ARG WITH_GIT=true
 ARG LATEST_STABLE_PY=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
+
+RUN mkdir -p /usr/local/uv
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV UV_TOOL_DIR=/usr/local/uv
 
 ENV PATH /usr/local/bin:/root/.local/bin:$PATH
 

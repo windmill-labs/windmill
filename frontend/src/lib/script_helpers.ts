@@ -248,9 +248,9 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const POSTGRES_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
--- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -259,7 +259,8 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MYSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -268,7 +269,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const BIGQUERY_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
@@ -278,7 +280,8 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const ORACLEDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -287,7 +290,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const SNOWFLAKE_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -297,7 +301,7 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-const MSSQL_INIT_CODE = `-- return_last_result
+const MSSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
@@ -307,7 +311,8 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $name (text) = Ben
+const DUCKDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- $name (text) = Ben
 -- $age (text) = 20
 -- -- $friends_csv (s3object)
 
@@ -686,16 +691,21 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
  */\n`
 
-export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
-  event:
-    | {
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(event: TriggerEvent) {
+  return {
+    // return the args to be passed to the runnable
+  };
+}
+
+type TriggerEvent =
+  | {
       kind: "webhook";
       body: any;
       raw_string: string | null;
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "http";
       body: any;
       raw_string: string | null;
@@ -706,21 +716,21 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "email";
       parsed_email: any;
       raw_email: string;
       email_extra_args?: Record<string, string>;
     }
-    | { kind: "websocket"; msg: string; url: string }
-    | {
+  | { kind: "websocket"; msg: string; url: string }
+  | {
       kind: "kafka";
       payload: string;
       brokers: string[];
       topic: string;
       group_id: string;
     }
-    | {
+  | {
       kind: "nats";
       payload: string;
       servers: string[];
@@ -730,7 +740,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       description?: string;
       length: number;
     }
-    | {
+  | {
       kind: "sqs";
       msg: string;
       queue_url: string;
@@ -742,7 +752,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         { string_value?: string; data_type: string }
       >;
     }
-    | {
+  | {
       kind: "mqtt";
       payload: string;
       topic: string;
@@ -759,7 +769,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         content_type?: string;
       };
     }
-    | {
+  | {
       kind: "gcp";
       payload: string;
       message_id: string;
@@ -771,19 +781,14 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       publish_time?: string;
       ack_id?: string;
     }
-    | {
+  | {
       kind: "postgres";
-      transaction_type: "insert" | "update" | "delete",
-      schema_name: string,
-      table_name: string,
-      old_row?: Record<string, any>,
-      row: Record<string, any>
-    }
-) {
-  return {
-    // return the args to be passed to the runnable
-  };
-}
+      transaction_type: "insert" | "update" | "delete";
+      schema_name: string;
+      table_name: string;
+      old_row?: Record<string, any>;
+      row: Record<string, any>;
+    };
 `
 
 const PYTHON_INIT_CODE_APPROVAL = `import wmill

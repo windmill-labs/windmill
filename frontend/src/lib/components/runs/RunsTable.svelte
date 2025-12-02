@@ -7,8 +7,8 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import './runs-grid.css'
+	import type { RunsSelectionMode } from '$lib/utils'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -22,6 +22,7 @@
 		activeLabel?: string | null
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
+		perPage?: number
 	}
 
 	let {
@@ -33,7 +34,8 @@
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
-		lastFetchWentToEnd = $bindable(false)
+		lastFetchWentToEnd = $bindable(false),
+		perPage = 1000
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
@@ -116,7 +118,7 @@
 	let tableHeight: number = $state(0)
 	let headerHeight: number = $state(0)
 	let containerWidth: number = $state(0)
-	// const MAX_ITEMS = 1000
+	// const MAX_ITEMS = perPage
 
 	/*
 	function infiniteHandler({ detail: { loaded, error, complete } }) {
@@ -139,7 +141,7 @@
 			return ''
 		}
 		const jc = jobCount
-		const isTruncated = jc >= 1000 && !lastFetchWentToEnd
+		const isTruncated = jc >= perPage && !lastFetchWentToEnd
 
 		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
@@ -338,13 +340,15 @@
 			{/snippet}
 			{#snippet footer()}
 				<div
-					>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
+					>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
 						<button
-							class="text-xs text-blue-600 text-center w-full pb-2"
+							class="text-xs text-accent text-center w-full pb-2"
 							onclick={() => {
 								dispatch('loadExtra')
-							}}>Load next 1000 jobs</button
+							}}
 						>
+							Load next {perPage} jobs
+						</button>
 					{/if}</div
 				>
 			{/snippet}

@@ -3,6 +3,7 @@ mod annotations_tests {
 
     extern crate windmill_macros;
     use itertools::Itertools;
+    // use pep440_rs::Version;
     use windmill_macros::annotations;
 
     // Previous implementation.
@@ -24,7 +25,7 @@ mod annotations_tests {
     }
 
     #[annotations("#")]
-    #[derive(Eq, PartialEq, Copy, Clone)]
+    #[derive(Eq, PartialEq)]
     pub struct Annotations {
         pub ann1: bool,
         pub ann2: bool,
@@ -34,7 +35,7 @@ mod annotations_tests {
     }
 
     #[annotations("//")]
-    #[derive(Eq, PartialEq, Copy, Clone)]
+    #[derive(Eq, PartialEq)]
     pub struct SlashedAnnotations {
         pub ann1: bool,
         pub ann2: bool,
@@ -43,7 +44,7 @@ mod annotations_tests {
     }
 
     #[annotations("--")]
-    #[derive(Eq, PartialEq, Copy, Clone)]
+    #[derive(Eq, PartialEq)]
     pub struct MinusedAnnotations {
         pub ann1: bool,
         pub ann2: bool,
@@ -166,4 +167,99 @@ mod annotations_tests {
             assert_eq!(expected, Annotations::parse(cont));
         }
     }
+
+    //     // #[derive(serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
+    //     // #[annotations("#")]
+    //     // pub struct SerAnnotations {
+    //     //     pub ann1: bool,
+    //     //     pub stt: String,
+    //     // }
+
+    //     #[test]
+    //     fn non_bool_1() {
+    //         let cont = r#"#ann1, stt: "hey""#;
+    //         // non-bool take entire line, so you can't have one normal and than parsed.
+
+    //         let a = SerAnnotations { ann1: false, stt: "".to_owned() };
+    //         assert_eq!(a, SerAnnotations::parse(cont));
+    //     }
+
+    //     #[test]
+    //     fn non_bool_2() {
+    //         let cont = "#ann1, \n#stt: hey";
+    //         let a = SerAnnotations { ann1: true, stt: "hey".to_owned() };
+    //         assert_eq!(a, SerAnnotations::parse(cont));
+    //     }
+
+    //     #[test]
+    //     fn non_bool_different_idents() {
+    //         #[derive(serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
+    //         #[annotations("#")]
+    //         pub struct A {
+    //             pub s: String,
+    //         }
+    //         assert_eq!(A { s: "hey".to_owned() }, A::parse("#s:hey"));
+    //         assert_eq!(A { s: "hey".to_owned() }, A::parse("#s : hey"));
+    //         assert_eq!(A { s: "hey".to_owned() }, A::parse("#s :hey"));
+    //         assert_eq!(A { s: "hey".to_owned() }, A::parse("#s   :   hey  "));
+    //         assert_eq!(A { s: "hey".to_owned() }, A::parse("#    s   :   hey  "));
+    //         assert_eq!(A { s: "".to_owned() }, A::parse("  #    s   :   hey  "));
+    //     }
+    //     #[test]
+    //     fn non_bool_unparseable_last() {
+    //         #[derive(serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
+    //         #[annotations("#")]
+    //         pub struct A {
+    //             pub v: i32,
+    //         }
+    //         let cont = "#v: 1\n#v: non int";
+    //         let a = A {
+    //             v: 1, // Should still be first, second unparsable one should have no affect on existing values
+    //         };
+    //         assert_eq!(a, A::parse(cont));
+    //     }
+
+    //     #[test]
+    //     fn non_bool_different_types() {
+    //         #[derive(serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
+    //         #[annotations("#")]
+    //         pub struct A {
+    //             pub s: String,
+    //             pub i: i32,
+    //             pub o: Option<String>,
+    //             pub a: Vec<i32>,
+    //             pub v: Option<pep440_rs::Version>, // Custom deser
+    //             pub e: E,
+    //         }
+
+    //         #[derive(
+    //             serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq, Clone, Default, Debug,
+    //         )]
+    //         pub enum E {
+    //             #[default]
+    //             One,
+    //             Two(String),
+    //             Three,
+    //         }
+    //         assert_eq!(
+    //             A {
+    //                 s: "foo".to_owned(),
+    //                 i: 33,
+    //                 o: None,
+    //                 a: vec![1, 2, 3],
+    //                 v: Some(Version::new([1, 0, 0])),
+    //                 e: E::Three
+    //             },
+    //             A::parse(
+    //                 "#
+    // #s: foo
+    // #i: 33
+    // #o:
+    // #a: [1, 2, 3]
+    // #v: 1.0.0
+    // #e: Three
+    //             "
+    //             )
+    //         );
+    //     }
 }

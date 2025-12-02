@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.574.3"
+version = "1.588.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.574.3"
+version = "1.588.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -137,6 +137,7 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_derive.workspace = true
 serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
@@ -160,6 +161,10 @@ bitflags.workspace = true
 nom.workspace = true
 globset.workspace = true
 
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+windows-sys = { version = "0.52", features = ["Win32_System_Services", "Win32_System_Console", "Win32_Foundation"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -259,11 +264,12 @@ tokio-tar = "^0"
 tempfile = "^3"
 tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
-itertools = "^0"
+itertools = "^0.14.0"
 regex = "^1"
 semver = "^1"
 aws-sigv4 = "^1.3.4"
 aws-sdk-config = "=1.68.0"
+aws-sdk-rds = "^1"
 async-trait = "0.1.88"
 
 
@@ -300,7 +306,7 @@ swc_ecma_visit = "=0.104.8"
 
 
 async-recursion = "^1"
-base64 = "^0"
+base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
@@ -328,6 +334,7 @@ dyn-iter = "0.2.0"
 rsa = "^0"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
+dashmap = "6.1.0"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
@@ -380,11 +387,14 @@ datafusion = "47.0.0"
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
+aws-sdk-bedrockruntime = "=1.113.0"
+aws-credential-types = "^1"
+aws-smithy-types = "^1"
 aws-sdk-sqs = "=1.77.0"
 aws-sdk-sts = "=1.79.0"
 aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
-rustls = "=0.23.29"
+rustls = "=0.23.35"
 async-once-cell = "0.5.4"
 
 

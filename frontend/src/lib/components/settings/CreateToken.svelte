@@ -58,6 +58,13 @@
 	let includedRunnables = $state<string[]>([])
 	let selectedFolder = $state<string>('')
 
+	// Granular scope selection
+	let selectedScripts = $state<string[]>([])
+	let selectedFlows = $state<string[]>([])
+	let selectedEndpoints = $state<string[]>([])
+	let allScripts = $state<string[]>([])
+	let allFlows = $state<string[]>([])
+
 	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
@@ -86,9 +93,21 @@
 
 			let tokenScopes = scopes
 			if (mcpMode) {
-				if (newMcpScope === 'folder') {
+				if (newMcpScope === 'custom') {
+					// Granular scope format
+					tokenScopes = []
+					if (selectedScripts.length > 0) {
+						tokenScopes.push(`mcp:scripts:${selectedScripts.join(',')}`)
+					}
+					if (selectedFlows.length > 0) {
+						tokenScopes.push(`mcp:flows:${selectedFlows.join(',')}`)
+					}
+					if (selectedEndpoints.length > 0) {
+						tokenScopes.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
+					}
+				} else if (newMcpScope === 'folder') {
 					const folderPath = `f/${selectedFolder}/*`
-					tokenScopes = [`mcp:all:${folderPath}`]
+					tokenScopes = [`mcp:scripts:${folderPath}`, `mcp:flows:${folderPath}`, `mcp:endpoints:*`]
 				} else {
 					tokenScopes = [`mcp:${newMcpScope}`]
 				}
@@ -183,7 +202,8 @@
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return scripts.map((x) => x.path)
 	}
@@ -200,7 +220,8 @@
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return flows.map((x) => x.path)
 	}
@@ -247,6 +268,53 @@
 			selectedFolder = ''
 		}
 	})
+
+	$effect(() => {
+		if (mcpCreationMode && newMcpScope === 'custom') {
+			const workspace = newTokenWorkspace || $workspaceStore
+			if (workspace) {
+				loadAllScriptsAndFlows(workspace)
+			}
+		}
+	})
+
+	async function loadAllScriptsAndFlows(workspace: string) {
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([
+				getScripts(false, workspace, undefined),
+				getFlows(false, workspace, undefined)
+			])
+			allScripts = scripts
+			allFlows = flows
+		} finally {
+			loadingRunnables = false
+		}
+	}
+
+	function selectAllScripts() {
+		selectedScripts = [...allScripts]
+	}
+
+	function clearAllScripts() {
+		selectedScripts = []
+	}
+
+	function selectAllFlows() {
+		selectedFlows = [...allFlows]
+	}
+
+	function clearAllFlows() {
+		selectedFlows = []
+	}
+
+	function selectAllEndpoints() {
+		selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+	}
+
+	function clearAllEndpoints() {
+		selectedEndpoints = []
+	}
 </script>
 
 <div>
@@ -317,7 +385,7 @@
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
-				<div>
+				<div class="col-span-2">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
@@ -338,6 +406,12 @@
 								value="folder"
 								label="Folder"
 								tooltip="Make all scripts and flows in the selected folder available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="custom"
+								label="Custom"
+								tooltip="Select exactly which scripts, flows, and endpoints to expose"
 							/>
 						{/snippet}
 					</ToggleButtonGroup>
@@ -404,7 +478,68 @@
 					/>
 				</div>
 			{/if}
-			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
+			{#if mcpCreationMode && newMcpScope === 'custom'}
+				{#if loadingRunnables}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<span class="block text-xs text-primary">Loading scripts and flows...</span>
+						<div class="flex flex-wrap gap-1">
+							<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
+						</div>
+					</div>
+				{:else}
+					{#snippet sectionHeader(label: string, selectAll: () => void, clearAll: () => void)}
+						<div class="flex items-center justify-between">
+							<span class="block text-xs font-semibold">{label}</span>
+							<div class="flex gap-2">
+								<Button size="xs2" on:click={selectAll}>Select All</Button>
+								<Button size="xs2" on:click={clearAll}>Clear All</Button>
+							</div>
+						</div>
+					{/snippet}
+
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<div class="flex flex-col gap-2">
+							{@render sectionHeader('Scripts', selectAllScripts, clearAllScripts)}
+							{#if allScripts.length > 0}
+								<MultiSelect
+									items={safeSelectItems(allScripts)}
+									placeholder="Select scripts"
+									bind:value={selectedScripts}
+								/>
+							{:else}
+								<p class="text-xs text-primary">No scripts available</p>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('Flows', selectAllFlows, clearAllFlows)}
+							{#if allFlows.length > 0}
+								<MultiSelect
+									items={safeSelectItems(allFlows)}
+									placeholder="Select flows"
+									bind:value={selectedFlows}
+								/>
+							{:else}
+								<p class="text-xs text-primary">No flows available</p>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
+							<MultiSelect
+								items={safeSelectItems(mcpEndpointTools.map((e) => e.name))}
+								placeholder="Select endpoints"
+								bind:value={selectedEndpoints}
+							/>
+						</div>
+
+						<div class="text-xs text-primary mt-2">
+							Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
+							endpoints
+						</div>
+					</div>
+				{/if}
+			{:else if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
 				{#if loadingRunnables}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
 						<span class="block text-xs text-primary"
@@ -476,7 +611,12 @@
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
-					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+					(newTokenWorkspace == undefined ||
+						(newMcpScope === 'folder' && !selectedFolder) ||
+						(newMcpScope === 'custom' &&
+							selectedScripts.length === 0 &&
+							selectedFlows.length === 0 &&
+							selectedEndpoints.length === 0))}
 				variant="accent"
 			>
 				New token

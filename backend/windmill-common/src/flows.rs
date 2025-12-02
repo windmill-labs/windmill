@@ -66,6 +66,7 @@ pub struct FlowWithStarred {
     pub starred: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock_error_logs: Option<String>,
+    pub version_id: i64,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -77,7 +78,8 @@ pub struct ListableFlow {
     pub workspace_id: String,
     pub path: String,
     pub summary: String,
-    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub edited_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
@@ -193,7 +195,7 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_env: Option<HashMap<String, Box<RawValue>>>
+    pub flow_env: Option<HashMap<String, Box<RawValue>>>,
 }
 
 impl FlowValue {
@@ -244,7 +246,13 @@ impl FlowValue {
                         }
                     }
                 }
-                BranchOne { branches, .. } | BranchAll { branches, .. } => {
+                BranchOne { default, branches, .. } => {
+                    Self::traverse_leafs(default.iter().collect(), cb)?;
+                    for branch in branches {
+                        Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
+                    }
+                }
+                BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
                     }
@@ -867,6 +875,8 @@ pub enum FlowModuleValue {
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         parallelism: Option<InputTransform>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        squash: Option<bool>,
     },
 
     /// While loop node
@@ -876,6 +886,8 @@ pub enum FlowModuleValue {
         modules_node: Option<FlowNodeId>,
         #[serde(default = "default_false")]
         skip_failures: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        squash: Option<bool>,
     },
 
     /// Branch-one node
@@ -987,6 +999,7 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
+    squash: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -1025,6 +1038,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 skip_failures: untagged.skip_failures.unwrap_or(true),
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
+                squash: untagged.squash,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -1032,6 +1046,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("modules"))?,
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
+                squash: untagged.squash,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1121,6 +1136,7 @@ where
 
 #[derive(Deserialize)]
 pub struct ListFlowQuery {
+    pub without_description: Option<bool>,
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
     pub edited_by: Option<String>,

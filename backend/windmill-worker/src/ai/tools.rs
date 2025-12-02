@@ -471,6 +471,7 @@ async fn execute_windmill_tool(
         true,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -527,6 +528,7 @@ async fn execute_windmill_tool(
             inner_job_completed_tx_spawn,
             &mut occupancy_metrics_spawn,
             &mut killpill_rx_spawn,
+            None,
             None,
             #[cfg(feature = "benchmark")]
             &mut bench_spawn,
@@ -655,8 +657,9 @@ async fn handle_tool_execution_success(
         ..
     }) = send_result.as_ref()
     {
+        let result = result.clone();
         ctx.job_completed_tx
-            .send(send_result.as_ref().unwrap().result.clone(), true)
+            .send(send_result.unwrap().result, true)
             .await
             .map_err(to_anyhow)?;
         result

@@ -10,6 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     auth::OptTokened,
     db::{ApiAuthed, DB},
+    jobs::RunJobQuery,
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
@@ -173,6 +174,7 @@ pub struct AppWithLastVersion {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
+    pub raw_app: bool,
 }
 
 #[derive(Serialize, FromRow)]
@@ -509,7 +511,7 @@ async fn get_app(
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app
             FROM app
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -529,7 +531,7 @@ async fn get_app(
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, NULL as starred
+            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         )
@@ -556,7 +558,7 @@ async fn get_app_lite(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
-        app_version.created_at, app_version.created_by, NULL as starred
+        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -595,7 +597,8 @@ async fn get_app_w_draft(
             app_version.created_at, 
             app_version.created_by,
             app.draft_only,
-            draft.value AS "draft"
+            draft.value AS "draft",
+            app_version.raw_app
         FROM app
         INNER JOIN app_version 
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -738,7 +741,8 @@ async fn get_app_by_id(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by from app, app_version 
+        app_version.created_at, app_version.created_by, app_version.raw_app
+        FROM app, app_version 
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
     .bind(&id)
@@ -765,7 +769,8 @@ async fn get_public_app_by_secret(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
-        app_version.created_at, app_version.created_by from app, app_version 
+        app_version.created_at, app_version.created_by, app_version.raw_app
+        FROM app, app_version 
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
@@ -1241,6 +1246,7 @@ async fn create_app_internal<'a>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1630,6 +1636,7 @@ async fn update_app_internal<'a>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1652,6 +1659,8 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
+    /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
+    pub run_query_params: Option<RunJobQuery>,
 }
 
 fn digest(code: &str) -> String {
@@ -1892,6 +1901,12 @@ async fn execute_component(
     )
     .await?;
 
+    let is_flow = payload
+        .path
+        .as_ref()
+        .map(|p| p.starts_with("flow/"))
+        .unwrap_or(false);
+
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
@@ -1918,7 +1933,7 @@ async fn execute_component(
 
     let end_user_email = opt_authed.as_ref().map(|a| a.email.clone());
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -1949,8 +1964,17 @@ async fn execute_component(
         false,
         end_user_email,
         None,
+        None,
     )
     .await?;
+
+    // Apply runnable query parameters if provided
+    if let Some(ref run_query) = payload.run_query_params {
+        if is_flow {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        }
+    }
+
     tx.commit().await?;
 
     Ok(uuid.to_string())

@@ -57,15 +57,19 @@
 
 	async function loadItems(): Promise<void> {
 		if (itemKind == 'flow') {
-			items = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((flow) => ({
+			items = (
+				await FlowService.listFlows({ workspace: $workspaceStore!, withoutDescription: true })
+			).map((flow) => ({
 				value: flow.path,
-				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`
+				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`,
+				withoutDescription: true
 			}))
 		} else if (itemKind == 'script') {
 			items = (
 				await ScriptService.listScripts({
 					workspace: $workspaceStore!,
-					kinds: kinds.join(',')
+					kinds: kinds.join(','),
+					withoutDescription: true
 				})
 			).map((script) => ({
 				value: script.path,

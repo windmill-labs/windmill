@@ -171,6 +171,91 @@ const DOT_PATTERN: &'static str = ".";
 const START_BRACKET_PATTERN: &'static str = "[\"";
 const END_BRACKET_PATTERN: &'static str = "\"]";
 
+/// Determines if we should prepend "return" to the expression
+#[cfg(feature = "deno_core")]
+fn should_add_return(expr: &str) -> bool {
+    // Trim whitespace
+    let trimmed = expr.trim();
+
+    // If it's empty, add return
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    // Check if it already starts with 'return' keyword (as a statement)
+    // Use word boundary to avoid matching "return" in variable names
+    if trimmed.starts_with("return ") || trimmed.starts_with("return;") || trimmed == "return" {
+        return false;
+    }
+
+    // Check for common statement patterns that shouldn't have return prepended
+    let statement_prefixes = [
+        "const ",
+        "let ",
+        "var ",
+        "if ",
+        "if(",
+        "for ",
+        "for(",
+        "while ",
+        "while(",
+        "switch ",
+        "switch(",
+        "try ",
+        "try{",
+        "throw ",
+        "function ",
+        "class ",
+        "async ",
+        "await ",
+    ];
+
+    for prefix in &statement_prefixes {
+        if trimmed.starts_with(prefix) {
+            return false;
+        }
+    }
+
+    // Check for multiple statements (contains semicolon not in a string)
+    // This is still not perfect but better than current logic
+    if contains_semicolon_outside_strings(trimmed) {
+        return false;
+    }
+
+    // Default: assume it's an expression that needs return
+    true
+}
+
+/// Checks if the expression contains a semicolon outside of strings
+#[cfg(feature = "deno_core")]
+fn contains_semicolon_outside_strings(expr: &str) -> bool {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_template = false;
+    let mut prev_char = '\0';
+
+    for ch in expr.chars() {
+        match ch {
+            '\'' if prev_char != '\\' && !in_double_quote && !in_template => {
+                in_single_quote = !in_single_quote;
+            }
+            '"' if prev_char != '\\' && !in_single_quote && !in_template => {
+                in_double_quote = !in_double_quote;
+            }
+            '`' if prev_char != '\\' && !in_single_quote && !in_double_quote => {
+                in_template = !in_template;
+            }
+            ';' if !in_single_quote && !in_double_quote && !in_template => {
+                return true;
+            }
+            _ => {}
+        }
+        prev_char = ch;
+    }
+
+    false
+}
+
 fn try_exact_property_access(
     expr: &str,
     flow_input: Option<&mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
@@ -574,10 +659,10 @@ async function resource(path) {{
         (String::new(), String::new())
     };
 
-    let f = if expr.contains("return ") {
-        expr.to_string()
-    } else {
+    let f = if should_add_return(expr) {
         format!("return {expr}")
+    } else {
+        expr.to_string()
     };
 
     let ctx_str = ctx
@@ -607,7 +692,33 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result?.error;"
+            r#"let error = previous_result?.error;
+if (!error) {
+    if (Array.isArray(previous_result)) {
+        const errors = previous_result.filter(item => item && typeof item === 'object' && 'error' in item);
+        if (errors.length === 1) {
+            error = errors[0].error;
+        } else if (errors.length > 1) {
+            error = {
+                name: 'MultipleErrors',
+                message: errors.map(({ error: e }, i) => `[${e.step_id || i}] ${e.message || e.name}`).join('; '),
+                errors: previous_result
+            };
+        } else {
+            error = {
+                name: 'MultipleErrors',
+                message: "Could not parse errors",
+                errors: previous_result
+            };
+        }
+    } else {
+        if (previous_result) {
+            error = { name: 'UnknownError', message: 'Could not parse the error', error: previous_result };
+        } else {
+            error = { name: 'UnknownError', message: 'No error found' };
+        }
+    }
+}"#
         } else {
             ""
         },
@@ -1492,4 +1603,80 @@ multiline template`";
     //     assert_eq!(res.0.get(), "\"\"");
     //     Ok(())
     // }
+
+    #[test]
+    fn test_should_add_return() {
+        // Simple expressions should get return added
+        assert_eq!(should_add_return("5"), true);
+        assert_eq!(should_add_return("x + y"), true);
+        assert_eq!(should_add_return("foo()"), true);
+        assert_eq!(should_add_return("obj.property"), true);
+
+        // Object literals should get return added
+        assert_eq!(should_add_return("{ foo: 'bar' }"), true);
+        assert_eq!(should_add_return("{ a: 1, b: 2 }"), true);
+        assert_eq!(should_add_return("{}"), true);
+
+        // Already has return
+        assert_eq!(should_add_return("return 5"), false);
+        assert_eq!(should_add_return("return x + y"), false);
+        assert_eq!(should_add_return("return;"), false);
+        assert_eq!(should_add_return("return"), false);
+
+        // Should NOT add return for statements
+        assert_eq!(should_add_return("const x = 5"), false);
+        assert_eq!(should_add_return("let y = 10"), false);
+        assert_eq!(should_add_return("var z = 15"), false);
+        assert_eq!(should_add_return("if (x > 5) { return x; }"), false);
+        assert_eq!(should_add_return("for (let i = 0; i < 10; i++) {}"), false);
+        assert_eq!(should_add_return("while (true) {}"), false);
+        assert_eq!(should_add_return("function foo() {}"), false);
+        assert_eq!(should_add_return("throw new Error('test')"), false);
+
+        // Multiple statements with semicolons (including block statements)
+        assert_eq!(should_add_return("let x = 5; x + 1"), false);
+        assert_eq!(should_add_return("{ const x = 5; return x; }"), false);
+
+        // Edge case: "return" in a string should still get return prepended
+        assert_eq!(should_add_return("\"return this string\""), true);
+        assert_eq!(should_add_return("'return in single quotes'"), true);
+        assert_eq!(should_add_return("`return in template literal`"), true);
+
+        // Semicolons in strings should not trigger multi-statement detection
+        assert_eq!(should_add_return("\"hello; world\""), true);
+        assert_eq!(should_add_return("'test; string'"), true);
+        assert_eq!(should_add_return("`template; literal`"), true);
+    }
+
+    #[test]
+    fn test_contains_semicolon_outside_strings() {
+        // Semicolons outside strings
+        assert_eq!(contains_semicolon_outside_strings("let x = 5; x + 1"), true);
+        assert_eq!(contains_semicolon_outside_strings("x; y"), true);
+
+        // Semicolons inside strings (should NOT be detected)
+        assert_eq!(
+            contains_semicolon_outside_strings("\"hello; world\""),
+            false
+        );
+        assert_eq!(contains_semicolon_outside_strings("'test; string'"), false);
+        assert_eq!(
+            contains_semicolon_outside_strings("`template; literal`"),
+            false
+        );
+
+        // Mixed cases
+        assert_eq!(
+            contains_semicolon_outside_strings("let x = 'hello; world'; x"),
+            true
+        );
+        assert_eq!(
+            contains_semicolon_outside_strings("console.log(\"test; string\")"),
+            false
+        );
+
+        // No semicolons
+        assert_eq!(contains_semicolon_outside_strings("x + y"), false);
+        assert_eq!(contains_semicolon_outside_strings("foo()"), false);
+    }
 }

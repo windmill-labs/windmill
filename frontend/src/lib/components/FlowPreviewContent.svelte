@@ -38,8 +38,7 @@
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
-	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
+	import FlowChat from './flows/conversations/FlowChat.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -95,13 +94,13 @@
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
-	export async function test(): Promise<string | undefined> {
+	export async function test(conversationId?: string): Promise<string | undefined> {
 		renderCount++
-		return await runPreview(previewArgs.val, undefined)
+		return await runPreview(previewArgs.val, undefined, conversationId)
 	}
 
 	const {
-		selectedId,
+		selectionManager,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -120,6 +119,16 @@
 	let flowProgressBar: FlowProgressBar | undefined = $state(undefined)
 	let loadingHistory = $state(false)
 
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
+
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
 		if (previewMode === 'whole') {
@@ -127,7 +136,7 @@
 		} else {
 			const flow = previewFlow ?? stateSnapshot(flowStore).val
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
-			let upToIndex = idOrders.indexOf(upToId ?? $selectedId)
+			let upToIndex = idOrders.indexOf(upToId ?? selectionManager.getSelectedId() ?? '')
 
 			if (upToIndex != -1) {
 				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)
@@ -139,7 +148,8 @@
 	let lastPreviewFlow: undefined | string = $state(undefined)
 	export async function runPreview(
 		args: Record<string, any>,
-		restartedFrom: RestartedFrom | undefined
+		restartedFrom: RestartedFrom | undefined,
+		conversationId?: string | undefined
 	) {
 		let newJobId: string | undefined = undefined
 		if (stepHistoryLoader?.flowJobInitial !== false) {
@@ -149,7 +159,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
@@ -431,7 +441,7 @@
 							{#if previewMode == 'upTo'}
 								Test up to
 								<Badge baseClass="ml-1" color="indigo">
-									{$selectedId}
+									{selectionManager.getSelectedId()}
 								</Badge>
 							{:else}
 								Test flow
@@ -464,15 +474,14 @@
 		{#if render}
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full">
-					<FlowChatInterface
-						onRunFlow={async (userMessage, _conversationId) => {
-							await runPreview({ user_message: userMessage }, undefined)
+					<FlowChat
+						useStreaming={shouldUseStreaming}
+						onRunFlow={async (userMessage, conversationId) => {
+							await runPreview({ user_message: userMessage }, undefined, conversationId)
 							return jobId ?? ''
 						}}
-						createConversation={async () => {
-							const newConversationId = randomUUID()
-							return newConversationId
-						}}
+						hideSidebar={true}
+						path={$pathStore}
 					/>
 				</div>
 			{:else}

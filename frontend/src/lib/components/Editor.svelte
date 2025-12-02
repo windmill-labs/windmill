@@ -91,10 +91,10 @@
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
-	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
+	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -432,11 +432,46 @@
 	let command: IDisposable | undefined = undefined
 
 	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
+	let resultCollectionCompletor: IDisposable | undefined = $state(undefined)
 
 	function addSqlTypeCompletions() {
-		if (sqlTypeCompletor) {
-			sqlTypeCompletor.dispose()
-		}
+		sqlTypeCompletor?.dispose()
+		resultCollectionCompletor?.dispose()
+
+		resultCollectionCompletor = languages.registerCompletionItemProvider('sql', {
+			triggerCharacters: ['='],
+			provideCompletionItems: function (model, position) {
+				const lineContent = model.getLineContent(position.lineNumber)
+				const match = lineContent.match(/^--\s*result_collection=/)
+				if (!match) {
+					return { suggestions: [] }
+				}
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				const suggestions = [
+					'last_statement_all_rows',
+					'last_statement_first_row',
+					'last_statement_all_rows_scalar',
+					'last_statement_first_row_scalar',
+					'all_statements_all_rows',
+					'all_statements_first_row',
+					'all_statements_all_rows_scalar',
+					'all_statements_first_row_scalar'
+				].map((label) => ({
+					label: label,
+					kind: languages.CompletionItemKind.Function,
+					insertText: label,
+					range,
+					sortText: 'a'
+				}))
+				return { suggestions }
+			}
+		})
 		sqlTypeCompletor = languages.registerCompletionItemProvider('sql', {
 			triggerCharacters: scriptLang === 'postgresql' ? [':'] : ['('],
 			provideCompletionItems: function (model, position) {
@@ -1587,6 +1622,7 @@
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
+		resultCollectionCompletor && resultCollectionCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
@@ -1655,7 +1691,7 @@
 	$effect(() => {
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
-			: sqlTypeCompletor?.dispose()
+			: (sqlTypeCompletor?.dispose(), resultCollectionCompletor?.dispose())
 	})
 
 	$effect(() => {

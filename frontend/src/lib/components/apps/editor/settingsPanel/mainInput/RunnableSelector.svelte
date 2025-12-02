@@ -3,7 +3,7 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -12,7 +12,6 @@
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import type { InlineScript } from '$lib/components/apps/types'
 
 	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -66,7 +65,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'script')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'script',
 			schema: schema.schema,
@@ -83,7 +82,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'flow')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'flow',
 			schema,
@@ -99,7 +98,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'hubscript',
 			schema: schema.schema,
@@ -116,7 +115,7 @@
 		const unusedInlineScript = unusedInlineScripts?.[unusedInlineScriptIndex]
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
+				type: 'inline',
 				name,
 				inlineScript: unusedInlineScript.inlineScript
 			},
@@ -132,7 +131,7 @@
 
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
+				type: 'inline',
 				name: newScriptName,
 				inlineScript: undefined
 			},

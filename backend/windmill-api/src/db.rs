@@ -53,6 +53,9 @@ lazy_static::lazy_static! {
                     ).to_string()),
                     (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
                     (20221123151919, "".to_string()),
+                    (20251105100125, include_str!(
+                        "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
+                    ).replace("✅", "")),
                     ].into_iter().collect();
 }
 
@@ -166,6 +169,7 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
+                // tracing::info!("Migration SQL: {}", migration_sql);
 
                 self.inner
                     .execute(&**migration_sql)

@@ -50,7 +50,7 @@
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
-	let targetBranch = $state('main') // Default to main, will be updated when resource is available
+	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -94,17 +94,27 @@
 				: isLegacy
 					? 'Legacy promotion repository'
 					: isSecondary
-						? 'Secondary sync repository'
+						? repo?.use_individual_branch
+							? 'Secondary promotion repository'
+							: 'Secondary sync repository'
 						: `Repository #${(idx ?? 0) + 1}`
 	)
 
+	// Determine the actual mode based on repository configuration
+	const repoMode = $derived<'sync' | 'promotion'>(
+		variant === 'primary-promotion' || variant === 'legacy' || repo?.use_individual_branch
+			? 'promotion'
+			: 'sync'
+	)
+
 	// Determine display description based on variant and mode
+	const targetOrDefaultBranch = $derived(targetBranch ? `'${targetBranch}'` : "repo's default")
 	const displayDescription = $derived(
 		variant === 'primary-sync' || variant === 'primary-promotion'
 			? mode === 'sync'
-				? `Changes will be committed directly to the ${targetBranch} branch`
+				? `Changes will be committed directly to the ${targetOrDefaultBranch} branch`
 				: mode === 'promotion'
-					? `Changes will be made to new branches whose promotion target is ${targetBranch}`
+					? `Changes will be made to new branches whose promotion target is the ${targetOrDefaultBranch} branch`
 					: null
 			: null
 	)
@@ -179,7 +189,7 @@
 {#snippet headerActions()}
 	{#if !isLegacy}
 		{#if validation?.hasChanges && validation?.isValid && !repo.isUnsavedConnection}
-			<Button size="xs" onclick={handleSave} startIcon={{ icon: Save }}>
+			<Button size="xs" variant="accent" onclick={handleSave} startIcon={{ icon: Save }}>
 				{repo.legacyImported ? 'Migrate and save' : 'Save changes'}
 			</Button>
 			{#if idx !== null && gitSyncContext.initialRepositories[idx] && !repo.legacyImported}
@@ -351,10 +361,7 @@
 
 			<!-- Configuration -->
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
-				<DetectionFlow
-					{idx}
-					mode={variant === 'primary-promotion' || variant === 'legacy' ? 'promotion' : 'sync'}
-				/>
+				<DetectionFlow {idx} mode={repoMode} />
 			{:else}
 				<GitSyncFilterSettings
 					bind:git_repo_resource_path={repo.git_repo_resource_path}
@@ -379,13 +386,7 @@
 					<div class="flex justify-between items-start">
 						<!-- Display mode settings as prominent text -->
 						<div class="flex-1 mr-4">
-							<GitSyncModeDisplay
-								mode={variant === 'primary-promotion' || variant === 'legacy'
-									? 'promotion'
-									: 'sync'}
-								{targetBranch}
-								repository={repo}
-							/>
+							<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
 						</div>
 
 						<!-- Manual sync section for existing repos -->

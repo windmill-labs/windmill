@@ -12,7 +12,7 @@
 		PostgresTriggerService,
 		CaptureService,
 		type ScriptLang,
-		WorkerService
+		WorkerService,
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import {
@@ -189,7 +189,7 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-
+	
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -379,7 +379,7 @@
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
-		scriptEditor?.inferSchema(script.content, language, true)
+		scriptEditor?.inferSchema(script.content, { nlang: language, resetArgs: true })
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
@@ -567,7 +567,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || script.kind !== 'script' || script.no_main_func) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -849,7 +849,7 @@
 		captureOn.set(true)
 	}
 
-	function addPreprocessor() {
+	function addPreprocessor(e?: { detail?: { args: Record<string, any> } }) {
 		const code = editor?.getCode()
 		if (code) {
 			const preprocessorCode = getPreprocessorFullCode(script.language, false)
@@ -865,6 +865,11 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+
+		// Apply provided args to the preprocessor
+		if (e?.detail?.args && Object.keys(e.detail.args).length > 0) {
+			args = { ...args, ...e.detail.args }
+		}
 	}
 
 	function handleDeployTrigger(trigger: Trigger) {
@@ -1668,7 +1673,7 @@
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
-									hash={script.parent_hash}
+									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 
@@ -1754,6 +1759,7 @@
 							/>
 						</div>
 					{/if}
+					
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}

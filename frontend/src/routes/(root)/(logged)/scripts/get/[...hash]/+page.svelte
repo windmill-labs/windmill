@@ -58,10 +58,10 @@
 		Pen,
 		ChevronUpSquare,
 		Share,
-		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -339,8 +339,8 @@
 					},
 
 					unifiedSize: 'md',
-					variant: 'accent',
-					startIcon: Table2
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -367,7 +367,7 @@
 						}`,
 						unifiedSize: 'md',
 						startIcon: Pen,
-						variant: 'accent-secondary',
+						variant: 'accent',
 						disabled: !can_write
 					}
 				})
@@ -783,6 +783,9 @@
 					on:selected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
+						if (jsonView) {
+							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+						}
 					}}
 				/>
 			{/if}
@@ -791,7 +794,7 @@
 			{#if script}
 				<TriggersEditor
 					{args}
-					hash={script.hash}
+					runnableVersion={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}

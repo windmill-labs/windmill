@@ -16,6 +16,7 @@
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
+	import AppJobProgressBar from '../../components/display/AppJobProgressBar.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 	import AppAccordionList from '../../components/display/AppAccordionList.svelte'
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
@@ -52,6 +53,7 @@
 	import AppDateInput from '../../components/inputs/AppDateInput.svelte'
 	import AppSelect from '../../components/inputs/AppSelect.svelte'
 	import AppBarChart from '../../components/display/AppBarChart.svelte'
+	import AppChat from '../../components/display/AppChat.svelte'
 	import AppDivider from '../../components/layout/AppDivider.svelte'
 	import AppRangeInput from '../../components/inputs/AppRangeInput.svelte'
 	import AppTabs from '../../components/layout/AppTabs.svelte'
@@ -110,6 +112,7 @@
 		'carousellistcomponent',
 		'chartjscomponent',
 		'chartjscomponentv2',
+		'chatcomponent',
 		'checkboxcomponent',
 		'codeinputcomponent',
 		'conditionalwrapper',
@@ -144,6 +147,7 @@
 	])
 	const chunk5Components = new Set([
 		'jobidlogcomponent',
+		'jobprogressbarcomponent',
 		'listcomponent',
 		'logcomponent',
 		'mapcomponent',
@@ -338,6 +342,16 @@
 				componentInput={component.componentInput}
 				datasets={component.datasets}
 				xData={component.xData}
+				{render}
+			/>
+		{:else if component.type === 'chatcomponent'}
+			<AppChat
+				id={component.id}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
@@ -587,6 +601,14 @@
 	{#if chunk5Components.has(component.type)}
 		{#if component.type === 'jobidlogcomponent'}
 			<AppJobIdLogComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'jobprogressbarcomponent'}
+			<AppJobProgressBar
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing

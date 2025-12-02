@@ -1,6 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { buildParameters, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeSnowflakeSelectQuery(
@@ -279,7 +280,7 @@ export function getSelectInput(
 	if (dbInput.type === 'ducklake') content = wrapDucklakeQuery(content, dbInput.ducklake)
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: { content, language: getLanguageByResourceType(dbType) }
 	}
 

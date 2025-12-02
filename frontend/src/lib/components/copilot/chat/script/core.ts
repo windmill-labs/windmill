@@ -9,7 +9,6 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
-import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import {
@@ -23,6 +22,7 @@ import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
+import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -204,7 +204,8 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'graphql',
 	'powershell',
 	'csharp',
-	'java'
+	'java',
+	'duckdb'
 ]
 
 export function getLangContext(
@@ -310,6 +311,8 @@ export function getLangContext(
 			return 'The user is coding in C#. On Windmill, it is expected the script contains a public static Main method inside a class. The class name is irrelevant. NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script. The Main method signature should be: public static ReturnType Main(parameter types...)'
 		case 'java':
 			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
+		case 'duckdb':
+			return "The user is coding in DuckDB. On Windmill, arguments are defined with comments like `-- $name (text) = default` or `-- $name (text)` (one per line) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes, then perform CRUD operations. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);` and query with `SELECT * FROM db.schema.table;`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage"
 		default:
 			return ''
 	}
@@ -894,6 +897,9 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -944,7 +950,8 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Code changes applied`
+				content: `Code changes applied`,
+				result: 'Success'
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -960,6 +967,9 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 export const editCodeTool: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -981,8 +991,6 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Code parameter is required and must be a string')
 		}
 
-		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-
 		try {
 			// Save old code
 			const oldCode = scriptOptions.code
@@ -993,7 +1001,10 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			// Show revert mode
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Code changes applied',
+				result: 'Success'
+			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'

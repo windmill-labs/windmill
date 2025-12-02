@@ -79,7 +79,7 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
-use windmill_queue::{SameWorkerPayload, cancel_job,  get_queued_job_v2};
+use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
@@ -1271,7 +1271,7 @@ pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
         }
     };
-    set_license_key(value).await;
+    set_license_key(value, conn.as_sql()).await;
     Ok(())
 }
 
@@ -2219,7 +2219,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             );
         }
 
-
         timeouts
     };
 
@@ -2252,7 +2251,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             }
         }
     }
-
 
     let timeouts = non_restartable_jobs
         .into_iter()
@@ -2289,59 +2287,61 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        let token = create_token_for_owner(
-            &db,
-            &job.workspace_id,
-            &job.permissioned_as,
-            &label,
-            *SCRIPT_TOKEN_EXPIRY,
-            &job.permissioned_as_email,
-            &job.id,
-            None,
-            Some(format!("handle_zombie_jobs")),
-        )
-        .await
-        .expect("could not create job token");
+            let label = if job.permissioned_as != format!("u/{}", job.created_by)
+                && job.permissioned_as != job.created_by
+            {
+                format!("ephemeral-script-end-user-{}", job.created_by)
+            } else {
+                "ephemeral-script".to_string()
+            };
+            let token = create_token_for_owner(
+                &db,
+                &job.workspace_id,
+                &job.permissioned_as,
+                &label,
+                *SCRIPT_TOKEN_EXPIRY,
+                &job.permissioned_as_email,
+                &job.id,
+                None,
+                Some(format!("handle_zombie_jobs")),
+            )
+            .await
+            .expect("could not create job token");
 
-        let client = AuthedClient::new(
-            base_internal_url.to_string(),
-            job.workspace_id.to_string(),
-            token,
-            None,
-        );
+            let client = AuthedClient::new(
+                base_internal_url.to_string(),
+                job.workspace_id.to_string(),
+                token,
+                None,
+            );
 
-        let error_message = format!(
-            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
-            job.last_ping.unwrap_or_default(),
-            *ZOMBIE_JOB_TIMEOUT,
-            error_kind.to_string(),
-            job.worker.clone().unwrap_or_default(),
-        );
-        let memory_peak = job.memory_peak.unwrap_or(0);
-        let _ = handle_job_error(
-            db,
-            &client,
-            &windmill_queue::MiniCompletedJob::from(job),
-            memory_peak,
-            None,
-            error::Error::ExecutionErr(error_message),
-            true,
-            Some(&same_worker_tx_never_used),
-            "",
-            node_name,
-            send_result_never_used,
-            #[cfg(feature = "benchmark")]
-            &mut windmill_common::bench::BenchmarkIter::new(),
-        )
-        .await;
-    }
+            let error_message = format!(
+                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
+                job.last_ping.unwrap_or_default(),
+                *ZOMBIE_JOB_TIMEOUT,
+                error_kind.to_string(),
+                job.worker.clone().unwrap_or_default(),
+            );
+            let memory_peak = job.memory_peak.unwrap_or(0);
+            let (_, killpill_rx_never_used) = KillpillSender::new(1);
+            let _ = handle_job_error(
+                db,
+                &client,
+                &windmill_queue::MiniCompletedJob::from(job),
+                memory_peak,
+                None,
+                error::Error::ExecutionErr(error_message),
+                true,
+                Some(&same_worker_tx_never_used),
+                "",
+                node_name,
+                send_result_never_used,
+                &killpill_rx_never_used,
+                #[cfg(feature = "benchmark")]
+                &mut windmill_common::bench::BenchmarkIter::new(),
+            )
+            .await;
+        }
     }
 }
 

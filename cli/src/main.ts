@@ -36,7 +36,9 @@ import { pull, push } from "./commands/sync/sync.ts";
 import { add as workspaceAdd } from "./commands/workspace/workspace.ts";
 import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
+import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import jobs from "./commands/jobs/jobs.ts";
 
 export {
   flow,
@@ -68,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.574.3";
+export const VERSION = "1.588.0";
 
 export const WM_FORK_PREFIX = "wm-fork";
 
@@ -126,6 +128,8 @@ const command = new Command()
   .command("worker-groups", workerGroups)
   .command("workers", workers)
   .command("queues", queues)
+  .command("dependencies", dependencies)
+  .command("jobs", jobs)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

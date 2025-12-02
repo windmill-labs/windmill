@@ -264,6 +264,10 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
+    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
     /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -505,7 +509,10 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+    let mut file = File::create(&path).map_err(|e| {
+        tracing::error!("Failed to create file at {path}: {:?}", &e);
+        e
+    })?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)
@@ -663,13 +670,11 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
@@ -682,7 +687,6 @@ pub struct PythonAnnotations {
     pub py313: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("//")]
 pub struct GoAnnotations {
     pub go1_22_compat: bool,
@@ -698,13 +702,174 @@ pub struct TypeScriptAnnotations {
 
 #[annotations("--")]
 pub struct SqlAnnotations {
-    pub return_last_result: bool,
+    pub return_last_result: bool, // deprecated, use result_collection instead
+    pub result_collection: SqlResultCollectionStrategy,
 }
 
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SqlResultCollectionStrategy {
+    LastStatementAllRows,
+    LastStatementFirstRow,
+    LastStatementAllRowsScalar,
+    LastStatementFirstRowScalar,
+    AllStatementsAllRows,
+    AllStatementsFirstRow,
+    AllStatementsAllRowsScalar,
+    AllStatementsFirstRowScalar,
+    Legacy,
+}
+
+impl SqlResultCollectionStrategy {
+    pub fn parse(s: &str) -> Self {
+        use SqlResultCollectionStrategy::*;
+        match s {
+            "last_statement_all_rows" => LastStatementAllRows,
+            "last_statement_first_row" => LastStatementFirstRow,
+            "last_statement_all_rows_scalar" => LastStatementAllRowsScalar,
+            "last_statement_first_row_scalar" => LastStatementFirstRowScalar,
+            "all_statements_all_rows" => AllStatementsAllRows,
+            "all_statements_first_row" => AllStatementsFirstRow,
+            "all_statements_all_rows_scalar" => AllStatementsAllRowsScalar,
+            "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
+            "legacy" => Legacy,
+            _ => SqlResultCollectionStrategy::default(),
+        }
+    }
+
+    pub fn collect_last_statement_only(&self, query_count: usize) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementAllRows
+            | LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | LastStatementAllRowsScalar => true,
+            Legacy => query_count == 1,
+            _ => false,
+        }
+    }
+    pub fn collect_first_row_only(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | AllStatementsFirstRow
+            | AllStatementsFirstRowScalar => true,
+            _ => false,
+        }
+    }
+    pub fn collect_scalar(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRowScalar
+            | AllStatementsFirstRowScalar
+            | LastStatementAllRowsScalar
+            | AllStatementsAllRowsScalar => true,
+            _ => false,
+        }
+    }
+
+    // This function transforms the shape (e.g Row[][] -> Row)
+    // It is the responsibility of the executor to avoid fetching unnecessary statements/rows
+    pub fn collect(
+        &self,
+        values: Vec<Vec<Box<serde_json::value::RawValue>>>,
+    ) -> error::Result<Box<serde_json::value::RawValue>> {
+        let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+        let values = if self.collect_last_statement_only(values.len()) {
+            values.into_iter().rev().take(1).collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_first_row_only() {
+            values
+                .into_iter()
+                .map(|rows| rows.into_iter().take(1).collect())
+                .collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_scalar() {
+            values
+                .into_iter()
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            // Take the first value in the object
+                            let record =
+                                match serde_json::from_str(row.get()) {
+                                    Ok(serde_json::Value::Object(record)) => record,
+                                    Ok(_) => return Err(error::Error::ExecutionErr(
+                                        "Could not collect sql scalar value from non-object row"
+                                            .to_string(),
+                                    )),
+                                    Err(e) => {
+                                        return Err(error::Error::ExecutionErr(format!(
+                                    "Could not collect sql scalar value (failed to parse row): {}",
+                                    e
+                                )))
+                                    }
+                                };
+                            let Some((_, value)) = record.iter().next() else {
+                                return Err(error::Error::ExecutionErr(
+                                    "Could not collect sql scalar value from empty row".to_string(),
+                                ));
+                            };
+                            Ok(serde_json::value::RawValue::from_string(
+                                serde_json::to_string(value).map_err(to_anyhow)?,
+                            )
+                            .map_err(to_anyhow)?)
+                        })
+                        .collect::<error::Result<Vec<_>>>()
+                })
+                .collect::<error::Result<Vec<_>>>()?
+        } else {
+            values
+        };
+
+        match (
+            self.collect_last_statement_only(values.len()),
+            self.collect_first_row_only(),
+        ) {
+            (true, true) => {
+                match values
+                    .into_iter()
+                    .last()
+                    .map(|rows| rows.into_iter().next())
+                {
+                    Some(Some(row)) => Ok(row.clone()),
+                    _ => Ok(null()),
+                }
+            }
+            (true, false) => match values.into_iter().last() {
+                Some(rows) => Ok(to_raw_value(&rows)),
+                None => Ok(null()),
+            },
+            (false, true) => {
+                let values = values
+                    .into_iter()
+                    .map(|rows| rows.into_iter().next().unwrap_or_else(null))
+                    .collect::<Vec<_>>();
+                Ok(to_raw_value(&values))
+            }
+            (false, false) => Ok(to_raw_value(&values)),
+        }
+    }
+}
+
+impl Default for SqlResultCollectionStrategy {
+    fn default() -> Self {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    }
+}
+
 /// length = 5
 /// value  = "foo"
 /// output = "foo  "
@@ -1106,6 +1271,10 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    // Workspace dependencies feature requires minimum version across all workers
+    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
+        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
+            .unwrap();
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
@@ -1143,6 +1312,7 @@ pub struct Ping {
     pub occupancy_rate_15s: Option<f32>,
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
+    pub job_isolation: Option<String>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1190,6 +1360,7 @@ pub async fn update_ping_http(
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1205,6 +1376,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1318,10 +1490,11 @@ pub async fn insert_ping_query(
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
         DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
@@ -1331,7 +1504,8 @@ pub async fn insert_ping_query(
         dw,
         version,
         vcpus,
-        memory
+        memory,
+        job_isolation.as_deref()
         )
         .execute(db)
         .await?;
@@ -1348,11 +1522,12 @@ pub async fn update_worker_ping_from_job_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9, job_isolation = $10 WHERE worker = $5",
             job_id,
         w_id,
         memory_usage,
@@ -1362,6 +1537,7 @@ pub async fn update_worker_ping_from_job_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        job_isolation,
     )
     .execute(db)
     .await?;
@@ -1782,6 +1958,115 @@ pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
 pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}
+
+pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
+    requirements
+        .as_ref()
+        .lines()
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
+        .map(String::from)
+        .collect()
+}
+
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
+#[repr(u32)]
+pub enum PyVAlias {
+    Py310 = 10,
+    #[default]
+    Py311,
+    Py312,
+    Py313,
+}
+
+impl Into<pep440_rs::Version> for PyVAlias {
+    fn into(self) -> pep440_rs::Version {
+        pep440_rs::Version::new([self.major() as u64, self as u64])
+    }
+}
+
+impl Into<u32> for PyVAlias {
+    fn into(self) -> u32 {
+        self.major() * 100 + self as u32
+    }
+}
+
+impl PyVAlias {
+    pub fn all<T: From<PyVAlias>>() -> Vec<T> {
+        use PyVAlias::*;
+        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+    }
+    // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
+    fn major(&self) -> u32 {
+        use PyVAlias::*;
+        match self {
+            Py310 | Py311 | Py312 | Py313 => 3,
+            // Py400 | Py401 => 4
+        }
+    }
+
+    /// Converts numeric format to alias
+    /// Example:
+    /// 310u32 (in) -> PyVAlias::Py310 (out)
+    pub fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
+        use PyVAlias::*;
+        match numeric.to_string().as_str() {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            _ => None,
+        }
+    }
+}
+
+/// Parse lockfile for assigned python version.
+/// If not found returns None
+pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
+    requirements_lines: &[S],
+) -> Option<pep440_rs::Version> {
+    let parse_version = |s: &str| -> Option<pep440_rs::Version> {
+        // Possible inputs:
+        // V2:
+        // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
+        //
+        // V1:
+        // # py311 or #py311
+        let version_unparsed = s
+            .to_owned()
+            // Remove whitespaces. That leaves us with:
+            // V2: #py:3.11.0
+            // V1: #py311
+            //
+            // Remove #
+            // V2: py:3.11.0
+            // V1: py311
+            //
+            // Remove :
+            // V2: py3.11.0
+            // V1: py311
+            .replace([' ', '#', ':'], "")
+            // Remove "py"
+            // V2: 3.11.0
+            // V1: 311
+            .replace("py", "");
+
+        // We will support reading V1 syntax, but it will be overwritten next deploy
+        PyVAlias::try_from_v1(&version_unparsed)
+            .map(PyVAlias::into)
+            .or(pep440_rs::Version::from_str(&version_unparsed)
+                .ok()
+                .map(pep440_rs::Version::into))
+    };
+
+    requirements_lines
+        .iter()
+        .find(|s| {
+            let s = s.as_ref();
+            s.starts_with("#py") || s.starts_with("# py")
+        })
+        .map(S::as_ref)
+        .and_then(parse_version)
 }
 
 #[cfg(test)]

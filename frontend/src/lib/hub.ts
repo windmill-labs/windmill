@@ -98,6 +98,7 @@ type HubPaths = {
 	teamsSuccessHandler: string
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
+	appReport: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

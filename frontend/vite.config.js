@@ -7,12 +7,34 @@ const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
 const version = JSON.parse(json)
 
+let plugin = {
+	name: 'configure-response-headers',
+	configureServer: (server) => {
+		server.middlewares.use((_req, res, next) => {
+			res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+			res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+			next()
+		})
+	}
+}
+
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
 		https: process.env.HTTPS === 'true',
-		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz', 'windmill.xyz'],
+		allowedHosts: [
+			'localhost',
+			'127.0.0.1',
+			'0.0.0.0',
+			'rubendev.wimill.xyz',
+			'windmill.xyz',
+			'app.windmill.xyz',
+			'public.windmill.xyz'
+		],
 		port: 3000,
+		cors: {
+			origin: '*'
+		},
 		proxy: {
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
@@ -53,9 +75,9 @@ const config = {
 		}
 	},
 	preview: {
-		port: 3000
+		port: 3001
 	},
-	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : [])],
+	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
 	define: {
 		__pkg__: version
 	},
@@ -64,7 +86,7 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages'
-		],
+		]
 	},
 	worker: {
 		format: 'es'

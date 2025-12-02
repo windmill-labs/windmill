@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
-	import { Alert, Badge, Button, Drawer } from './common'
+	import { AlertTriangle, Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
+	import { Alert, Button, Drawer } from './common'
+	import Badge from './common/badge/Badge.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
@@ -38,6 +40,16 @@
 			}
 		}
 		return { vcpus, memory }
+	}
+
+	function hasWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): boolean {
+		return workers.some(([_, pings]) => pings.some((w) => !w.job_isolation || w.job_isolation === 'none'))
+	}
+
+	function getWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): WorkerPing[] {
+		return workers.flatMap(([_, pings]) =>
+			pings.filter((w) => !w.job_isolation || w.job_isolation === 'none')
+		)
 	}
 
 	let nconfig: {
@@ -896,90 +908,139 @@
 	</DrawerContent>
 </Drawer>
 
-<div class=" flex items-center justify-between pt-1">
-	<div class="text-xs"
-		>{pluralize(activeWorkers, 'worker')}
-		{#if vcpus_memory?.vcpus}
-			- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
-		{#if vcpus_memory?.memory}
-			- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}</div
-	>
-	<div class="flex gap-2 items-center justify-end flex-row my-2">
-		{#if $superadmin}
-			<Button
-				variant="subtle"
-				unifiedSize="md"
-				on:click={() => {
-					dirty = false
-					loadNConfig()
-					drawer?.openDrawer()
-				}}
-				startIcon={{ icon: config == undefined ? Plus : Settings }}
+<div class="flex flex-col gap-2">
+	{#if hasWorkersWithoutIsolation(workers)}
+		{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
+		<div class="flex justify-end">
+			<Popover
+				placement="bottom"
+				closeButton
+				containerClasses="border rounded-lg shadow-lg bg-surface"
 			>
-				<div class="flex flex-row gap-1 items-center">
-					{config == undefined ? 'Create' : 'Edit'} config
-				</div>
-			</Button>
+				{#snippet trigger()}
+					<Button
+						nonCaptureEvent
+						startIcon={{ icon: AlertTriangle, classes: 'text-yellow-600' }}
+						unifiedSize="md"
+						variant="subtle"
+						btnClasses="text-3xs"
+					>
+						Workers without isolation
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					<div class="flex flex-col gap-2 text-sm max-w-md p-4">
+						<div class="font-semibold">Workers without job isolation</div>
+						<p class="text-secondary">
+							{unsafeWorkers.length}
+							{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
+							{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
+						</p>
+						<div class="flex flex-wrap gap-1">
+							{#each unsafeWorkers as worker}
+								<Badge color="orange" verySmall={true}>
+									{worker.worker}
+								</Badge>
+							{/each}
+						</div>
+						<a
+							href="https://www.windmill.dev/docs/advanced/security_isolation"
+							target="_blank"
+							class="text-blue-600 hover:underline text-xs"
+						>
+							Learn more about job isolation →
+						</a>
+					</div>
+				{/snippet}
+			</Popover>
+		</div>
+	{/if}
 
-			<Button
-				unifiedSize="md"
-				variant="subtle"
-				on:click={() => {
-					navigator.clipboard.writeText(
-						YAML.stringify({
-							name,
-							...config
-						})
-					)
-					sendUserToast('Worker config copied to clipboard as YAML')
-				}}
-				startIcon={{ icon: Copy }}
-			>
-				Copy config
-			</Button>
+	<div class="flex items-center justify-between">
+		<div class="text-xs"
+			>{pluralize(activeWorkers, 'worker')}
+			{#if vcpus_memory?.vcpus}
+				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
+			{#if vcpus_memory?.memory}
+				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}</div
+		>
+		<div class="flex gap-2 items-center justify-end flex-row">
+			{#if $superadmin}
+				<Button
+					variant="subtle"
+					unifiedSize="md"
+					on:click={() => {
+						dirty = false
+						loadNConfig()
+						drawer?.openDrawer()
+					}}
+					startIcon={{ icon: config == undefined ? Plus : Settings }}
+				>
+					<div class="flex flex-row gap-1 items-center">
+						{config == undefined ? 'Create' : 'Edit'} config
+					</div>
+				</Button>
 
-			{#if config}
 				<Button
 					unifiedSize="md"
 					variant="subtle"
 					on:click={() => {
-						if (!$enterpriseLicense) {
-							sendUserToast('Worker Management UI is an EE feature', true)
-						} else {
-							openDelete = true
-						}
+						navigator.clipboard.writeText(
+							YAML.stringify({
+								name,
+								...config
+							})
+						)
+						sendUserToast('Worker config copied to clipboard as YAML')
 					}}
-					startIcon={{ icon: Trash }}
-					btnClasses="text-red-400"
+					startIcon={{ icon: Copy }}
 				>
-					Delete config
+					Copy config
+				</Button>
+
+				{#if config}
+					<Button
+						unifiedSize="md"
+						variant="subtle"
+						on:click={() => {
+							if (!$enterpriseLicense) {
+								sendUserToast('Worker Management UI is an EE feature', true)
+							} else {
+								openDelete = true
+							}
+						}}
+						startIcon={{ icon: Trash }}
+						btnClasses="text-red-400"
+					>
+						Delete config
+					</Button>
+				{/if}
+
+				<Button
+					unifiedSize="md"
+					variant="subtle"
+					on:click={() => {
+						loadNConfig()
+
+						openClean = true
+					}}
+					btnClasses="text-red-400"
+					startIcon={{ icon: RefreshCcwIcon }}
+				>
+					Clean cache
+				</Button>
+			{:else if config}
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					on:click={() => {
+						loadNConfig()
+						drawer?.openDrawer()
+					}}
+				>
+					Config
 				</Button>
 			{/if}
-
-			<Button
-				unifiedSize="md"
-				variant="subtle"
-				on:click={() => {
-					loadNConfig()
-
-					openClean = true
-				}}
-				btnClasses="text-red-400"
-				startIcon={{ icon: RefreshCcwIcon }}
-			>
-				Clean cache
-			</Button>
-		{:else if config}
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				on:click={() => {
-					loadNConfig()
-					drawer?.openDrawer()
-				}}
-			>
-				Config
-			</Button>
-		{/if}
+		</div>
 	</div>
 </div>
