@@ -33,6 +33,7 @@
 	import type { TriggerKind } from './triggers'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
+	import { isRunnableByPath } from './apps/inputType'
 
 	const dispatch = createEventDispatcher()
 
@@ -145,7 +146,7 @@
 				let result: { kind: Kind; path: string }[] = []
 				getAllGridItems(appValue).forEach((gridItem) => {
 					const ci = gridItem.data.componentInput
-					if (ci?.type == 'runnable' && ci.runnable?.type == 'runnableByPath') {
+					if (ci?.type == 'runnable' && isRunnableByPath(ci.runnable)) {
 						if (ci.runnable.runType == 'script') {
 							result.push({ kind: 'script', path: ci.runnable.path })
 						} else if (ci.runnable.runType == 'flow') {

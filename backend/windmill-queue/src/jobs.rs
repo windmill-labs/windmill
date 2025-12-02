@@ -38,7 +38,6 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::lockfiles::is_generated_from_raw_requirements;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{configure_client, now_from_db};
@@ -2664,13 +2663,6 @@ impl PulledJobResult {
                         )
                         .await?;
 
-                        if is_generated_from_raw_requirements(&Some(cloned_script.old_script.language), &cloned_script.old_script.lock.map(|v| v.to_string())) {
-                            return Err(Error::BadRequest(format!(
-                                "Script at path {} is generated from raw requirements, not overriding",
-                                pulled_job.runnable_path()
-                            )));
-                        }
-
                         cloned_script.new_hash
                     }
                     JobKind::FlowDependencies => {
@@ -3637,7 +3629,7 @@ pub enum PushIsolationLevel<'c> {
 }
 
 impl<'c> PushIsolationLevel<'c> {
-    async fn into_tx(self) -> error::Result<Transaction<'c, Postgres>> {
+    pub async fn into_tx(self) -> error::Result<Transaction<'c, Postgres>> {
         match self {
             PushIsolationLevel::Isolated(db, authed) => Ok((db.begin(&authed).await?).into()),
             PushIsolationLevel::IsolatedRoot(db) => Ok(db.begin().await?),
@@ -5882,3 +5874,4 @@ pub async fn get_same_worker_job(
         ))
     })
 }
+

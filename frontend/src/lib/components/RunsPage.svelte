@@ -39,8 +39,7 @@
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
-	import { isJobSelectable } from '$lib/utils'
+	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'

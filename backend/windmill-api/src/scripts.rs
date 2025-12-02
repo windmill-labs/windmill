@@ -407,7 +407,7 @@ async fn create_snapshot_script(
         if name == "script" {
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
-
+            let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             let (new_hash, ntx, hdm) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -417,8 +417,14 @@ async fn create_snapshot_script(
                 webhook.clone(),
             )
             .await?;
-            let nh = new_hash.to_string();
-            script_hash = Some(if is_tar { format!("{nh}.tar") } else { nh });
+            let mut nh = new_hash.to_string();
+            if use_esm {
+                nh = format!("{nh}.esm");
+            }
+            if is_tar {
+                nh = format!("{nh}.tar");
+            }
+            script_hash = Some(nh);
             tx = Some(ntx);
             handle_deployment_metadata = hdm;
         }
@@ -1038,14 +1044,10 @@ async fn create_script_internal<'c>(
             let permissioned_as2 = permissioned_as.clone();
             let script_path2 = script_path.clone();
             let parent_path = p_path_opt.clone();
-            let lock = ns.lock.clone();
             let deployment_message = ns.deployment_message.clone();
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
-                // TODO: I don't think we want this. We might want to send dependency job. But skip any calculations if lock is already present.
-                // It will allow us to make code more consistent and predictable.
-
                 // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(
@@ -1061,7 +1063,6 @@ async fn create_script_internal<'c>(
                     &authed2.email,
                     &authed2.username,
                     &permissioned_as2,
-                    lock,
                 )
                 .await
                 {
