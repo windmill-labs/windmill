@@ -13,9 +13,8 @@ use windmill_common::{
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
-use windmill_worker::{
-    scoped_dependency_map, trigger_dependents_to_recompute_dependencies,
-    workspace_dependencies::NewWorkspaceDependencies,
+use windmill_worker::workspace_dependencies::{
+    trigger_dependents_to_recompute_dependencies_in_the_background, NewWorkspaceDependencies,
 };
 
 use crate::db::ApiAuthed;
@@ -43,10 +42,12 @@ async fn create(
         format!(
             "{}",
             nwd.create(
-                &authed.email,
-                &authed.username,
-                &username_to_permissioned_as(&authed.username),
-                &db
+                (
+                    authed.email,
+                    username_to_permissioned_as(&authed.username),
+                    authed.username,
+                ),
+                db
             )
             .await?
         ),
@@ -93,23 +94,20 @@ async fn archive(
     let db = &db;
     WorkspaceDependencies::archive(params.name.clone(), language, &w_id, db).await?;
 
-    trigger_dependents_to_recompute_dependencies(
-        &w_id,
-        scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
-            &w_id,
-            db,
-        )
-        .await?,
-        None,
-        None,
-        &authed.email,
-        &authed.username,
-        &username_to_permissioned_as(&authed.username),
-        db,
-        vec![],
+    trigger_dependents_to_recompute_dependencies_in_the_background(
+        params.name.is_none(),
+        w_id,
+        language,
+        (
+            authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.username,
+        ),
+        WorkspaceDependencies::to_path(&params.name, language)?,
+        db.clone(),
     )
-    .await
+    .await;
+    Ok(())
 }
 
 #[axum::debug_handler]
@@ -125,21 +123,18 @@ async fn delete(
     let db = &db;
     WorkspaceDependencies::delete(params.name.clone(), language, &w_id, db).await?;
 
-    trigger_dependents_to_recompute_dependencies(
-        &w_id,
-        scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
-            &w_id,
-            db,
-        )
-        .await?,
-        None,
-        None,
-        &authed.email,
-        &authed.username,
-        &username_to_permissioned_as(&authed.username),
-        db,
-        vec![],
+    trigger_dependents_to_recompute_dependencies_in_the_background(
+        params.name.is_none(),
+        w_id,
+        language,
+        (
+            authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.username,
+        ),
+        WorkspaceDependencies::to_path(&params.name, language)?,
+        db.clone(),
     )
-    .await
+    .await;
+    Ok(())
 }
