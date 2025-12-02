@@ -7,7 +7,8 @@
 		RotateCcw,
 		Settings,
 		Trash,
-		X
+		X,
+		ExternalLink
 	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -335,6 +336,14 @@
 									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 									: nativeTags
 								).join(', ')
+							},
+							{
+								label: 'Clear tags',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = []
+									}
+								}
 							}
 						]}
 						<div class="flex flex-wrap items-center gap-1">
@@ -953,12 +962,8 @@
 									</Badge>
 								{/each}
 							</div>
-							<a
-								href="https://www.windmill.dev/docs/advanced/security_isolation"
-								target="_blank"
-								class="text-accent hover:underline text-xs"
-							>
-								Learn more about job isolation →
+							<a href="https://www.windmill.dev/docs/advanced/security_isolation" target="_blank">
+								Learn more about job isolation <ExternalLink size={12} class="inline-block" />
 							</a>
 						</div>
 					{/snippet}

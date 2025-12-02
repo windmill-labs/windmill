@@ -1,14 +1,13 @@
 <script lang="ts">
-	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import QueueMetricsDrawer from '$lib/components/QueueMetricsDrawer.svelte'
+	import ManageTagsDrawer from '$lib/components/ManageTagsDrawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -26,8 +25,8 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
-	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
-	import { getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { AlertTriangle, LineChart, Plus, Search, Tags, Terminal } from 'lucide-svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
@@ -289,6 +288,7 @@
 	}
 
 	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
+	let manageTagsDrawer: ManageTagsDrawer | undefined = $state(undefined)
 	let selectedTab: string = $state('default')
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
@@ -336,9 +336,6 @@
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
-		'openSearchWithPrefilledText'
-	)
 
 	function displayOccupancyRate(occupancy_rate: number | undefined) {
 		if (occupancy_rate == undefined) {
@@ -380,6 +377,14 @@
 
 {#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
+	<ManageTagsDrawer
+		bind:this={manageTagsDrawer}
+		bind:defaultTagPerWorkspace
+		bind:defaultTagWorkspaces
+		onRefresh={() => {
+			loadCustomTags()
+		}}
+	/>
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
@@ -446,14 +451,18 @@
 			>
 				{#if $superadmin || $devopsRole}
 					<div class="flex flex-row w-full pb-2 items-center gap-4">
-						<AssignableTags
-							on:refresh={() => {
-								loadCustomTags()
-							}}
+						<Button
+							unifiedSize="md"
 							variant="default"
-						/>
-
-						<DefaultTags bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
+							startIcon={{
+								icon: Tags
+							}}
+							on:click={() => {
+								manageTagsDrawer?.openDrawer()
+							}}
+						>
+							Manage tags
+						</Button>
 
 						<Button
 							unifiedSize="md"
