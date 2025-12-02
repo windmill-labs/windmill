@@ -70,10 +70,12 @@ pub fn workspaced_service() -> Router {
             get(list_paths_from_workspace_runnable),
         )
         .route(
-            "/history_update/v/:version/p/*path",
+            "/history_update/v/:version",
             post(update_flow_history),
         )
         .route("/get/v/:version/p/*path", get(get_flow_version))
+        .route("/get/v/:version", get(get_flow_version_by_id))
+
         .route(
             "/toggle_workspace_error_handler/*path",
             post(toggle_workspace_error_handler),
@@ -709,26 +711,51 @@ async fn get_flow_version(
     Ok(Json(flow))
 }
 
+async fn get_flow_version_by_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> JsonResult<Flow> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let flow = sqlx::query_as::<_, Flow>(
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        FROM flow_version
+        LEFT JOIN ON ",
+    )
+    .bind(w_id)
+    .bind(version)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some(flow) = flow.as_ref() {
+        check_scopes(&authed, || format!("flows:read:{}", flow.path))?;
+    }
+    tx.commit().await?;
+
+    let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+
+
+    
+    Ok(Json(flow))
+}
+
 #[derive(Deserialize)]
 pub struct FlowHistoryUpdate {
     pub deployment_msg: String,
 }
 
+
 async fn update_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+    Path((w_id, version)): Path<(String, i64)>,
     Json(history_update): Json<FlowHistoryUpdate>,
 ) -> Result<()> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let path_o = sqlx::query_scalar!(
-        "SELECT flow.path FROM flow
-        LEFT JOIN flow_version
-            ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
-        path,
+        "SELECT path FROM flow_version
+        WHERE workspace_id = $1 AND id = $2",
         w_id,
         version
     )
@@ -738,14 +765,19 @@ async fn update_flow_history(
     if path_o.is_none() {
         tx.commit().await?;
         return Err(Error::NotFound(
-            format!("Flow version {version} for path {path} not found").to_string(),
+            format!("Flow version {version} not found").to_string(),
         ));
     }
+
+    let path = path_o.unwrap();
+
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
+
 
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
-        path_o.unwrap(),
+        path,
         version,
         history_update.deployment_msg,
     )
@@ -754,6 +786,7 @@ async fn update_flow_history(
     tx.commit().await?;
     return Ok(());
 }
+
 
 async fn update_flow(
     authed: ApiAuthed,

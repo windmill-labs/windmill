@@ -29,8 +29,7 @@
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
-			version,
-			path
+			version
 		})
 	}
 
@@ -54,7 +53,6 @@
 		await FlowService.updateFlowHistory({
 			workspace: $workspaceStore!,
 			version,
-			path,
 			requestBody: {
 				deployment_msg: deploymentMsgUpdate!
 			}
