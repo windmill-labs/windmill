@@ -37,8 +37,17 @@ lazy_static::lazy_static! {
     /// Long-running streaming responses that exceed this duration will be terminated,
     /// even if actively receiving data.
     ///
-    /// Important: Ensure your reverse proxy (NGINX, Traefik) timeout is equal to or
-    /// greater than this value to avoid premature connection termination.
+    /// CRITICAL: If using a reverse proxy (NGINX, Traefik, etc.), you MUST configure
+    /// proxy timeouts to match or exceed this value. Without proper proxy configuration,
+    /// connections will be terminated prematurely at the proxy layer regardless of this
+    /// backend timeout setting.
+    ///
+    /// Example NGINX configuration:
+    ///   location /api/ {
+    ///     proxy_read_timeout 3600s;  # Must be >= AI_REQUEST_TIMEOUT_SECONDS
+    ///     proxy_send_timeout 3600s;
+    ///     proxy_connect_timeout 60s;
+    ///   }
     static ref AI_TIMEOUT_SECS: u64 = {
         match std::env::var("AI_REQUEST_TIMEOUT_SECONDS")
             .ok()
