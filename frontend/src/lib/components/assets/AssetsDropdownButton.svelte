@@ -14,7 +14,7 @@
 	} from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
@@ -23,6 +23,7 @@
 	import AssetButtons from './AssetButtons.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { resource } from 'runed'
 
 	let {
 		assets,
@@ -61,6 +62,13 @@
 		}
 	})
 
+	let datatables = resource([], () =>
+		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+	)
+	let ducklakes = resource([], () =>
+		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+	)
+
 	$effect(() => {
 		assets
 		untrack(() => {
@@ -97,7 +105,7 @@
 			class={twMerge(
 				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
 				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
-				'border border-tertiary/30',
+				'border',
 				'bg-surface hover:bg-surface-hover active:bg-surface',
 				'transition-all hover:text-primary cursor-pointer'
 			)}
@@ -117,6 +125,14 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
+				{@const ducklakeNotFound =
+					asset.kind === 'ducklake' &&
+					ducklakes.current &&
+					!ducklakes.current.find((name) => name === asset.path)}
+				{@const datatableNotFound =
+					asset.kind === 'datatable' &&
+					datatables.current &&
+					!datatables.current.find((name) => name === asset.path)}
 				<li
 					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
@@ -187,6 +203,8 @@
 						{dbManagerDrawer}
 						{resourceEditorDrawer}
 						{s3FilePicker}
+						{ducklakeNotFound}
+						{datatableNotFound}
 					/>
 				</li>
 			{/each}
