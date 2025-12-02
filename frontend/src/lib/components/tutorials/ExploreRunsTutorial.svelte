@@ -187,9 +187,9 @@
 					step1Complete = true
 				},
 				popover: {
-					title: 'Test your flow',
+					title: 'Troubleshoot a broken flow',
 					description:
-						'Your temperature converter flow is ready with an input of 25°C. Let\'s test it!',
+						'This flow is intentionally broken. Let’s run it with an input of 25°C so you can see what needs to be fixed.',
 					side: 'bottom',
 					onNextClick: async () => {
 						if (!step1Complete) {
@@ -218,7 +218,7 @@
 				popover: {
 					title: 'Run the flow',
 					description:
-						'Click "Next" to execute the flow. You\'ll see how to troubleshoot when something goes wrong!',
+						'Click "Next" to execute the flow. We\'ll use the results to troubleshoot the error.',
 					side: 'left',
 					onNextClick: async () => {
 						if (!step2Complete) {
@@ -245,9 +245,9 @@
 					step3Complete = true
 				},
 				popover: {
-					title: 'View the result',
+					title: 'Review the error',
 					description:
-						'Notice step b failed! The flow encountered an error. Let\'s explore what happened.',
+						'Step b failed during the run. Let’s review the error and understand why this step didn’t work.',
 					side: 'left',
 					onNextClick: () => {
 						if (!step3Complete) {
@@ -268,7 +268,7 @@
 				popover: {
 					title: 'Explore the tabs',
 					description:
-						'Use these tabs to navigate between different views: Result, Logs, and Graph.',
+						'Use these tabs to navigate between different views: Result, Logs, and Graph. We’ll focus on the Result tab to review the error.',
 					side: 'bottom',
 					onNextClick: () => {
 						if (!step4Complete) {
@@ -320,9 +320,9 @@
 					step5Complete = true
 				},
 				popover: {
-					title: 'Flow execution graph',
+					title: 'Inspect the flow graph',
 					description:
-						'Watch as we click on a step to explore its details. You can click on any step to see its specific results and logs.',
+						'Here’s the full execution graph. Let’s select step b—the one that failed—to take a closer look at its behavior.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step5Complete) {
@@ -341,9 +341,9 @@
 					step6Complete = true
 				},
 				popover: {
-					title: 'Step details',
+					title: 'Check step details',
 					description:
-						'Here you can see the code, result, and logs for this specific step. This is where you can debug and understand what went wrong!',
+						'This panel shows the code, output, and logs for the selected step. It’s the best place to spot mistakes and understand how to fix them.',
 					side: 'left',
 					onNextClick: async () => {
 						if (!step6Complete) {
@@ -392,9 +392,9 @@
 					step7Complete = true
 				},
 				popover: {
-					title: 'Open the failed step',
+					title: 'Your turn now!',
 					description:
-						'Now click on step b to open it and see the code where the error occurred.',
+						'Open step b, fix the issue in the code, and run the flow again to confirm everything works.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step7Complete) {
