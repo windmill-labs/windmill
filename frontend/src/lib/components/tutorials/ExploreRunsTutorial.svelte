@@ -14,19 +14,43 @@
 	let tutorial: Tutorial | undefined = undefined
 
 	// Flags to track if steps are complete
-	let step1Complete = $state(false)
-	let step2Complete = $state(false)
-	let step3Complete = $state(false)
-	let step4Complete = $state(false)
-	let step5Complete = $state(false)
-	let step6Complete = $state(false)
-	let step7Complete = $state(false)
+	let stepComplete = $state<Record<number, boolean>>({
+		1: false,
+		2: false,
+		3: false,
+		4: false,
+		5: false,
+		6: false,
+		7: false
+	})
 
 	// Constants for delays
 	const DELAY_SHORT = 100
 	const DELAY_MEDIUM = 300
 	const DELAY_LONG = 500
 	const DELAY_ANIMATION = 1500
+
+	// DOM Selectors
+	const SELECTORS = {
+		testFlowButton: '#flow-editor-test-flow',
+		testFlowDrawer: '#flow-editor-test-flow-drawer',
+		flowPreviewContent: '#flow-preview-content',
+		stepB: '#b'
+	} as const
+
+	// Text constants
+	const TEXT = {
+		convertToFahrenheit: 'Convert to Fahrenheit'
+	} as const
+
+	// Helper function to check if step is complete
+	function checkStepComplete(step: number): boolean {
+		if (!stepComplete[step]) {
+			sendUserToast('Please wait...', false, [], undefined, 3000)
+			return false
+		}
+		return true
+	}
 
 	// Helper function to create and animate a fake cursor
 	async function createFakeCursor(
@@ -71,6 +95,42 @@
 		await wait(transitionDuration * 1000)
 
 		return fakeCursor
+	}
+
+	// Helper function to animate a fake cursor click
+	async function animateFakeCursorClick(
+		element: HTMLElement,
+		transitionDuration: number = 1.5
+	): Promise<void> {
+		const fakeCursor = await createFakeCursor(null, element, transitionDuration)
+		await wait(DELAY_MEDIUM)
+
+		// Animate click (shrink cursor briefly)
+		fakeCursor.style.transform = 'scale(0.8)'
+		await wait(100)
+		fakeCursor.style.transform = 'scale(1)'
+		await wait(100)
+
+		// Click the element
+		element.click()
+		await wait(DELAY_SHORT)
+
+		// Remove fake cursor
+		fakeCursor.remove()
+	}
+
+	// Helper function to find close button in drawer
+	function findCloseButton(drawer: HTMLElement): HTMLElement | null {
+		return Array.from(drawer.querySelectorAll('button')).find(btn => {
+			const svg = btn.querySelector('svg.lucide-x')
+			return svg !== null
+		}) as HTMLElement | null
+	}
+
+	// Helper function to find button by text
+	function findButtonByText(container: HTMLElement, text: string): HTMLElement | null {
+		const buttons = Array.from(container.querySelectorAll('button'))
+		return buttons.find(btn => btn.textContent?.includes(text)) as HTMLElement | null
 	}
 
 	export async function runTutorial() {
@@ -180,25 +240,22 @@
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
-				element: '#flow-editor-test-flow',
+				element: SELECTORS.testFlowButton,
 				onHighlighted: async () => {
-					step1Complete = false
+					stepComplete[1] = false
 					await wait(DELAY_SHORT)
-					step1Complete = true
+					stepComplete[1] = true
 				},
 				popover: {
 					title: 'Troubleshoot a broken flow',
 					description:
-						'This flow is intentionally broken. Let’s run it with an input of 25°C so you can see what needs to be fixed.',
+						'This flow is intentionally broken. Let\'s run it with an input of 25°C so you can see what needs to be fixed.',
 					side: 'bottom',
 					onNextClick: async () => {
-						if (!step1Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(1)) return
 
 						// Click the Test Flow button to open the drawer
-						const testFlowButton = document.querySelector('#flow-editor-test-flow') as HTMLElement
+						const testFlowButton = document.querySelector(SELECTORS.testFlowButton) as HTMLElement
 						if (testFlowButton) {
 							testFlowButton.click()
 							await wait(DELAY_LONG)
@@ -209,11 +266,11 @@
 				}
 			},
 			{
-				element: '#flow-editor-test-flow-drawer',
+				element: SELECTORS.testFlowDrawer,
 				onHighlighted: async () => {
-					step2Complete = false
+					stepComplete[2] = false
 					await wait(DELAY_SHORT)
-					step2Complete = true
+					stepComplete[2] = true
 				},
 				popover: {
 					title: 'Run the flow',
@@ -221,13 +278,10 @@
 						'Click "Next" to execute the flow. We\'ll use the results to troubleshoot the error.',
 					side: 'left',
 					onNextClick: async () => {
-						if (!step2Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(2)) return
 
 						// Click the Test button to execute the flow
-						const testButton = document.querySelector('#flow-editor-test-flow-drawer') as HTMLElement
+						const testButton = document.querySelector(SELECTORS.testFlowDrawer) as HTMLElement
 						if (testButton) {
 							testButton.click()
 						}
@@ -240,20 +294,17 @@
 			{
 				element: '.border.rounded-md.shadow.p-2',
 				onHighlighted: async () => {
-					step3Complete = false
+					stepComplete[3] = false
 					await wait(DELAY_SHORT)
-					step3Complete = true
+					stepComplete[3] = true
 				},
 				popover: {
 					title: 'Review the error',
 					description:
-						'Our flow failed. Let’s review the error and understand what happened.',
+						'Our flow failed. Let\'s review the error and understand what happened.',
 					side: 'left',
 					onNextClick: () => {
-						if (!step3Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(3)) return
 						driver.moveNext()
 					}
 				}
@@ -261,20 +312,17 @@
 			{
 				element: '.border-b.flex.flex-row.whitespace-nowrap.scrollbar-hidden.mx-auto',
 				onHighlighted: async () => {
-					step4Complete = false
+					stepComplete[4] = false
 					await wait(DELAY_SHORT)
-					step4Complete = true
+					stepComplete[4] = true
 				},
 				popover: {
 					title: 'Explore the tabs',
 					description:
-						'Use these tabs to navigate between different views: Result, Logs, and Graph. We’ll focus on the Graph tab to review the error.',
+						'Use these tabs to navigate between different views: Result, Logs, and Graph. We\'ll focus on the Graph tab to review the error.',
 					side: 'bottom',
 					onNextClick: () => {
-						if (!step4Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(4)) return
 						driver.moveNext()
 					}
 				}
@@ -282,17 +330,13 @@
 			{
 				element: '.grid.grid-cols-3.border.h-full',
 				onHighlighted: async () => {
-					step5Complete = false
+					stepComplete[5] = false
 					await wait(DELAY_SHORT)
 
 					// Find the step 'b' button inside the drawer and click it with fake cursor
-					const flowPreviewContent = document.getElementById('flow-preview-content')
+					const flowPreviewContent = document.getElementById(SELECTORS.flowPreviewContent.slice(1))
 					if (flowPreviewContent) {
-						// Find the button containing "Validate temperature input" text
-						const buttons = Array.from(flowPreviewContent.querySelectorAll('button'))
-						const stepButton = buttons.find(btn =>
-							btn.textContent?.includes('Convert to Fahrenheit')
-						) as HTMLElement
+						const stepButton = findButtonByText(flowPreviewContent, TEXT.convertToFahrenheit)
 
 						if (stepButton) {
 							// Create fake cursor and animate it to the button
@@ -317,18 +361,15 @@
 						}
 					}
 
-					step5Complete = true
+					stepComplete[5] = true
 				},
 				popover: {
 					title: 'Inspect the flow graph',
 					description:
-						'B step failed during the run. Let’s take a closer look at its behavior.',
+						'B step failed during the run. Let\'s take a closer look at its behavior.',
 					side: 'top',
 					onNextClick: () => {
-						if (!step5Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(5)) return
 						driver.moveNext()
 					}
 				}
@@ -336,46 +377,25 @@
 			{
 				element: '.rounded-md.grow.bg-surface-tertiary.text-xs.flex.flex-col.max-h-screen.gap-2.overflow-hidden.border',
 				onHighlighted: async () => {
-					step6Complete = false
+					stepComplete[6] = false
 					await wait(DELAY_SHORT)
-					step6Complete = true
+					stepComplete[6] = true
 				},
 				popover: {
 					title: 'Error spotted!',
 					description:
-						'We made a typo in the code. Let’s fix it and run the flow again.',
+						'We made a typo in the code. Let\'s fix it and run the flow again.',
 					side: 'left',
 					onNextClick: async () => {
-						if (!step6Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(6)) return
 
 						// Click the close button inside the drawer
-						const drawer = document.getElementById('flow-preview-content')
+						const drawer = document.getElementById(SELECTORS.flowPreviewContent.slice(1))
 						if (drawer) {
-							const closeButton = Array.from(drawer.querySelectorAll('button')).find(btn => {
-								const svg = btn.querySelector('svg.lucide-x')
-								return svg !== null
-							}) as HTMLElement
+							const closeButton = findCloseButton(drawer)
 
 							if (closeButton) {
-								// Create fake cursor and animate it to the close button
-								const fakeCursor = await createFakeCursor(null, closeButton, 1.5)
-								await wait(DELAY_SHORT)
-
-								// Animate click (shrink cursor briefly)
-								fakeCursor.style.transform = 'scale(0.8)'
-								await wait(100)
-								fakeCursor.style.transform = 'scale(1)'
-								await wait(100)
-
-								// Click the button
-								closeButton.click()
-								await wait(DELAY_SHORT)
-
-								// Remove fake cursor
-								fakeCursor.remove()
+								await animateFakeCursorClick(closeButton, 1.5)
 							}
 						}
 
@@ -385,33 +405,19 @@
 				}
 			},
 			{
-				element: '#b',
+				element: SELECTORS.stepB,
 				onHighlighted: async () => {
-					step7Complete = false
+					stepComplete[7] = false
 					await wait(DELAY_SHORT)
 
 					// Click on div id="b" to open the editor
-					const stepBDiv = document.getElementById('b') as HTMLElement
+					const stepBDiv = document.getElementById(SELECTORS.stepB.slice(1)) as HTMLElement
 					if (stepBDiv) {
-						// Create fake cursor and animate it to the div
-						const fakeCursor = await createFakeCursor(null, stepBDiv, 1.5)
-						await wait(DELAY_MEDIUM)
-
-						// Animate click (shrink cursor briefly)
-						fakeCursor.style.transform = 'scale(0.8)'
-						await wait(100)
-						fakeCursor.style.transform = 'scale(1)'
-						await wait(100)
-
-						// Click the div
-						stepBDiv.click()
+						await animateFakeCursorClick(stepBDiv, 1.5)
 						await wait(DELAY_LONG)
-
-						// Remove fake cursor
-						fakeCursor.remove()
 					}
 
-					step7Complete = true
+					stepComplete[7] = true
 				},
 				popover: {
 					title: 'Your turn now!',
@@ -419,10 +425,7 @@
 						'Fix the issue in the code, and run the flow again to confirm everything works.',
 					side: 'top',
 					onNextClick: () => {
-						if (!step7Complete) {
-							sendUserToast('Please wait...', false, [], undefined, 3000)
-							return
-						}
+						if (!checkStepComplete(7)) return
 						driver.destroy()
 					}
 				}
