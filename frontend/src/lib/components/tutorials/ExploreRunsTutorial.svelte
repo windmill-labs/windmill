@@ -247,7 +247,7 @@
 				popover: {
 					title: 'Review the error',
 					description:
-						'Step b failed during the run. Let’s review the error and understand why this step didn’t work.',
+						'Our flow failed. Let’s review the error and understand what happened.',
 					side: 'left',
 					onNextClick: () => {
 						if (!step3Complete) {
@@ -268,7 +268,7 @@
 				popover: {
 					title: 'Explore the tabs',
 					description:
-						'Use these tabs to navigate between different views: Result, Logs, and Graph. We’ll focus on the Result tab to review the error.',
+						'Use these tabs to navigate between different views: Result, Logs, and Graph. We’ll focus on the Graph tab to review the error.',
 					side: 'bottom',
 					onNextClick: () => {
 						if (!step4Complete) {
@@ -322,7 +322,7 @@
 				popover: {
 					title: 'Inspect the flow graph',
 					description:
-						'Here’s the full execution graph. Let’s select step b—the one that failed—to take a closer look at its behavior.',
+						'B step failed during the run. Let’s take a closer look at its behavior.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step5Complete) {
@@ -341,7 +341,7 @@
 					step6Complete = true
 				},
 				popover: {
-					title: 'We found our issue!',
+					title: 'Error spotted!',
 					description:
 						'We made a typo in the code. Let’s fix it and run the flow again.',
 					side: 'left',
@@ -362,7 +362,7 @@
 							if (closeButton) {
 								// Create fake cursor and animate it to the close button
 								const fakeCursor = await createFakeCursor(null, closeButton, 1.5)
-								await wait(DELAY_MEDIUM)
+								await wait(DELAY_SHORT)
 
 								// Animate click (shrink cursor briefly)
 								fakeCursor.style.transform = 'scale(0.8)'
