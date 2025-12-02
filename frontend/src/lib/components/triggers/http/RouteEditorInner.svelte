@@ -377,7 +377,6 @@
 		}
 	}
 
-
 	// Update config for captures
 	function getCaptureConfig() {
 		const newCaptureConfig = {
@@ -408,7 +407,7 @@
 		bind:this={s3FilePicker}
 		folderOnly={is_static_website}
 		bind:selectedFileKey={static_asset_config}
-		on:close={() => {
+		onClose={() => {
 			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
 			s3FileUploadRawMode = true
 		}}

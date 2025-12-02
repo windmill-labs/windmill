@@ -764,8 +764,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
-	on:selectAndClose={(s3obj) => {
-		let s = `'${formatS3Object(s3obj.detail)}'`
+	onSelectAndClose={(s3obj) => {
+		let s = `'${formatS3Object(s3obj)}'`
 		if (lang === 'duckdb') {
 			editor?.insertAtCursor(`SELECT * FROM ${s}`)
 		} else if (lang === 'python3') {

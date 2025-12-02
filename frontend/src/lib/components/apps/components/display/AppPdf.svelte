@@ -7,9 +7,8 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
-	import { isPartialS3Object } from '../../editor/appUtilsS3'
+	import { isPartialS3Object, getS3File } from '../../editor/appUtilsS3'
 
 	interface Props {
 		id: string
@@ -20,7 +19,7 @@
 
 	let { id, configuration, customCss = undefined, render }: Props = $props()
 
-	const { app, worldStore, appPath, workspace } =
+	const { app, worldStore, appPath, workspace, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
@@ -34,32 +33,31 @@
 
 	let token = getContext<{ token?: string }>('AuthToken')
 
-	async function getS3File(s3Path: string | undefined, storage?: string, presigned?: string) {
-		if (!s3Path) return ''
-		const appPathOrUser = defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)
-		const params = new URLSearchParams()
-		params.append('s3', s3Path)
-		if (storage) {
-			params.append('storage', storage)
-		}
-
-		if (token?.token && token.token != '') {
-			params.append('token', token.token)
-		}
-
-		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
-	}
-
 	async function loadSource() {
 		if (isPartialS3Object(source)) {
-			pdfSource = await getS3File(source.s3, source.storage, source.presigned)
+			pdfSource = await getS3File({
+				source: source.s3,
+				storage: source.storage,
+				presigned: source.presigned,
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
 		} else if (source && typeof source !== 'string' && !(source instanceof ArrayBuffer)) {
 			throw new Error('Invalid PDF source object' + typeof source)
 		} else if (typeof source === 'string' && source?.startsWith('s3://')) {
-			pdfSource = await getS3File(source?.replace('s3://', ''))
+			pdfSource = await getS3File({
+				source: source?.replace('s3://', ''),
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
 		} else {
 			pdfSource = source
 		}
