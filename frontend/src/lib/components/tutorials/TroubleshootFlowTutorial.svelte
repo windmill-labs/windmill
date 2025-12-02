@@ -266,9 +266,9 @@
 					stepComplete[1] = true
 				},
 				popover: {
-					title: 'Troubleshoot a broken flow',
+					title: '🛠️ Troubleshoot a broken flow',
 					description:
-						'This flow is intentionally broken. Let\'s run it with an input of 25°C so you can see what needs to be fixed.',
+						'This flow is intentionally broken. Let\'s run it so you can see what needs to be fixed.',
 					side: 'bottom',
 					onNextClick: async () => {
 						if (!checkStepComplete(1)) return
