@@ -2,9 +2,18 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crate::{error, scripts::ScriptLang, utils::calculate_hash, worker::Connection};
+use crate::{
+    cache::workspace_dependencies::{
+        fetch_workspace_dependencies, get_cached_is_unnamed_workspace_dependencies_exists,
+        set_cached_is_unnamed_workspace_dependencies_exists,
+    },
+    error,
+    scripts::ScriptLang,
+    utils::calculate_hash,
+    worker::Connection,
+};
 use phf::phf_set;
 
 pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
@@ -15,15 +24,7 @@ pub static BLACKLIST: phf::Set<&'static str> = phf_set! {
 
 lazy_static::lazy_static! {
     static ref WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: bool = std::env::var("WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES").is_ok();
-
-    /// Simple in-memory cache for workspace dependencies get_latest with 10-second timeout.
-    /// Cache key: (workspace_id, language, name)
-    /// Cache value: (Option<WorkspaceDependencies>, cached_at timestamp)
-    static ref WORKSPACE_DEPENDENCIES_CACHE: quick_cache::sync::Cache<(String, ScriptLang, Option<String>), (Option<WorkspaceDependencies>, Instant)> = quick_cache::sync::Cache::new(1000);
 }
-
-/// Cache timeout for workspace dependencies
-const CACHE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Minimum Windmill version required for workspace dependencies feature
 pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.587.0";
@@ -174,6 +175,42 @@ impl WorkspaceDependencies {
         .map_err(error::Error::from)
     }
 
+    async fn get_latest_id<'c>(
+        name: Option<String>,
+        language: ScriptLang,
+        workspace_id: &str,
+        e: impl PgExecutor<'c>,
+    ) -> error::Result<Option<i64>> {
+        tracing::debug!(
+            workspace_id = %workspace_id,
+            ?language,
+            ?name,
+            "fetching latest workspace dependencies id"
+        );
+        let result = sqlx::query_scalar!(
+            r#"
+            SELECT id FROM workspace_dependencies
+            WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
+            LIMIT 1
+            "#,
+            name,
+            workspace_id,
+            language as ScriptLang
+        )
+        .fetch_optional(e)
+        .await
+        .map_err(error::Error::from)?;
+
+        tracing::debug!(
+            workspace_id = %workspace_id,
+            ?language,
+            ?name,
+            ?result,
+            "fetched latest workspace dependencies id"
+        );
+        Ok(result)
+    }
+
     /// Gets the latest version of workspace dependencies by name and language.
     pub async fn get_latest(
         name: Option<String>,
@@ -185,66 +222,71 @@ impl WorkspaceDependencies {
             return Ok(None);
         }
 
-        let cache_key = (workspace_id.to_string(), language, name.clone());
-
-        // Check if cached value is still valid
-        if let Some((cached_value, cached_at)) = WORKSPACE_DEPENDENCIES_CACHE.get(&cache_key) {
-            if cached_at.elapsed() < CACHE_TIMEOUT {
-                return Ok(cached_value);
-            }
-            // Expired, remove it
-            WORKSPACE_DEPENDENCIES_CACHE.remove(&cache_key);
+        if name.is_none()
+            && get_cached_is_unnamed_workspace_dependencies_exists(
+                language,
+                workspace_id.to_owned(),
+            )
+            .map(|exists| exists == false)
+            .unwrap_or_default()
+        {
+            return Ok(None);
         }
 
-        // Fetch and cache
-        let fetch = Box::pin(async {
-            match &conn {
-                Connection::Sql(db) => sqlx::query_as!(
-                    Self,
-                    r#"
-                    SELECT id, content, language AS "language: ScriptLang", name, description, archived, workspace_id, created_at
-                    FROM workspace_dependencies
-                    WHERE name IS NOT DISTINCT FROM $1 AND workspace_id = $2 AND archived = false AND language = $3
-                    LIMIT 1
-                    "#,
-                    name,
-                    workspace_id,
-                    language as ScriptLang
-                )
-                .fetch_optional(db)
-                .await
-                .map_err(error::Error::from),
-
-                Connection::Http(http_client) => http_client
-                    .get::<Option<WorkspaceDependencies>>(&format!(
-                        "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
-                        language.as_str(),
-                        if let Some(ref name_val) = name {
-                            format!("?name={name_val}")
-                        } else {
-                            "".to_owned()
-                        }
-                    ))
-                    .await
-                    .map_err(error::Error::from),
+        // Fetch from database or HTTP
+        let wd = match &conn {
+            Connection::Sql(db) => {
+                let Some(id) =
+                    Self::get_latest_id(name.clone(), language, workspace_id, db).await?
+                else {
+                    tracing::debug!(
+                        workspace_id = %workspace_id,
+                        ?language,
+                        ?name,
+                        "no latest workspace dependencies found"
+                    );
+                    return Ok(None);
+                };
+                tracing::debug!(
+                    workspace_id = %workspace_id,
+                    ?language,
+                    ?name,
+                    id,
+                    "fetching workspace dependencies by id from cache or db"
+                );
+                Some(fetch_workspace_dependencies(id, workspace_id.to_owned(), db).await?)
             }
-        });
 
-        let (workspace_dependencies_o, ..) = WORKSPACE_DEPENDENCIES_CACHE
-            .get_or_insert_async(&cache_key, async {
-                Ok::<_, error::Error>((fetch.await?, Instant::now()))
-            })
-            .await?;
+            Connection::Http(http_client) => http_client
+                .get::<Option<WorkspaceDependencies>>(&format!(
+                    "/api/w/{workspace_id}/agent_workers/workspace_dependencies/get_latest/{}{}",
+                    language.as_str(),
+                    if let Some(ref name_val) = name {
+                        format!("?name={name_val}")
+                    } else {
+                        "".to_owned()
+                    }
+                ))
+                .await
+                .map_err(error::Error::from)?,
+        };
 
-        Ok(workspace_dependencies_o)
+        if name.is_none() {
+            set_cached_is_unnamed_workspace_dependencies_exists(
+                language,
+                workspace_id.to_owned(),
+                wd.is_some(),
+            );
+        }
+        Ok(wd)
     }
 
     /// Gets workspace dependencies by their unique ID.
     pub async fn get<'c>(
         id: i64,
-        workspace_id: &str,
+        workspace_id: String,
         e: impl PgExecutor<'c>,
-    ) -> error::Result<Option<Self>> {
+    ) -> error::Result<Self> {
         sqlx::query_as!(
             Self,
             r#"
@@ -254,9 +296,9 @@ impl WorkspaceDependencies {
             LIMIT 1
             "#,
             id,
-            workspace_id
+            &workspace_id
         )
-        .fetch_optional(e)
+        .fetch_one(e)
         .await
         .map_err(error::Error::from)
     }

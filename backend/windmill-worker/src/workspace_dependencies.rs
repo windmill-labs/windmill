@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use windmill_common::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies};
+use windmill_common::{
+    cache::workspace_dependencies::EXISTS_CACHE_TIMEOUT, error, scripts::ScriptLang,
+    workspace_dependencies::WorkspaceDependencies,
+};
 
 use crate::{
     scoped_dependency_map::ScopedDependencyMap, trigger_dependents_to_recompute_dependencies,
@@ -111,26 +114,18 @@ impl NewWorkspaceDependencies {
         .await?;
         tx.commit().await?;
 
-        // Make sure trigger dependents will have latest view.
-        // NOTE: Uncomment for tests
-        // #[cfg(test)]
-        // assert_eq!(
-        //     sqlx::query_scalar!(
-        //         "
-        //         SELECT id FROM workspace_dependencies
-        //         WHERE archived = false
-        //             AND name IS NOT DISTINCT FROM $1
-        //             AND workspace_id = $2
-        //             AND language = $3
-        //         ",
-        //         self.name,
-        //         self.workspace_id,
-        //         self.language as ScriptLang,
-        //     )
-        //     .fetch_one(db) // Use db
-        //     .await?,
-        //     new_id
-        // );
+        if prev_description.is_none() && self.name.is_none() {
+            tracing::debug!(
+                workspace_id = %self.workspace_id,
+                language = ?self.language,
+                "waiting for cache timeout after creating first unnamed workspace dependencies"
+            );
+            // Wait for cache timeout.
+            // For context, workers have cache on whether the unnamed workspace dependencies exists or not.
+            // when we trigger dependents to recompoute dependencies we want to make sure all workers are having cache timed out.
+            // otherwise it would result into bug, when workers skip fetch of workspace dependencies because they think they don't exist.
+            tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
+        }
 
         // It's ok to fail, it will return an error and user will get notified that they should redeploy workspace dependencies
         trigger_dependents_to_recompute_dependencies(
