@@ -14,6 +14,21 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
     let mut assets_finder = AssetsFinder { assets: vec![], var_identifiers: HashMap::new() };
     ast.into_iter()
         .for_each(|stmt| assets_finder.visit_stmt(stmt));
+
+    for (kind, name) in assets_finder.var_identifiers.into_values() {
+        // if a db = wmill.datatable() was never used (e.g db.query(...)),
+        // we still want to register the asset as unknown access type
+        if assets_finder
+            .assets
+            .iter()
+            .all(|a| !(a.kind == kind && a.path == name))
+        {
+            assets_finder
+                .assets
+                .push(ParseAssetsResult { kind, access_type: None, path: name });
+        }
+    }
+
     Ok(merge_assets(assets_finder.assets))
 }
 
@@ -41,7 +56,25 @@ impl Visitor for AssetsFinder {
             for target in &node.targets {
                 if let Expr::Name(name_expr) = target {
                     let Ok(var_name) = name_expr.id.parse::<String>();
-                    self.var_identifiers.remove(&var_name);
+                    let removed = self.var_identifiers.remove(&var_name);
+                    // if a db = wmill.datatable() or similar was removed, but never used (e.g db.query(...)),
+                    // we still want to register the asset as unknown access type
+                    match removed {
+                        Some((kind, name)) => {
+                            if self
+                                .assets
+                                .iter()
+                                .all(|a| !(a.kind == kind && a.path == name))
+                            {
+                                self.assets.push(ParseAssetsResult {
+                                    kind,
+                                    access_type: None,
+                                    path: name,
+                                });
+                            }
+                        }
+                        None => {}
+                    }
                 }
             }
         }
