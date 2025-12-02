@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { CenteredModal, Button } from './common'
+	import { Button } from './common'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { diffLines } from 'diff'
 	import { FileText, X } from 'lucide-svelte'
 	import type { WorkspaceItemDiff } from '$lib/gen'

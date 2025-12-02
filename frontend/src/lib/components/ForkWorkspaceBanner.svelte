@@ -30,7 +30,6 @@
 	})
 
 	onMount(() => {
-		console.log('heyay')
 		if (isFork && $workspaceStore) {
 			checkForChanges()
 		} else {
@@ -44,7 +43,6 @@
 			return
 		}
 
-		console.log('checking for changes')
 		loading = true
 		error = undefined
 
@@ -69,7 +67,7 @@
 
 	function openComparisonDrawer() {
 		if (parentWorkspaceId) {
-			goto('/forks/compare?parent_workspace_id=' + encodeURIComponent(parentWorkspaceId), {
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
 				replaceState: true
 			})
 		}
@@ -118,7 +116,6 @@
 						</span>
 					{:else if comparison}
 						<div class="flex items-center gap-4 text-xs">
-							{console.log(comparison)}
 							{#if comparison.summary.total_diffs > 0}
 								<span>
 									{forkAheadBehindMessage(
