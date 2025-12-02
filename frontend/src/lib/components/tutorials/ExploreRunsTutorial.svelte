@@ -19,6 +19,7 @@
 	let step3Complete = $state(false)
 	let step4Complete = $state(false)
 	let step5Complete = $state(false)
+	let step6Complete = $state(false)
 
 	// Constants for delays
 	const DELAY_SHORT = 100
@@ -324,6 +325,27 @@
 					side: 'top',
 					onNextClick: () => {
 						if (!step5Complete) {
+							sendUserToast('Please wait...', false, [], undefined, 3000)
+							return
+						}
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: '.rounded-md.grow.bg-surface-tertiary.text-xs.flex.flex-col.max-h-screen.gap-2.overflow-hidden.border',
+				onHighlighted: async () => {
+					step6Complete = false
+					await wait(DELAY_SHORT)
+					step6Complete = true
+				},
+				popover: {
+					title: 'Step details',
+					description:
+						'Here you can see the code, result, and logs for this specific step. This is where you can debug and understand what went wrong!',
+					side: 'left',
+					onNextClick: () => {
+						if (!step6Complete) {
 							sendUserToast('Please wait...', false, [], undefined, 3000)
 							return
 						}
