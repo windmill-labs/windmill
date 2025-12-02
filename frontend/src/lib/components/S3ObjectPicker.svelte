@@ -39,7 +39,7 @@
 <S3FilePicker
 	bind:this={s3FilePicker}
 	bind:selectedFileKey={value}
-	on:close={() => {
+	onClose={() => {
 		rawValue = JSON.stringify(value, null, 2)
 		editor?.setCode(rawValue)
 	}}

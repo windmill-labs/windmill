@@ -2,18 +2,13 @@
 	import { emptyString, type S3Object } from '$lib/utils'
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { createEventDispatcher, tick, untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
 	import Select from './select/Select.svelte'
 	import { FileUp } from 'lucide-svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { SettingService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
-	let dispatch = createEventDispatcher<{
-		close: { s3: string; storage: string | undefined } | undefined
-		selectAndClose: { s3: string; storage: string | undefined }
-	}>()
 
 	interface Props {
 		fromWorkspaceSettings?: boolean
@@ -22,6 +17,8 @@
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
 		regexFilter?: RegExp | undefined
+		onClose?: () => void
+		onSelectAndClose?: (selected: { s3: string; storage: string | undefined }) => void
 	}
 
 	let {
@@ -30,7 +27,9 @@
 		initialFileKey = $bindable(undefined),
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
-		regexFilter = undefined
+		regexFilter = undefined,
+		onClose,
+		onSelectAndClose
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -76,7 +75,7 @@
 <Drawer
 	bind:this={drawer}
 	on:close={() => {
-		dispatch('close')
+		onClose?.()
 		s3FilePickerInner?.close?.()
 	}}
 	size="1200px"
@@ -93,7 +92,7 @@
 		<S3FilePickerInner
 			bind:this={s3FilePickerInner}
 			on:selectAndClose={(e) => {
-				dispatch('selectAndClose', e.detail)
+				onSelectAndClose?.(e.detail)
 				drawer?.closeDrawer?.()
 			}}
 			{fromWorkspaceSettings}

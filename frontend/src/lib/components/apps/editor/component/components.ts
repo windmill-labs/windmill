@@ -1642,6 +1642,9 @@ export const components = {
 						accept: '*',
 						convertTo: 'base64'
 					},
+					fileUploadS3: {
+						accept: '*'
+					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
 				filename: {
@@ -3459,8 +3462,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						convertTo: 'base64'
 					},
 					fileUploadS3: {
-						accept: 'image/*',
-						convertTo: 'base64'
+						accept: 'image/*'
 					}
 				},
 				sourceKind: {
@@ -3659,6 +3661,9 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'application/pdf'
 					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
