@@ -69,13 +69,9 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route(
-            "/history_update/v/:version",
-            post(update_flow_history),
-        )
-        .route("/get/v/:version/p/*path", get(get_flow_version))
+        .route("/history_update/v/:version", post(update_flow_history))
         .route("/get/v/:version", get(get_flow_version_by_id))
-
+        .route("/get/v/:version/p/*path", get(get_flow_version))
         .route(
             "/toggle_workspace_error_handler/*path",
             post(toggle_workspace_error_handler),
@@ -719,12 +715,13 @@ async fn get_flow_version_by_id(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow_version.workspace_id, flow_version.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow_version
-        LEFT JOIN ON ",
+        LEFT JOIN flow ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow_version.id = $1 AND flow_version.workspace_id = $2",
     )
-    .bind(w_id)
     .bind(version)
+    .bind(w_id)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -735,8 +732,6 @@ async fn get_flow_version_by_id(
 
     let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
 
-
-    
     Ok(Json(flow))
 }
 
@@ -744,7 +739,6 @@ async fn get_flow_version_by_id(
 pub struct FlowHistoryUpdate {
     pub deployment_msg: String,
 }
-
 
 async fn update_flow_history(
     authed: ApiAuthed,
@@ -773,7 +767,6 @@ async fn update_flow_history(
 
     check_scopes(&authed, || format!("flows:write:{}", path))?;
 
-
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
@@ -786,7 +779,6 @@ async fn update_flow_history(
     tx.commit().await?;
     return Ok(());
 }
-
 
 async fn update_flow(
     authed: ApiAuthed,
