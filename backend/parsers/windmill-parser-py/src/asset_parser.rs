@@ -2,7 +2,8 @@ use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
 use rustpython_parser::{ast::Suite, Parse};
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
-    merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    detect_sql_access_type, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
+    ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -23,13 +24,8 @@ struct AssetsFinder {
 
 impl Visitor for AssetsFinder {
     fn visit_stmt_function_def(&mut self, node: rustpython_ast::StmtFunctionDef) {
-        // Save current scope
         let saved_vars = self.var_identifiers.clone();
-
-        // Visit function body
         self.generic_visit_stmt_function_def(node);
-
-        // Restore outer scope
         self.var_identifiers = saved_vars;
     }
 
@@ -90,7 +86,6 @@ impl Visitor for AssetsFinder {
     fn visit_stmt_assign(&mut self, node: rustpython_ast::StmtAssign) {
         // Check if RHS is a wmill.datatable() or wmill.ducklake() call
         if let Some((kind, path)) = self.extract_asset_call(&node.value) {
-            // Track all simple name targets
             for target in &node.targets {
                 if let Expr::Name(name_expr) = target {
                     let Ok(var_name) = name_expr.id.parse::<String>();
@@ -120,6 +115,19 @@ impl Visitor for AssetsFinder {
     }
 
     fn visit_expr_call(&mut self, node: rustpython_ast::ExprCall) {
+        // First, check if this is a method call on a tracked variable (e.g., db_name.query(...))
+        if let Some(result) = self.check_tracked_var_method_call(&node) {
+            self.assets.push(result);
+            // Still visit arguments in case they contain assets
+            for arg in node.args {
+                self.visit_expr(arg);
+            }
+            for keyword in node.keywords {
+                self.visit_keyword(keyword);
+            }
+            return;
+        }
+
         match self.visit_expr_call_inner(&node) {
             Ok(_) => {}
             Err(_) => {
@@ -144,14 +152,55 @@ impl Visitor for AssetsFinder {
 }
 
 impl AssetsFinder {
+    /// Check if this is a method call on a tracked variable (e.g., db_name.query('SELECT ...'))
+    fn check_tracked_var_method_call(
+        &self,
+        node: &rustpython_ast::ExprCall,
+    ) -> Option<ParseAssetsResult<String>> {
+        // Check if func is an attribute access (e.g., db_name.query)
+        let attr = node.func.as_attribute_expr()?;
+
+        // Check if the object is a name we're tracking
+        let obj_name = attr.value.as_name_expr()?;
+        let var_name: String = obj_name.id.parse().ok()?;
+
+        let (kind, path) = self.var_identifiers.get(&var_name)?;
+
+        // Get the method name
+        let method_name = attr.attr.as_str();
+
+        if method_name != "query" {
+            return None;
+        }
+        let access_type = self
+            .extract_sql_from_args(node)
+            .and_then(|sql| detect_sql_access_type(&sql));
+
+        Some(ParseAssetsResult { kind: kind.clone(), path: path.clone(), access_type })
+    }
+
+    /// Extract SQL string from the first argument of a call
+    fn extract_sql_from_args(&self, node: &rustpython_ast::ExprCall) -> Option<String> {
+        let first_arg = node.args.first().or_else(|| {
+            node.keywords
+                .iter()
+                .find(|kw| kw.arg.as_deref() == Some("sql") || kw.arg.as_deref() == Some("query"))
+                .map(|kw| &kw.value)
+        })?;
+
+        if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) = first_arg {
+            Some(s.to_string())
+        } else {
+            None
+        }
+    }
+
     /// Extract asset kind and path from wmill.datatable('name') or wmill.ducklake('name') calls
     fn extract_asset_call(&self, expr: &Expr) -> Option<(AssetKind, String)> {
         let call = expr.as_call_expr()?;
 
-        // Check for wmill.datatable or wmill.ducklake pattern
         let attr = call.func.as_attribute_expr()?;
 
-        // Verify it's wmill.X
         let obj = attr.value.as_name_expr()?;
         if obj.id.as_str() != "wmill" {
             return None;
@@ -159,12 +208,11 @@ impl AssetsFinder {
 
         let method_name = attr.attr.as_str();
         let kind = match method_name {
-            "datatable" => AssetKind::DataTable, // You may need to add this variant
-            "ducklake" => AssetKind::Ducklake,   // You may need to add this variant
+            "datatable" => AssetKind::DataTable,
+            "ducklake" => AssetKind::Ducklake,
             _ => return None,
         };
 
-        // Get the first argument (the name)
         let first_arg = call.args.first().or_else(|| {
             call.keywords
                 .iter()
