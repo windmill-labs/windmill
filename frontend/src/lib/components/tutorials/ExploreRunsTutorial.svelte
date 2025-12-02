@@ -7,7 +7,6 @@
 	import type { Flow } from '$lib/gen'
 	import { wait, type StateStore } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
-	import { triggerPointerDown } from './utils'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -28,7 +27,10 @@
 	const DELAY_SHORT = 100
 	const DELAY_MEDIUM = 300
 	const DELAY_LONG = 500
-	const DELAY_ANIMATION = 1500
+
+	// Constants for cursor animation
+	const CURSOR_START_OFFSET = -100
+	const CURSOR_CLICK_SCALE = 0.8
 
 	// DOM Selectors
 	const SELECTORS = {
@@ -80,14 +82,14 @@
 			startX = startRect.left + startRect.width / 2
 			startY = startRect.top + startRect.height / 2
 		} else {
-			startX = endRect.left - 100
+			startX = endRect.left + CURSOR_START_OFFSET
 			startY = endRect.top + endRect.height / 2
 		}
 
 		fakeCursor.style.left = `${startX}px`
 		fakeCursor.style.top = `${startY}px`
 
-		await wait(100)
+		await wait(DELAY_SHORT)
 
 		fakeCursor.style.left = `${endRect.left + endRect.width / 2}px`
 		fakeCursor.style.top = `${endRect.top + endRect.height / 2}px`
@@ -97,19 +99,36 @@
 		return fakeCursor
 	}
 
+	// Helper function to get element by selector (handles both querySelector and getElementById)
+	function getElementBySelector(selector: string): HTMLElement | null {
+		// If selector starts with #, try getElementById first, then fallback to querySelector
+		if (selector.startsWith('#')) {
+			const id = selector.slice(1)
+			return document.getElementById(id) || document.querySelector(selector)
+		}
+		return document.querySelector(selector) as HTMLElement | null
+	}
+
 	// Helper function to animate a fake cursor click
 	async function animateFakeCursorClick(
 		element: HTMLElement,
-		transitionDuration: number = 1.5
+		transitionDuration: number = 1.5,
+		options?: { usePointerEvents?: boolean }
 	): Promise<void> {
 		const fakeCursor = await createFakeCursor(null, element, transitionDuration)
 		await wait(DELAY_MEDIUM)
 
 		// Animate click (shrink cursor briefly)
-		fakeCursor.style.transform = 'scale(0.8)'
-		await wait(100)
+		fakeCursor.style.transform = `scale(${CURSOR_CLICK_SCALE})`
+		await wait(DELAY_SHORT)
 		fakeCursor.style.transform = 'scale(1)'
-		await wait(100)
+		await wait(DELAY_SHORT)
+
+		// Trigger pointer events if needed (flow graph uses pointer events instead of click)
+		if (options?.usePointerEvents) {
+			element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+			element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+		}
 
 		// Click the element
 		element.click()
@@ -334,29 +353,12 @@
 					await wait(DELAY_SHORT)
 
 					// Find the step 'b' button inside the drawer and click it with fake cursor
-					const flowPreviewContent = document.getElementById(SELECTORS.flowPreviewContent.slice(1))
+					const flowPreviewContent = getElementBySelector(SELECTORS.flowPreviewContent)
 					if (flowPreviewContent) {
 						const stepButton = findButtonByText(flowPreviewContent, TEXT.convertToFahrenheit)
 
 						if (stepButton) {
-							// Create fake cursor and animate it to the button
-							const fakeCursor = await createFakeCursor(null, stepButton, 1.5)
-							await wait(DELAY_MEDIUM)
-
-							// Animate click (shrink cursor briefly)
-							fakeCursor.style.transform = 'scale(0.8)'
-							await wait(100)
-							fakeCursor.style.transform = 'scale(1)'
-							await wait(100)
-
-							// Trigger pointer events (flow graph uses pointer events instead of click)
-							stepButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-							stepButton.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-							stepButton.click()
-							await wait(DELAY_SHORT)
-
-							// Remove fake cursor
-							fakeCursor.remove()
+							await animateFakeCursorClick(stepButton, 1.5, { usePointerEvents: true })
 							await wait(DELAY_MEDIUM)
 						}
 					}
@@ -390,7 +392,7 @@
 						if (!checkStepComplete(6)) return
 
 						// Click the close button inside the drawer
-						const drawer = document.getElementById(SELECTORS.flowPreviewContent.slice(1))
+						const drawer = getElementBySelector(SELECTORS.flowPreviewContent)
 						if (drawer) {
 							const closeButton = findCloseButton(drawer)
 
@@ -411,7 +413,7 @@
 					await wait(DELAY_SHORT)
 
 					// Click on div id="b" to open the editor
-					const stepBDiv = document.getElementById(SELECTORS.stepB.slice(1)) as HTMLElement
+					const stepBDiv = getElementBySelector(SELECTORS.stepB)
 					if (stepBDiv) {
 						await animateFakeCursorClick(stepBDiv, 1.5)
 						await wait(DELAY_LONG)
