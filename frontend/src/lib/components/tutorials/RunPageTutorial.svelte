@@ -232,7 +232,7 @@ Flow completed successfully in 1.25s
 <Tutorial
 	bind:this={tutorial}
 	index={9}
-	name="explore-runs"
+	name="troubleshoot-flow"
 	tainted={false}
 	on:error
 	on:skipAll

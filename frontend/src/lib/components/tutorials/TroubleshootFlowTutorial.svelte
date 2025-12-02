@@ -252,7 +252,7 @@
 <Tutorial
 	bind:this={tutorial}
 	index={10}
-	name="explore-runs"
+	name="troubleshoot-flow"
 	tainted={false}
 	on:error
 	on:skipAll

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { skipAllTodos } from '$lib/tutorialUtils'
-	import ExploreRunsTutorial from './tutorials/ExploreRunsTutorial.svelte'
+	import TroubleshootFlowTutorial from './tutorials/TroubleshootFlowTutorial.svelte'
 
-	let exploreRunsTutorial: ExploreRunsTutorial | undefined = $state(undefined)
+	let troubleshootFlowTutorial: TroubleshootFlowTutorial | undefined = $state(undefined)
 
 	export function runTutorialById(id: string) {
-		if (id === 'explore-runs') {
-			exploreRunsTutorial?.runTutorial()
+		if (id === 'troubleshoot-flow') {
+			troubleshootFlowTutorial?.runTutorial()
 		}
 	}
 
@@ -15,4 +15,4 @@
 	}
 </script>
 
-<ExploreRunsTutorial bind:this={exploreRunsTutorial} on:error on:skipAll={skipAll} on:reload />
+<TroubleshootFlowTutorial bind:this={troubleshootFlowTutorial} on:error on:skipAll={skipAll} on:reload />

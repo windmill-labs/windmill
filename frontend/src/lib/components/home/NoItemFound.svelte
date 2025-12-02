@@ -22,7 +22,7 @@
 
 	function startRunsTutorial() {
 		// Navigate to flow editor with pre-built flow for the runs tutorial
-		window.location.href = `${base}/flows/add?tutorial=explore-runs&nodraft=true`
+		window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow&nodraft=true`
 	}
 </script>
 
@@ -70,7 +70,7 @@
 			>
 				<div class="flex items-center gap-2 mb-2 text-primary">
 					<Play size={24} />
-					<h2 class="text-base font-semibold">Explore runs</h2>
+					<h2 class="text-base font-semibold">Fix a broken flow</h2>
 				</div>
 				<p class="text-sm font-normal text-secondary">
 					Learn how to monitor and debug your script and flow executions.
