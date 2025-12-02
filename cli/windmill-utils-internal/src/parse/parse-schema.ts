@@ -206,15 +206,32 @@ export function argSigToJsonSchemaType(
         }
         newS.items = { type: "object", properties: properties };
       } else {
-        newS.items = { type: "object" };
+        // Preserve ALL user-defined fields when parser cannot infer structure
+        newS.items = { type: oldS.items?.type || "object" };
+
+        const preserveItemFields = ['properties', 'required', 'additionalProperties',
+                                     'enum', 'resourceType', 'contentEncoding', 'description'];
+
+        if (oldS.items && typeof oldS.items === 'object') {
+          preserveItemFields.forEach((field) => {
+            if (oldS.items && oldS.items[field] !== undefined) {
+              newS.items[field] = oldS.items[field];
+            }
+          });
+        }
       }
       newS.originalType = "record[]";
     } else {
-      newS.items = { type: "object" };
+      // Preserve user-defined items for untyped lists
+      newS.items = { type: oldS.items?.type || "object" };
+      if (oldS.items?.properties) {
+        newS.items.properties = oldS.items.properties;
+      }
       newS.originalType = "object[]";
     }
   } else {
-    newS.type = "object";
+    // Preserve existing type when inference fails, default to "object" for undefined/null
+    newS.type = oldS.type ?? "object";
   }
 
   const preservedFields = [
