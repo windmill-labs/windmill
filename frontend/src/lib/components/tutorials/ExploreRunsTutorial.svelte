@@ -341,9 +341,9 @@
 					step6Complete = true
 				},
 				popover: {
-					title: 'Check step details',
+					title: 'We found our issue!',
 					description:
-						'This panel shows the code, output, and logs for the selected step. It’s the best place to spot mistakes and understand how to fix them.',
+						'We made a typo in the code. Let’s fix it and run the flow again.',
 					side: 'left',
 					onNextClick: async () => {
 						if (!step6Complete) {
@@ -389,12 +389,34 @@
 				onHighlighted: async () => {
 					step7Complete = false
 					await wait(DELAY_SHORT)
+
+					// Click on div id="b" to open the editor
+					const stepBDiv = document.getElementById('b') as HTMLElement
+					if (stepBDiv) {
+						// Create fake cursor and animate it to the div
+						const fakeCursor = await createFakeCursor(null, stepBDiv, 1.5)
+						await wait(DELAY_MEDIUM)
+
+						// Animate click (shrink cursor briefly)
+						fakeCursor.style.transform = 'scale(0.8)'
+						await wait(100)
+						fakeCursor.style.transform = 'scale(1)'
+						await wait(100)
+
+						// Click the div
+						stepBDiv.click()
+						await wait(DELAY_LONG)
+
+						// Remove fake cursor
+						fakeCursor.remove()
+					}
+
 					step7Complete = true
 				},
 				popover: {
 					title: 'Your turn now!',
 					description:
-						'Open step b, fix the issue in the code, and run the flow again to confirm everything works.',
+						'Fix the issue in the code, and run the flow again to confirm everything works.',
 					side: 'top',
 					onNextClick: () => {
 						if (!step7Complete) {
