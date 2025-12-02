@@ -2,7 +2,6 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
-use std::time::Instant;
 
 use crate::{
     cache::workspace_dependencies::{
@@ -230,6 +229,11 @@ impl WorkspaceDependencies {
             .map(|exists| exists == false)
             .unwrap_or_default()
         {
+            tracing::debug!(
+                workspace_id = %workspace_id,
+                ?language,
+                "skipping unnamed workspace dependencies fetch - cached as non-existent"
+            );
             return Ok(None);
         }
 
