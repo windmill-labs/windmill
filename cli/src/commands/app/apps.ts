@@ -30,22 +30,26 @@ function respecializeFields(fields: Record<string, any>) {
   Object.entries(fields).forEach(([k, v]) => {
     if (typeof v == "object") {
       if (v.value !== undefined) {
-        fields[k] = { value: v.value, type: "static" }
+        fields[k] = { value: v.value, type: "static" };
       } else if (v.expr !== undefined) {
-        fields[k] = { expr: v.expr, allowUserResources: v.allowUserResources, type: "javascript" }
+        fields[k] = {
+          expr: v.expr,
+          allowUserResources: v.allowUserResources,
+          type: "javascript",
+        };
       }
     }
-  })
+  });
 }
 
 export function repopulateFields(runnables: Record<string, any>) {
   Object.values(runnables).forEach((v) => {
     if (typeof v == "object") {
       if (v.fields !== undefined) {
-        respecializeFields(v.fields)
+        respecializeFields(v.fields);
       }
     }
-  })
+  });
 }
 export function replaceInlineScripts(rec: any, localPath: string) {
   if (!rec) {
@@ -53,11 +57,10 @@ export function replaceInlineScripts(rec: any, localPath: string) {
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == 'runType') {
-        rec["type"] = 'path'
-        
+      if (k == "runType") {
+        rec["type"] = "path";
       } else if (k == "inlineScript" && typeof v == "object") {
-        rec["type"] = 'inline'
+        rec["type"] = "inline";
         const o: Record<string, any> = v as any;
 
         if (o["content"] && o["content"].startsWith("!inline")) {
@@ -114,7 +117,12 @@ export async function pushApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
 
   replaceInlineScripts(localApp.value, localPath);
-  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
+  await generatingPolicy(
+    localApp,
+    remotePath,
+    localApp?.["public"] ??
+      localApp?.["policy"]?.["execution_mode"] == "anonymous"
+  );
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
