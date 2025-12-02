@@ -54,7 +54,7 @@
 	unifiedSize={'md'}
 	variant={buttonVariant}
 	wrapperClasses={className}
-	iconOnly
+	iconOnly={noText}
 	{btnClasses}
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
