@@ -148,12 +148,6 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
             tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
         }
 
-        tracing::error!(
-            workspace_id = %workspace_id,
-            path = %path,
-            "CRITICAL: failed to get dependents for workspace dependencies - dependent runnables are not being redeployed. Please contact the Windmill team"
-        );
-
         // It's ok to fail, it will return an error and user will get notified that they should redeploy workspace dependencies
         if let Err(e) = trigger_dependents_to_recompute_dependencies(
                 &workspace_id,
