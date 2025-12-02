@@ -64,7 +64,7 @@ mod workspace_dependencies {
                 name: Some("test".to_owned()),
                 description: None,
             }
-            .create("", "", "", db)
+            .create(("".to_owned(), "".to_owned(), "".to_owned()), db.clone())
             .await
             .unwrap();
 
