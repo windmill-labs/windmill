@@ -74,17 +74,15 @@ impl AssetsFinder {
             .ok_or(())?;
 
         use AssetKind::*;
-        let (kind, access_type, arg, default) = match ident.as_str() {
-            "load_s3_file" => (S3Object, Some(R), Arg(0, "s3object"), None),
-            "load_s3_file_reader" => (S3Object, Some(R), Arg(0, "s3object"), None),
-            "write_s3_file" => (S3Object, Some(W), Arg(0, "s3object"), None),
-            "get_resource" => (Resource, None, Arg(0, "path"), None),
-            "set_resource" => (Resource, Some(W), Arg(0, "path"), None),
-            "get_boto3_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
-            "get_polars_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
-            "get_duckdb_connection_settings" => (Resource, None, Arg(0, "s3_resource_path"), None),
-            "datatable" => (DataTable, None, Arg(0, "name"), Some("main")),
-            "ducklake" => (Ducklake, None, Arg(0, "name"), Some("main")),
+        let (kind, access_type, arg) = match ident.as_str() {
+            "load_s3_file" => (S3Object, Some(R), Arg(0, "s3object")),
+            "load_s3_file_reader" => (S3Object, Some(R), Arg(0, "s3object")),
+            "write_s3_file" => (S3Object, Some(W), Arg(0, "s3object")),
+            "get_resource" => (Resource, None, Arg(0, "path")),
+            "set_resource" => (Resource, Some(W), Arg(0, "path")),
+            "get_boto3_connection_settings" => (Resource, None, Arg(0, "s3_resource_path")),
+            "get_polars_connection_settings" => (Resource, None, Arg(0, "s3_resource_path")),
+            "get_duckdb_connection_settings" => (Resource, None, Arg(0, "s3_resource_path")),
             _ => return Err(()),
         };
 
@@ -98,18 +96,11 @@ impl AssetsFinder {
             }),
         };
 
-        match (arg_val, default) {
-            (Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })), _) => {
+        match arg_val {
+            Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
-            }
-            (None, Some(default)) => {
-                self.assets.push(ParseAssetsResult {
-                    kind,
-                    path: default.to_string(),
-                    access_type,
-                });
             }
             _ => return Err(()),
         };
