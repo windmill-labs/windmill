@@ -1,5 +1,6 @@
 use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
 use rustpython_parser::{ast::Suite, Parse};
+use std::collections::HashMap;
 use windmill_parser::asset_parser::{
     merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
 };
@@ -9,7 +10,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
     let ast = Suite::parse(input, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let mut assets_finder = AssetsFinder { assets: vec![] };
+    let mut assets_finder = AssetsFinder { assets: vec![], var_identifiers: HashMap::new() };
     ast.into_iter()
         .for_each(|stmt| assets_finder.visit_stmt(stmt));
     Ok(merge_assets(assets_finder.assets))
@@ -17,8 +18,36 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
 
 struct AssetsFinder {
     assets: Vec<ParseAssetsResult<String>>,
+    var_identifiers: HashMap<String, (AssetKind, String)>,
 }
+
 impl Visitor for AssetsFinder {
+    // Handle assignment statements like: x = wmill.datatable('name')
+    fn visit_stmt_assign(&mut self, node: rustpython_ast::StmtAssign) {
+        // Check if the value is a call to a tracked function
+        if let Some((kind, name)) = self.extract_asset_from_call(&node.value) {
+            // Track all target variables
+            for target in &node.targets {
+                if let Expr::Name(name_expr) = target {
+                    let Ok(var_name) = name_expr.id.parse::<String>();
+                    self.var_identifiers
+                        .insert(var_name, (kind.clone(), name.clone()));
+                }
+            }
+        } else {
+            // If not wmill.datatable or similar, remove any tracked variables
+            // It means the identifier is no longer refering to an asset
+            for target in &node.targets {
+                if let Expr::Name(name_expr) = target {
+                    let Ok(var_name) = name_expr.id.parse::<String>();
+                    self.var_identifiers.remove(&var_name);
+                }
+            }
+        }
+        // Continue with generic visit to catch any other assets in the expression
+        self.generic_visit_stmt_assign(node);
+    }
+
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
     fn visit_expr_constant(&mut self, node: ExprConstant) {
@@ -61,6 +90,41 @@ impl Visitor for AssetsFinder {
 }
 
 impl AssetsFinder {
+    /// Extract asset info from calls like wmill.datatable('name'), wmill.dataset('name'), etc.
+    fn extract_asset_from_call(&self, expr: &Expr) -> Option<(AssetKind, String)> {
+        let call = expr.as_call_expr()?;
+
+        // Check for wmill.datatable, wmill.dataset pattern
+        let attr = call.func.as_attribute_expr()?;
+
+        // Verify the object is 'wmill'
+        let obj_name = attr.value.as_name_expr()?;
+        if obj_name.id.as_str() != "wmill" {
+            return None;
+        }
+
+        let method_name = attr.attr.as_str();
+        let kind = match method_name {
+            "datatable" => AssetKind::DataTable,
+            _ => return None,
+        };
+
+        // Get the first argument (the asset name)
+        let first_arg = call.args.first().or_else(|| {
+            // Try keyword argument 'name' or 'path'
+            call.keywords
+                .iter()
+                .find(|kw| matches!(kw.arg.as_deref(), Some("name") | Some("path")))
+                .map(|kw| &kw.value)
+        })?;
+
+        if let Expr::Constant(ExprConstant { value: Constant::Str(name), .. }) = first_arg {
+            Some((kind, name.to_string()))
+        } else {
+            None
+        }
+    }
+
     fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
         let ident: String = node
             .func
