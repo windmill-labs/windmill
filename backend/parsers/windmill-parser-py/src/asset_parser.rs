@@ -2,7 +2,8 @@ use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
 use rustpython_parser::{ast::Suite, Parse};
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
-    merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    detect_sql_access_type, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
+    ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -90,11 +91,11 @@ impl Visitor for AssetsFinder {
 }
 
 impl AssetsFinder {
-    /// Extract asset info from calls like wmill.datatable('name'), wmill.dataset('name'), etc.
+    /// Extract asset info from calls like wmill.datatable('name'), wmill.ducklake('name'), etc.
     fn extract_asset_from_call(&self, expr: &Expr) -> Option<(AssetKind, String)> {
         let call = expr.as_call_expr()?;
 
-        // Check for wmill.datatable, wmill.dataset pattern
+        // Check for wmill.datatable, wmill.ducklake pattern
         let attr = call.func.as_attribute_expr()?;
 
         // Verify the object is 'wmill'
@@ -106,23 +107,31 @@ impl AssetsFinder {
         let method_name = attr.attr.as_str();
         let kind = match method_name {
             "datatable" => AssetKind::DataTable,
+            "ducklake" => AssetKind::Ducklake,
             _ => return None,
         };
 
         // Get the first argument (the asset name)
-        let first_arg = call.args.first().or_else(|| {
-            // Try keyword argument 'name' or 'path'
-            call.keywords
-                .iter()
-                .find(|kw| matches!(kw.arg.as_deref(), Some("name") | Some("path")))
-                .map(|kw| &kw.value)
-        })?;
+        let name = call
+            .args
+            .first()
+            .or_else(|| {
+                // Try keyword argument 'name' or 'path'
+                call.keywords
+                    .iter()
+                    .find(|kw| matches!(kw.arg.as_deref(), Some("name") | Some("path")))
+                    .map(|kw| &kw.value)
+            })
+            .and_then(|first_arg| {
+                if let Expr::Constant(ExprConstant { value: Constant::Str(name), .. }) = first_arg {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "main".to_string());
 
-        if let Expr::Constant(ExprConstant { value: Constant::Str(name), .. }) = first_arg {
-            Some((kind, name.to_string()))
-        } else {
-            None
-        }
+        Some((kind, name))
     }
 
     fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
@@ -136,6 +145,51 @@ impl AssetsFinder {
                     .and_then(|attr| attr.attr.parse().ok())
             })
             .ok_or(())?;
+
+        // `obj_name` is the object (receiver) - i.e., `obj` in `obj.method()`
+        let obj_name: String = if let Expr::Attribute(rustpython_ast::ExprAttribute {
+            value, ..
+        }) = node.func.as_ref()
+        {
+            if let Expr::Name(name_expr) = value.as_ref() {
+                name_expr.id.parse().map_err(|_| ())?
+            } else {
+                return Err(());
+            }
+        } else {
+            return Err(());
+        };
+
+        if obj_name == "wmill" {
+            // Continue
+        } else if let Some((kind, ref path)) = self.var_identifiers.get(&obj_name) {
+            if ident == "query" {
+                let name_expr = node.args.get(0).or_else(|| {
+                    node.keywords
+                        .iter()
+                        .find(|kw| kw.arg.as_deref() == Some("name"))
+                        .map(|kw| &kw.value)
+                });
+                match name_expr {
+                    Some(Expr::Constant(ExprConstant {
+                        value: Constant::Str(sql_query), ..
+                    })) => {
+                        let access_type = detect_sql_access_type(&sql_query);
+                        self.assets.push(ParseAssetsResult {
+                            kind: *kind,
+                            path: path.to_string(),
+                            access_type,
+                        });
+                        return Ok(());
+                    }
+                    _ => return Err(()),
+                };
+            } else {
+                return Err(());
+            }
+        } else {
+            return Err(());
+        }
 
         use AssetKind::*;
         let (kind, access_type, arg) = match ident.as_str() {
