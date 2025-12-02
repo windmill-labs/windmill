@@ -259,6 +259,16 @@
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
+				popover: {
+					title: '🛠️ Troubleshoot a broken flow',
+					description:
+						'We created a flow that is a temperature converter that validates input and converts Celsius to Fahrenheit. For this tutorial, our flow is intentionally broken.',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
 				element: SELECTORS.testFlowButton,
 				onHighlighted: async () => {
 					stepComplete[1] = false
@@ -266,9 +276,9 @@
 					stepComplete[1] = true
 				},
 				popover: {
-					title: '🛠️ Troubleshoot a broken flow',
+					title: 'Test our flow',
 					description:
-						'This flow is intentionally broken. Let\'s run it so you can see what needs to be fixed.',
+						'Let\'s run it so you can see what needs to be fixed.',
 					side: 'bottom',
 					onNextClick: async () => {
 						if (!checkStepComplete(1)) return
