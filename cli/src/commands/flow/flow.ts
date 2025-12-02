@@ -196,7 +196,6 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
-    useRawRequirements?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
@@ -322,10 +321,6 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
-  .option(
-    "-r --use-raw-requirements",
-    "Use raw requirements (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_RAW_REQUIREMENTS=true environment variable)"
-  )
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
