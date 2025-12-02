@@ -3,7 +3,7 @@
 		SettingService,
 		type CustomInstanceDb,
 		type CustomInstanceDbTag,
-		type GetCustomInstanceDbsResponse
+		type ListCustomInstanceDbsResponse
 	} from '$lib/gen'
 	import { slide } from 'svelte/transition'
 	import Modal2 from '../common/modal/Modal2.svelte'
@@ -21,7 +21,7 @@
 	import { truncate } from '$lib/utils'
 
 	type Props = {
-		customInstanceDbs: ResourceReturn<GetCustomInstanceDbsResponse>
+		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
 		bottomHint?: Snippet | undefined

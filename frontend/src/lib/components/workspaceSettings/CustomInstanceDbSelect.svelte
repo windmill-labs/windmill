@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CustomInstanceDbTag, GetCustomInstanceDbsResponse } from '$lib/gen'
+	import type { CustomInstanceDbTag, ListCustomInstanceDbsResponse } from '$lib/gen'
 	import type { ResourceReturn } from 'runed'
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -13,7 +13,7 @@
 
 	type Props = {
 		value: string | undefined
-		customInstanceDbs: ResourceReturn<GetCustomInstanceDbsResponse>
+		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		dbManagerDrawer: DBManagerDrawer | undefined
 		wizardBottomHint?: Snippet | undefined
