@@ -263,6 +263,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/list_filtered_uuids", get(list_filtered_job_uuids))
         .route("/queue/list", get(list_queue_jobs))
+        .route("/queue/export", get(crate::jobs_export::export_queued_jobs))
+        .route(
+            "/queue/import",
+            post(crate::jobs_export::import_queued_jobs),
+        )
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
         .route("/queue/position/:timestamp", get(get_queue_position))
@@ -273,6 +278,18 @@ pub fn workspaced_service() -> Router {
         .route(
             "/completed/list",
             get(list_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/export",
+            get(crate::jobs_export::export_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/import",
+            post(crate::jobs_export::import_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/delete",
+            post(crate::jobs_export::delete_jobs),
         )
         .route(
             "/completed/get/:id",
