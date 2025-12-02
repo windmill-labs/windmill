@@ -243,6 +243,14 @@ impl WorkspaceDependencies {
                 let Some(id) =
                     Self::get_latest_id(name.clone(), language, workspace_id, db).await?
                 else {
+                    if name.is_none() {
+                        set_cached_is_unnamed_workspace_dependencies_exists(
+                            language,
+                            workspace_id.to_owned(),
+                            false,
+                        );
+                    }
+
                     tracing::debug!(
                         workspace_id = %workspace_id,
                         ?language,
