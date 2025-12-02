@@ -28,10 +28,8 @@ impl NewWorkspaceDependencies {
     /// and rebuilds the dependency map if this is the first unnamed dependency for the workspace.
     pub async fn create<'c>(
         self,
-        email: &str,
-        created_by: &str,
-        permissioned_as: &str,
-        db: &sqlx::Pool<sqlx::Postgres>,
+        metadata: (String, String, String),
+        db: sqlx::Pool<sqlx::Postgres>,
     ) -> error::Result<i64> {
         // Check if all workers support workspace dependencies feature
         windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
@@ -46,7 +44,7 @@ impl NewWorkspaceDependencies {
             let setting_name = format!("workspace_dependencies_map_rebuilt:{}", self.workspace_id);
             let already_rebuilt =
                 windmill_common::global_settings::load_value_from_global_settings(
-                    db,
+                    &db,
                     &setting_name,
                 )
                 .await?
@@ -57,11 +55,11 @@ impl NewWorkspaceDependencies {
                     workspace_id = %self.workspace_id,
                     "Rebuilding workspace dependencies map for first unnamed workspace dependencies"
                 );
-                ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, db).await?;
+                ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, &db).await?;
 
                 // Mark as rebuilt by creating the setting
                 windmill_common::global_settings::set_value_in_global_settings(
-                    db,
+                    &db,
                     &setting_name,
                     serde_json::json!({}),
                 )
@@ -114,10 +112,33 @@ impl NewWorkspaceDependencies {
         .await?;
         tx.commit().await?;
 
-        if prev_description.is_none() && self.name.is_none() {
+        trigger_dependents_to_recompute_dependencies_in_the_background(
+            prev_description.is_none() && self.name.is_none(),
+            self.workspace_id,
+            self.language,
+            metadata,
+            path,
+            db,
+        )
+        .await;
+
+        Ok(new_id)
+    }
+}
+
+pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
+    wait_for_cache_timeout: bool,
+    workspace_id: String,
+    language: ScriptLang,
+    (email, permissioned_as, created_by): (String, String, String),
+    path: String,
+    db: sqlx::Pool<sqlx::Postgres>,
+) {
+    tokio::spawn(async move {
+        if wait_for_cache_timeout {
             tracing::debug!(
-                workspace_id = %self.workspace_id,
-                language = ?self.language,
+                workspace_id = %workspace_id,
+                language = ?language,
                 "waiting for cache timeout after creating first unnamed workspace dependencies"
             );
             // Wait for cache timeout.
@@ -127,27 +148,51 @@ impl NewWorkspaceDependencies {
             tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
         }
 
-        // It's ok to fail, it will return an error and user will get notified that they should redeploy workspace dependencies
-        trigger_dependents_to_recompute_dependencies(
-            &self.workspace_id,
-            crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
-                path.as_str(),
-                &self.workspace_id,
-                db,
-            )
-            .await?,
-            None,
-            None,
-            email,
-            created_by,
-            permissioned_as,
-            db,
-            vec![],
-        )
-        .await?;
+        tracing::error!(
+            workspace_id = %workspace_id,
+            path = %path,
+            "CRITICAL: failed to get dependents for workspace dependencies - dependent runnables are not being redeployed. Please contact the Windmill team"
+        );
 
-        Ok(new_id)
-    }
+        // It's ok to fail, it will return an error and user will get notified that they should redeploy workspace dependencies
+        if let Err(e) = trigger_dependents_to_recompute_dependencies(
+                &workspace_id,
+                match crate::scoped_dependency_map::ScopedDependencyMap::get_dependents(
+                    path.as_str(),
+                    &workspace_id,
+                    &db,
+                )
+                .await
+                {
+                    Ok(importers) => importers,
+                    Err(e) => {
+                        tracing::error!(
+                            workspace_id = %workspace_id,
+                            path = %path,
+                            error = %e,
+                            "CRITICAL: failed to get dependents for workspace dependencies - dependent runnables are not being redeployed. Please contact the Windmill team"
+                        );
+                        return;
+                    }
+                },
+                None,
+                None,
+                email.as_str(),
+                created_by.as_str(),
+                permissioned_as.as_str(),
+                &db,
+                vec![],
+            )
+            .await
+            {
+                tracing::error!(
+                    workspace_id = %workspace_id,
+                    path = %path,
+                    error = %e,
+                    "CRITICAL: failed to trigger dependents to recompute dependencies - dependent runnables are not being redeployed. Please contact the Windmill team"
+                );
+            }
+    });
 }
 
 // Type aliases for backward compatibility

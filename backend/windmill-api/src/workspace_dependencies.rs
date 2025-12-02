@@ -6,7 +6,6 @@ use axum::{
 use http::StatusCode;
 use serde::Deserialize;
 use windmill_common::{
-    cache::workspace_dependencies::EXISTS_CACHE_TIMEOUT,
     error::{self, JsonResult},
     scripts::ScriptLang,
     users::username_to_permissioned_as,
@@ -14,9 +13,8 @@ use windmill_common::{
     workspace_dependencies::WorkspaceDependencies,
     DB,
 };
-use windmill_worker::{
-    scoped_dependency_map, trigger_dependents_to_recompute_dependencies,
-    workspace_dependencies::NewWorkspaceDependencies,
+use windmill_worker::workspace_dependencies::{
+    trigger_dependents_to_recompute_dependencies_in_the_background, NewWorkspaceDependencies,
 };
 
 use crate::db::ApiAuthed;
@@ -44,10 +42,12 @@ async fn create(
         format!(
             "{}",
             nwd.create(
-                &authed.email,
-                &authed.username,
-                &username_to_permissioned_as(&authed.username),
-                &db
+                (
+                    authed.email,
+                    username_to_permissioned_as(&authed.username),
+                    authed.username,
+                ),
+                db
             )
             .await?
         ),
@@ -94,33 +94,20 @@ async fn archive(
     let db = &db;
     WorkspaceDependencies::archive(params.name.clone(), language, &w_id, db).await?;
 
-    if params.name.is_none() {
-        tracing::debug!(
-            workspace_id = %w_id,
-            ?language,
-            "waiting for cache timeout after archiving unnamed workspace dependencies"
-        );
-        // for context read [[NewWorkspaceDependencies::create]]
-        tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
-    }
-
-    trigger_dependents_to_recompute_dependencies(
-        &w_id,
-        scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
-            &w_id,
-            db,
-        )
-        .await?,
-        None,
-        None,
-        &authed.email,
-        &authed.username,
-        &username_to_permissioned_as(&authed.username),
-        db,
-        vec![],
+    trigger_dependents_to_recompute_dependencies_in_the_background(
+        params.name.is_none(),
+        w_id,
+        language,
+        (
+            authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.username,
+        ),
+        WorkspaceDependencies::to_path(&params.name, language)?,
+        db.clone(),
     )
-    .await
+    .await;
+    Ok(())
 }
 
 #[axum::debug_handler]
@@ -136,31 +123,18 @@ async fn delete(
     let db = &db;
     WorkspaceDependencies::delete(params.name.clone(), language, &w_id, db).await?;
 
-    if params.name.is_none() {
-        tracing::debug!(
-            workspace_id = %w_id,
-            ?language,
-            "waiting for cache timeout after deleting unnamed workspace dependencies"
-        );
-        // for context read [[NewWorkspaceDependencies::create]]
-        tokio::time::sleep(EXISTS_CACHE_TIMEOUT).await;
-    }
-
-    trigger_dependents_to_recompute_dependencies(
-        &w_id,
-        scoped_dependency_map::ScopedDependencyMap::get_dependents(
-            WorkspaceDependencies::to_path(&params.name, language)?.as_str(),
-            &w_id,
-            db,
-        )
-        .await?,
-        None,
-        None,
-        &authed.email,
-        &authed.username,
-        &username_to_permissioned_as(&authed.username),
-        db,
-        vec![],
+    trigger_dependents_to_recompute_dependencies_in_the_background(
+        params.name.is_none(),
+        w_id,
+        language,
+        (
+            authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.username,
+        ),
+        WorkspaceDependencies::to_path(&params.name, language)?,
+        db.clone(),
     )
-    .await
+    .await;
+    Ok(())
 }

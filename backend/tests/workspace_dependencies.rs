@@ -151,7 +151,7 @@ mod workspace_dependencies {
             name: None, // No name = default workspace dependencies
             description: None,
         }
-        .create("", "", "", db)
+        .create(("".to_owned(), "".to_owned(), "".to_owned()), db.clone())
         .await
         .unwrap();
 
