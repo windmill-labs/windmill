@@ -113,7 +113,6 @@
 				if (templateId) {
 					template = await FlowService.getFlowVersion({
 						workspace: $workspaceStore!,
-						path: templatePath,
 						version: parseInt(templateId)
 					})
 				} else {
