@@ -206,7 +206,11 @@ export function argSigToJsonSchemaType(
         }
         newS.items = { type: "object", properties: properties };
       } else {
-        newS.items = { type: "object" };
+        // Preserve user-defined properties when parser cannot infer structure
+        newS.items = {
+          type: "object",
+          ...(oldS.items?.properties && { properties: oldS.items.properties })
+        };
       }
       newS.originalType = "record[]";
     } else {
@@ -214,7 +218,8 @@ export function argSigToJsonSchemaType(
       newS.originalType = "object[]";
     }
   } else {
-    newS.type = "object";
+    // Preserve existing type when inference fails, default to "object" only for new schemas
+    newS.type = oldS.type || "object";
   }
 
   const preservedFields = [
