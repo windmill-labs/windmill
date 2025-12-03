@@ -38,7 +38,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{ConcurrencySettings, DebouncingSettings, JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
@@ -1346,9 +1346,9 @@ async fn restart_job_if_perpetual_inner(
                 priority: queued_job.priority,
                 apply_preprocessor: false,
                 concurrency_settings: Some(ConcurrencySettings {
-                    custom_key: custom_concurrency_key(db, &queued_job.id).await?,
-                    limit: None,
-                    time_window_s: None,
+                    concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
                 }),
                 // TODO(debouncing): handle properly
                 debouncing_settings: None,
@@ -4028,87 +4028,70 @@ pub async fn push<'c, 'd>(
         }
     }
 
+    #[derive(Default)]
+    struct JobPayloadUntagged {
+        script_hash: Option<i64>,
+        script_path: Option<String>,
+        raw_code_tuple: Option<(String, Option<String>)>, // (content, lock)
+        job_kind: JobKind,
+        raw_flow: Option<FlowValue>,
+        flow_status: Option<FlowStatus>,
+        language: Option<ScriptLang>,
+        cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
+        _low_level_priority: Option<i16>,
+        concurrency_settings: Option<ConcurrencySettings>,
+        debouncing_settings: Option<DebouncingSettings>,
+    }
     let mut preprocessed = None;
     #[allow(unused)] 
-    let (
-        script_hash,
-        script_path,
-        raw_code_tuple,
-        job_kind,
-        raw_flow,
-        flow_status,
-        language,
-        mut custom_concurrency_key,
-        mut concurrent_limit,
-        concurrency_time_window_s,
-        cache_ttl,
-        dedicated_worker,
-        _low_level_priority,
-        custom_debounce_key,
-        debounce_delay_s,
-    ) = match job_payload {
+    let JobPayloadUntagged { script_hash, script_path, raw_code_tuple, job_kind, raw_flow, flow_status, language, cache_ttl, dedicated_worker, _low_level_priority, concurrency_settings, debouncing_settings } = match job_payload {
         JobPayload::ScriptHash {
             hash,
             path,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             language,
             dedicated_worker,
             priority,
             apply_preprocessor,
-            custom_debounce_key,
-            debounce_delay_s,
+            concurrency_settings,
+            debouncing_settings,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
             }
 
-            (
-                Some(hash.0),
-                Some(path),
-                None,
-                JobKind::Script,
-                None,
-                None,
-                Some(language),
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                script_hash: Some(hash.0),
+                script_path: Some(path),
+                job_kind: JobKind::Script,
+                language: Some(language),
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl,
                 dedicated_worker,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                ..Default::default()                
+            }
         }
         JobPayload::FlowScript {
             id, // flow_node(id).
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
             path,
-        } => (
-            Some(id.0),
-            Some(path),
-            None,
-            JobKind::FlowScript,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            cache_ttl,
-            dedicated_worker,
-            None,
-            None, // custom_debounce_key removed for flow steps
-            None, // debounce_delay_s removed for flow steps
-        ),
+            concurrency_settings,
+        } => JobPayloadUntagged {
+                script_hash: Some(id.0),
+                script_path: Some(path),
+                job_kind: JobKind::FlowScript,
+                language: Some(language),
+                concurrency_settings,
+                cache_ttl,
+                dedicated_worker,
+                ..Default::default()                
+            
+        },
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
             let value = data.value();
@@ -4121,46 +4104,29 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(id.0),
-                Some(path),
-                None,
-                JobKind::FlowNode,
-                value_o,
-                status,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                    script_hash: Some(id.0),
+                    script_path: Some(path),
+                    job_kind: JobKind::FlowNode,
+                    raw_flow: value_o,
+                    flow_status: status,
+                    ..Default::default()                
+            }
         }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
             language,
             cache_ttl,
-        } => (
-            Some(id.0),
-            path,
-            None,
-            JobKind::AppScript,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            cache_ttl,
-            None,
-            None,
-            None,
-            None,
-        ),
+        } => JobPayloadUntagged {
+                script_hash: Some(id.0),
+                script_path: path,
+                job_kind: JobKind::AppScript,
+                language: Some(language),
+                cache_ttl,
+                ..Default::default()                
+            
+        },
         JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
@@ -4177,24 +4143,12 @@ pub async fn push<'c, 'd>(
                 get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(_db))
                     .await?;
 
-            (
-                None,
-                Some(path),
-                None,
-                // Some((script.content, script.lockfile)),
-                JobKind::Script_Hub,
-                None,
-                None,
-                Some(hub_script.language),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                script_path: Some(path),
+                job_kind: JobKind::Script_Hub,
+                language: Some(hub_script.language),
+                ..Default::default()                
+            }
         }
         JobPayload::Code(RawCode {
             content,
@@ -4202,85 +4156,48 @@ pub async fn push<'c, 'd>(
             hash,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
-            custom_debounce_key,
-            debounce_delay_s,
-        }) => (
-            hash,
-            path,
-            Some((content, lock)),
-            JobKind::Preview,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            cache_ttl,
-            dedicated_worker,
-            None,
-            custom_debounce_key,
-            debounce_delay_s,
-        ),
-        JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
-            Some(hash.0),
-            Some(path.clone()),
-            None,
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
-            dedicated_worker,
-            None,
-            None,
-            None,
-        ),
+            concurrency_settings,
+            debouncing_settings,
+        }) => JobPayloadUntagged {
+                script_hash: hash,
+                script_path: path,
+                raw_code_tuple: Some((content, lock)),
+                job_kind: JobKind::Preview,
+                language: Some(language),
+                concurrency_settings: concurrency_settings.map(ConcurrencySettings::from),
+                debouncing_settings,
+                cache_ttl,
+                dedicated_worker,
+                ..Default::default()                
+            
+        },
+        JobPayload::Dependencies { hash, language, path, dedicated_worker } => JobPayloadUntagged {
+                script_hash: Some(hash.0),
+                script_path: Some(path.clone()),
+                job_kind: JobKind::Dependencies,
+                language: Some(language),
+                dedicated_worker,
+                ..Default::default()                
+        },
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawScriptDependencies { script_path, content, language } => (
-            None,
-            Some(script_path),
-            Some((content, None)),
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::RawScriptDependencies { script_path, content, language } => JobPayloadUntagged {
+            script_path: Some(script_path),
+            raw_code_tuple: Some((content, None)),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
+            ..Default::default()
+        },
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawFlowDependencies { path, flow_value } => (
-            None,
-            Some(path),
-            None,
-            JobKind::FlowDependencies,
-            Some(flow_value),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::RawFlowDependencies { path, flow_value } => JobPayloadUntagged {
+            script_path: Some(path),
+            job_kind: JobKind::FlowDependencies,
+            raw_flow: Some(flow_value),
+            ..Default::default()
+        },
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             #[cfg(test)]
             let skip_compat = args
@@ -4302,41 +4219,21 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(version),
-                Some(path.clone()),
-                None,
-                JobKind::FlowDependencies,
-                value_o,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+            JobPayloadUntagged {
+                script_hash: Some(version),
+                script_path: Some(path.clone()),
+                job_kind: JobKind::FlowDependencies,
+                raw_flow: value_o,
                 dedicated_worker,
-                None,
-                None,
-                None,
-            )
+                ..Default::default()
+            }
         }
-        JobPayload::AppDependencies { path, version } => (
-            Some(version),
-            Some(path.clone()),
-            None,
-            JobKind::AppDependencies,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::AppDependencies { path, version } => JobPayloadUntagged {
+            script_hash: Some(version),
+            script_path: Some(path.clone()),
+            job_kind: JobKind::AppDependencies,
+            ..Default::default()
+        },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
             add_virtual_items_if_necessary(&mut value.modules);
 
@@ -4383,30 +4280,19 @@ pub async fn push<'c, 'd>(
                     FlowStatus::new(&value)
                 } // this is a new flow being pushed, flow_status is set to flow_value
             };
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let debounce_key = value.debounce_key.clone();
-            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
-            (
-                None,
-                path,
-                None,
-                JobKind::FlowPreview,
-                Some(value),
-                Some(flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                script_path: path,
+                job_kind: JobKind::FlowPreview,
+                raw_flow: Some(value),
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-                debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings: value.concurrency_settings,
+                debouncing_settings: value.debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::SingleStepFlow {
             path,
@@ -4557,13 +4443,10 @@ pub async fn push<'c, 'd>(
             let flow_value = FlowValue {
                 modules,
                 failure_module,
-                concurrency_time_window_s,
-                concurrent_limit,
-                debounce_key: custom_debounce_key.clone(),
-                debounce_delay_s,
+                concurrency_settings: concurrency_settings.clone(),
+                debouncing_settings: debouncing_settings.clone(),
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
-                concurrency_key: custom_concurrency_key.clone(),
                 same_worker: false,
                 early_return: None,
                 skip_expr: None,
@@ -4573,23 +4456,17 @@ pub async fn push<'c, 'd>(
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
-            (
-                None, // No version needed - flow is stored in raw_flow like FlowPreview
-                Some(path),
-                None,
-                JobKind::SingleStepFlow,
-                Some(flow_value),
-                Some(flow_status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                script_path: Some(path),
+                job_kind: JobKind::SingleStepFlow,
+                raw_flow: Some(flow_value),
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
@@ -4618,6 +4495,8 @@ pub async fn push<'c, 'd>(
 
             // let custom_debounce_key = value.debounce_key.clone();
             // let mut debounce_delay_s = value.debounce_delay_s;
+            let concurrency_settings = value.concurrency_settings.clone();
+            let debouncing_settings = value.debouncing_settings.clone();
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
@@ -4646,23 +4525,19 @@ pub async fn push<'c, 'd>(
                 // by additional checks when handling the flow.
                 None
             };
-            (
-                Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
-                Some(path),
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                script_hash: Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
+                script_path: Some(path),
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(status),
                 cache_ttl,
                 dedicated_worker,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
             let (
@@ -4710,11 +4585,8 @@ pub async fn push<'c, 'd>(
             };
             let value = flow_data.value();
             let priority = value.priority;
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let debounce_key = value.debounce_key.clone();
-            let debounce_delay_s = value.debounce_delay_s;
+            let concurrency_settings = value.concurrency_settings.clone();
+            let debouncing_settings = value.debouncing_settings.clone();
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4724,92 +4596,43 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                version,
-                flow_path,
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(restarted_flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                script_hash: version,
+                script_path: flow_path,
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(restarted_flow_status),
                 cache_ttl,
-                None,
-                priority,
-                debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
-        JobPayload::DeploymentCallback { path } => (
-            None,
-            Some(path.clone()),
-            None,
-            JobKind::DeploymentCallback,
-            None,
-            None,
-            None,
-            Some(format!("{workspace_id}:git_sync")),
-            Some(1),
-            Some(0),
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Identity => (
-            None,
-            None,
-            None,
-            JobKind::Identity,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Noop => (
-            None,
-            None,
-            None,
-            JobKind::Noop,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::AIAgent { path } => (
-            None,
-            Some(path),
-            None,
-            JobKind::AIAgent,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
+            script_path: Some(path.clone()),
+            job_kind: JobKind::DeploymentCallback,
+            concurrency_settings: Some(ConcurrencySettings {
+                concurrency_key: Some(format!("{workspace_id}:git_sync")),
+                concurrent_limit: Some(1),
+                concurrency_time_window_s: Some(0),
+            }),
+            debouncing_settings,
+            ..Default::default()
+        },
+        JobPayload::Identity => JobPayloadUntagged {
+            job_kind: JobKind::Identity,
+            ..Default::default()
+        },
+        JobPayload::Noop => JobPayloadUntagged {
+            job_kind: JobKind::Noop,
+            ..Default::default()
+        },
+        JobPayload::AIAgent { path } => JobPayloadUntagged {
+            script_path: Some(path),
+            job_kind: JobKind::AIAgent,
+            ..Default::default()
+        },
     };
 
     // Enforce concurrency limit on all dependency jobs.
@@ -5855,3 +5678,603 @@ pub async fn get_same_worker_job(
     })
 }
 
+// pub async fn preprocess_job_with_debouncing(job: &mut PulledJob, db: &DB) -> error::Result<()> {
+//     let kind = job.kind;
+
+//     // TODO: PulledJob will have debounce data, so we could read that from it.
+//     // if job.debounce_delay_s.is_some() instead of:
+//     if kind != JobKind::DeploymentCallback && !kind.is_dependency() {
+//         return Ok(());
+//     }
+
+//     if !*windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+//         .read()
+//         .await
+//     {
+//         // TODO(claude): It should say, that this is unexpected behaviour and is better to be reported to windmill team. however windmill will try to execute further
+//         tracing::error!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+//     }
+
+//     // Get all args needed in one batch
+//     let (_dbg_sleep, triggered_by_relative_import, deployment_message) = job
+//         .args
+//         .as_ref()
+//         .map(|x| {
+//             (
+//                 x.get("dbg_sleep_between_pull_and_debounce_key_removal")
+//                     .and_then(|v| serde_json::from_str::<u32>(v.get()).ok()),
+//                 x.get("triggered_by_relative_import").is_some(),
+//                 x.get("deployment_message")
+//                     .and_then(|map_value| serde_json::from_str::<String>(map_value.get()).ok()),
+//             )
+//         })
+//         .unwrap_or_default();
+
+//     // Only used for testing in tests/relative_imports.rs
+//     // Give us some space to work with.
+//     #[cfg(test)]
+//     if let Some(duration) = _dbg_sleep {
+//         tracing::debug!("going to sleep",);
+//         sleep(std::time::Duration::from_secs(duration as u64)).await;
+//     }
+
+//     tracing::debug!(
+//         "Processing debounce cleanup for dependency job {} at path {:?}",
+//         &job.id,
+//         &job.runnable_path
+//     );
+
+//     let key = format!("{}:{}:dependency", &job.workspace_id, job.runnable_path());
+//     let mut tx = db.begin().await?;
+
+//     // Clean up the debounce_key entry for this job (if it exists).
+//     //
+//     // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
+//     // If pusher has locked this row then this call will be blocked until all txs are commited.
+//     //
+//     // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
+//     // This object needs to be created before the djob is executed and it happens right here.
+//     //
+//     // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
+//     // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
+//     // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
+
+//     tracing::debug!(
+//         job_id = %job.id,
+//         "Cleaning up debounce_key entry for completed/pulled job"
+//     );
+
+//     // This will either:
+//     // 1. Block until pusher pushed. Which gives us:
+//     //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
+//     // 2. Block pusher until we are done here. This gives us:
+//     //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
+//     //
+
+//     sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
+//         .execute(&mut *tx)
+//         .await?;
+
+//     // if job has been triggered by relative import deployment, we want to create new runnable version and use it.
+//     // we consider existing runnables immutable
+//     if triggered_by_relative_import {
+//         let Some(base_hash) = job.runnable_id else {
+//             return Err(Error::InternalErr(
+//                 "Missing runnable_id for dependency job triggered by relative import".to_string(),
+//             ));
+//         };
+
+//         maybe_clone_runnable(job, base_hash, deployment_message, &mut tx).await?;
+//     }
+
+//     // For that have accumulated data, retrieve it all from mailbox
+//     {
+//         let (job_id, workspace_id) = (job.id, job.workspace_id.clone());
+//         if let Some(args) = job.args.as_mut() {
+//             merge_with_args_from_mailbox(job_id, &workspace_id, &mut *args, db).await?;
+//         }
+//     }
+
+//     // This will unblock pusher.
+//     tx.commit().await?;
+
+//     Ok(())
+// }
+
+// pub async fn maybe_clone_runnable<'t>(
+//     job: &mut PulledJob,
+//     base_hash: ScriptHash,
+//     // NOTE: Only used for scripts
+//     deployment_message: Option<String>,
+//     tx: &mut sqlx::Transaction<'t, Postgres>,
+// ) -> error::Result<()> {
+//     if let Some(new_id) = match job.kind {
+//         JobKind::Dependencies => {
+//             // This way we tell downstream which script we should archive when the resolution is finished.
+//             // (not used at the moment)
+//             job.args
+//                 .as_mut()
+//                 .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
+
+//             let new_hash = windmill_common::scripts::clone_script(
+//                 base_hash,
+//                 &job.workspace_id,
+//                 deployment_message,
+//                 tx,
+//             )
+//             .await?;
+
+//             Some(new_hash)
+//         }
+//         JobKind::FlowDependencies => Some(
+//             sqlx::query_scalar!(
+//                 "INSERT INTO flow_version
+//                 (workspace_id, path, value, schema, created_by)
+
+//                 SELECT workspace_id, path, value, schema, created_by
+//                 FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+//                 RETURNING id
+//                 ",
+//                 job.runnable_path(),
+//                 job.workspace_id,
+//                 *base_hash,
+//             )
+//             .fetch_one(&mut **tx)
+//             .await?,
+//         ),
+//         JobKind::AppDependencies => Some(
+//             sqlx::query_scalar!(
+//                 "INSERT INTO app_version
+//                     (app_id, value, created_by, raw_app)
+//                 SELECT app_id, value, created_by, raw_app
+//                 FROM app_version WHERE id = $1
+//                 RETURNING id",
+//                 *base_hash
+//             )
+//             .fetch_one(&mut **tx)
+//             .await?,
+//         ),
+//         _ => None,
+//     } {
+//         job.runnable_id.replace(new_id.into());
+//     }
+//     Ok(())
+// }
+
+// // TODO: split to handle_deloyment_callback and handle_dependency_job.
+// pub async fn preprocess_job(job: &mut PulledJob, db: &DB) -> error::Result<()> {
+//     let kind = job.kind;
+
+//     // TODO: And debouncing is enabled.
+//     if kind == JobKind::DeploymentCallback {
+//         let (job_id, workspace_id) = (job.id, job.workspace_id.clone());
+//         // TODO: Re-use for others
+//         if let Some(args) = job.args.as_mut() {
+//             dbg!("BEFORE:", &args);
+//             merge_with_args_from_mailbox(job_id, &workspace_id, &mut *args, db).await?;
+//             dbg!("AFTER:", &args);
+//         }
+//     }
+//     // Handle dependency job debouncing cleanup when a job is pulled for execution
+//     if kind.is_dependency()
+//         && job
+//             .args
+//             .as_ref()
+//             .map(|x| x.get("triggered_by_relative_import").is_some())
+//             .unwrap_or_default()
+//         && !*WMDEBUG_NO_DJOB_DEBOUNCING
+//     {
+//         return Box::pin(async move {
+//             // Only used for testing in tests/relative_imports.rs
+//             // Give us some space to work with.
+//             #[cfg(debug_assertions)]
+//             if let Some(duration) = job
+//                 .args
+//                 .as_ref()
+//                 .map(|x| {
+//                     x.get("dbg_sleep_between_pull_and_debounce_key_removal")
+//                         .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+//                         .flatten()
+//                 })
+//                 .flatten()
+//             {
+//                 tracing::debug!("going to sleep",);
+//                 sleep(std::time::Duration::from_secs(duration as u64)).await;
+//             }
+
+//             tracing::debug!(
+//                 "Processing debounce cleanup for dependency job {} at path {:?}",
+//                 &job.id,
+//                 &job.runnable_path
+//             );
+
+//             let key = format!("{}:{}:dependency", &job.workspace_id, job.runnable_path());
+//             let mut tx = db.begin().await?;
+
+//             // === DEBOUNCE CLEANUP ===
+//             //
+//             // Clean up the debounce_key entry for this job (if it exists).
+//             //
+//             // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
+//             // If pusher has locked this row then this call will be blocked until all txs are commited.
+//             //
+//             // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
+//             // This object needs to be created before the djob is executed and it happens right here.
+//             //
+//             // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
+//             // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
+//             // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
+//             //
+//             //
+//             //
+//             // Note: We don't use a transaction here for performance (it's called during job pull).
+//             // This means there's a tiny window where the job is running but key isn't deleted yet,
+//             // which is acceptable because new requests will just accumulate data to this job.
+//             tracing::debug!(
+//                 job_id = %job.id,
+//                 "Cleaning up debounce_key entry for completed/pulled job"
+//             );
+
+//             // This will either:
+//             // 1. Block until pusher pushed. Which gives us:
+//             //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
+//             // 2. Block pusher until we are done here. This gives us:
+//             //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
+//             sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
+//                 .execute(&mut *tx)
+//                 .await
+//                 .map_err(|e| {
+//                     tracing::error!(
+//                         error = %e,
+//                         job_id = %job.id,
+//                         "Failed to delete debounce_key"
+//                     );
+//                     e
+//             })?;
+
+//             let Some(base_hash) = job.runnable_id else {
+//                 return Err(Error::InternalErr(
+//                     "Missing runnable_id for dependency job triggered by relative import"
+//                         .to_string(),
+//                 ));
+//             };
+
+//             tracing::debug!(
+//                 job_id = %job.id,
+//                 base_hash = %base_hash,
+//                 job_kind = ?kind,
+//                 "Creating new version for dependency job triggered by relative import"
+//             );
+
+//             let new_id = match kind {
+//                 JobKind::Dependencies => {
+//                     let deployment_message = job
+//                         .args
+//                         .clone()
+//                         .map(|hashmap| {
+//                             hashmap
+//                                 .get("deployment_message")
+//                                 .map(|map_value| {
+//                                     serde_json::from_str::<String>(map_value.get()).ok()
+//                                 })
+//                                 .flatten()
+//                         })
+//                         .flatten();
+
+//                     // This way we tell downstream which script we should archive when the resolution is finished.
+//                     // (not used at the moment)
+//                     job.args.as_mut().map(|args| {
+//                         args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
+//                     });
+
+//                     let new_hash = windmill_common::scripts::clone_script(
+//                         base_hash,
+//                         &job.workspace_id,
+//                         deployment_message,
+//                         &mut tx,
+//                     )
+//                     .await?;
+
+//                     new_hash
+//                 }
+//                 JobKind::FlowDependencies => {
+//                     sqlx::query_scalar!(
+//                         "INSERT INTO flow_version
+//                     (workspace_id, path, value, schema, created_by)
+
+//                     SELECT workspace_id, path, value, schema, created_by
+//                     FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+//                     RETURNING id
+//                     ",
+//                         job.runnable_path(),
+//                         job.workspace_id,
+//                         *base_hash,
+//                     )
+//                     .fetch_one(&mut *tx)
+//                     .await?
+//                 }
+//                 JobKind::AppDependencies => {
+//                     sqlx::query_scalar!(
+//                         "INSERT INTO app_version
+//                         (app_id, value, created_by, raw_app)
+//                     SELECT app_id, value, created_by, raw_app
+//                     FROM app_version WHERE id = $1
+//                     RETURNING id",
+//                         *base_hash
+//                     )
+//                     .fetch_one(&mut *tx)
+//                     .await?
+//                 }
+//                 _ => {
+//                     return Err(Error::InternalErr(format!(
+//                         "Matched unexpected JobKind ({:?}). This is a bug!",
+//                         kind
+//                     )))
+//                 }
+//             };
+
+//             job.runnable_id.replace(new_id.into());
+
+//             if !*windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+//                 tx.commit().await?;
+//                 tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+//                 return Ok(());
+//             }
+//             // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
+//             //
+//             // For flows and apps, retrieve all nodes/components that were accumulated
+//             // during the debounce window. This data comes from requests that were merged
+//             // into this job instead of creating their own jobs.
+//             //
+//             // Scripts don't need this because they don't have nodes/components to relock.
+//             if let Some(to_relock_field) = match &job.kind {
+//                 JobKind::FlowDependencies => Some("nodes_to_relock"),
+//                 JobKind::AppDependencies => Some("components_to_relock"),
+//                 _ => None, // Scripts don't use accumulated stale data
+//             } {
+//                 tracing::debug!(
+//                     job_id = %job.id,
+//                     job_kind = ?job.kind,
+//                     field = %to_relock_field,
+//                     "Retrieving accumulated stale data from debounced requests"
+//                 );
+
+//                 if let Some(stale_data) = sqlx::query_scalar!(
+//                     "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
+//                     &job.id
+//                 )
+//                 .fetch_optional(&mut *tx)
+//                 .await
+//                 .map_err(|e| {
+//                     tracing::error!(
+//                         error = %e,
+//                         job_id = %job.id,
+//                         "Failed to retrieve debounce_stale_data"
+//                     );
+//                     e
+//                 })?
+//                 .flatten()
+//                 {
+//                     tracing::debug!(
+//                         job_id = %job.id,
+//                         node_count = stale_data.len(),
+//                         nodes = ?stale_data,
+//                         "Retrieved accumulated nodes/components from {} debounced requests",
+//                         stale_data.len()
+//                     );
+
+//                     // Replace the job's relock list with the accumulated data
+//                     // This ensures all nodes from all debounced requests are processed
+//                     if let Some(args) = job.args.as_mut() {
+//                         args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
+//                         tracing::debug!(
+//                             field = %to_relock_field,
+//                             "Updated job args with accumulated debounce data"
+//                         );
+//                     }
+//                 } else {
+//                     tracing::trace!(
+//                         job_id = %job.id,
+//                         "No accumulated stale data found (no debounced requests or already cleaned up)"
+//                     );
+//                 }
+//             }
+
+//             // This will unblock pusher.
+//             tx.commit().await?;
+//             Ok(())
+//         }).await;
+//     }
+
+//     Ok(())
+// }
+
+// // TODO(claude): add more logging
+// pub async fn merge_with_args_from_mailbox(
+//     job_id: Uuid,
+//     workspace_id: &str,
+//     args: &mut HashMap<String, Box<RawValue>>,
+//     db: &DB,
+// ) -> error::Result<()> {
+//     let mut consolidated_args = serde_json::Value::Object(Default::default());
+
+//     // 1. Open mailbox and merge everything inside it.
+//     Mailbox::open(
+//         // For debouncing stale data we use job_id as mailbox id
+//         Some(&job_id.to_string()),
+//         windmill_common::mailbox::MailboxType::DebouncingStaleData,
+//         workspace_id,
+//     )
+//     .pull_all(db)
+//     .await?
+//     .into_iter()
+//     .map(|msg| consolidated_args.merge(&msg.payload))
+//     .collect_vec();
+
+//     dbg!(&consolidated_args);
+
+//     // 2. Optimally merge the result with current args.
+//     if let Some(obj) = consolidated_args.as_object() {
+//         dbg!(obj);
+//         for (k, v) in obj {
+//             if let Some(existing_raw_val) = args.get_mut(k) {
+//                 let mut modified_val = serde_json::to_value(existing_raw_val.clone())?;
+//                 if !modified_val.is_array() || !v.is_array() {
+//                     return Err(Error::internal_err(format!("Incompatible types, both existing arg and stale arg should be arrays: value {} != {v} for argument named {k}", &modified_val)));
+//                 }
+//                 modified_val.merge(v);
+//                 *existing_raw_val = to_raw_value(&modified_val);
+//             } else {
+//                 return Err(Error::internal_err(format!(
+//                     "Runnable arguments has no input of name {k}"
+//                 )));
+//             }
+//         }
+//     } else {
+//         // TODO: What if the thing is empty, it will fail.
+//         return Err(Error::internal_err(format!(
+//             "consolidated arguments are not of object type, instead: {consolidated_args}"
+//         )));
+//     }
+
+//     Ok(())
+// }
+// #[cfg(test)]
+// mod args_merge_tests {
+//     use serde_json::{json, Map, Value};
+//     use std::collections::HashMap;
+//     use uuid::Uuid;
+//     use windmill_common::{error::Error, mailbox::Mailbox, worker::to_raw_value};
+
+//     use crate::merge_with_args_from_mailbox;
+//     fn hashmap_rawvalue_to_value(
+//         hashmap: HashMap<String, Box<serde_json::value::RawValue>>,
+//     ) -> Result<Value, serde_json::Error> {
+//         let mut map = Map::new();
+
+//         for (key, raw_value) in hashmap {
+//             // Parse the RawValue into a serde_json::Value
+//             let parsed_value: Value = serde_json::from_str(raw_value.get())?;
+//             map.insert(key, parsed_value);
+//         }
+
+//         Ok(Value::Object(map))
+//     }
+
+//     #[sqlx::test(fixtures("../../migrations/20251028105101_mailbox.up.sql"))]
+//     async fn test_merge_args_empty(db: sqlx::Pool<sqlx::Postgres>) {
+//         let mut args = HashMap::new();
+//         args.insert("foo".to_owned(), to_raw_value(&json!(["a", "b"])));
+//         args.insert("baz".to_owned(), to_raw_value(&json!("persist")));
+
+//         merge_with_args_from_mailbox(Uuid::nil(), "test-workspace", &mut args, &db)
+//             .await
+//             .unwrap();
+
+//         assert_eq!(
+//             hashmap_rawvalue_to_value(args).unwrap(),
+//             json!({
+//                 "foo": ["a", "b"],
+//                 "baz": "persist"
+//             })
+//         );
+//     }
+
+//     #[sqlx::test(fixtures("../../migrations/20251028105101_mailbox.up.sql"))]
+//     async fn test_merge_args(db: sqlx::Pool<sqlx::Postgres>) {
+//         let mbox = Mailbox::open(
+//             Some(&Uuid::nil().to_string()),
+//             windmill_common::mailbox::MailboxType::DebouncingStaleData,
+//             "test-workspace",
+//         );
+
+//         mbox.push(json!({ "foo": "will be overwritten by next push" }), &db)
+//             .await
+//             .unwrap();
+//         mbox.push(json!({ "foo": [1] }), &db).await.unwrap();
+//         mbox.push(json!({ "foo": [2] }), &db).await.unwrap();
+//         mbox.push(json!({ "foo": [2] }), &db).await.unwrap();
+//         mbox.push(json!({ "foo": [3] }), &db).await.unwrap();
+//         mbox.push(json!({ "bar": "should be skipped" }), &db)
+//             .await
+//             .unwrap();
+
+//         let mut args = HashMap::new();
+//         args.insert("foo".to_owned(), to_raw_value(&json!(["a", "b"])));
+//         args.insert("baz".to_owned(), to_raw_value(&json!("persist")));
+
+//         merge_with_args_from_mailbox(Uuid::nil(), "test-workspace", &mut args, &db)
+//             .await
+//             .unwrap();
+
+//         assert_eq!(
+//             hashmap_rawvalue_to_value(args).unwrap(),
+//             json!({
+//                 "foo": ["a", "b", 1, 2, 2, 3],
+//                 "baz": "persist"
+//             })
+//         );
+//     }
+
+//     #[sqlx::test(fixtures("../../migrations/20251028105101_mailbox.up.sql"))]
+//     async fn test_errors(db: sqlx::Pool<sqlx::Postgres>) {
+//         {
+//             let mbox = Mailbox::open(
+//                 Some(&Uuid::nil().to_string()),
+//                 windmill_common::mailbox::MailboxType::DebouncingStaleData,
+//                 "test-workspace",
+//             );
+
+//             mbox.push(json!({ "foo": "err: should be the list" }), &db)
+//                 .await
+//                 .unwrap();
+
+//             let mut args = HashMap::new();
+//             args.insert("foo".to_owned(), to_raw_value(&json!(["a", "b"])));
+
+//             assert!(
+//                 merge_with_args_from_mailbox(Uuid::nil(), "test-workspace", &mut args, &db)
+//                     .await
+//                     .is_err(),
+//             );
+//         }
+//         {
+//             let mbox = Mailbox::open(
+//                 Some(&Uuid::nil().to_string()),
+//                 windmill_common::mailbox::MailboxType::DebouncingStaleData,
+//                 "test-workspace",
+//             );
+
+//             mbox.push(json!({ "foo": ["a", "b"] }), &db).await.unwrap();
+
+//             let mut args = HashMap::new();
+//             args.insert("foo".to_owned(), to_raw_value(&json!("error")));
+
+//             assert!(
+//                 merge_with_args_from_mailbox(Uuid::nil(), "test-workspace", &mut args, &db)
+//                     .await
+//                     .is_err(),
+//             );
+//         }
+//         {
+//             let mbox = Mailbox::open(
+//                 Some(&Uuid::nil().to_string()),
+//                 windmill_common::mailbox::MailboxType::DebouncingStaleData,
+//                 "test-workspace",
+//             );
+
+//             mbox.push(json!("non-object"), &db).await.unwrap();
+
+//             assert!(merge_with_args_from_mailbox(
+//                 Uuid::nil(),
+//                 "test-workspace",
+//                 &mut HashMap::new(),
+//                 &db
+//             )
+//             .await
+//             .is_err(),);
+//         }
+//     }
+// }

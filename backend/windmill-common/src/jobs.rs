@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use tokio::io::AsyncReadExt;
@@ -507,14 +507,44 @@ pub struct DebouncingSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ConcurrencySettings {
-    #[serde(rename = "custom_concurrency_key")]
-    pub custom_key: Option<String>,
+    pub concurrency_key: Option<String>,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
+}
 
-    #[serde(rename = "concurrent_limit")]
-    pub limit: Option<i32>,
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ConcurrencySettingsWithCustom {
+    pub custom_concurrency_key: Option<String>,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
+}
 
-    #[serde(rename = "concurrency_time_window_s")]
-    pub time_window_s: Option<i32>,
+impl From<ConcurrencySettings> for ConcurrencySettingsWithCustom {
+    fn from(
+        ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }: ConcurrencySettings,
+    ) -> Self {
+        ConcurrencySettingsWithCustom {
+            custom_concurrency_key: concurrency_key,
+            concurrency_time_window_s,
+            concurrent_limit,
+        }
+    }
+}
+
+impl From<ConcurrencySettingsWithCustom> for ConcurrencySettings {
+    fn from(
+        ConcurrencySettingsWithCustom {
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+        }: ConcurrencySettingsWithCustom,
+    ) -> Self {
+        ConcurrencySettings {
+            concurrency_key: custom_concurrency_key,
+            concurrency_time_window_s,
+            concurrent_limit,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -535,7 +565,9 @@ pub struct RawCode {
     pub lock: Option<String>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
-    pub concurrency_settings: Option<ConcurrencySettings>,
+    #[serde(flatten)]
+    pub concurrency_settings: Option<ConcurrencySettingsWithCustom>,
+    #[serde(flatten)]
     pub debouncing_settings: Option<DebouncingSettings>,
 }
 
