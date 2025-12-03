@@ -16,7 +16,7 @@ import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
-import { isVersionsGeq15851 } from "../sync/global.ts";
+import { isVersionsGeq1585 } from "../sync/global.ts";
 
 export interface AppFile {
   value: any;
@@ -52,19 +52,31 @@ export function repopulateFields(runnables: Record<string, any>) {
     }
   });
 }
-export function replaceInlineScripts(rec: any, localPath: string) {
+export function replaceInlineScripts(
+  rec: any,
+  localPath: string,
+  addType: boolean
+) {
   if (!rec) {
     return;
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "runType") {
-        if (isVersionsGeq15851()) {
-          rec["type"] = "path";
+        if (addType) {
+          if (isVersionsGeq1585()) {
+            rec["type"] = "path";
+          } else {
+            rec["type"] = "runnableByPath";
+          }
         }
       } else if (k == "inlineScript" && typeof v == "object") {
-        if (isVersionsGeq15851()) {
-          rec["type"] = "inline";
+        if (addType) {
+          if (isVersionsGeq1585()) {
+            rec["type"] = "inline";
+          } else {
+            rec["type"] = "runnableByName";
+          }
         }
         const o: Record<string, any> = v as any;
 
@@ -77,7 +89,7 @@ export function replaceInlineScripts(rec: any, localPath: string) {
           o["lock"] = readInlinePathSync(basePath);
         }
       } else {
-        replaceInlineScripts(v, localPath);
+        replaceInlineScripts(v, localPath, addType);
       }
     });
   }
@@ -121,7 +133,7 @@ export async function pushApp(
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
 
-  replaceInlineScripts(localApp.value, localPath);
+  replaceInlineScripts(localApp.value, localPath, true);
   await generatingPolicy(
     localApp,
     remotePath,
@@ -230,7 +242,7 @@ const command = new Command()
     "Default TypeScript runtime (bun or deno)"
   )
   .action(async (opts: any, appFolder: string | undefined) => {
-    const { generateLocksCommand } = await import("./raw_apps.ts");
+    const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
   });
 
