@@ -4040,12 +4040,17 @@ pub async fn push<'c, 'd>(
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         _low_level_priority: Option<i16>,
-        concurrency_settings: Option<ConcurrencySettings>,
-        debouncing_settings: Option<DebouncingSettings>,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
     }
     let mut preprocessed = None;
     #[allow(unused)] 
-    let JobPayloadUntagged { script_hash, script_path, raw_code_tuple, job_kind, raw_flow, flow_status, language, cache_ttl, dedicated_worker, _low_level_priority, concurrency_settings, debouncing_settings } = match job_payload {
+    let JobPayloadUntagged {
+        script_hash,
+        script_path,
+        raw_code_tuple,
+        job_kind, raw_flow, flow_status, language, cache_ttl, dedicated_worker, _low_level_priority, concurrency_settings: ConcurrencySettings { mut concurrency_key, mut concurrent_limit, concurrency_time_window_s } , debouncing_settings : DebouncingSettings { custom_key, delay_s, max_total_time, max_total_debounces, args_to_accumulate }
+        } = match job_payload {
         JobPayload::ScriptHash {
             hash,
             path,
@@ -4066,8 +4071,8 @@ pub async fn push<'c, 'd>(
                 script_path: Some(path),
                 job_kind: JobKind::Script,
                 language: Some(language),
-                concurrency_settings,
-                debouncing_settings,
+                concurrency_settings: concurrency_settings.unwrap_or_default(),
+                debouncing_settings: debouncing_settings.unwrap_or_default(),
                 cache_ttl,
                 dedicated_worker,
                 _low_level_priority: priority,
@@ -4086,7 +4091,7 @@ pub async fn push<'c, 'd>(
                 script_path: Some(path),
                 job_kind: JobKind::FlowScript,
                 language: Some(language),
-                concurrency_settings,
+                concurrency_settings: concurrency_settings.unwrap_or_default(),
                 cache_ttl,
                 dedicated_worker,
                 ..Default::default()                
@@ -4166,8 +4171,8 @@ pub async fn push<'c, 'd>(
                 raw_code_tuple: Some((content, lock)),
                 job_kind: JobKind::Preview,
                 language: Some(language),
-                concurrency_settings: concurrency_settings.map(ConcurrencySettings::from),
-                debouncing_settings,
+                concurrency_settings: concurrency_settings.map(ConcurrencySettings::from).unwrap_or_default(),
+                debouncing_settings: debouncing_settings.unwrap_or_default(),
                 cache_ttl,
                 dedicated_worker,
                 ..Default::default()                
@@ -4285,12 +4290,12 @@ pub async fn push<'c, 'd>(
             JobPayloadUntagged {
                 script_path: path,
                 job_kind: JobKind::FlowPreview,
-                raw_flow: Some(value),
                 flow_status: Some(flow_status),
                 cache_ttl,
                 _low_level_priority: priority,
-                concurrency_settings: value.concurrency_settings,
-                debouncing_settings: value.debouncing_settings,
+                concurrency_settings: value.concurrency_settings.clone().unwrap_or_default(),
+                debouncing_settings: value.debouncing_settings.clone().unwrap_or_default(),
+                raw_flow: Some(value),
                 ..Default::default()
             }
         }
@@ -4463,8 +4468,8 @@ pub async fn push<'c, 'd>(
                 flow_status: Some(flow_status),
                 cache_ttl,
                 _low_level_priority: priority,
-                concurrency_settings,
-                debouncing_settings,
+                concurrency_settings: concurrency_settings.unwrap_or_default(),
+                debouncing_settings: debouncing_settings.unwrap_or_default(),
                 ..Default::default()
             }
         }
@@ -4489,22 +4494,22 @@ pub async fn push<'c, 'd>(
             let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
-            // let custom_concurrency_key = value.concurrency_key.clone();
-            // let concurrency_time_window_s = value.concurrency_time_window_s;
-            // let mut concurrent_limit = value.concurrent_limit;
-
-            // let custom_debounce_key = value.debounce_key.clone();
-            // let mut debounce_delay_s = value.debounce_delay_s;
-            let concurrency_settings = value.concurrency_settings.clone();
-            let debouncing_settings = value.debouncing_settings.clone();
+            let mut concurrency_settings = value.concurrency_settings.clone();
+            let mut debouncing_settings = value.debouncing_settings.clone();
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
-                // concurrent_limit = None;
-                // // TODO: May be re-enable?
-                // debounce_delay_s = None;
+
+                if let Some(cs) = &mut concurrency_settings {
+                    cs.concurrent_limit = None;
+                }
+                if let Some(ds) = &mut debouncing_settings{
+                    // TODO: May be re-enable?
+                    ds.delay_s = None;
+                }
+
                 preprocessed = Some(false);
             }
 
@@ -4534,8 +4539,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 dedicated_worker,
                 _low_level_priority: priority,
-                concurrency_settings,
-                debouncing_settings,
+                concurrency_settings: concurrency_settings.unwrap_or_default(),
+                debouncing_settings: debouncing_settings.unwrap_or_default(),
                 ..Default::default()
             }
         }
@@ -4604,20 +4609,20 @@ pub async fn push<'c, 'd>(
                 flow_status: Some(restarted_flow_status),
                 cache_ttl,
                 _low_level_priority: priority,
-                concurrency_settings,
-                debouncing_settings,
+                concurrency_settings: concurrency_settings.unwrap_or_default(),
+                debouncing_settings: debouncing_settings.unwrap_or_default(),
                 ..Default::default()
             }
         }
         JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
             script_path: Some(path.clone()),
             job_kind: JobKind::DeploymentCallback,
-            concurrency_settings: Some(ConcurrencySettings {
+            concurrency_settings: ConcurrencySettings {
                 concurrency_key: Some(format!("{workspace_id}:git_sync")),
                 concurrent_limit: Some(1),
                 concurrency_time_window_s: Some(0),
-            }),
-            debouncing_settings,
+            },
+            debouncing_settings: debouncing_settings.unwrap_or_default(),
             ..Default::default()
         },
         JobPayload::Identity => JobPayloadUntagged {
@@ -4647,7 +4652,7 @@ pub async fn push<'c, 'd>(
             && !*WMDEBUG_NO_DJOB_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_key = Some(format!("dependency:{workspace_id}/{path}")); 
         concurrent_limit = Some(1);
     }
 
@@ -4994,7 +4999,7 @@ pub async fn push<'c, 'd>(
             &args,
             &script_path,
             job_kind,
-            custom_concurrency_key,
+            concurrency_key,
             &mut tx,
             job_id,
         )

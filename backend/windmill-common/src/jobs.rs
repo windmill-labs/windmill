@@ -467,7 +467,7 @@ pub enum JobPayload {
 }
 
 // TODO: Add validation logic.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebouncingSettings {
     #[serde(rename = "custom_debounce_key")]
     /// debounce key is usually stored in the db
@@ -505,7 +505,7 @@ pub struct DebouncingSettings {
     pub args_to_accumulate: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ConcurrencySettings {
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
