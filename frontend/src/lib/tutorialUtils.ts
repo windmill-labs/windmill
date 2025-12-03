@@ -4,6 +4,26 @@ import { UserService } from './gen'
 
 const MAX_TUTORIAL_ID = 7
 
+/**
+ * Helper function to calculate tutorial progress for a given set of tutorial indexes.
+ * Returns total count. For completed count, use in component with reactive store access.
+ */
+export function getTutorialProgressTotal(tutorialIndexes: Record<string, number>): number {
+	return Object.values(tutorialIndexes).length
+}
+
+/**
+ * Helper function to calculate completed tutorials count.
+ * Must be called with current tutorialsToDo array.
+ */
+export function getTutorialProgressCompleted(
+	tutorialIndexes: Record<string, number>,
+	tutorialsToDoArray: number[]
+): number {
+	return Object.values(tutorialIndexes).filter((index) => !tutorialsToDoArray.includes(index))
+		.length
+}
+
 export async function updateProgress(id: number) {
 	const bef = get(tutorialsToDo)
 	const aft = bef.filter((x) => x != id)

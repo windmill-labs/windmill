@@ -7,9 +7,16 @@
 	import { base } from '$lib/base'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
+	import TutorialProgressBar from '$lib/components/tutorials/TutorialProgressBar.svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { onMount } from 'svelte'
-	import { syncTutorialsTodos, resetAllTodos } from '$lib/tutorialUtils'
+	import { afterNavigate } from '$app/navigation'
+	import {
+		syncTutorialsTodos,
+		resetAllTodos,
+		getTutorialProgressTotal,
+		getTutorialProgressCompleted
+	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
 
@@ -24,9 +31,40 @@
 		'troubleshoot-flow': 3
 	} as const
 
-	// Sync tutorial progress on mount
-	onMount(async () => {
-		await syncTutorialsTodos()
+	// Calculate progress for quickstart tutorials
+	const totalQuickstartTutorials = getTutorialProgressTotal(TUTORIAL_INDEXES)
+	const completedQuickstartTutorials = $derived(
+		getTutorialProgressCompleted(TUTORIAL_INDEXES, $tutorialsToDo)
+	)
+
+	// Sync tutorial progress on mount and when navigating to this page
+	onMount(() => {
+		// Initial sync
+		syncTutorialsTodos()
+
+		// Sync when page becomes visible (user returns from completing a tutorial)
+		const handleVisibilityChange = () => {
+			if (!document.hidden) {
+				syncTutorialsTodos()
+			}
+		}
+		document.addEventListener('visibilitychange', handleVisibilityChange)
+
+		// Also sync on window focus
+		const handleFocus = () => {
+			syncTutorialsTodos()
+		}
+		window.addEventListener('focus', handleFocus)
+
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange)
+			window.removeEventListener('focus', handleFocus)
+		}
+	})
+
+	// Sync when navigating to this page (e.g., after completing a tutorial)
+	afterNavigate(() => {
+		syncTutorialsTodos()
 	})
 
 	// Check if a tutorial is completed
@@ -75,6 +113,12 @@
 
 	{#if tab === 'quickstart'}
 		<div class="pt-8">
+			<TutorialProgressBar
+				completed={completedQuickstartTutorials}
+				total={totalQuickstartTutorials}
+				label="tutorials"
+			/>
+
 			<div class="border rounded-md bg-surface-tertiary">
 				<TutorialButton
 					icon={GraduationCap}
