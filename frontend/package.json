@@ -15,9 +15,9 @@
 		"generate-backend-client": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript --format false",
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
-		"test": "vitest run",
-		"test:unit:watch": "vitest",
-		"filter-classes": "node filterTailwindClasses.js"
+		"test": "playwright test --config=tests-out/playwright.config.js && npm run test:unit -- --run",
+		"filter-classes": "node filterTailwindClasses.js",
+		"test:unit": "vitest"
 	},
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",

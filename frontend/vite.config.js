@@ -1,5 +1,4 @@
 import { playwright } from '@vitest/browser-playwright'
-/// <reference types="vitest/config" />
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -92,11 +91,11 @@ const config = {
 			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
 				'monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution'
 		},
-		dedupe: ['vscode', 'monaco-editor'],
-		conditions: process.env.VITEST ? ['browser'] : []
+		dedupe: ['vscode', 'monaco-editor']
 	},
 	assetsInclude: ['**/*.wasm'],
 	test: {
+		expect: { requireAssertions: true },
 		projects: [
 			{
 				extends: './vite.config.js',
