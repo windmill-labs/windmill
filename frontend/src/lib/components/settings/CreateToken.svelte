@@ -89,6 +89,26 @@
 		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
 	}
 
+	function parsePatterns(input: string): string[] {
+		return input.split(',').map((p) => p.trim()).filter((p) => p.length > 0)
+	}
+
+	// Clear pattern inputs when switching away from custom scope
+	$effect(() => {
+		if (newMcpScope !== 'custom') {
+			customScriptPatterns = ''
+			customFlowPatterns = ''
+		}
+	})
+
+	// Clear all custom scope state when MCP mode is disabled
+	$effect(() => {
+		if (!mcpCreationMode) {
+			customScriptPatterns = ''
+			customFlowPatterns = ''
+		}
+	})
+
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
@@ -105,11 +125,7 @@
 					// Scripts: combine individual selections with patterns
 					let scriptPaths = [...selectedScripts]
 					if (customScriptPatterns.trim()) {
-						const patterns = customScriptPatterns
-							.split(',')
-							.map((p) => p.trim())
-							.filter((p) => p.length > 0)
-						scriptPaths.push(...patterns)
+						scriptPaths.push(...parsePatterns(customScriptPatterns))
 					}
 					if (scriptPaths.length > 0) {
 						tokenScopes.push(`mcp:scripts:${scriptPaths.join(',')}`)
@@ -118,11 +134,7 @@
 					// Flows: combine individual selections with patterns
 					let flowPaths = [...selectedFlows]
 					if (customFlowPatterns.trim()) {
-						const patterns = customFlowPatterns
-							.split(',')
-							.map((p) => p.trim())
-							.filter((p) => p.length > 0)
-						flowPaths.push(...patterns)
+						flowPaths.push(...parsePatterns(customFlowPatterns))
 					}
 					if (flowPaths.length > 0) {
 						tokenScopes.push(`mcp:flows:${flowPaths.join(',')}`)
@@ -698,7 +710,9 @@
 						(newMcpScope === 'custom' &&
 							selectedScripts.length === 0 &&
 							selectedFlows.length === 0 &&
-							selectedEndpoints.length === 0))}
+							selectedEndpoints.length === 0 &&
+							!customScriptPatterns.trim() &&
+							!customFlowPatterns.trim()))}
 				variant="accent"
 			>
 				New token
