@@ -430,6 +430,7 @@ pub async fn do_snowflake(
                 &token,
                 token_is_keypair,
                 if i == queries.len() - 1
+                    && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
                 {

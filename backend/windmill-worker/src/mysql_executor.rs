@@ -308,6 +308,7 @@ pub async fn do_mysql(
                 &statement_values,
                 conn_a_ref.clone(),
                 if i == queries.len() - 1
+                    && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
                 {
