@@ -242,7 +242,7 @@ const command = new Command()
     "Default TypeScript runtime (bun or deno)"
   )
   .action(async (opts: any, appFolder: string | undefined) => {
-    const { generateLocksCommand } = await import("./raw_apps.ts");
+    const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
   });
 
