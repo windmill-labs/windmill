@@ -2673,6 +2673,8 @@ async fn update_workspace_settings(
             deploy_to = $1,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
+            ducklake = source_ws.ducklake,
+            datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1
