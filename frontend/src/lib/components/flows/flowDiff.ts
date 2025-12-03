@@ -5,6 +5,9 @@ import { deepEqual } from 'fast-equals'
 /** Prefix added to module IDs when the original module coexists with a replacement */
 export const DUPLICATE_MODULE_PREFIX = 'old__'
 
+/** Prefix added to new module IDs when restoring original during type change rejection */
+export const NEW_MODULE_PREFIX = 'new__'
+
 /**
  * Action types for flow module changes during diff tracking
  * - added: Module was added to the flow

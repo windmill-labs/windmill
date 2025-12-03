@@ -13,7 +13,8 @@ import {
 	buildFlowTimeline,
 	insertModuleIntoFlow,
 	findModuleParent,
-	DUPLICATE_MODULE_PREFIX
+	DUPLICATE_MODULE_PREFIX,
+	NEW_MODULE_PREFIX
 } from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -52,7 +53,7 @@ function createSkeletonModule(module: FlowModule): FlowModule {
 	return clone
 }
 
-export function createFlowDiffManager() {
+export function createFlowDiffManager({ testMode = false } = {}) {
 	// State: snapshot of flow before changes
 	let beforeFlow = $state<ExtendedOpenFlow | undefined>(undefined)
 
@@ -109,7 +110,7 @@ export function createFlowDiffManager() {
 			updateModuleActions(newActions)
 
 			// If no more actions, clear the snapshot (exit diff mode)
-			if (Object.keys(newActions).length === 0) {
+			if (Object.keys(newActions).length === 0 && !testMode) {
 				clearSnapshot()
 			}
 		} else if (!beforeFlow) {
@@ -352,6 +353,13 @@ export function createFlowDiffManager() {
 				// Source from beforeFlow
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				if (oldModule) {
+					// For type changes (old__ prefix), rename the new module to avoid ID conflict
+					if (id.startsWith(DUPLICATE_MODULE_PREFIX)) {
+						const existingNew = getModuleFromFlow(actualId, flowStore.val)
+						if (existingNew) {
+							existingNew.id = `${NEW_MODULE_PREFIX}${actualId}`
+						}
+					}
 					insertModuleIntoFlow(
 						flowStore.val.value,
 						$state.snapshot(oldModule),

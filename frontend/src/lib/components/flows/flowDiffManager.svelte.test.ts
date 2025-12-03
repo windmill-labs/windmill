@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { flushSync } from 'svelte'
 import { createFlowDiffManager } from './flowDiffManager.svelte'
-import { DUPLICATE_MODULE_PREFIX } from './flowDiff'
+import { DUPLICATE_MODULE_PREFIX, NEW_MODULE_PREFIX } from './flowDiff'
 import type { FlowValue, RawScript, ForloopFlow, BranchOne, BranchAll } from '$lib/gen'
 import { SPECIAL_MODULE_IDS } from '../copilot/chat/shared'
 import {
@@ -12,14 +12,15 @@ import {
 	createExtendedOpenFlow,
 	createFlowStore,
 	deepClone,
-	expectModuleOrder
+	expectModuleOrder,
+	createIdentityModule
 } from './flowDiff.testUtils'
 
 describe('FlowDiffManager', () => {
 	describe('effect auto-computation', () => {
 		it('auto-computes moduleActions when flows differ', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'before')
 				const beforeFlow = createExtendedOpenFlow({ modules: [moduleA] })
@@ -33,8 +34,6 @@ describe('FlowDiffManager', () => {
 
 				flushSync()
 
-				expect(false).toBe(true)
-
 				expect(manager.moduleActions).toHaveProperty('b')
 				expect(manager.moduleActions['b']).toEqual({ action: 'added', pending: true })
 			})
@@ -45,7 +44,7 @@ describe('FlowDiffManager', () => {
 	describe('acceptModule', () => {
 		it('accepts added module - inserts into beforeFlow', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -75,7 +74,7 @@ describe('FlowDiffManager', () => {
 
 		it('accepts removed module - deletes from beforeFlow', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -104,7 +103,7 @@ describe('FlowDiffManager', () => {
 
 		it('accepts modified module - updates beforeFlow content', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleBeforeA = createRawScriptModule('a', 'original-content')
 				const moduleAfterA = createRawScriptModule('a', 'modified-content')
@@ -134,7 +133,7 @@ describe('FlowDiffManager', () => {
 
 		it('accepts added nested module - parent accepted as skeleton first', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				// beforeFlow: empty
 				const beforeFlow = createExtendedOpenFlow({ modules: [] })
@@ -171,7 +170,7 @@ describe('FlowDiffManager', () => {
 
 		it('accepts input schema changes', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const beforeSchema = {
 					properties: { x: { type: 'string' } }
@@ -207,26 +206,27 @@ describe('FlowDiffManager', () => {
 		it('handles duplicate ID prefix (old__) for type changes', () => {
 			const cleanup = $effect.root(() => {
 				const manager = createFlowDiffManager()
-
-				const moduleA = createRawScriptModule('a', 'content')
-				const beforeFlow = createExtendedOpenFlow({ modules: [moduleA] })
-				const afterFlow: FlowValue = { modules: [moduleA] }
-
+	   
+				// Create a real type change: rawscript -> identity
+				const moduleBeforeA = createRawScriptModule('a', 'content')
+				const moduleAfterA = createIdentityModule('a')
+				const beforeFlow = createExtendedOpenFlow({ modules: [moduleBeforeA] })
+				const afterFlow: FlowValue = { modules: [moduleAfterA] }
+	   
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
 				manager.setCurrentFlow(afterFlow)
-
-				// Manually set an action with the duplicate prefix (simulating type change)
-				manager.setModuleActions({
-					[`${DUPLICATE_MODULE_PREFIX}a`]: { action: 'removed', pending: true }
-				})
 				flushSync()
-
-				// Accept should strip the prefix and process 'a'
+	   
+				// Type change produces: 'a' (added) and 'old__a' (removed)
+				expect(manager.moduleActions['a']).toEqual({ action: 'added', pending: true })
+				expect(manager.moduleActions[`${DUPLICATE_MODULE_PREFIX}a`]).toEqual({ action: 'removed', pending: true })
+	   
+				// Accept the removal (old__a) - should remove original module from beforeFlow
 				manager.acceptModule(`${DUPLICATE_MODULE_PREFIX}a`)
 				flushSync()
-
-				// The module 'a' should be removed from beforeFlow
+	   
+				// The module 'a' (original rawscript) should be removed from beforeFlow
 				const beforeModules = manager.beforeFlow?.value.modules ?? []
 				expect(beforeModules.map((m) => m.id)).not.toContain('a')
 			})
@@ -237,7 +237,7 @@ describe('FlowDiffManager', () => {
 	describe('rejectModule', () => {
 		it('rejects added module - removes from flowStore', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -269,7 +269,7 @@ describe('FlowDiffManager', () => {
 
 		it('rejects removed module - restores to flowStore', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -300,7 +300,7 @@ describe('FlowDiffManager', () => {
 
 		it('rejects modified module - reverts flowStore to beforeFlow state', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleBeforeA = createRawScriptModule('a', 'original-content')
 				const moduleAfterA = createRawScriptModule('a', 'modified-content')
@@ -329,7 +329,7 @@ describe('FlowDiffManager', () => {
 
 		it('rejects input schema changes - reverts flowStore schema', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const beforeSchema = { properties: { x: { type: 'string' } } }
 				const afterSchema = { properties: { x: { type: 'string' }, y: { type: 'number' } } }
@@ -360,7 +360,7 @@ describe('FlowDiffManager', () => {
 
 		it('does not crash without flowStore', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content')
 				const moduleB = createRawScriptModule('b', 'content')
@@ -380,7 +380,7 @@ describe('FlowDiffManager', () => {
 
 		it('does nothing for module not in actions', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content')
 				const beforeFlow = createExtendedOpenFlow({ modules: [moduleA] })
@@ -399,12 +399,55 @@ describe('FlowDiffManager', () => {
 			})
 			cleanup()
 		})
+
+		it('rejects duplicate ID prefix (old__) for type changes - restores original and renames new', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				// Create a real type change: rawscript -> identity
+				const moduleBeforeA = createRawScriptModule('a', 'original-content')
+				const moduleAfterA = createIdentityModule('a')
+				const beforeFlow = createExtendedOpenFlow({ modules: [deepClone(moduleBeforeA)] })
+
+				const currentFlowValue: FlowValue = { modules: [deepClone(moduleAfterA)] }
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				// Type change produces: 'a' (added) and 'old__a' (removed)
+				expect(manager.moduleActions['a']).toEqual({ action: 'added', pending: true })
+				expect(manager.moduleActions[`${DUPLICATE_MODULE_PREFIX}a`]).toEqual({
+					action: 'removed',
+					pending: true
+				})
+
+				// Reject the removal (old__a) - should restore original and rename the new one
+				manager.rejectModule(`${DUPLICATE_MODULE_PREFIX}a`, flowStore)
+				flushSync()
+
+				const currentModules = flowStore.val.value.modules
+
+				// The original module 'a' (rawscript) should be restored
+				const restoredOriginal = currentModules.find((m) => m.id === 'a')
+				expect(restoredOriginal).toBeDefined()
+				expect(restoredOriginal?.value.type).toBe('rawscript')
+
+				// The new module should be renamed to 'new__a' so user can still accept/reject it
+				const renamedNew = currentModules.find((m) => m.id === `${NEW_MODULE_PREFIX}a`)
+				expect(renamedNew).toBeDefined()
+				expect(renamedNew?.value.type).toBe('identity')
+			})
+			cleanup()
+		})
 	})
 
 	describe('batch operations', () => {
 		it('acceptAll accepts all pending modules', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -434,7 +477,7 @@ describe('FlowDiffManager', () => {
 
 		it('acceptAll skips non-pending actions', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content')
 				const moduleB = createRawScriptModule('b', 'content')
@@ -463,7 +506,7 @@ describe('FlowDiffManager', () => {
 
 		it('rejectAll rejects all pending modules', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -499,7 +542,7 @@ describe('FlowDiffManager', () => {
 	describe('edge cases', () => {
 		it('clearSnapshot clears all state', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content')
 				const moduleB = createRawScriptModule('b', 'content')
@@ -527,7 +570,7 @@ describe('FlowDiffManager', () => {
 
 		it('revertToSnapshot restores entire flow', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'original')
 				const moduleB = createRawScriptModule('b', 'modified')
@@ -556,7 +599,7 @@ describe('FlowDiffManager', () => {
 	describe('module positioning', () => {
 		it('accept added module at beginning - inserts at correct position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -591,7 +634,7 @@ describe('FlowDiffManager', () => {
 
 		it('accept added module in middle - inserts at correct position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -632,7 +675,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject removed module - restores at correct position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -669,7 +712,7 @@ describe('FlowDiffManager', () => {
 
 		it('accept added module inside loop - inserts at correct nested position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const innerA = createRawScriptModule('inner_a', 'inner a')
 				const innerB = createRawScriptModule('inner_b', 'inner b')
@@ -710,7 +753,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject removed module inside loop - restores at correct nested position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const innerA = createRawScriptModule('inner_a', 'inner a')
 				const innerB = createRawScriptModule('inner_b', 'inner b')
@@ -752,7 +795,7 @@ describe('FlowDiffManager', () => {
 
 		it('accept multiple added modules at different positions', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -797,7 +840,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject multiple removed modules - restores all at correct positions', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'first')
 				const moduleB = createRawScriptModule('b', 'second')
@@ -847,7 +890,7 @@ describe('FlowDiffManager', () => {
 		describe('branchone', () => {
 			it('accept added module in default branch - inserts at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const defaultA = createRawScriptModule('default_a', 'default step a')
 					const defaultB = createRawScriptModule('default_b', 'default step b')
@@ -887,7 +930,7 @@ describe('FlowDiffManager', () => {
 
 			it('reject removed module from default branch - restores at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const defaultA = createRawScriptModule('default_a', 'default step a')
 					const defaultB = createRawScriptModule('default_b', 'default step b')
@@ -933,7 +976,7 @@ describe('FlowDiffManager', () => {
 
 			it('accept added module in conditional branch - inserts at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const branchModuleA = createRawScriptModule('branch_a', 'branch step a')
 					const branchModuleB = createRawScriptModule('branch_b', 'branch step b')
@@ -978,7 +1021,7 @@ describe('FlowDiffManager', () => {
 
 			it('reject removed module from conditional branch - restores at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const branchModuleA = createRawScriptModule('branch_a', 'branch step a')
 					const branchModuleB = createRawScriptModule('branch_b', 'branch step b')
@@ -1024,7 +1067,7 @@ describe('FlowDiffManager', () => {
 
 			it('accept modified module in branch - updates content correctly', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const branchModuleBefore = createRawScriptModule('branch_a', 'original content')
 					const branchModuleAfter = createRawScriptModule('branch_a', 'modified content')
@@ -1060,7 +1103,7 @@ describe('FlowDiffManager', () => {
 
 			it('reject entire conditional branch removal - restores the branch with its modules', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const defaultModule = createRawScriptModule('default_mod', 'default')
 					const branch1ModuleA = createRawScriptModule('b1_a', 'branch 1 a')
@@ -1120,7 +1163,7 @@ describe('FlowDiffManager', () => {
 		describe('branchall', () => {
 			it('accept added module in parallel branch - inserts at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const parallel1A = createRawScriptModule('p1_a', 'parallel 1 a')
 					const parallel2A = createRawScriptModule('p2_a', 'parallel 2 a')
@@ -1165,7 +1208,7 @@ describe('FlowDiffManager', () => {
 
 			it('reject removed module from parallel branch - restores at correct position', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const parallel1A = createRawScriptModule('p1_a', 'parallel 1 a')
 					const parallel1B = createRawScriptModule('p1_b', 'parallel 1 b')
@@ -1211,7 +1254,7 @@ describe('FlowDiffManager', () => {
 
 			it('reject entire parallel branch removal - restores the branch with its modules', () => {
 				const cleanup = $effect.root(() => {
-					const manager = createFlowDiffManager()
+					const manager = createFlowDiffManager({ testMode: true })
 
 					const parallel1A = createRawScriptModule('p1_a', 'parallel 1 a')
 					const parallel1B = createRawScriptModule('p1_b', 'parallel 1 b')
@@ -1262,7 +1305,7 @@ describe('FlowDiffManager', () => {
 	describe('module movement', () => {
 		it('accept module moved from root to loop - accepts the addition in loop', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -1302,7 +1345,7 @@ describe('FlowDiffManager', () => {
 
 		it('accept module moved from root to loop - accepts the removal at root', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -1337,7 +1380,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject module moved from root to loop - rejects the addition', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -1375,7 +1418,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject module moved from root to loop - rejects the removal (restores at root)', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'content-a')
 				const moduleB = createRawScriptModule('b', 'content-b')
@@ -1412,7 +1455,7 @@ describe('FlowDiffManager', () => {
 
 		it('accept module moved between branches', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'step a')
 
@@ -1465,7 +1508,7 @@ describe('FlowDiffManager', () => {
 
 		it('reject module moved between branches - restores original position', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleA = createRawScriptModule('a', 'step a')
 
@@ -1520,7 +1563,7 @@ describe('FlowDiffManager', () => {
 			// So it passes but the actual bug still exists in reality.
 
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				const moduleR = createRawScriptModule('r', 'module r content')
 
@@ -1569,7 +1612,7 @@ describe('FlowDiffManager', () => {
 				console.log('after flowStore', flowStore.val.value)
 
 				// Branch 0 should still have 'r'
-				expect(branches[0].modules.some((m) => m.id === 'rweffew')).toBe(true)
+				expect(branches[0].modules.some((m) => m.id === 'r')).toBe(true)
 
 				// Branch 2 should have 'old__r' (prefixed to avoid duplicate ID)
 				expect(branches[2].modules.some((m) => m.id === 'old__r')).toBe(true)
