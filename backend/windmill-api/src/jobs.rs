@@ -285,10 +285,7 @@ pub fn workspaced_service() -> Router {
             "/completed/import",
             post(crate::jobs_export::import_completed_jobs).layer(cors.clone()),
         )
-        .route(
-            "/delete",
-            post(crate::jobs_export::delete_jobs),
-        )
+        .route("/delete", post(crate::jobs_export::delete_jobs))
         .route(
             "/completed/get/:id",
             get(get_completed_job).layer(cors.clone()),
@@ -2105,7 +2102,7 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-async fn cancel_jobs(
+pub async fn cancel_jobs(
     jobs: Vec<Uuid>,
     db: &DB,
     username: &str,

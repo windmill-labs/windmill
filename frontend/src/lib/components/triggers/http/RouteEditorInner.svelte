@@ -12,10 +12,11 @@
 		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -45,6 +46,9 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
 	let {
 		useDrawer = true,
@@ -83,7 +87,7 @@
 	let static_asset_config = $state<{ s3: string; storage?: string; filename?: string } | undefined>(
 		undefined
 	)
-	let enabled: boolean = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	let is_static_website = $state(false)
 	let s3FileUploadRawMode = $state(false)
 	let workspaced_route = $state(false)
@@ -111,8 +115,13 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let suspended_mode = $state(true)
 	let editedAt: string | undefined = $state(undefined)
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
+
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -121,7 +130,8 @@
 			!can_write ||
 			pathError != '' ||
 			!isValid ||
-			(!static_asset_config && emptyString(script_path))
+			(!static_asset_config && emptyString(script_path)) ||
+			!hasChanged
 	)
 
 	$effect(() => {
@@ -196,6 +206,7 @@
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
@@ -238,7 +249,7 @@
 			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
-			enabled = defaultValues?.enabled ?? false
+			mode = defaultValues?.mode ?? 'enabled'
 			dirtyPath = false
 			is_static_website = defaultValues?.is_static_website ?? false
 			workspaced_route = defaultValues?.workspaced_route ?? false
@@ -254,6 +265,7 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			editedAt = undefined
+			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -273,7 +285,7 @@
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
 		summary = cfg?.summary ?? ''
-		enabled = cfg?.enabled ?? false
+		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
@@ -294,7 +306,6 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		suspended_mode = cfg?.suspended_mode ?? false
 		editedAt = cfg?.edited_at ?? undefined
 	}
 
@@ -329,7 +340,10 @@
 			)
 			if (isSaved) {
 				onUpdate(saveCfg.path)
-				drawer?.closeDrawer()
+				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+				if (mode !== 'suspended') {
+					drawer?.closeDrawer()
+				}
 			}
 			deploymentLoading = false
 		}
@@ -352,7 +366,7 @@
 			http_method,
 			request_type,
 			workspaced_route,
-			enabled,
+			mode,
 			wrap_body,
 			raw_string,
 			authentication_resource_path,
@@ -364,37 +378,24 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
-			retry,
-			suspended_mode
+			retry
 		}
 
 		return nCfg
 	}
 
-	async function handleToggleEnabled(newEnabled: boolean) {
-		enabled = newEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await HttpTriggerService.setHttpTriggerEnabled({
+			await HttpTriggerService.setHttpTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: newEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${newEnabled ? 'Enabled' : 'Disabled'} HTTP trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} HTTP trigger ${initialPath}`)
 		}
-	}
-
-	async function handleToggleSuspendedMode(newSuspendedMode: boolean, newEnabled: boolean = true) {
-		suspended_mode = newSuspendedMode
-		enabled = newSuspendedMode || newEnabled
-		if (!trigger?.draftConfig) {
-			await HttpTriggerService.updateHttpTriggerStatus({
-				workspace: $workspaceStore ?? '',
-				path: initialPath,
-				requestBody: { suspended_mode: newSuspendedMode, enabled: newSuspendedMode || newEnabled }
-			})
-			sendUserToast(
-				`${newSuspendedMode ? 'Suspended' : newEnabled ? 'Resumed' : 'Disabled'} HTTP trigger ${initialPath}`
-			)
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -436,6 +437,24 @@
 	/>
 {/if}
 
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="http"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args,
+			editedAt
+		}}
+	/>
+{/if}
+
 {#snippet config()}
 	{#if drawerLoading}
 		{#if showLoader}
@@ -443,6 +462,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-8">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
 					<Label label="Summary" for="summary">
@@ -866,9 +888,6 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			{enabled}
-			onToggleEnabled={handleToggleEnabled}
-			onToggleSuspendedMode={handleToggleSuspendedMode}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -876,10 +895,9 @@
 			{onReset}
 			{onDelete}
 			{isDeployed}
-			kind={'http'}
-			{path}
-			suspendedMode={suspended_mode}
-			{editedAt}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}

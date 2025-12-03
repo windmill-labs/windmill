@@ -119,16 +119,15 @@ impl TriggerCrud for PostgresTrigger {
                 publication_name,
                 script_path,
                 is_flow,
-                enabled,
+                mode,
                 edited_by,
                 email,
                 edited_at,
                 error_handler_path,
                 error_handler_args,
-                retry,
-                suspended_mode
+                retry
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11, $12, $13
             )
             "#,
             w_id,
@@ -138,13 +137,12 @@ impl TriggerCrud for PostgresTrigger {
             pub_name,
             trigger.base.script_path,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             authed.username,
             authed.email,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _,
-            trigger.base.suspended_mode.unwrap_or(true)
+            trigger.error_handling.retry as _
         )
         .execute(tx)
         .await?;
@@ -228,8 +226,7 @@ impl TriggerCrud for PostgresTrigger {
                 error = NULL,
                 error_handler_path = $11,
                 error_handler_args = $12,
-                retry = $13,
-                suspended_mode = $14
+                retry = $13
             WHERE 
                 workspace_id = $9 AND path = $10
             "#,
@@ -245,8 +242,7 @@ impl TriggerCrud for PostgresTrigger {
             path,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _,
-            trigger.base.suspended_mode.unwrap_or(true)
+            trigger.error_handling.retry as _
         )
         .execute(tx)
         .await?;

@@ -8786,7 +8786,7 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_job/{trigger_path}:
+  /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{trigger_path}:
     post:
       summary: resume all suspended jobs for a specific trigger
       operationId: resumeSuspendedTriggerJobs
@@ -8830,7 +8830,7 @@ paths:
                 schema:
                   type: string
 
-  /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_job/{trigger_path}:
+  /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_jobs/{trigger_path}:
     post:
       summary: cancel all suspended jobs for a specific trigger
       operationId: cancelSuspendedTriggerJobs
@@ -10572,10 +10572,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/http_triggers/setenabled/{path}:
+  /w/{workspace}/http_triggers/setmode/{path}:
     post:
       summary: enable/disable http trigger
-      operationId: setHttpTriggerEnabled
+      operationId: setHttpTriggerMode
       tags:
         - http_trigger
       parameters:
@@ -10588,46 +10588,13 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: http trigger enable/disable
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/http_triggers/update_status/{path}:
-    post:
-      summary: update http trigger suspended mode and enabled status
-      operationId: updateHttpTriggerStatus
-      tags:
-        - http_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                suspended_mode:
-                  type: boolean
-                  description: Whether the trigger is in suspended mode (queues jobs instead of running them)
-                enabled:
-                  type: boolean
-                  description: Whether the trigger is enabled
-              required:
-                - suspended_mode
-                - enabled
-      responses:
-        "200":
-          description: http trigger status updated
           content:
             text/plain:
               schema:
@@ -10765,10 +10732,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/websocket_triggers/setenabled/{path}:
+  /w/{workspace}/websocket_triggers/setmode/{path}:
     post:
       summary: set enabled websocket trigger
-      operationId: setWebsocketTriggerEnabled
+      operationId: setWebsocketTriggerMode
       tags:
         - websocket_trigger
       parameters:
@@ -10782,10 +10749,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: websocket trigger enabled set
@@ -10959,10 +10926,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/kafka_triggers/setenabled/{path}:
+  /w/{workspace}/kafka_triggers/setmode/{path}:
     post:
       summary: set enabled kafka trigger
-      operationId: setKafkaTriggerEnabled
+      operationId: setKafkaTriggerMode
       tags:
         - kafka_trigger
       parameters:
@@ -10976,10 +10943,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: kafka trigger enabled set
@@ -11148,10 +11115,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/nats_triggers/setenabled/{path}:
+  /w/{workspace}/nats_triggers/setmode/{path}:
     post:
       summary: set enabled nats trigger
-      operationId: setNatsTriggerEnabled
+      operationId: setNatsTriggerMode
       tags:
         - nats_trigger
       parameters:
@@ -11165,10 +11132,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: nats trigger enabled set
@@ -11337,10 +11304,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/sqs_triggers/setenabled/{path}:
+  /w/{workspace}/sqs_triggers/setmode/{path}:
     post:
       summary: set enabled sqs trigger
-      operationId: setSqsTriggerEnabled
+      operationId: setSqsTriggerMode
       tags:
         - sqs_trigger
       parameters:
@@ -11354,10 +11321,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: sqs trigger enabled set
@@ -11526,10 +11493,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/mqtt_triggers/setenabled/{path}:
+  /w/{workspace}/mqtt_triggers/setmode/{path}:
     post:
       summary: set enabled mqtt trigger
-      operationId: setMqttTriggerEnabled
+      operationId: setMqttTriggerMode
       tags:
         - mqtt_trigger
       parameters:
@@ -11543,10 +11510,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: mqtt trigger enabled set
@@ -11715,10 +11682,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/gcp_triggers/setenabled/{path}:
+  /w/{workspace}/gcp_triggers/setmode/{path}:
     post:
       summary: set enabled gcp trigger
-      operationId: setGcpTriggerEnabled
+      operationId: setGcpTriggerMode
       tags:
         - gcp_trigger
       parameters:
@@ -11732,10 +11699,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: gcp trigger enabled set
@@ -12219,10 +12186,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/postgres_triggers/setenabled/{path}:
+  /w/{workspace}/postgres_triggers/setmode/{path}:
     post:
       summary: set enabled postgres trigger
-      operationId: setPostgresTriggerEnabled
+      operationId: setPostgresTriggerMode
       tags:
         - postgres_trigger
       parameters:
@@ -12236,10 +12203,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: postgres trigger enabled set
@@ -12440,10 +12407,10 @@ paths:
             application/json:
               schema:
                 type: boolean
-  /w/{workspace}/email_triggers/setenabled/{path}:
+  /w/{workspace}/email_triggers/setmode/{path}:
     post:
       summary: enable/disable email trigger
-      operationId: setEmailTriggerEnabled
+      operationId: setEmailTriggerMode
       tags:
         - email_trigger
       parameters:
@@ -12456,10 +12423,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: email trigger enable/disable
@@ -16553,6 +16520,9 @@ components:
               "flownode",
               "appscript",
               "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow"
             ]
         schedule_path:
           type: string
@@ -16666,6 +16636,9 @@ components:
               "flownode",
               "appscript",
               "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow"
             ]
         schedule_path:
           type: string
@@ -16786,6 +16759,10 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow"
             ]
         trigger:
           type: string
@@ -16930,6 +16907,10 @@ components:
               "flowscript",
               "flownode",
               "appscript",
+              "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow"
             ]
         trigger:
           type: string
@@ -18043,6 +18024,14 @@ components:
         - sqs
         - gcp
 
+    TriggerMode:
+      description: job trigger mode
+      type: string
+      enum:
+        - enabled
+        - disabled
+        - suspended
+
     TriggerExtraProperty:
       type: object
       properties:
@@ -18065,10 +18054,8 @@ components:
           format: date-time
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
-        suspended_mode:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
       required:
         - path
         - script_path
@@ -18078,8 +18065,7 @@ components:
         - edited_by
         - edited_at
         - is_flow
-        - enabled
-        - suspended_mode
+        - mode
 
     AuthenticationMethod:
       type: string
@@ -18305,8 +18291,8 @@ components:
           type: boolean
         wrap_body:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         raw_string:
           type: boolean
         error_handler_path:
@@ -18315,8 +18301,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
 
       required:
         - path
@@ -18378,8 +18362,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -18481,8 +18463,8 @@ components:
           type: boolean
         url:
           type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
           items:
@@ -18510,8 +18492,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
 
       required:
         - path
@@ -18560,8 +18540,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
 
       required:
         - path
@@ -18691,16 +18669,14 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -18731,16 +18707,14 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -18833,8 +18807,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         auto_acknowledge_msg:
           type: boolean
         ack_deadline:
@@ -18849,8 +18823,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -18976,16 +18948,14 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - queue_url
         - aws_resource_path
@@ -19013,16 +18983,14 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - queue_url
         - aws_resource_path
@@ -19150,8 +19118,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
         publication:
@@ -19162,8 +19130,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -19184,8 +19150,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
         publication:
@@ -19196,8 +19162,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_modes:
-          type: boolean
       required:
         - path
         - script_path
@@ -19256,16 +19220,14 @@ components:
           type: array
           items:
             type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
 
       required:
         - path
@@ -19296,8 +19258,6 @@ components:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
-        suspended_mode:
-          type: boolean
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
@@ -19366,16 +19326,14 @@ components:
           type: array
           items:
             type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
 
       required:
         - path
@@ -19412,8 +19370,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path
@@ -19460,10 +19416,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        enabled:
-          type: boolean
-        suspended_mode:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
 
       required:
         - path
@@ -19490,8 +19444,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        suspended_mode:
-          type: boolean
       required:
         - path
         - script_path

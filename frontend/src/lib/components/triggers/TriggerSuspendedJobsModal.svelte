@@ -1,49 +1,60 @@
+<script lang="ts" module>
+	export interface TriggerRunnableConfig {
+		path: string
+		kind: RunnableKind
+		retry?: Retry
+		errorHandlerPath?: string
+		errorHandlerArgs?: ScriptArgs
+		editedAt: string | undefined
+	}
+</script>
+
 <script lang="ts">
 	import Modal2 from '../common/modal/Modal2.svelte'
-	import type { JobTriggerKind, QueuedJob } from '$lib/gen/types.gen'
+	import type {
+		JobTriggerKind,
+		QueuedJob,
+		Retry,
+		RunnableKind,
+		ScriptArgs,
+		TriggerMode
+	} from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HttpTriggerService, JobService, TriggerService } from '$lib/gen'
+	import { JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import { Skeleton } from '../common'
-	import { PlayCircle, Trash2 } from 'lucide-svelte'
-	import { displayDate } from '$lib/utils'
+	import { Play, Trash2 } from 'lucide-svelte'
+	import { displayDate, getJobKindIcon } from '$lib/utils'
+	import Alert from '../common/alert/Alert.svelte'
+	import { twMerge } from 'tailwind-merge'
 	import Badge from '../common/badge/Badge.svelte'
-	import Tooltip from '../Tooltip.svelte'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
 
 	type Props = {
-		suspendedMode: boolean
 		triggerPath: string
-		jobTriggerKind: JobTriggerKind
-		shouldShowModal: boolean
-		editedAt: string | undefined
-		onTriggerEnabled?: () => void
-		onToggleSuspendedMode?: (suspendedMode: boolean, enabled?: boolean) => void
+		triggerKind: JobTriggerKind
+		hasChanged: boolean
+		onToggleMode: (mode: TriggerMode) => void
+		runnableConfig: TriggerRunnableConfig
 	}
 
-	let {
-		jobTriggerKind,
-		triggerPath,
-		shouldShowModal = $bindable(),
-		onTriggerEnabled,
-		editedAt
-	}: Props = $props()
+	let { triggerKind, triggerPath, onToggleMode, hasChanged, runnableConfig }: Props = $props()
 
+	let shouldShowModal = $state(false)
 	let queuedJobs = $state<QueuedJob[]>([])
 	let selectedJobs = $state<Set<string>>(new Set())
 	let loading = $state(false)
-	let error = $state<string | null>(null)
 	let processingAction = $state(false)
 	let workspace = $workspaceStore!
 	let currentPage = $state(1)
 	let perPage = $state(20)
 	let hasMorePages = $derived(queuedJobs.length === perPage)
-	let headerHeight = $state(0)
-	let contentHeight = $state(0)
+	let action = $state<'enable' | 'disable' | 'none'>('none')
 
 	// Derived states for checkbox logic
 	let allSelected = $derived(queuedJobs.length > 0 && selectedJobs.size === queuedJobs.length)
@@ -56,18 +67,27 @@
 		}
 	})
 
-	async function fetchQueuedJobs(resetPage = false) {
+	export async function hasJobs() {
+		await fetchQueuedJobs()
+		return queuedJobs.length > 0
+	}
+
+	export function openModal(newAction: typeof action) {
+		action = newAction
+		shouldShowModal = true
+	}
+
+	export async function fetchQueuedJobs(resetPage = false) {
 		if (resetPage) {
 			currentPage = 1
 		}
 		loading = true
-		error = null
 
 		try {
 			const allSuspendedJobs = await JobService.listQueue({
 				workspace,
-				triggerKind: jobTriggerKind,
-				jobKinds: 'unassigned',
+				triggerKind,
+				jobKinds: 'unassigned_script,unassigned_flow,unassigned_singlestepflow',
 				triggerPath,
 				running: false,
 				perPage,
@@ -76,9 +96,10 @@
 
 			queuedJobs = allSuspendedJobs
 			selectedJobs = new Set()
+			return allSuspendedJobs.length
 		} catch (e) {
-			error = `Failed to fetch queued jobs: ${e}`
 			console.error('Failed to fetch queued jobs:', e)
+			sendUserToast(`Failed to fetch queued jobs`, true)
 		} finally {
 			loading = false
 		}
@@ -120,21 +141,20 @@
 		if (selectedJobs.size === 0) return
 
 		processingAction = true
-		error = null
 
 		try {
 			const jobIds = Array.from(selectedJobs)
 			await TriggerService.resumeSuspendedTriggerJobs({
 				workspace,
-				triggerKind: jobTriggerKind,
+				triggerKind,
 				triggerPath,
 				requestBody: { job_ids: jobIds }
 			})
-			sendUserToast(`Successfully resumed ${jobIds.length} job${jobIds.length > 1 ? 's' : ''}`)
+			sendUserToast(`Started selected jobs`)
 			await fetchQueuedJobs()
 		} catch (e) {
-			error = `Failed to run selected jobs: ${e}`
-			console.error('Failed to run selected jobs:', e)
+			console.error('Failed to start selected jobs:', e)
+			sendUserToast(`Failed to start selected jobs`, true)
 		} finally {
 			processingAction = false
 		}
@@ -144,21 +164,20 @@
 		if (selectedJobs.size === 0) return
 
 		processingAction = true
-		error = null
 
 		try {
 			const jobIds = Array.from(selectedJobs)
 			await TriggerService.cancelSuspendedTriggerJobs({
 				workspace,
-				triggerKind: jobTriggerKind,
+				triggerKind,
 				triggerPath,
 				requestBody: { job_ids: jobIds }
 			})
-			sendUserToast(`Successfully canceled ${jobIds.length} job${jobIds.length > 1 ? 's' : ''}`)
+			sendUserToast(`Discarded selected jobs`)
 			await fetchQueuedJobs()
 		} catch (e) {
-			error = `Failed to discard selected jobs: ${e}`
 			console.error('Failed to discard selected jobs:', e)
+			sendUserToast(`Failed to discard selected jobs`, true)
 		} finally {
 			processingAction = false
 		}
@@ -168,27 +187,25 @@
 		if (queuedJobs.length === 0) return
 
 		processingAction = true
-		error = null
 
 		try {
-			const resumedJobs = await TriggerService.resumeSuspendedTriggerJobs({
+			await TriggerService.resumeSuspendedTriggerJobs({
 				workspace,
-				triggerKind: jobTriggerKind,
+				triggerKind,
 				triggerPath,
 				requestBody: {}
 			})
+			sendUserToast(`Started jobs`)
 
-			//TODO: Add support for other trigger types
-			await HttpTriggerService.updateHttpTriggerStatus({
-				workspace,
-				path: triggerPath,
-				requestBody: { enabled: true, suspended_mode: false }
-			})
-			sendUserToast(resumedJobs)
+			if (action === 'enable') {
+				onToggleMode('enabled')
+			} else if (action === 'disable') {
+				onToggleMode('disabled')
+			}
 			closeModal()
 		} catch (e) {
-			error = `Failed to run jobs: ${e}`
-			console.error('Failed to run jobs:', e)
+			console.error('Failed to start jobs:', e)
+			sendUserToast(`Failed to start jobs`, true)
 		} finally {
 			processingAction = false
 		}
@@ -198,44 +215,76 @@
 		if (queuedJobs.length === 0) return
 
 		processingAction = true
-		error = null
 
 		try {
 			await TriggerService.cancelSuspendedTriggerJobs({
 				workspace,
-				triggerKind: jobTriggerKind,
+				triggerKind,
 				triggerPath,
 				requestBody: {}
 			})
 
-			await HttpTriggerService.updateHttpTriggerStatus({
-				workspace,
-				path: triggerPath,
-				requestBody: { enabled: false, suspended_mode: false }
-			})
+			sendUserToast(`Discarded jobs`)
 
-			sendUserToast(`Successfully canceled all jobs`)
+			if (action === 'disable') {
+				onToggleMode('disabled')
+			} else if (action === 'enable') {
+				onToggleMode('enabled')
+			} else {
+			}
+
 			closeModal()
 		} catch (e) {
-			error = `Failed to discard jobs: ${e}`
 			console.error('Failed to discard jobs:', e)
+			sendUserToast(`Failed to discard jobs`, true)
 		} finally {
 			processingAction = false
 		}
 	}
 
-	function enableTrigger() {
-		onTriggerEnabled?.()
-		closeModal()
-	}
-
 	function closeModal() {
 		shouldShowModal = false
 	}
+
+	function mapJobKindToRunnableKind(jobKind: QueuedJob['job_kind']): RunnableKind {
+		switch (jobKind) {
+			case 'unassigned_script':
+				return 'script'
+			case 'unassigned_flow':
+				return 'flow'
+			case 'unassigned_singlestepflow':
+				return 'script'
+			default:
+				throw new Error(`Unknown job kind: ${jobKind}`)
+		}
+	}
 </script>
 
+{#snippet runnable({
+	path,
+	kind,
+	outdated
+}: {
+	path?: string
+	kind: QueuedJob['job_kind']
+	outdated?: boolean
+})}
+	{@const JobKindIcon = getJobKindIcon(kind)}
+	<div class="flex flex-row gap-2 items-center">
+		<Tooltip class="h-full">
+			<JobKindIcon size={14} />
+			{#snippet text()}
+				<span>{mapJobKindToRunnableKind(kind)}</span>
+			{/snippet}
+		</Tooltip>
+		<div
+			class={twMerge('whitespace-nowrap text-xs text-primary truncate', outdated && 'line-through')}
+			>{path || '-'}</div
+		>
+	</div>
+{/snippet}
+
 <Modal2
-	zIndex={1102}
 	bind:isOpen={shouldShowModal}
 	title="{hasMorePages
 		? `${queuedJobs.length}+ suspended`
@@ -244,10 +293,20 @@
 	fixedSize="lg"
 >
 	<div class="flex w-full flex-col gap-4 h-full">
-		{#if error}
-			<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-				{error}
-			</div>
+		{#if action !== 'none'}
+			<Alert type="warning" title="There are still some suspended jobs">
+				You can only {action} the trigger when there are no more suspended jobs for this trigger.
+			</Alert>
+		{/if}
+		{#if queuedJobs.length > 0 && hasChanged}
+			<Alert type="warning" title="Trigger has unsaved changes">
+				You can only resume suspended jobs when the trigger has no unsaved changes.
+			</Alert>
+		{:else if queuedJobs.length > 0}
+			<Alert type="info" title="Note">
+				If you modify the trigger's configuration (such as changing the runnable, retry settings, or
+				error handler), resumed jobs will be run using the updated configuration.
+			</Alert>
 		{/if}
 
 		<div class="relative grow min-h-0 w-full">
@@ -258,10 +317,9 @@
 				on:previous={prevPage}
 				bind:currentPage
 				hasMore={hasMorePages}
-				bind:contentHeight
 			>
 				<Head>
-					<tr bind:clientHeight={headerHeight}>
+					<tr>
 						<Cell head first class="w-12">
 							<div class="h-4 w-4">
 								<input
@@ -274,8 +332,9 @@
 								/>
 							</div>
 						</Cell>
-						<Cell head class="min-w-24">Created At</Cell>
-						<Cell head class="min-w-32 ">Script/Flow Path</Cell>
+						<Cell head class="w-24">Created at</Cell>
+						<Cell head>Runnable</Cell>
+						<Cell head class="w-32">Cancellation date</Cell>
 					</tr>
 				</Head>
 				{#if loading}
@@ -297,8 +356,15 @@
 				{:else}
 					<tbody class="divide-y border-b w-full overflow-y-auto">
 						{#each queuedJobs as job}
-							<Row>
-								<Cell class="w-12 sm:pl-3">
+							{@const changedRunnable =
+								runnableConfig.kind !== mapJobKindToRunnableKind(job.job_kind) ||
+								runnableConfig.path !== job.script_path}
+
+							<Row
+								hoverable
+								on:click={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
+							>
+								<Cell class="w-12 sm:pl-3" shouldStopPropagation>
 									<div class="h-4 w-4">
 										<input
 											type="checkbox"
@@ -312,24 +378,23 @@
 
 								<Cell wrap>{displayDate(job.created_at)}</Cell>
 
-								<Cell wrap class="flex flex-row gap-2">
-									<a
-										href="/run/{job.id}?workspace={workspace}"
-										target="_blank"
-										class="text-blue-600 hover:underline"
-									>
-										<div class="flex-shrink min-w-0 break-words">{job.script_path || '-'}</div>
-									</a>
-									{#if editedAt && job.created_at && new Date(editedAt) > new Date(job.created_at)}
-										<Badge color="yellow"
-											>Outdated <Tooltip>
-												Trigger was edited after these jobs were created and suspended. They will be
-												reassigned to match the new trigger configuration, in particular the
-												runnable, retry and error handling settings.
-											</Tooltip>
-										</Badge>
+								<Cell wrap class="flex flex-row gap-2 items-center">
+									{@render runnable({
+										path: job.script_path,
+										kind: job.job_kind,
+										outdated: changedRunnable
+									})}
+									{#if changedRunnable}
+										{@render runnable({
+											path: runnableConfig.path,
+											kind: runnableConfig.kind
+										})}
+									{/if}
+									{#if (job.job_kind === 'unassigned_singlestepflow' && (!runnableConfig.retry || !runnableConfig.errorHandlerPath)) || ((runnableConfig.retry || runnableConfig.errorHandlerPath) && runnableConfig.editedAt && job.created_at && new Date(runnableConfig.editedAt) > new Date(job.created_at))}
+										<Badge color="yellow">Changed retry/error handler</Badge>
 									{/if}
 								</Cell>
+								<Cell wrap>{displayDate(job.scheduled_for)}</Cell>
 							</Row>
 						{/each}
 					</tbody>
@@ -339,15 +404,7 @@
 
 		<!-- Bottom right conditional buttons -->
 		<div class="flex justify-end gap-2">
-			{#if queuedJobs.length === 0}
-				<!-- No jobs found - show Enable Trigger -->
-				<Button size="sm" disabled={processingAction} on:click={enableTrigger}>
-					Enable Trigger
-				</Button>
-				<Button size="sm" disabled={processingAction} on:click={enableTrigger}>
-					Enable Trigger
-				</Button>
-			{:else if hasSelectedJobs}
+			{#if hasSelectedJobs}
 				<!-- Jobs selected - show Discard Selected and Run Selected -->
 				<Button
 					startIcon={{ icon: Trash2 }}
@@ -358,29 +415,37 @@
 					Discard Selected ({selectedJobs.size})
 				</Button>
 				<Button
-					startIcon={{ icon: PlayCircle }}
+					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction}
+					disabled={processingAction || hasChanged}
 					on:click={runSelectedJobs}
 				>
-					Run selected ({selectedJobs.size})
+					Resume selected ({selectedJobs.size})
 				</Button>
 			{:else}
 				<Button
 					startIcon={{ icon: Trash2 }}
 					size="sm"
-					disabled={processingAction}
+					disabled={processingAction || queuedJobs.length === 0}
 					on:click={discardAllJobs}
 				>
-					Discard all jobs and disable
+					Discard all jobs{action === 'disable'
+						? ' and disable'
+						: action === 'enable'
+							? ' and enable trigger'
+							: ''}
 				</Button>
 				<Button
-					startIcon={{ icon: PlayCircle }}
+					startIcon={{ icon: Play }}
 					size="sm"
-					disabled={processingAction}
+					disabled={processingAction || hasChanged || queuedJobs.length === 0}
 					on:click={runAllJobs}
 				>
-					Run all jobs and resume
+					Resume all jobs{action === 'disable'
+						? ' and disable'
+						: action === 'enable'
+							? ' and enable trigger'
+							: ''}
 				</Button>
 			{/if}
 		</div>

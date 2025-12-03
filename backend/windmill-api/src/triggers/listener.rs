@@ -6,7 +6,7 @@ use crate::{
     triggers::{
         handler::TriggerCrud,
         trigger_helpers::{trigger_runnable, TriggerJobArgs},
-        Trigger, TriggerErrorHandling,
+        Trigger, TriggerErrorHandling, TriggerMode,
     },
     users::fetch_api_authed,
 };
@@ -67,20 +67,21 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "email",
             "edited_at",
             "extra_perms",
-            "enabled",
+            "mode",
             "error_handler_path",
             "error_handler_args",
             "retry",
-            "suspended_mode",
         ];
 
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
 
-        sqlb.fields(&fields).and_where("enabled IS TRUE").and_where(
-            "(last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
-        );
+        sqlb.fields(&fields)
+            .and_where("(mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE)")
+            .and_where(
+                "(last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+            );
 
         for where_clause in Self::EXTRA_TRIGGER_AND_WHERE_CLAUSE {
             sqlb.and_where(where_clause);
@@ -105,7 +106,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
                 trigger_mode: true,
-                suspended_mode: Some(trigger.base.suspended_mode),
+                suspended_mode: trigger.base.mode == TriggerMode::Suspended,
             })
             .collect_vec();
 
@@ -155,7 +156,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_mode: false,
                 is_flow: capture.is_flow,
                 error_handling: None,
-                suspended_mode: None,
+                suspended_mode: false,
             })
             .collect_vec();
 
@@ -516,7 +517,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
-            listening_trigger.suspended_mode.unwrap_or(false),
+            listening_trigger.suspended_mode,
             TriggerMetadata::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
         )
         .await?;
@@ -812,7 +813,7 @@ pub struct ListeningTrigger<T> {
     pub script_path: String,
     pub trigger_mode: bool,
     pub error_handling: Option<TriggerErrorHandling>,
-    pub suspended_mode: Option<bool>,
+    pub suspended_mode: bool,
 }
 
 impl<T> ListeningTrigger<T> {

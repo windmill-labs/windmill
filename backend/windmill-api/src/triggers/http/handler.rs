@@ -16,7 +16,7 @@ use crate::{
             get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
             trigger_runnable_inner, RunnableId,
         },
-        Trigger, TriggerCrud, TriggerData,
+        Trigger, TriggerCrud, TriggerData, TriggerMode,
     },
     users::fetch_api_authed,
     utils::ExpiringCacheEntry,
@@ -197,7 +197,7 @@ pub async fn insert_new_trigger_into_db(
                 summary,
                 description,
                 is_flow,
-                enabled,
+                mode,
                 request_type,
                 authentication_method,
                 http_method,
@@ -208,11 +208,10 @@ pub async fn insert_new_trigger_into_db(
                 is_static_website,
                 error_handler_path,
                 error_handler_args,
-                retry,
-                suspended_mode
+                retry
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23, $24
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23
             )
             "#,
             w_id,
@@ -227,7 +226,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.summary,
             trigger.config.description,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             request_type as _,
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
@@ -237,8 +236,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.is_static_website,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _,
-            trigger.base.suspended_mode.unwrap_or(true)
+            trigger.error_handling.retry as _
         )
         .execute(&mut *tx)
         .await?;
@@ -486,7 +484,7 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $7,
                 path = $8,
                 is_flow = $9,
-                enabled = $10,
+                mode = $10,
                 http_method = $11,
                 static_asset_config = $12,
                 edited_by = $13,
@@ -499,11 +497,10 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $19,
                 error_handler_path = $20,
                 error_handler_args = $21,
-                retry = $22,
-                suspended_mode = $23
+                retry = $22
             WHERE
-                workspace_id = $24 AND
-                path = $25
+                workspace_id = $23 AND
+                path = $24
             "#,
                 route_path,
                 &route_path_key,
@@ -514,7 +511,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
-                trigger.base.enabled.unwrap_or(true),
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -527,7 +524,6 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
-                trigger.base.suspended_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -547,7 +543,7 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $4,
                 path = $5,
                 is_flow = $6,
-                enabled = $7,
+                mode = $7,
                 http_method = $8,
                 static_asset_config = $9,
                 edited_by = $10,
@@ -560,11 +556,10 @@ impl TriggerCrud for HttpTrigger {
                 is_static_website = $16,
                 error_handler_path = $17,
                 error_handler_args = $18,
-                retry = $19,
-                suspended_mode = $20
+                retry = $19
             WHERE
-                workspace_id = $21 AND
-                path = $22
+                workspace_id = $20 AND
+                path = $21
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
@@ -572,7 +567,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
-                trigger.base.enabled.unwrap_or(true),
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -585,7 +580,6 @@ impl TriggerCrud for HttpTrigger {
                 trigger.error_handling.error_handler_path,
                 trigger.error_handling.error_handler_args as _,
                 trigger.error_handling.retry as _,
-                trigger.base.suspended_mode.unwrap_or(true),
                 workspace_id,
                 path,
             )
@@ -598,7 +592,7 @@ impl TriggerCrud for HttpTrigger {
         Ok(())
     }
 
-    async fn set_enabled_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
+    async fn set_trigger_mode_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
         increase_trigger_version(tx).await
     }
 
@@ -1050,7 +1044,7 @@ async fn route_job(
         .map_err(|e| e.into_response())?;
 
     let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
-    if trigger.suspended_mode {
+    if trigger.mode == TriggerMode::Suspended {
         let _ = trigger_runnable(
             &db,
             Some(user_db),

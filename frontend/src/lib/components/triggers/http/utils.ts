@@ -61,8 +61,7 @@ export async function saveHttpRouteFromCfg(
 		error_handler_path: routeCfg.error_handler_path,
 		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
 		retry: routeCfg.retry,
-		enabled: routeCfg.enabled,
-		suspended_mode: routeCfg.suspended_mode
+		mode: routeCfg.mode
 	}
 	try {
 		if (edit) {
@@ -78,7 +77,7 @@ export async function saveHttpRouteFromCfg(
 		} else {
 			await HttpTriggerService.createHttpTrigger({
 				workspace: workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`Route ${routeCfg.path} created`)
 		}

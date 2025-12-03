@@ -50,7 +50,7 @@
 {#if isOpen}
 	<Portal name="always-mounted" {target}>
 		<div
-			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1102] overflow-auto bg-black bg-opacity-60 w-full h-full'}
+			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1110] overflow-auto bg-black bg-opacity-60 w-full h-full'}
 			transition:fadeFast|local
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
@@ -83,7 +83,7 @@
 												<div class="w-8">
 													<button
 														on:click={() => {
-															isOpen = false
+															close()
 														}}
 														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
 													>

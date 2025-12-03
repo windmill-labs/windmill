@@ -1,5 +1,6 @@
 use crate::{
     db::{ApiAuthed, DB},
+    jobs::cancel_jobs,
     triggers::{trigger_helpers::trigger_runnable_inner, TriggerCrud, TriggerForReassignment},
 };
 
@@ -16,7 +17,7 @@ use crate::triggers::postgres::{PostgresConfig, PostgresTrigger};
 use crate::triggers::websocket::WebsocketTrigger;
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
-use crate::triggers::email::{EmailConfig, EmailTrigger};
+use crate::triggers::email::EmailTrigger;
 
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
 use crate::triggers::gcp::{GcpConfig, GcpTrigger};
@@ -200,12 +201,22 @@ pub async fn resume_suspended_trigger_jobs(
         } else {
             sqlx::query_as!(
                 JobWithArgs,
-                "SELECT id, args as \"args: _\", created_at FROM v2_job
-                 WHERE workspace_id = $1
-                   AND kind = 'unassigned'::JOB_KIND
-                   AND trigger_kind = $2
-                   AND trigger = $3
-                   AND id = ANY($4)",
+                r#"
+                    SELECT
+                        id,
+                        args as "args: _",
+                        created_at
+                    FROM v2_job
+                    WHERE workspace_id = $1
+                      AND (
+                            kind = 'unassigned_script'::JOB_KIND OR
+                            kind = 'unassigned_flow'::JOB_KIND OR
+                            kind = 'unassigned_singlestepflow'::JOB_KIND
+                      )
+                      AND trigger_kind = $2
+                      AND trigger = $3
+                      AND id = ANY($4)
+                "#,
                 w_id,
                 trigger_kind as _,
                 trigger_path,
@@ -217,11 +228,21 @@ pub async fn resume_suspended_trigger_jobs(
     } else {
         sqlx::query_as!(
             JobWithArgs,
-            "SELECT id, args as \"args: _\", created_at FROM v2_job
-             WHERE workspace_id = $1
-               AND kind = 'unassigned'::JOB_KIND
-               AND trigger_kind = $2
-               AND trigger = $3",
+            r#"
+                SELECT
+                    id,
+                    args as "args: _",
+                    created_at
+                FROM v2_job
+                WHERE workspace_id = $1
+                  AND (
+                        kind = 'unassigned_script'::JOB_KIND OR
+                        kind = 'unassigned_flow'::JOB_KIND OR
+                        kind = 'unassigned_singlestepflow'::JOB_KIND
+                  )
+                  AND trigger_kind = $2
+                  AND trigger = $3
+            "#,
             w_id,
             trigger_kind as _,
             trigger_path,
@@ -346,7 +367,7 @@ pub async fn cancel_suspended_trigger_jobs(
             sqlx::query_scalar!(
                 "SELECT id FROM v2_job
                  WHERE workspace_id = $1
-                   AND kind = 'unassigned'::JOB_KIND
+                   AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                    AND trigger_kind = $2
                    AND trigger = $3
                    AND id = ANY($4)",
@@ -362,7 +383,7 @@ pub async fn cancel_suspended_trigger_jobs(
         sqlx::query_scalar!(
             "SELECT id FROM v2_job
              WHERE workspace_id = $1
-               AND kind = 'unassigned'::JOB_KIND
+               AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                AND trigger_kind = $2
                AND trigger = $3",
             w_id,
@@ -373,27 +394,21 @@ pub async fn cancel_suspended_trigger_jobs(
         .await?
     };
 
+    tx.commit().await?;
+
     let count = jobs_to_cancel.len();
 
     if count > 0 {
-        // Use the cancel_jobs helper from windmill_queue
-        for job_id in &jobs_to_cancel {
-            let (returned_tx, _) = windmill_queue::cancel_job(
-                &authed.username,
-                Some("canceled by trigger management".to_string()),
-                *job_id,
-                &w_id,
-                tx,
-                &db,
-                false,
-                false,
-            )
-            .await?;
-            tx = returned_tx;
-        }
+        let cancelled_jobs = cancel_jobs(
+            jobs_to_cancel,
+            &db,
+            authed.username.as_str(),
+            w_id.as_str(),
+            true,
+        )
+        .await?;
+        Ok(Json(format!("Canceled {} jobs", cancelled_jobs.0.len())))
+    } else {
+        Ok(Json(format!("No jobs to cancel")))
     }
-
-    tx.commit().await?;
-
-    Ok(Json(format!("Canceled {} jobs", count)))
 }

@@ -2637,7 +2637,7 @@ pub async fn handle_queued_job(
     }
 
     match job.kind {
-        JobKind::Unassigned => {
+        JobKind::UnassignedScript | JobKind::UnassignedFlow | JobKind::UnassignedSinglestepFlow => {
             return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
         }
         _ => {}
@@ -3172,7 +3172,9 @@ async fn try_validate_schema(
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
                 JobKind::AIAgent => 15,
-                JobKind::Unassigned => 16,
+                JobKind::UnassignedScript => 16,
+                JobKind::UnassignedFlow => 17,
+                JobKind::UnassignedSinglestepFlow => 18,
             };
 
             let sv = match job.runnable_id {

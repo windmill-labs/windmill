@@ -1,4 +1,4 @@
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
@@ -37,7 +37,9 @@ pub mod trigger_helpers;
 
 #[allow(unused)]
 pub(crate) use handler::TriggerCrud;
-pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggerForReassignment, TriggersCount};
+pub use handler::{
+    generate_trigger_routers, get_triggers_count_internal, TriggerForReassignment, TriggersCount,
+};
 pub use listener::start_all_listeners;
 #[allow(unused)]
 pub(crate) use listener::Listener;
@@ -56,13 +58,12 @@ pub struct BaseTrigger {
     pub workspace_id: String,
     pub path: String,
     pub script_path: String,
-    pub enabled: Option<bool>,
+    pub mode: TriggerMode,
     pub is_flow: bool,
     pub edited_by: String,
     pub email: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    pub suspended_mode: bool,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -124,8 +125,22 @@ pub struct BaseTriggerData {
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
-    pub enabled: Option<bool>,
-    pub suspended_mode: Option<bool>,
+    #[deprecated(note = "Use mode instead")]
+    enabled: Option<bool>, // Kept for backwards compatibility, use mode instead
+    mode: Option<TriggerMode>,
+}
+
+impl BaseTriggerData {
+    pub fn mode(&self) -> &TriggerMode {
+        self.mode.as_ref().unwrap_or(
+            #[allow(deprecated)]
+            if self.enabled.unwrap_or(true) {
+                &TriggerMode::Enabled
+            } else {
+                &TriggerMode::Disabled
+            },
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,4 +171,13 @@ impl Default for StandardTriggerQuery {
     fn default() -> Self {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
+}
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[sqlx(type_name = "TRIGGER_MODE", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum TriggerMode {
+    Enabled,
+    Disabled,
+    Suspended,
 }

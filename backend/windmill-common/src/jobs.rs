@@ -94,7 +94,15 @@ pub enum JobKind {
     FlowNode,
     AppScript,
     AIAgent,
-    Unassigned,
+    #[serde(rename = "unassigned_script")]
+    #[sqlx(rename = "unassigned_script")]
+    UnassignedScript,
+    #[serde(rename = "unassigned_flow")]
+    #[sqlx(rename = "unassigned_flow")]
+    UnassignedFlow,
+    #[serde(rename = "unassigned_singlestepflow")]
+    #[sqlx(rename = "unassigned_singlestepflow")]
+    UnassignedSinglestepFlow,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]

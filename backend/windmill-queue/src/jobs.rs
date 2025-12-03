@@ -5272,7 +5272,13 @@ pub async fn push<'c, 'd>(
     };
 
     let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
-        (JobKind::Unassigned, Some(Utc::now() + chrono::Duration::days(30)))
+        let unassigned_job_kind = match job_kind {
+            JobKind::Script => JobKind::UnassignedScript,
+            JobKind::Flow => JobKind::UnassignedFlow,
+            JobKind::SingleStepFlow => JobKind::UnassignedSinglestepFlow,
+            _ => return Err(Error::internal_err(format!("Cannot suspend job of kind {job_kind:?} as it is not a script, flow or single step flow"))),
+        };
+        (unassigned_job_kind, Some(Utc::now() + chrono::Duration::days(30)))
     } else {
         (job_kind, scheduled_for_o)
     };
@@ -5416,7 +5422,9 @@ pub async fn push<'c, 'd>(
             JobKind::FlowNode => "jobs.run.flow_node",
             JobKind::AppScript => "jobs.run.app_script",
             JobKind::AIAgent => "jobs.run.ai_agent",
-            JobKind::Unassigned => "jobs.run.unassigned",
+            JobKind::UnassignedScript => "jobs.run.unassigned_script",
+            JobKind::UnassignedFlow => "jobs.run.unassigned_flow",
+            JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
