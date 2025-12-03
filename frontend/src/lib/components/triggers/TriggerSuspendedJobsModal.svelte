@@ -34,6 +34,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import { deepEqual } from 'fast-equals'
+	import {
+		errorHandlerArgs,
+		slackErrorHandlerHubPathEnding
+	} from '../ErrorOrRecoveryHandler.svelte'
 
 	type Props = {
 		triggerPath: string
@@ -258,6 +263,62 @@
 				throw new Error(`Unknown job kind: ${jobKind}`)
 		}
 	}
+
+	async function checkIfAdvancedOptionsChanged(job: QueuedJob): Promise<boolean> {
+		if (job.job_kind === 'unassigned_singlestepflow') {
+			if (!runnableConfig.retry && !runnableConfig.errorHandlerPath) {
+				return true
+			}
+			const fullJob = await JobService.getJob({
+				workspace,
+				id: job.id
+			})
+			let errorHandlerPath: string | undefined = undefined
+			let errorHandlerExtraArgs: ScriptArgs | undefined = undefined
+			if (fullJob.raw_flow?.failure_module?.value.type === 'script') {
+				errorHandlerPath = fullJob.raw_flow.failure_module.value.path
+				const isSlackHandler = errorHandlerPath.endsWith(slackErrorHandlerHubPathEnding)
+				errorHandlerExtraArgs = Object.fromEntries(
+					Object.entries(fullJob.raw_flow.failure_module.value.input_transforms)
+						.filter(
+							([key, value]) =>
+								!errorHandlerArgs.includes(key) &&
+								value.type === 'static' &&
+								(!isSlackHandler || key !== 'slack') &&
+								value.value !== undefined
+						)
+						.map(([key, value]) => [
+							key,
+							(value as Extract<typeof value, { type: 'static' }>).value
+						])
+				)
+			}
+
+			// only keep the retry that is enabled
+			const retry = fullJob.raw_flow?.modules[0]?.retry
+			if ((retry?.constant?.attempts ?? 0) > 0) {
+				delete retry?.exponential
+			} else if ((retry?.exponential?.attempts ?? 0) > 0) {
+				delete retry?.constant
+			}
+
+			const triggerErrorHandlerArgs = runnableConfig.errorHandlerArgs
+				? Object.fromEntries(
+						Object.entries(runnableConfig.errorHandlerArgs).filter(
+							([_, value]) => value !== undefined
+						)
+					)
+				: undefined
+
+			return (
+				!deepEqual(retry, runnableConfig.retry) ||
+				!deepEqual(errorHandlerPath, runnableConfig.errorHandlerPath) ||
+				!deepEqual(errorHandlerExtraArgs, triggerErrorHandlerArgs)
+			)
+		} else {
+			return runnableConfig.retry !== undefined || runnableConfig.errorHandlerPath !== undefined
+		}
+	}
 </script>
 
 {#snippet runnable({
@@ -390,9 +451,11 @@
 											kind: runnableConfig.kind
 										})}
 									{/if}
-									{#if (job.job_kind === 'unassigned_singlestepflow' && (!runnableConfig.retry || !runnableConfig.errorHandlerPath)) || ((runnableConfig.retry || runnableConfig.errorHandlerPath) && runnableConfig.editedAt && job.created_at && new Date(runnableConfig.editedAt) > new Date(job.created_at))}
-										<Badge color="yellow">Changed retry/error handler</Badge>
-									{/if}
+									{#await checkIfAdvancedOptionsChanged(job) then changedAdvancedOptions}
+										{#if changedAdvancedOptions}
+											<Badge color="yellow">Changed retry/error handler</Badge>
+										{/if}
+									{/await}
 								</Cell>
 								<Cell wrap>{displayDate(job.scheduled_for)}</Cell>
 							</Row>
