@@ -4,6 +4,7 @@
 	import AssignableTagsInner from './AssignableTagsInner.svelte'
 	import DefaultTagsInner from './DefaultTagsInner.svelte'
 	import { ExternalLink } from 'lucide-svelte'
+	import { Section } from './common'
 
 	interface Props {
 		defaultTagPerWorkspace?: boolean | undefined
@@ -48,8 +49,7 @@
 			<!-- Content Sections -->
 			<div class="flex flex-col gap-8 flex-1">
 				<!-- Custom Tags Section -->
-				<div class="flex flex-col gap-2">
-					<div class="text-sm font-semibold text-emphasis">Custom tags</div>
+				<Section label="Custom tags">
 					<AssignableTagsInner
 						variant="drawer"
 						on:refresh={() => {
@@ -58,7 +58,7 @@
 							}
 						}}
 					/>
-				</div>
+				</Section>
 
 				<!-- Default Tags Section -->
 				<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />

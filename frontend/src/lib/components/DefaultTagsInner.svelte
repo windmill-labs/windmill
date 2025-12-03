@@ -81,30 +81,40 @@
 	loadWorkspaces()
 </script>
 
-<Section label="Default tags" eeOnly={true}>
-	<span class="text-2xs text-secondary">
+<Section label="Default tags">
+	<div class="text-2xs text-secondary mb-2">
 		Jobs that have not been specifically assigned custom tags will use a <a
 			href="https://www.windmill.dev/docs/core_concepts/worker_groups#default-worker-group"
 			target="_blank"
-			class="inline-flex gap-1 items-baseline"
-			>default tags <ExternalLink size={12} class="inline-block" /></a
+			class="gap-1 items-baseline">default tags <ExternalLink size={12} class="inline-block" /></a
 		> based on the language they are in or their kind.
-	</span>
+	</div>
 
 	{#snippet action()}
-		<Button
-			variant="accent"
-			unifiedSize="md"
-			on:click={handleSave}
-			startIcon={{ icon: Save }}
-			disabled={!hasChanges || !$enterpriseLicense || !$superadmin}
-		>
-			Save
-		</Button>
+		{#if !$enterpriseLicense}
+			<span class="text-secondary text-xs">Read only</span>
+		{:else}
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				on:click={handleSave}
+				startIcon={{ icon: Save }}
+				disabled={!hasChanges || !$enterpriseLicense || !$superadmin}
+			>
+				Save
+			</Button>
+		{/if}
 	{/snippet}
 
 	{#if defaultTagPerWorkspace == undefined || defaultTags == undefined}
 		<Loader2 class="animate-spin" />
+	{:else if !$enterpriseLicense}
+		<!-- Tag List -->
+		<div class="flex gap-y-1 gap-x-2 flex-wrap">
+			{#each $state.snapshot(defaultTags).sort() as tag (tag)}
+				<Badge color="blue">{defaultTagPerWorkspace ? `${tag}-$workspace` : tag}</Badge>
+			{/each}
+		</div>
 	{:else}
 		<!-- Settings -->
 		<div class="py-4 flex flex-col gap-2">
@@ -117,6 +127,7 @@
 							'When tags use $workspace, the final tag has $workspace replaced with the workspace id, allowing multi-vpc setup with more ease, without having to assign a specific tag each time.'
 					}}
 					class="w-fit"
+					disabled={!$enterpriseLicense}
 				/>
 			</div>
 			{#if defaultTagPerWorkspace}
@@ -124,10 +135,12 @@
 					bind:checked={limitToWorkspaces}
 					options={{ right: 'only for some workspaces' }}
 					class="w-fit"
+					disabled={!$enterpriseLicense}
 				/>
 				{#if limitToWorkspaces}
 					<MultiSelect
 						disablePortal
+						disabled={!$enterpriseLicense}
 						items={safeSelectItems(workspaces)}
 						bind:value={defaultTagWorkspaces}
 					/>

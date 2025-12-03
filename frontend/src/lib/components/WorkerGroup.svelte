@@ -190,6 +190,11 @@
 		workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
 	}
 
+	// Centralized permission logic
+	let canEditConfig = $derived($enterpriseLicense && ($superadmin || $devopsRole))
+	let hasEnterpriseFeatures = $derived($enterpriseLicense)
+	let isReadOnly = $derived(!canEditConfig)
+
 	const dispatch = createEventDispatcher()
 
 	async function deleteWorkerGroup() {
@@ -280,14 +285,15 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
-		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		eeOnly={!hasEnterpriseFeatures}
 	>
-		{#if !$enterpriseLicense}
+		{#if !hasEnterpriseFeatures}
 			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
-		{:else if !$superadmin || !$devopsRole}
+		{:else if !canEditConfig}
 			<Alert type="info" title="Read-only mode" class="mb-4">
 				Only superadmin or devops role can edit the worker config.
 			</Alert>
@@ -295,7 +301,7 @@
 		<Label label="Workers assignment">
 			<ToggleButtonGroup
 				{selected}
-				disabled={!$superadmin}
+				disabled={!canEditConfig}
 				on:selected={(e) => {
 					if (nconfig == undefined) {
 						nconfig = {}
@@ -329,6 +335,7 @@
 										nconfig.worker_tags = defaultTags.concat(nativeTags)
 									}
 								},
+								disabled: !canEditConfig,
 								tooltip: (defaultTagPerWorkspace
 									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
 									: defaultTags
@@ -341,6 +348,7 @@
 										nconfig.worker_tags = nativeTags
 									}
 								},
+								disabled: !canEditConfig,
 								tooltip: (defaultTagPerWorkspace && workspaceTag
 									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 									: nativeTags
@@ -352,7 +360,8 @@
 									if (nconfig != undefined) {
 										nconfig.worker_tags = []
 									}
-								}
+								},
+								disabled: !canEditConfig
 							}
 						]}
 						<div class="flex flex-wrap items-center gap-1">
@@ -370,7 +379,7 @@
 								dropdownItems={dropdownResetToAllTags}
 								dropdownWidth={300}
 								startIcon={{ icon: RotateCcw }}
-								disabled={!$superadmin && !$devopsRole}
+								disabled={!canEditConfig}
 							>
 								Reset to all tags <Tooltip>
 									{#snippet text()}
@@ -388,7 +397,7 @@
 									items={workspaces.map((w) => ({ value: w.id }))}
 									onCreateItem={(c) => (workspaceTag = c)}
 									placeholder="Workspace ID"
-									disabled={!$superadmin && !$devopsRole}
+									disabled={!canEditConfig}
 								/>
 							{/if}
 						</div>
@@ -405,7 +414,7 @@
 						}}
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
-						disabled={!$superadmin && !$devopsRole}
+						disabled={!canEditConfig}
 					/>
 				{/if}
 			</Label>
@@ -425,7 +434,7 @@
 						</Tooltip>
 					{/snippet}
 					<MultiSelect
-						disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
+						disabled={!canEditConfig}
 						bind:value={
 							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 							(v) => {
@@ -451,7 +460,7 @@
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
 							}
 						}}
-						disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
+						disabled={!canEditConfig}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center text-xs gap-2">
@@ -459,7 +468,7 @@
 							<input
 								type="number"
 								class="!w-14 text-center"
-								disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								min="1"
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
@@ -485,7 +494,7 @@
 							environment where the supervisor will restart them.</p
 						>
 						<input
-							disabled={!($superadmin || $devopsRole)}
+							disabled={!canEditConfig}
 							placeholder="<workspace>:<script path>"
 							type="text"
 							onchange={() => {}}
@@ -506,14 +515,14 @@
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={!($superadmin || $devopsRole)}
+							disabled={isReadOnly}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
 							onkeypress={(e) => {}}
 						/>
 						<ToggleButtonGroup
-							disabled={!($superadmin || $devopsRole)}
+							disabled={!canEditConfig}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
@@ -523,30 +532,20 @@
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton
-									value="dynamic"
-									label="Dynamic"
-									{item}
-									disabled={!$superadmin && !$devopsRole}
-								/>
-								<ToggleButton
-									value="static"
-									label="Static"
-									{item}
-									disabled={!$superadmin && !$devopsRole}
-								/>
+								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditConfig} />
+								<ToggleButton value="static" label="Static" {item} disabled={!canEditConfig} />
 							{/snippet}
 						</ToggleButtonGroup>
 						<TextInput
 							inputProps={{
 								type: 'text',
-								disabled: !($superadmin || $devopsRole) || envvar.type === 'dynamic',
+								disabled: isReadOnly || envvar.type === 'dynamic',
 								placeholder:
 									envvar.type === 'dynamic' ? 'value read from worker env var' : 'static value'
 							}}
 							bind:value={envvar.value}
 						/>
-						{#if $superadmin || $devopsRole}
+						{#if canEditConfig}
 							<Button
 								wrapperClasses="ml-2"
 								variant="subtle"
@@ -567,12 +566,12 @@
 								startIcon={{ icon: Trash }}
 								iconOnly
 								destructive
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 							/>
 						{/if}
 					</div>
 				{/each}
-				{#if $superadmin || $devopsRole}
+				{#if canEditConfig}
 					<div class="flex flex-col gap-2">
 						<Button
 							variant="default"
@@ -582,6 +581,7 @@
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
 							}}
+							disabled={!canEditConfig}
 						>
 							Add environment variable
 						</Button>
@@ -646,7 +646,7 @@
 		<AutoscalingConfigEditor
 			worker_tags={config?.worker_tags}
 			bind:config={nconfig.autoscaling}
-			disabled={!$superadmin && !$devopsRole}
+			disabled={!canEditConfig}
 		/>
 
 		<div class="mt-8"></div>
@@ -661,11 +661,11 @@
 						<div class="flex gap-1 items-center">
 							<input
 								type="text"
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								placeholder="/path/to/python3.X/site-packages"
 								bind:value={nconfig.additional_python_paths![i]}
 							/>
-							{#if $superadmin || $devopsRole}
+							{#if canEditConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -686,7 +686,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if $superadmin || $devopsRole}
+				{#if canEditConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -713,12 +713,12 @@
 					{#each nconfig.pip_local_dependencies as _, i}
 						<div class="flex gap-1 items-center">
 							<input
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								type="text"
 								placeholder="httpx"
 								bind:value={nconfig.pip_local_dependencies[i]}
 							/>
-							{#if $superadmin || $devopsRole}
+							{#if canEditConfig}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-surface-hover"
 									aria-label="Clear"
@@ -739,7 +739,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if $superadmin || $devopsRole}
+				{#if canEditConfig}
 					<div class="flex">
 						<Button
 							variant="default"
@@ -767,7 +767,7 @@
 			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
 			collapsable
 		>
-			{#if $superadmin || $devopsRole}
+			{#if canEditConfig}
 				<div class="mb-4">
 					<Alert size="xs" type="info" title="Worker restart required">
 						Workers will get killed upon detecting any changes in this section (scripts or
@@ -798,7 +798,7 @@
 						<div class="border w-full h-40">
 							<Editor
 								fixedOverflowWidgets={true}
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
@@ -841,7 +841,7 @@
 							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
 								<TextInput
 									inputProps={{
-										disabled: !($superadmin || $devopsRole),
+										disabled: !canEditConfig,
 										type: 'number',
 										min: '60',
 										placeholder: '3600',
@@ -855,7 +855,7 @@
 
 						<div class="border w-full h-40">
 							<Editor
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
@@ -881,65 +881,67 @@
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
-					<Button
-						variant="accent"
-						on:click={async () => {
-							if (
-								nconfig?.min_alive_workers_alert_threshold &&
-								nconfig?.min_alive_workers_alert_threshold < 1
-							) {
-								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
-								return
-							}
-							if (
-								nconfig?.periodic_script_bash &&
-								(!nconfig?.periodic_script_interval_seconds ||
-									nconfig?.periodic_script_interval_seconds < 60)
-							) {
-								sendUserToast('Periodic script interval must be at least 60 seconds', true)
-								return
-							}
-							// Remove duplicate env vars by keeping only the last occurrence of each key
-							const seenKeys = new Set()
-							customEnvVars = customEnvVars
-								.reverse()
-								.filter((envVar) => {
-									if (envVar.key == '') {
-										return false
-									}
-									if (seenKeys.has(envVar.key)) {
-										return false
-									}
-									seenKeys.add(envVar.key)
-									return true
-								})
-								.reverse()
-							nconfig.env_vars_static = new Map()
-							nconfig.env_vars_allowlist = []
-							customEnvVars.forEach((envvar) => {
+					{#if canEditConfig}
+						<Button
+							variant="accent"
+							on:click={async () => {
 								if (
-									nconfig.env_vars_static !== undefined &&
-									nconfig.env_vars_allowlist !== undefined &&
-									!emptyString(envvar.key)
+									nconfig?.min_alive_workers_alert_threshold &&
+									nconfig?.min_alive_workers_alert_threshold < 1
 								) {
-									if (envvar.type === 'dynamic') {
-										nconfig.env_vars_allowlist.push(envvar.key)
-									} else {
-										nconfig.env_vars_static[envvar.key] = envvar.value
-									}
+									sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+									return
 								}
-							})
+								if (
+									nconfig?.periodic_script_bash &&
+									(!nconfig?.periodic_script_interval_seconds ||
+										nconfig?.periodic_script_interval_seconds < 60)
+								) {
+									sendUserToast('Periodic script interval must be at least 60 seconds', true)
+									return
+								}
+								// Remove duplicate env vars by keeping only the last occurrence of each key
+								const seenKeys = new Set()
+								customEnvVars = customEnvVars
+									.reverse()
+									.filter((envVar) => {
+										if (envVar.key == '') {
+											return false
+										}
+										if (seenKeys.has(envVar.key)) {
+											return false
+										}
+										seenKeys.add(envVar.key)
+										return true
+									})
+									.reverse()
+								nconfig.env_vars_static = new Map()
+								nconfig.env_vars_allowlist = []
+								customEnvVars.forEach((envvar) => {
+									if (
+										nconfig.env_vars_static !== undefined &&
+										nconfig.env_vars_allowlist !== undefined &&
+										!emptyString(envvar.key)
+									) {
+										if (envvar.type === 'dynamic') {
+											nconfig.env_vars_allowlist.push(envvar.key)
+										} else {
+											nconfig.env_vars_static[envvar.key] = envvar.value
+										}
+									}
+								})
 
-							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
-							sendUserToast('Configuration set')
-							dispatch('reload')
-						}}
-						disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) ||
-							!$enterpriseLicense ||
-							!($superadmin || $devopsRole)}
-					>
-						Apply changes
-					</Button>
+								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
+								sendUserToast('Configuration set')
+								dispatch('reload')
+							}}
+							disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) || !canEditConfig}
+						>
+							Apply changes
+						</Button>
+					{:else}
+						<span class="text-secondary text-xs">Read only</span>
+					{/if}
 				</div>
 			</div>
 		{/snippet}
@@ -1010,14 +1012,14 @@
 	</div>
 	{#if !isAgent}
 		<div class="flex gap-4 items-center justify-end flex-row">
-			{#if $superadmin}
+			{#if canEditConfig}
 				{#if width > 1000}
 					{#if config}
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
 							on:click={() => {
-								if (!$enterpriseLicense) {
+								if (!hasEnterpriseFeatures) {
 									sendUserToast('Worker Management UI is an EE feature', true)
 								} else {
 									openDelete = true
@@ -1082,7 +1084,7 @@
 							{
 								displayName: 'Delete config',
 								action: () => {
-									if (!$enterpriseLicense) {
+									if (!hasEnterpriseFeatures) {
 										sendUserToast('Worker Management UI is an EE feature', true)
 									} else {
 										openDelete = true

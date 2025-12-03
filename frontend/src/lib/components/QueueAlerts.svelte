@@ -5,12 +5,13 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
-	import { Plus, Edit3, Save, X, Trash } from 'lucide-svelte'
+	import { Plus, Edit3, Save, X, Trash, ExternalLink } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import { ConfigService, type Alert } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	let queueAlertConfig = $state<Alert[]>([])
 	let availableTags = $state<string[]>([])
@@ -202,169 +203,187 @@
 
 <Section
 	label="Queue alerts"
-	description="Configure alerts for queue monitoring based on worker tags and thresholds"
+	description={$enterpriseLicense
+		? 'Configure alerts for queue monitoring based on worker tags and thresholds'
+		: ''}
+	eeOnly
 >
 	{#snippet action()}
-		<Popover
-			bind:isOpen={addAlertOpen}
-			closeButton
-			placement="bottom-end"
-			contentClasses="p-4 w-96 max-w-96"
-		>
-			{#snippet trigger()}
-				<Button variant="default" unifiedSize="md" startIcon={{ icon: Plus }}>Add new alert</Button>
-			{/snippet}
-			{#snippet content()}
-				<form
-					class="flex flex-col gap-y-6"
-					onsubmit={(e) => {
-						e.preventDefault()
-						addNewAlert()
-					}}
-				>
-					<h3 class="text-sm font-semibold text-emphasis">Add queue alert</h3>
+		{#if $enterpriseLicense}
+			<Popover
+				bind:isOpen={addAlertOpen}
+				closeButton
+				placement="bottom-end"
+				contentClasses="p-4 w-96 max-w-96"
+			>
+				{#snippet trigger()}
+					<Button variant="default" unifiedSize="md" startIcon={{ icon: Plus }}
+						>Add new alert</Button
+					>
+				{/snippet}
+				{#snippet content()}
+					<form
+						class="flex flex-col gap-y-6"
+						onsubmit={(e) => {
+							e.preventDefault()
+							addNewAlert()
+						}}
+					>
+						<h3 class="text-sm font-semibold text-emphasis">Add queue alert</h3>
 
-					<div class="flex flex-col gap-y-1">
-						<label for="new-tags" class="text-xs font-semibold text-emphasis">
-							Worker tags to monitor
-						</label>
-						<span class="text-xs font-normal text-secondary">
-							Tags that identify which workers to monitor for this alert
-						</span>
-						<div class="flex gap-2 items-start">
-							<MultiSelect
-								id="new-tags"
-								items={safeSelectItems(availableTags)}
-								bind:value={newAlertForm.tags_to_monitor}
-								onCreateItem={(tag) => {
-									if (!newAlertForm.tags_to_monitor.includes(tag)) {
-										newAlertForm.tags_to_monitor = [...newAlertForm.tags_to_monitor, tag]
-									}
-								}}
-								createText="Press Enter to add custom tag"
-								placeholder="Select or create tags..."
-								error={!!formErrors.tags_to_monitor}
-								class="flex-1"
-							/>
-							{#if newAlertForm.tags_to_monitor.length === 0}
-								<Button
-									variant="default"
-									unifiedSize="sm"
-									onclick={() => {
-										newAlertForm.tags_to_monitor = [...availableTags]
+						<div class="flex flex-col gap-y-1">
+							<label for="new-tags" class="text-xs font-semibold text-emphasis">
+								Worker tags to monitor
+							</label>
+							<span class="text-xs font-normal text-secondary">
+								Tags that identify which workers to monitor for this alert
+							</span>
+							<div class="flex gap-2 items-start">
+								<MultiSelect
+									id="new-tags"
+									items={safeSelectItems(availableTags)}
+									bind:value={newAlertForm.tags_to_monitor}
+									onCreateItem={(tag) => {
+										if (!newAlertForm.tags_to_monitor.includes(tag)) {
+											newAlertForm.tags_to_monitor = [...newAlertForm.tags_to_monitor, tag]
+										}
 									}}
-								>
-									Add all
-								</Button>
+									createText="Press Enter to add custom tag"
+									placeholder="Select or create tags..."
+									error={!!formErrors.tags_to_monitor}
+									class="flex-1"
+								/>
+								{#if newAlertForm.tags_to_monitor.length === 0}
+									<Button
+										variant="default"
+										unifiedSize="sm"
+										onclick={() => {
+											newAlertForm.tags_to_monitor = [...availableTags]
+										}}
+									>
+										Add all
+									</Button>
+								{/if}
+							</div>
+							{#if formErrors.tags_to_monitor}
+								<span class="text-2xs font-normal text-red-500">{formErrors.tags_to_monitor}</span>
 							{/if}
 						</div>
-						{#if formErrors.tags_to_monitor}
-							<span class="text-2xs font-normal text-red-500">{formErrors.tags_to_monitor}</span>
-						{/if}
-					</div>
 
-					<div class="flex flex-col gap-y-1">
-						<label for="new-jobs-threshold" class="text-xs font-semibold text-emphasis">
-							Jobs count threshold
-						</label>
-						<span class="text-xs font-normal text-secondary">
-							Trigger alert when queue exceeds this many jobs
-						</span>
-						<TextInput
-							inputProps={{
-								id: 'new-jobs-threshold',
-								type: 'number',
-								min: '1',
-								placeholder: '3'
-							}}
-							bind:value={newAlertForm.jobs_num_threshold}
-							size="sm"
-							class="w-full"
-							error={!!formErrors.jobs_num_threshold}
-						/>
-						{#if formErrors.jobs_num_threshold}
-							<span class="text-2xs font-normal text-red-500">{formErrors.jobs_num_threshold}</span>
-						{/if}
-					</div>
+						<div class="flex flex-col gap-y-1">
+							<label for="new-jobs-threshold" class="text-xs font-semibold text-emphasis">
+								Jobs count threshold
+							</label>
+							<span class="text-xs font-normal text-secondary">
+								Trigger alert when queue exceeds this many jobs
+							</span>
+							<TextInput
+								inputProps={{
+									id: 'new-jobs-threshold',
+									type: 'number',
+									min: '1',
+									placeholder: '3'
+								}}
+								bind:value={newAlertForm.jobs_num_threshold}
+								size="sm"
+								class="w-full"
+								error={!!formErrors.jobs_num_threshold}
+							/>
+							{#if formErrors.jobs_num_threshold}
+								<span class="text-2xs font-normal text-red-500"
+									>{formErrors.jobs_num_threshold}</span
+								>
+							{/if}
+						</div>
 
-					<div class="flex flex-col gap-y-1">
-						<label for="new-cooldown" class="text-xs font-semibold text-emphasis">
-							Alert cooldown (seconds)
-						</label>
-						<span class="text-xs font-normal text-secondary">
-							Wait time between alerts for the same condition
-						</span>
-						<TextInput
-							inputProps={{
-								id: 'new-cooldown',
-								type: 'number',
-								min: '1',
-								placeholder: '600'
-							}}
-							bind:value={newAlertForm.alert_cooldown_seconds}
-							size="sm"
-							class="w-full"
-							error={!!formErrors.alert_cooldown_seconds}
-						/>
-						{#if formErrors.alert_cooldown_seconds}
-							<span class="text-2xs font-normal text-red-500"
-								>{formErrors.alert_cooldown_seconds}</span
+						<div class="flex flex-col gap-y-1">
+							<label for="new-cooldown" class="text-xs font-semibold text-emphasis">
+								Alert cooldown (seconds)
+							</label>
+							<span class="text-xs font-normal text-secondary">
+								Wait time between alerts for the same condition
+							</span>
+							<TextInput
+								inputProps={{
+									id: 'new-cooldown',
+									type: 'number',
+									min: '1',
+									placeholder: '600'
+								}}
+								bind:value={newAlertForm.alert_cooldown_seconds}
+								size="sm"
+								class="w-full"
+								error={!!formErrors.alert_cooldown_seconds}
+							/>
+							{#if formErrors.alert_cooldown_seconds}
+								<span class="text-2xs font-normal text-red-500"
+									>{formErrors.alert_cooldown_seconds}</span
+								>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-y-1">
+							<label for="new-time-threshold" class="text-xs font-semibold text-emphasis">
+								Time threshold (seconds)
+							</label>
+							<span class="text-xs font-normal text-secondary">
+								How long the condition must persist before alerting
+							</span>
+							<TextInput
+								inputProps={{
+									id: 'new-time-threshold',
+									type: 'number',
+									min: '1',
+									placeholder: '30'
+								}}
+								bind:value={newAlertForm.alert_time_threshold_seconds}
+								size="sm"
+								class="w-full"
+								error={!!formErrors.alert_time_threshold_seconds}
+							/>
+							{#if formErrors.alert_time_threshold_seconds}
+								<span class="text-2xs font-normal text-red-500"
+									>{formErrors.alert_time_threshold_seconds}</span
+								>
+							{/if}
+						</div>
+
+						<div class="flex gap-x-2 pt-2 justify-end">
+							<Button
+								type="button"
+								variant="default"
+								unifiedSize="md"
+								onclick={() => {
+									addAlertOpen = false
+									formErrors = {}
+								}}
 							>
-						{/if}
-					</div>
-
-					<div class="flex flex-col gap-y-1">
-						<label for="new-time-threshold" class="text-xs font-semibold text-emphasis">
-							Time threshold (seconds)
-						</label>
-						<span class="text-xs font-normal text-secondary">
-							How long the condition must persist before alerting
-						</span>
-						<TextInput
-							inputProps={{
-								id: 'new-time-threshold',
-								type: 'number',
-								min: '1',
-								placeholder: '30'
-							}}
-							bind:value={newAlertForm.alert_time_threshold_seconds}
-							size="sm"
-							class="w-full"
-							error={!!formErrors.alert_time_threshold_seconds}
-						/>
-						{#if formErrors.alert_time_threshold_seconds}
-							<span class="text-2xs font-normal text-red-500"
-								>{formErrors.alert_time_threshold_seconds}</span
+								Cancel
+							</Button>
+							<Button
+								onClick={addNewAlert}
+								type="submit"
+								variant="accent"
+								unifiedSize="md"
+								startIcon={{ icon: Plus }}>Add alert</Button
 							>
-						{/if}
-					</div>
-
-					<div class="flex gap-x-2 pt-2 justify-end">
-						<Button
-							type="button"
-							variant="default"
-							unifiedSize="md"
-							onclick={() => {
-								addAlertOpen = false
-								formErrors = {}
-							}}
-						>
-							Cancel
-						</Button>
-						<Button
-							onClick={addNewAlert}
-							type="submit"
-							variant="accent"
-							unifiedSize="md"
-							startIcon={{ icon: Plus }}>Add alert</Button
-						>
-					</div>
-				</form>
-			{/snippet}
-		</Popover>
+						</div>
+					</form>
+				{/snippet}
+			</Popover>
+		{/if}
 	{/snippet}
 
-	{#if queueAlertConfig.length === 0}
+	{#if !$enterpriseLicense}
+		<div class="text-xs text-primary">
+			Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting jobs.
+			Please upgrade to access this functionality. <a
+				href="https://www.windmill.dev/pricing"
+				target="_blank"
+				>Learn more about our plans <ExternalLink size={12} class="inline-block" /></a
+			>
+		</div>
+	{:else if queueAlertConfig.length === 0}
 		<div class="text-center py-8">
 			<p class="text-sm text-secondary">No queue alerts configured</p>
 			<p class="text-xs text-hint mt-1">Add your first alert to monitor queue conditions</p>

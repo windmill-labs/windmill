@@ -422,6 +422,7 @@
 						placeholder="25"
 						id="occupancy_rate_min"
 						bind:value={config.dec_scale_occupancy_rate}
+						{disabled}
 					/>
 				{:else}
 					<input type="number" step="0.01" disabled />
@@ -446,6 +447,7 @@
 						placeholder="75"
 						id="occupancy_rate_max"
 						bind:value={config.inc_scale_occupancy_rate}
+						{disabled}
 					/>
 				{:else}
 					<input type="number" step="0.01" disabled />
