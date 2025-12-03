@@ -18,6 +18,10 @@ export async function getJsonSchemaFromResource(path: string, workspace: string)
 			path,
 			workspace
 		})
+		if (!resourceValue || !resourceValue == null) {
+			console.warn(`JSON schema resource ${path} not found`)
+			return null
+		}
 
 		const parsedResource = jsonSchemaResourceSchema.safeParse(resourceValue)
 		if (parsedResource.success) {
@@ -29,7 +33,11 @@ export async function getJsonSchemaFromResource(path: string, workspace: string)
 			return parsedResource.data.schema
 		} else {
 			console.error('Invalid JSON schema resource:', parsedResource.error)
-			sendUserToast('Invalid JSON schema resource: ' + parsedResource.error, true)
+			sendUserToast(
+				`Error loading json schema resource ${path}, Invalid JSON schema resource: ` +
+					parsedResource.error,
+				true
+			)
 		}
 	} catch (err) {
 		console.error(err)
