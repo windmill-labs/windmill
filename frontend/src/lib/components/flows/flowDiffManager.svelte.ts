@@ -242,7 +242,8 @@ export function createFlowDiffManager() {
 	 */
 	function acceptModule(id: string, flowStore?: StateStore<ExtendedOpenFlow>, asSkeleton = false) {
 		if (!beforeFlow || !currentFlow) {
-			throw new Error('Cannot accept module without beforeFlow and currentFlow snapshots')
+			console.warn('Cannot accept module without beforeFlow and currentFlow snapshots')
+			return
 		}
 
 		const info = moduleActions[id]
