@@ -71,6 +71,7 @@
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { clone } from '$lib/utils'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -127,7 +128,7 @@
 				workspace: $workspaceStore!,
 				requestBody: { settings }
 			})
-			dataTableSettings = tempSettings
+			dataTableSettings = clone(tempSettings)
 			sendUserToast('Data table settings saved successfully')
 		} catch (e) {
 			sendUserToast(e, true)
@@ -142,7 +143,6 @@
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
 			let temp = tempSettings.dataTables[i]
 			let dt = dataTableSettings.dataTables.find((d) => d.name === temp.name)
-			console.log('Comparing', temp, dt, deepEqual(dt, temp))
 			map[temp.name] = !deepEqual(dt, temp)
 		}
 		return map
