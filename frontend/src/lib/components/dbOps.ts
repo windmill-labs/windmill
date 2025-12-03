@@ -170,7 +170,7 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? [])
 	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
 	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
 
