@@ -215,7 +215,9 @@ function locationsEqual(a: ModuleParentLocation | null, b: ModuleParentLocation 
 			return a.parentId === (b as typeof a).parentId
 		case 'branchone-branch':
 		case 'branchall-branch':
-			return a.parentId === (b as typeof a).parentId && a.branchIndex === (b as typeof a).branchIndex
+			return (
+				a.parentId === (b as typeof a).parentId && a.branchIndex === (b as typeof a).branchIndex
+			)
 		default:
 			return false
 	}
@@ -369,26 +371,22 @@ function prependModuleId(module: FlowModule, prefix: string): FlowModule {
 			// If the tool has nested modules (it's a container type), recurse
 			const innerValue = tool.value as FlowModule['value']
 			if (innerValue.type === 'forloopflow' || innerValue.type === 'whileloopflow') {
-				;(prefixedTool.value as any).modules = (innerValue as any).modules.map(
-					(m: FlowModule) => prependModuleId(m, prefix)
+				;(prefixedTool.value as any).modules = (innerValue as any).modules.map((m: FlowModule) =>
+					prependModuleId(m, prefix)
 				)
 			} else if (innerValue.type === 'branchone') {
-				;(prefixedTool.value as any).default = (innerValue as any).default.map(
-					(m: FlowModule) => prependModuleId(m, prefix)
+				;(prefixedTool.value as any).default = (innerValue as any).default.map((m: FlowModule) =>
+					prependModuleId(m, prefix)
 				)
-				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
-					(branch: any) => ({
-						...branch,
-						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
-					})
-				)
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map((branch: any) => ({
+					...branch,
+					modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+				}))
 			} else if (innerValue.type === 'branchall') {
-				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
-					(branch: any) => ({
-						...branch,
-						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
-					})
-				)
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map((branch: any) => ({
+					...branch,
+					modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+				}))
 			}
 			return prefixedTool
 		})
@@ -726,7 +724,7 @@ function insertIntoNestedParent(
 			}
 			// Restore the branch with its original expr but empty modules (we'll add them)
 			parentModule.value.branches[parentLocation.branchIndex] = {
-				expr: beforeBranch.expr ?? '',
+				...beforeBranch,
 				modules: []
 			}
 			branch = parentModule.value.branches[parentLocation.branchIndex]
@@ -757,10 +755,8 @@ function insertIntoNestedParent(
 			}
 			// Restore the branch with empty modules (we'll add them)
 			parentModule.value.branches[parentLocation.branchIndex] = {
-				modules: [],
-				// Copy other properties from beforeBranch (like skip_failure, summary, etc.)
-				...(beforeBranch.skip_failure !== undefined && { skip_failure: beforeBranch.skip_failure }),
-				...(beforeBranch.summary !== undefined && { summary: beforeBranch.summary })
+				...beforeBranch,
+				modules: []
 			}
 			branch = parentModule.value.branches[parentLocation.branchIndex]
 		}

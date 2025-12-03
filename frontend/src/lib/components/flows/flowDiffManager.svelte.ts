@@ -352,16 +352,9 @@ export function createFlowDiffManager() {
 				// Source from beforeFlow
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				if (oldModule) {
-					const moduleToInsert = $state.snapshot(oldModule)
-					// If the ID was prefixed with old__, keep the prefix to avoid duplicate IDs
-					// This happens when a module is "moved" (same ID at different location)
-					// and the user rejects the removal while accepting the addition
-					if (id.startsWith(DUPLICATE_MODULE_PREFIX)) {
-						moduleToInsert.id = id
-					}
 					insertModuleIntoFlow(
 						flowStore.val.value,
-						moduleToInsert,
+						$state.snapshot(oldModule),
 						beforeFlow.value,
 						actualId
 					)

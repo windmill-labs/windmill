@@ -33,6 +33,8 @@ describe('FlowDiffManager', () => {
 
 				flushSync()
 
+				expect(false).toBe(true)
+
 				expect(manager.moduleActions).toHaveProperty('b')
 				expect(manager.moduleActions['b']).toEqual({ action: 'added', pending: true })
 			})
@@ -1549,6 +1551,9 @@ describe('FlowDiffManager', () => {
 				expect(manager.moduleActions['r']).toEqual({ action: 'added', pending: true })
 				expect(manager.moduleActions['old__r']).toEqual({ action: 'removed', pending: true })
 
+				console.log('beforeFlow', beforeFlow)
+				console.log('flowStore', flowStore.val.value)
+
 				// User rejects the removal - wants to keep module at original location (branch 2)
 				manager.rejectModule('old__r', flowStore)
 				flushSync()
@@ -1561,8 +1566,10 @@ describe('FlowDiffManager', () => {
 				const branchAllModule = currentModules.find((m) => m.id === 'branchall1')
 				const branches = (branchAllModule?.value as BranchAll).branches
 
+				console.log('after flowStore', flowStore.val.value)
+
 				// Branch 0 should still have 'r'
-				expect(branches[0].modules.some((m) => m.id === 'r')).toBe(true)
+				expect(branches[0].modules.some((m) => m.id === 'rweffew')).toBe(true)
 
 				// Branch 2 should have 'old__r' (prefixed to avoid duplicate ID)
 				expect(branches[2].modules.some((m) => m.id === 'old__r')).toBe(true)
