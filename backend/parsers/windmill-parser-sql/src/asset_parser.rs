@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use windmill_parser::asset_parser::{
     merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
 };
@@ -7,7 +5,7 @@ use AssetUsageAccessType::*;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while, take_while1},
+    bytes::complete::{tag, tag_no_case, take_while},
     character::complete::{char, multispace0},
     combinator::opt,
     sequence::preceded,
@@ -17,24 +15,12 @@ use nom::{
 pub fn parse_assets<'a>(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<&str>>> {
     let mut assets = Vec::new();
     let mut remaining = input;
-    let mut var_identifiers: HashMap<String, (AssetKind, String)> = HashMap::new();
 
     while !remaining.trim().is_empty() {
         if let Ok((rest, _)) = parse_comment(remaining) {
             remaining = rest; // skip comment
         }
-
-        if let Ok((rest, (var_identifier, (asset_kind, asset_name)))) =
-            parse_var_identifier(remaining)
-        {
-            var_identifiers.insert(
-                var_identifier.to_string(),
-                (asset_kind, asset_name.to_string()),
-            );
-            remaining = rest;
-        }
-
-        if let Ok((rest, res)) = parse_asset(remaining, &var_identifiers) {
+        if let Ok((rest, res)) = parse_asset(remaining) {
             assets.push(res);
             remaining = rest;
         } else {
@@ -45,14 +31,7 @@ pub fn parse_assets<'a>(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<&st
     Ok(merge_assets(assets))
 }
 
-fn parse_var_identifier(input: &str) -> IResult<&str, (&str, (AssetKind, &str))> {
-    alt((parse_ducklake_lit, parse_datatable_lit)).parse(input)
-}
-
-fn parse_asset<'a, 'b>(
-    input: &'a str,
-    var_identifiers: &'b HashMap<String, (AssetKind, String)>,
-) -> IResult<&'a str, ParseAssetsResult<&'a str>> {
+fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
     alt((
         parse_s3_object_read.map(|path| ParseAssetsResult {
             path,
@@ -73,6 +52,16 @@ fn parse_asset<'a, 'b>(
         parse_resource_lit.map(|path| ParseAssetsResult {
             path,
             kind: AssetKind::Resource,
+            access_type: None,
+        }),
+        parse_ducklake_lit.map(|path| ParseAssetsResult {
+            path,
+            kind: AssetKind::Ducklake,
+            access_type: None,
+        }),
+        parse_datatable_lit.map(|path| ParseAssetsResult {
+            path,
+            kind: AssetKind::DataTable,
             access_type: None,
         }),
     ))
@@ -120,7 +109,7 @@ fn parse_s3_object_select_from(input: &str) -> IResult<&str, &str> {
 fn parse_s3_object_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     let (input, _) = tag("s3://").parse(input)?;
-    let (input, path) = take_while1(|c| c != '\'' && c != '"')(input)?;
+    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
     let (input, _) = quote(input)?;
     Ok((input, path))
 }
@@ -132,57 +121,31 @@ fn quote(input: &str) -> IResult<&str, char> {
 fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     let (input, _) = alt((tag("$res:"), tag("res://"))).parse(input)?;
-    let (input, path) = take_while1(|c| c != '\'' && c != '"')(input)?;
+    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
     let (input, _) = quote(input)?;
     Ok((input, path))
 }
 
-fn parse_ducklake_lit(input: &str) -> IResult<&str, (&str, (AssetKind, &str))> {
-    let (input, _) = tag_no_case("ATTACH").parse(input)?;
-    let (input, _) = multispace0(input)?;
+fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     let (input, _) = tag("ducklake").parse(input)?;
     let (input, path) =
-        opt(preceded(tag("://"), take_while1(|c| c != '\'' && c != '"'))).parse(input)?;
+        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
     let (input, _) = quote(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, _) = tag_no_case("AS").parse(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, var_identifier) = identifier(input)?;
-
-    let result = (
-        path.unwrap_or("main"),
-        (AssetKind::Ducklake, var_identifier),
-    );
-    Ok((input, result))
+    Ok((input, path.unwrap_or("main")))
 }
 
-fn parse_datatable_lit(input: &str) -> IResult<&str, (&str, (AssetKind, &str))> {
-    let (input, _) = tag_no_case("ATTACH").parse(input)?;
-    let (input, _) = multispace0(input)?;
+fn parse_datatable_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     let (input, _) = tag("datatable").parse(input)?;
     let (input, path) =
-        opt(preceded(tag("://"), take_while1(|c| c != '\'' && c != '"'))).parse(input)?;
+        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
     let (input, _) = quote(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, _) = tag_no_case("AS").parse(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, var_identifier) = identifier(input)?;
-
-    let result = (
-        path.unwrap_or("main"),
-        (AssetKind::DataTable, var_identifier),
-    );
-    Ok((input, result))
+    Ok((input, path.unwrap_or("main")))
 }
 
 fn parse_comment(input: &str) -> IResult<&str, &str> {
     let (input, _) = tag("--").parse(input)?;
     let (input, comment) = take_while(|c| c != '\n')(input)?;
     Ok((input, comment))
-}
-
-fn identifier(input: &str) -> IResult<&str, &str> {
-    take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)
 }
