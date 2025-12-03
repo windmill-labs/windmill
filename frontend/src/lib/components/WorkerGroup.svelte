@@ -41,6 +41,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Dropdown from './DropdownV2.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -166,6 +167,7 @@
 		shouldAutoOpenDrawer?: boolean
 		onDrawerOpened?: () => void
 		onDeleted?: (deletedGroupName: string) => void
+		selectGroup?: import('svelte').Snippet
 	}
 
 	let {
@@ -179,7 +181,8 @@
 		width = 0,
 		shouldAutoOpenDrawer = false,
 		onDrawerOpened = () => {},
-		onDeleted = () => {}
+		onDeleted = () => {},
+		selectGroup = undefined
 	}: Props = $props()
 
 	let workspaces: Workspace[] = $state([])
@@ -280,7 +283,7 @@
 		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
-			<Alert type="warning" title="Worker management UI is EE only">
+			<Alert type="warning" title="Worker management UI is EE only" class="mb-4">
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
@@ -746,6 +749,7 @@
 		<Section
 			label="Worker scripts"
 			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
+			collapsable
 		>
 			{#if $superadmin || $devopsRole}
 				<div class="mb-4">
@@ -926,26 +930,27 @@
 	</DrawerContent>
 </Drawer>
 
-{#if isAgent}
-	<div class="mt-4">
-		<Alert type="info" title="Agent Worker Group" size="xs">
-			{#snippet children()}
-				This group is formed with agent workers, there is no associated config. To modify the tags,
-				generate a new <a
-					href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
-					target="_blank"
-					class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
-				>.
-			{/snippet}
-		</Alert>
-	</div>
-{/if}
-<div class="flex items-center justify-between mt-2">
+<div
+	class={twMerge(
+		'flex items-center justify-between mt-2 rounded-md',
+		selectGroup ? 'border border-light p-4' : '',
+		isAgent ? 'flex-col gap-2 items-start' : ''
+	)}
+>
 	<div class="text-xs flex flex-row gap-2 items-center">
 		<div class="flex flex-row gap-1 items-center">
-			{pluralize(activeWorkers, 'worker')}
-			<Tooltip
-				>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
+			{#if selectGroup}
+				{@render selectGroup()}
+				<span class="ml-r"></span>
+			{:else}
+				<span class="text-secondary text-xs">Worker group:</span>
+				<span class="text-emphasis font-semibold text-sm">{name} - </span>
+			{/if}
+			<span class="inline-flex">
+				{`${pluralize(activeWorkers, 'worker')} `}
+				<Tooltip
+					>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
+				></span
 			>
 		</div>
 
@@ -964,16 +969,16 @@
 					<TriangleAlert size={14} class="text-yellow-600" />
 
 					{#snippet text()}
-						<div class="flex flex-col gap-2 text-sm max-w-md p-4">
-							<div class="font-semibold">Workers without job isolation</div>
-							<p class="text-secondary">
+						<div class="flex flex-col gap-2 text-xs max-w-md p-4">
+							<div class="font-semibold text-emphasis">Workers without job isolation</div>
+							<p class="text-primary">
 								{unsafeWorkers.length}
 								{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
 								{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
 							</p>
 							<div class="flex flex-wrap gap-1">
 								{#each unsafeWorkers as worker}
-									<Badge color="orange" verySmall={true}>
+									<Badge color="orange" small>
 										{worker.worker}
 									</Badge>
 								{/each}
@@ -1101,3 +1106,18 @@
 		</div>
 	{/if}
 </div>
+
+{#if isAgent}
+	<div class="mt-4">
+		<Alert type="info" title="Agent Worker Group" size="xs">
+			{#snippet children()}
+				This group is formed with agent workers, there is no associated config. To modify the tags,
+				generate a new <a
+					href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
+					target="_blank"
+					class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
+				>.
+			{/snippet}
+		</Alert>
+	</div>
+{/if}

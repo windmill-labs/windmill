@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle, ChevronRight } from 'lucide-svelte'
+	import { ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -82,11 +83,8 @@
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 				{#if eeOnly}
-					{#if !$enterpriseLicense}
-						<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap ml-8">
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</div>
+					{#if !$enterpriseLicense || true}
+						<EEOnly />
 					{/if}
 				{/if}
 			</h2>
@@ -104,7 +102,7 @@
 			{#if description}
 				<div class="text-xs text-primary mt-1">{description}</div>
 			{/if}
-			<div class="flex flex-col gap-6 h-full mt-4">
+			<div class={twMerge('flex flex-col gap-6 h-full', description ? 'mt-4' : '')}>
 				<div class={twMerge('grow min-h-0', clazz)}>
 					{@render children?.()}
 				</div>

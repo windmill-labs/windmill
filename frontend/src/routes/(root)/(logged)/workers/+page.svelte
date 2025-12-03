@@ -25,7 +25,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
-	import { AlertTriangle, LineChart, Plus, Search, Tags, Terminal } from 'lucide-svelte'
+	import { ExternalLink, LineChart, Plus, Search, Tags, Terminal } from 'lucide-svelte'
 	import { onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
@@ -36,6 +36,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import TagList from '$lib/components/TagList.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	let workers: WorkerPing[] | undefined = $state(undefined)
 	let workerGroups: Record<string, any> | undefined = $state(undefined)
@@ -568,10 +569,7 @@
 									/>
 
 									{#if !$enterpriseLicense}
-										<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
-											<AlertTriangle size={16} />
-											EE only
-										</div>
+										<EEOnly />
 									{/if}
 									<Button
 										unifiedSize="md"
@@ -594,23 +592,7 @@
 					<p>No workers seem to be available</p>
 				{/if}
 
-				{#if (groupedWorkers ?? []).length > 5}
-					<div class="flex gap-2 items-center">
-						<div class="text-emphasis font-semibold text-sm">Worker group</div>
-						<Select
-							items={groupedWorkers.map((x) => ({
-								value: x[0],
-								subtitle: `${pluralize(x[1]?.flatMap((x) => x[1]?.filter((y) => (y.last_ping ?? 0) < 15))?.length ?? 0, 'worker')}`
-							}))}
-							bind:value={selectedTab}
-						/>
-						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
-							>Worker groups are groups of workers that share a config and are meant to be
-							identical. Worker groups are meant to be used with tags. Tags can be assigned to
-							scripts and flows and can be seen as dedicated queues. Only the corresponding
-						</Tooltip>
-					</div>
-				{:else}
+				{#if (groupedWorkers ?? []).length < 6}
 					<Tabs bind:selected={selectedTab}>
 						{#each groupedWorkers.map((x) => x[0]) as name (name)}
 							{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
@@ -657,6 +639,7 @@
 								shouldAutoOpenDrawer = ''
 							}}
 							onDeleted={handleWorkerGroupDeleted}
+							selectGroup={(groupedWorkers ?? []).length > 5 ? selectGroup : undefined}
 						/>
 
 						<div class="mt-6"></div>
@@ -778,6 +761,7 @@
 																		href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}
 																	>
 																		View last job
+																		<ExternalLink size={12} class="inline-block" />
 																	</a>
 																	<br />
 																	(workspace {last_job_workspace_id})
@@ -816,8 +800,8 @@
 															</div>
 														</Cell>
 														<Cell class="text-secondary">
-															<div class="!text-2xs">
-																{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
+															<div class="!text-2xs" title={wm_version}>
+																{wm_version.split('-')[0]}
 															</div>
 														</Cell>
 														<Cell class="text-secondary">
@@ -897,7 +881,10 @@
 					{/if}
 				</div>
 				<div class="pb-8"></div>
-				<AutoscalingEvents worker_group={selectedTab} />
+				<!-- Agent worker groups don't have autoscaling -->
+				{#if worker_group?.[2] === false}
+					<AutoscalingEvents worker_group={selectedTab} />
+				{/if}
 			{:else}
 				<div class="flex flex-col">
 					{#each new Array(4) as _}
@@ -908,3 +895,26 @@
 		{/snippet}
 	</CenteredPage>
 {/if}
+
+{#snippet selectGroup()}
+	<div class="flex gap-2 items-center">
+		<div class="text-secondary text-xs"
+			>Worker group
+			<Tooltip
+				documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+				wrapperClass="inline-block"
+				>Worker groups are groups of workers that share a config and are meant to be identical.
+				Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows and
+				can be seen as dedicated queues. Only the corresponding
+			</Tooltip>
+		</div>
+		<Select
+			inputClass="text-sm font-semibold text-emphasis"
+			items={groupedWorkers.map((x) => ({
+				value: x[0],
+				subtitle: `${pluralize(x[1]?.flatMap((x) => x[1]?.filter((y) => (y.last_ping ?? 0) < 15))?.length ?? 0, 'worker')}`
+			}))}
+			bind:value={selectedTab}
+		/>
+	</div>
+{/snippet}

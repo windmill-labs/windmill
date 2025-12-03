@@ -118,7 +118,7 @@
 			{/if}
 		</Label>
 		<Label label="Max # of workers" disabled={config === undefined} class="grow min-w-0">
-			<span class="text-xs text-secondary mt-1">The maximum number of workers to scale up to</span>
+			<span class="text-xs text-secondary">The maximum number of workers to scale up to</span>
 			{#if config !== undefined}
 				<input
 					type="number"

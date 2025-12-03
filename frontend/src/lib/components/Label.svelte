@@ -3,7 +3,7 @@
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { TriangleAlert } from 'lucide-svelte'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -55,15 +55,7 @@
 				</span>
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
-						<div
-							class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap"
-							title="Enterprise Edition only feature"
-							aria-label="Enterprise Edition only feature"
-							role="tooltip"
-						>
-							<TriangleAlert size={16} />
-							EE only
-						</div>
+						<EEOnly />
 					{/if}
 				{/if}
 				{@render header?.()}
