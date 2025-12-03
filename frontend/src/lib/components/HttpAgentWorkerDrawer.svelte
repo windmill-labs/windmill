@@ -12,6 +12,7 @@
 	import { shell, json } from 'svelte-highlight/languages'
 	import TokenDisplay from './settings/TokenDisplay.svelte'
 	import Description from './Description.svelte'
+	import { defaultTags, nativeTags } from './worker_group'
 
 	type Props = {
 		customTags: string[] | undefined
@@ -166,11 +167,21 @@
 								you can only use the tag `agent_test` tag and it is limited to 100 jobs.
 							</div>
 						{/if}
-						<TagsToListenTo
-							disabled={!$enterpriseLicense}
-							bind:worker_tags={selectedTags}
-							{customTags}
-						/>
+						<div class="flex flex-row gap-2 w-full">
+							<TagsToListenTo
+								class="grow min-w-0"
+								disabled={!$enterpriseLicense}
+								bind:worker_tags={selectedTags}
+								{customTags}
+							/>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								onclick={() => {
+									selectedTags = [...defaultTags, ...nativeTags, ...(customTags ?? [])]
+								}}>Add all tags</Button
+							>
+						</div>
 					</Label>
 
 					{#if !token}

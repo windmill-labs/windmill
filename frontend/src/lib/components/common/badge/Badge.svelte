@@ -116,6 +116,7 @@
 				(color.startsWith(ColorModifier)
 					? hovers[color.replace(ColorModifier, '')]
 					: hovers[color]),
+
 			rounded ? 'rounded-full px-2 py-1' : 'rounded-md px-2 py-0.5',
 			verySmall ? 'px-0.5 py-0.5' : '',
 			'flex flex-row gap-1 items-center',
@@ -128,7 +129,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span {onclick} {onkeydown} class="inline-flex justify-center items-center {wrapperClass}">
 	<svelte:element
-		this={href ? 'a' : 'span'}
+		this={href ? 'a' : clickable ? 'button' : 'span'}
 		{href}
 		{...rest}
 		class={badgeClass}

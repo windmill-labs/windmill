@@ -83,7 +83,7 @@
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 				{#if eeOnly}
-					{#if !$enterpriseLicense || true}
+					{#if !$enterpriseLicense}
 						<EEOnly />
 					{/if}
 				{/if}

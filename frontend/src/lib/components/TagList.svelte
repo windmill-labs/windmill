@@ -36,7 +36,7 @@
 				debounceDelay={150}
 			>
 				{#snippet trigger()}
-					<Badge color="blue" small clickable class="cursor-pointer">
+					<Badge color="blue" small clickable>
 						+{extraTags.length}
 					</Badge>
 				{/snippet}

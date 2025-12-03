@@ -10,6 +10,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { ConfigService, type Alert } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	let queueAlertConfig = $state<Alert[]>([])
 	let availableTags = $state<string[]>([])
@@ -444,23 +445,22 @@
 
 									<div class="flex flex-wrap gap-1">
 										{#each tagsToShow as tag}
-											<span
-												class="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 dark:bg-blue-900/30 text-xs text-blue-700 dark:text-blue-300"
-											>
+											<Badge color="blue" small>
 												{tag}
-											</span>
+											</Badge>
 										{/each}
 
 										{#if config.tags_to_monitor.length > MAX_NUMBER_OF_TAGS_DISPLAYED && !isExpanded}
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												onClick={() => {
+											<Badge
+												clickable
+												color="blue"
+												small
+												onclick={() => {
 													expandedTagRows = [...expandedTagRows, index]
 												}}
 											>
-												Show all tags ({config.tags_to_monitor.length})
-											</Button>
+												+ {config.tags_to_monitor.length}
+											</Badge>
 										{/if}
 									</div>
 								{/if}
