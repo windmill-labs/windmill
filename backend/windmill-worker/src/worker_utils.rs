@@ -398,18 +398,15 @@ pub async fn get_tag_and_concurrency(job_id: &Uuid, db: &DB) -> Option<TagAndCon
 
             let concurrency_key = flow_value
                 .as_ref()
-                .and_then(|fv| fv.concurrency_settings.as_ref())
-                .and_then(|s| s.custom_key.to_owned());
+                .and_then(|fv| fv.concurrency_settings.concurrency_key.to_owned());
 
             let concurrent_limit = flow_value
                 .as_ref()
-                .and_then(|fv| fv.concurrency_settings.as_ref())
-                .and_then(|s| s.limit);
+                .and_then(|fv| fv.concurrency_settings.concurrent_limit);
 
             let concurrent_time_window_s = flow_value
                 .as_ref()
-                .and_then(|fv| fv.concurrency_settings.as_ref())
-                .and_then(|s| s.time_window_s);
+                .and_then(|fv| fv.concurrency_settings.concurrency_time_window_s);
 
             Some(TagAndConcurrencyKey {
                 tag: tag_and_concurrency_key.tag,

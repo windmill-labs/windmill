@@ -390,7 +390,7 @@ async fn execute_windmill_tool(
                 payload: JobPayload::FlowScript {
                     id,
                     language,
-                    concurrency_settings,
+                    concurrency_settings: concurrency_settings.into(),
                     cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
                     path,

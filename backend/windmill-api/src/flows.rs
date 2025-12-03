@@ -715,13 +715,12 @@ async fn get_flow_version_by_id(
     let mut tx = user_db.begin(&authed).await?;
 
     // First, fetch the path to perform authorization check early
-    let path: Option<String> = sqlx::query_scalar(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(version)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2")
+            .bind(version)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let path = not_found_if_none(
         path,
@@ -788,13 +787,12 @@ async fn update_flow_history(
     let mut tx = user_db.begin(&authed).await?;
 
     // Fetch path and perform authorization check early
-    let path: Option<String> = sqlx::query_scalar(
-        "SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2",
-    )
-    .bind(&w_id)
-    .bind(version)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2")
+            .bind(&w_id)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let path = not_found_if_none(
         path,
@@ -1440,10 +1438,9 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
-        let flow_value = nf.parse_flow_value()?;
-        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
-    } {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
@@ -1557,11 +1554,13 @@ mod tests {
 
     use std::{collections::HashMap, time::Duration};
 
+    use aws_sdk_config::operation::stop_configuration_recorder::builders::StopConfigurationRecorderOutputBuilder;
     use windmill_common::{
         flows::{
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
+        jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
         scripts,
     };
 
@@ -1612,11 +1611,9 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
                         is_trigger: None,
                         assets: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1702,17 +1699,14 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
             priority: None,
             early_return: None,
-            concurrency_key: None,
             chat_input_enabled: None,
             flow_env: None,
-            debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings: DebouncingSettings::default(),
         };
         let expect = serde_json::json!({
           "modules": [

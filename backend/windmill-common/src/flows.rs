@@ -24,7 +24,7 @@ use crate::{
     cache,
     db::DB,
     error::{Error, Result as WindmillResult},
-    jobs::{ConcurrencySettings, DebouncingSettings},
+    jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
@@ -172,10 +172,10 @@ pub struct FlowValue {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
-    #[serde(skip_serializing_if = "Option::is_none", flatten)]
-    pub concurrency_settings: Option<ConcurrencySettings>,
-    #[serde(skip_serializing_if = "Option::is_none", flatten)]
-    pub debouncing_settings: Option<DebouncingSettings>,
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[serde(flatten)]
+    pub debouncing_settings: DebouncingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_expr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -189,6 +189,24 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
+}
+
+#[cfg(test)]
+mod test_parsing {
+    use crate::{flows::FlowValue, jobs::ConcurrencySettings};
+
+    #[test]
+    fn slashed_annotations() {
+        let mut fv = FlowValue::default();
+        fv.concurrency_settings = ConcurrencySettings {
+            concurrency_key: Some("key".to_owned()),
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+        };
+
+        assert_eq!(serde_json::to_string(&fv).unwrap(), "".to_owned());
+        // assert_eq!(serde_yml::to_string(&fv).unwrap(), "".to_owned());
+    }
 }
 
 impl FlowValue {
@@ -912,8 +930,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "is_none_or_empty")]
         tag: Option<String>,
         language: ScriptLang,
-        #[serde(skip_serializing_if = "Option::is_none", flatten)]
-        concurrency_settings: Option<ConcurrencySettings>,
+        #[serde(flatten)]
+        concurrency_settings: ConcurrencySettingsWithCustom,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "is_none_or_empty_vec")]
@@ -934,8 +952,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "is_none_or_empty")]
         tag: Option<String>,
         language: ScriptLang,
-        #[serde(skip_serializing_if = "Option::is_none", flatten)]
-        concurrency_settings: Option<ConcurrencySettings>,
+        #[serde(flatten)]
+        concurrency_settings: ConcurrencySettingsWithCustom,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "is_none_or_empty_vec")]
@@ -982,9 +1000,8 @@ struct UntaggedFlowModuleValue {
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
-    // TODO: Should I ignore on None?
     #[serde(flatten)]
-    concurrency_settings: Option<ConcurrencySettings>,
+    concurrency_settings: ConcurrencySettingsWithCustom,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {

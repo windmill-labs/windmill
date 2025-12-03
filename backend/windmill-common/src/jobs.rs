@@ -350,8 +350,8 @@ pub enum JobPayload {
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
-        concurrency_settings: Option<ConcurrencySettings>,
-        debouncing_settings: Option<DebouncingSettings>,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Execute flow step (can be subflow only).
@@ -367,7 +367,7 @@ pub enum JobPayload {
         language: ScriptLang,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
-        concurrency_settings: Option<ConcurrencySettings>,
+        concurrency_settings: ConcurrencySettings,
     },
 
     /// Inline App Script
@@ -452,12 +452,12 @@ pub enum JobPayload {
         tag_override: Option<String>,
         trigger_path: Option<String>,
         apply_preprocessor: bool,
-        concurrency_settings: Option<ConcurrencySettings>,
-        debouncing_settings: Option<DebouncingSettings>,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
     },
     DeploymentCallback {
         path: String,
-        debouncing_settings: Option<DebouncingSettings>,
+        // debouncing_settings: Option<DebouncingSettings>,
     },
     Identity,
     Noop,
@@ -467,9 +467,10 @@ pub enum JobPayload {
 }
 
 // TODO: Add validation logic.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct DebouncingSettings {
     #[serde(rename = "custom_debounce_key")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// debounce key is usually stored in the db
     /// including when:
     ///
@@ -481,22 +482,26 @@ pub struct DebouncingSettings {
     pub custom_key: Option<String>,
 
     #[serde(rename = "debounce_delay_s")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// Debouncing delay will be determined by the first job with the key.
     /// All subsequent jobs with Some will get debounced.
     /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
     pub delay_s: Option<i32>,
 
     #[serde(rename = "max_total_debouncing_time")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// Top threshhold on max delay
     /// TODO(claude): explain better, in 3 lines tops
     pub max_total_time: Option<i32>,
 
     #[serde(rename = "max_total_debounces")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// Top threshold on amount of debounces
     /// TODO(claude): explain better, in 3 lines tops
     pub max_total_debounces: Option<i32>,
 
     #[serde(rename = "debounce_args_to_accumulate")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// top level arguments to preserve
     /// For every debounce selected arguments will be saved
     /// in the end (when job finally starts) arguments will be appended and passed to runnable
@@ -505,17 +510,29 @@ pub struct DebouncingSettings {
     pub args_to_accumulate: Option<Vec<String>>,
 }
 
+impl DebouncingSettings {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ConcurrencySettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, Default)]
 pub struct ConcurrencySettingsWithCustom {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
 }
 
@@ -566,9 +583,9 @@ pub struct RawCode {
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
     #[serde(flatten)]
-    pub concurrency_settings: Option<ConcurrencySettingsWithCustom>,
+    pub concurrency_settings: ConcurrencySettingsWithCustom,
     #[serde(flatten)]
-    pub debouncing_settings: Option<DebouncingSettings>,
+    pub debouncing_settings: DebouncingSettings,
 }
 
 impl JobPayload {

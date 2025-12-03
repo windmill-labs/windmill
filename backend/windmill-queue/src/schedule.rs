@@ -20,6 +20,8 @@ use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
+use windmill_common::jobs::ConcurrencySettings;
+use windmill_common::jobs::DebouncingSettings;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
@@ -263,8 +265,8 @@ pub async fn push_scheduled_job<'c>(
                 tag_override: schedule.tag.clone(),
                 trigger_path: None,
                 apply_preprocessor: false,
-                concurrency_settings: None,
-                debouncing_settings: None,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
             },
             if schedule.tag.as_ref().is_some_and(|x| x != "") {
                 schedule.tag.clone()
@@ -362,8 +364,8 @@ pub async fn push_scheduled_job<'c>(
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    concurrency_settings: None,
-                    debouncing_settings: None,
+                    concurrency_settings: ConcurrencySettings::default(),
+                    debouncing_settings: DebouncingSettings::default(),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
