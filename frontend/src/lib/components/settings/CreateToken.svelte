@@ -22,6 +22,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+	import InfoIcon from 'lucide-svelte/icons/info'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -70,6 +71,10 @@
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
 
+	// Wildcard pattern inputs for custom scope
+	let customScriptPatterns = $state<string>('')
+	let customFlowPatterns = $state<string>('')
+
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
 		currentWorkspace: string | undefined
@@ -94,14 +99,36 @@
 			let tokenScopes = scopes
 			if (mcpMode) {
 				if (newMcpScope === 'custom') {
-					// Granular scope format
+					// Granular scope format - combine individual selections with wildcard patterns
 					tokenScopes = []
-					if (selectedScripts.length > 0) {
-						tokenScopes.push(`mcp:scripts:${selectedScripts.join(',')}`)
+
+					// Scripts: combine individual selections with patterns
+					let scriptPaths = [...selectedScripts]
+					if (customScriptPatterns.trim()) {
+						const patterns = customScriptPatterns
+							.split(',')
+							.map((p) => p.trim())
+							.filter((p) => p.length > 0)
+						scriptPaths.push(...patterns)
 					}
-					if (selectedFlows.length > 0) {
-						tokenScopes.push(`mcp:flows:${selectedFlows.join(',')}`)
+					if (scriptPaths.length > 0) {
+						tokenScopes.push(`mcp:scripts:${scriptPaths.join(',')}`)
 					}
+
+					// Flows: combine individual selections with patterns
+					let flowPaths = [...selectedFlows]
+					if (customFlowPatterns.trim()) {
+						const patterns = customFlowPatterns
+							.split(',')
+							.map((p) => p.trim())
+							.filter((p) => p.length > 0)
+						flowPaths.push(...patterns)
+					}
+					if (flowPaths.length > 0) {
+						tokenScopes.push(`mcp:flows:${flowPaths.join(',')}`)
+					}
+
+					// Endpoints: no wildcard support needed
 					if (selectedEndpoints.length > 0) {
 						tokenScopes.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
 					}
@@ -536,6 +563,61 @@
 						<div class="text-xs text-primary mt-2">
 							Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
 							endpoints
+						</div>
+
+						<!-- Wildcard Patterns Section -->
+						<div class="flex flex-col gap-2 mt-4 pt-4 border-t border-surface-hover">
+							<div class="flex items-center justify-between">
+								<span class="block text-xs font-semibold">Wildcard Patterns (optional)</span>
+								<Popover notClickable>
+									{#snippet text()}
+										<div class="text-xs max-w-xs">
+											<p class="font-semibold mb-2">Add folder wildcards or complex patterns</p>
+											<p class="mb-1"><b>Examples:</b></p>
+											<ul class="list-disc ml-4 space-y-1">
+												<li><code>f/folder/*</code> - all scripts/flows in folder</li>
+												<li><code>f/*/script</code> - script in any folder</li>
+												<li><code>f/folder1/*,f/folder2/*</code> - multiple folders</li>
+												<li>Mix: <code>f/folder/*,specific/path</code></li>
+											</ul>
+											<p class="mt-2 text-xs text-secondary">
+												Patterns are combined with individual selections above.
+											</p>
+										</div>
+									{/snippet}
+									<Button color="light" size="xs2" nonCaptureEvent startIcon={{ icon: InfoIcon }}>
+										Pattern Help
+									</Button>
+								</Popover>
+							</div>
+
+							<div class="flex flex-col gap-3">
+								<!-- Scripts Patterns -->
+								<div class="flex flex-col gap-1">
+									<TextInput
+										placeholder="e.g., f/outline/*,f/docs/*"
+										bind:value={customScriptPatterns}
+									/>
+									<span class="text-2xs text-tertiary"
+										>Scripts wildcard patterns (comma-separated)</span
+									>
+								</div>
+
+								<!-- Flows Patterns -->
+								<div class="flex flex-col gap-1">
+									<TextInput placeholder="e.g., f/workflows/*" bind:value={customFlowPatterns} />
+									<span class="text-2xs text-tertiary"
+										>Flows wildcard patterns (comma-separated)</span
+									>
+								</div>
+							</div>
+
+							{#if customScriptPatterns.trim() || customFlowPatterns.trim()}
+								<div class="text-2xs text-primary mt-1 px-2 py-1 bg-surface-secondary rounded">
+									<span class="font-medium">Note:</span> Wildcard patterns will be validated when creating
+									the token.
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}
