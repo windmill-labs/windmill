@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import { Copy } from 'lucide-svelte'
+	import { Check, Copy, Link } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
@@ -50,29 +50,9 @@
 			class="flex-shrink-0 w-8 h-8 {colorScheme.iconBg} rounded-full flex items-center justify-center mt-0.5"
 		>
 			{#if mcpUrl}
-				<svg
-					class="w-4 h-4 {colorScheme.iconColor}"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-					></path>
-				</svg>
+				<Link size={16} />
 			{:else}
-				<svg
-					class="w-4 h-4 {colorScheme.iconColor}"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-				>
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"
-					></path>
-				</svg>
+				<Check size={16} />
 			{/if}
 		</div>
 		<div class="flex-1 min-w-0">
@@ -83,7 +63,7 @@
 			<div class="space-y-3">
 				<div>
 					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="block text-xs font-medium {colorScheme.labelColor} mb-1 mt-4">
+					<label class="block text-xs font-normal {colorScheme.labelColor} mb-1 mt-4">
 						{label}
 					</label>
 					<div class="bg-white dark:bg-gray-800 rounded-md p-3 border {colorScheme.border}">

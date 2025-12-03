@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AgentWorkersService, type ListBlacklistedAgentTokensResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Copy, RefreshCw, Trash } from 'lucide-svelte'
+	import { RefreshCw, Trash } from 'lucide-svelte'
 	import { Alert, Button, Tab, Tabs } from './common'
 	import Section from './Section.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
@@ -10,6 +10,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
 	import { shell, json } from 'svelte-highlight/languages'
+	import TokenDisplay from './settings/TokenDisplay.svelte'
 
 	type Props = {
 		customTags: string[] | undefined
@@ -23,8 +24,10 @@
 	let selectedTab: 'create' | 'blacklist' = $state('create')
 	let blacklistedTokens: ListBlacklistedAgentTokensResponse | undefined = $state(undefined)
 	let isLoadingBlacklist: boolean = $state(false)
+	let isGeneratingToken: boolean = $state(false)
 
-	async function refreshToken(workerGroup: string, selectedTags: string[]) {
+	async function generateToken() {
+		isGeneratingToken = true
 		try {
 			const newToken = await AgentWorkersService.createAgentToken({
 				requestBody: {
@@ -35,8 +38,11 @@
 			})
 
 			token = newToken
+			sendUserToast('JWT token generated successfully')
 		} catch (error) {
 			sendUserToast('Error creating agent token: ' + error.toString(), true)
+		} finally {
+			isGeneratingToken = false
 		}
 	}
 
@@ -115,11 +121,6 @@
 		}
 	}
 
-	$effect(() => {
-		if (selectedTags.length > 0 && $superadmin) {
-			refreshToken(workerGroup, selectedTags)
-		}
-	})
 
 	$effect(() => {
 		if (selectedTab === 'blacklist' && $enterpriseLicense && $superadmin) {
@@ -164,104 +165,92 @@
 					/>
 				</Label>
 
-				<Label
-					label="Generated JWT token"
-					tooltip="This JWT token contains the worker's tags and group. It authenticates the worker and controls which jobs it can pull. The token is valid for 3 years."
-				>
-					{#if !$enterpriseLicense}
-						<div class="text-sm text-secondary mb-2 max-w-md">
-							Agent workers are only available in the enterprise edition. For evaluation purposes,
-							you can only use the tag `agent_test` tag and it is limited to 100 jobs.
-						</div>
-					{/if}
-					<div class="relative max-w-md group">
-						<TextInput
-							inputProps={{
-								onclick: (e) => {
-									e.preventDefault()
-									e.stopPropagation()
-									if (token) {
-										navigator.clipboard.writeText(token)
-										sendUserToast('Copied to clipboard')
-									}
-								},
-								readonly: true,
-								placeholder: 'Select tags to generate a JWT token'
-							}}
-							bind:value={token}
-							class="pr-10"
-						/>
+				{#if !$enterpriseLicense}
+					<div class="text-sm text-secondary mb-4 max-w-md">
+						Agent workers are only available in the enterprise edition. For evaluation purposes,
+						you can only use the tag `agent_test` tag and it is limited to 100 jobs.
+					</div>
+				{/if}
 
-						{#if token}
-							<Button
-								unifiedSize="xs"
-								variant="subtle"
-								wrapperClasses="absolute right-2 top-1/2 -translate-y-1/2"
-								onClick={(e) => {
-									e?.preventDefault()
-									e?.stopPropagation()
-									if (token) {
-										navigator.clipboard.writeText(token)
-										sendUserToast('Copied to clipboard')
-									}
-								}}
-							>
-								<Copy size={14} />
-							</Button>
+				{#if !token}
+					<div class="mb-4">
+						<Button
+							variant="accent"
+							unifiedSize="md"
+							disabled={selectedTags.length === 0 || !$superadmin || isGeneratingToken}
+							onclick={generateToken}
+							loading={isGeneratingToken}
+						>
+							{isGeneratingToken ? 'Generating...' : 'Generate JWT Token'}
+						</Button>
+						{#if selectedTags.length === 0}
+							<div class="text-xs text-secondary mt-2">
+								Please select at least one tag to generate a token.
+							</div>
+						{:else if !$superadmin}
+							<div class="text-xs text-secondary mt-2">
+								Only superadmins can generate JWT tokens.
+							</div>
 						{/if}
 					</div>
+				{:else}
+					<TokenDisplay
+						{token}
+						title="JWT Token Generated Successfully"
+						onCopy={() => sendUserToast('JWT token copied to clipboard')}
+					/>
+				{/if}
 
-					<div class="flex flex-col gap-2 text-xs mt-2 leading-relaxed border rounded-md p-4">
-						<p class="text-xs text-primary">
-							Set these environment variables for your agent worker.
-						</p>
-						<CopyableCodeBlock
-							code={`MODE=agent
+				<div class="flex flex-col gap-2 text-xs mt-2 leading-relaxed border rounded-md p-4">
+					<p class="text-xs text-primary">
+						Set these environment variables for your agent worker.
+					</p>
+					<CopyableCodeBlock
+						code={`MODE=agent
 AGENT_TOKEN=<token>
 BASE_INTERNAL_URL=<base url>
 `}
-							language={shell}
-						/>
-						<p class="text-xs text-primary">
-							<strong>BASE_INTERNAL_URL:</strong> Base URL without trailing slash (e.g.,
-							<code>http://windmill.example.com</code>). Can be same as BASE_URL or private network
-							URL. <code>INIT_SCRIPT</code> can be passed as env variable if needed.
-						</p>
-						<Alert type="warning" size="sm" title="Agent Worker Limitations">
-							Ensure at least one normal worker is running and listening to the tags
-							<code>flow</code> and <code>dependency</code>
-							(or <code>flow-&lt;workspace&gt;</code> and
-							<code>dependency-&lt;workspace&gt;</code>
-							if using workspace-specific default tags), because agent workers
-							<strong>cannot run dependency jobs</strong>
-							nor execute the
-							<strong>flow state machine</strong>. They can, however, run subjobs within flows.
-						</Alert>
+						language={shell}
+					/>
+					<p class="text-xs text-primary">
+						<strong>BASE_INTERNAL_URL:</strong> Base URL without trailing slash (e.g.,
+						<code>http://windmill.example.com</code>). Can be same as BASE_URL or private network
+						URL. <code>INIT_SCRIPT</code> can be passed as env variable if needed.
+					</p>
+					<Alert type="warning" size="sm" title="Agent Worker Limitations">
+						Ensure at least one normal worker is running and listening to the tags
+						<code>flow</code> and <code>dependency</code>
+						(or <code>flow-&lt;workspace&gt;</code> and
+						<code>dependency-&lt;workspace&gt;</code>
+						if using workspace-specific default tags), because agent workers
+						<strong>cannot run dependency jobs</strong>
+						nor execute the
+						<strong>flow state machine</strong>. They can, however, run subjobs within flows.
+					</Alert>
 
-						<div class="mt-2"></div>
-						<Section small collapsable label="Automate JWT token generation">
-							<div class="text-xs text-primary">
-								<p class="mb-2">
-									Generate tokens programmatically using this endpoint with superadmin bearer token:
-								</p>
-								<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
-								<p class="mb-2">Request body:</p>
-								<CopyableCodeBlock
-									code={`{
+					<div class="mt-2"></div>
+					<Section small collapsable label="Automate JWT token generation">
+						<div class="text-xs text-primary">
+							<p class="mb-2">
+								Generate tokens programmatically using this endpoint with superadmin bearer token:
+							</p>
+							<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
+							<p class="mb-2">Request body:</p>
+							<CopyableCodeBlock
+								code={`{
   "worker_group": "agent",
   "tags": ["tag1", "tag2"],
   "exp": 1717334400
 }`}
-									language={json}
-								/>
+								language={json}
+							/>
 
-								<p class="mt-2">
-									<code>exp</code> is Unix timestamp. Response contains the JWT token.
-								</p>
-							</div>
-						</Section>
-					</div>
-				</Label>
+							<p class="mt-2">
+								<code>exp</code> is Unix timestamp. Response contains the JWT token.
+							</p>
+						</div>
+					</Section>
+				</div>
 			{:else if selectedTab === 'blacklist'}
 				<div class="flex flex-col gap-y-4 mt-4">
 					<Section label="Agent Token Blacklist" eeOnly>
@@ -343,7 +332,7 @@ BASE_INTERNAL_URL=<base url>
 									</div>
 								{:else}
 									<div class="space-y-2">
-										{#each blacklistedTokens ?? [] as blacklistedToken}
+										{#each blacklistedTokens ?? [] as blacklistedToken (blacklistedToken.token)}
 											<div
 												class="flex items-center justify-between p-3 surface-tertiary rounded-lg border border-light"
 											>
