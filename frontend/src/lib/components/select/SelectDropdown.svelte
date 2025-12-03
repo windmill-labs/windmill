@@ -209,7 +209,7 @@
 									</span>
 									{@render endSnippet?.({ item, close: () => (open = false) })}
 									{#if item.subtitle}
-										<div class="text-xs text-primary">{item.subtitle}</div>
+										<div class="text-2xs text-secondary">{item.subtitle}</div>
 									{/if}
 								</button>
 							</li>

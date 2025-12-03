@@ -70,7 +70,7 @@
 		// Add isAgent detection to each group
 		return grouped.map(([groupName, workerInstances]) => {
 			const isAgent = workerInstances.some(([_, pings]) =>
-				pings.some(ping => ping.worker.startsWith('ag-'))
+				pings.some((ping) => ping.worker.startsWith('ag-'))
 			)
 			return [groupName, workerInstances, isAgent]
 		})
@@ -596,7 +596,13 @@
 				{#if (groupedWorkers ?? []).length > 5}
 					<div class="flex gap-2 items-center">
 						<div class="text-emphasis font-semibold text-sm">Worker group</div>
-						<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
+						<Select
+							items={groupedWorkers.map((x) => ({
+								value: x[0],
+								subtitle: `${pluralize(x[1]?.flatMap((x) => x[1]?.filter((y) => (y.last_ping ?? 0) < 15))?.length ?? 0, 'worker')}`
+							}))}
+							bind:value={selectedTab}
+						/>
 						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 							>Worker groups are groups of workers that share a config and are meant to be
 							identical. Worker groups are meant to be used with tags. Tags can be assigned to
