@@ -102,8 +102,9 @@ const config = {
 	},
 	assetsInclude: ['**/*.wasm'],
 	test: {
-		include: ['src/**/*.test.ts'],
-		environment: 'node'
+		include: ['src/**/*.test.ts', 'src/**/*.test.svelte.ts'],
+		environment: 'node',
+		setupFiles: ['./src/lib/test-setup.ts']
 	}
 }
 
