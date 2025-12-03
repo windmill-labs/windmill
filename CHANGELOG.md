@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.589.1](https://github.com/windmill-labs/windmill/compare/v1.589.0...v1.589.1) (2025-12-03)
+
+
+### Bug Fixes
+
+* **backend:** fix broken cancel selection/all ([752e43e](https://github.com/windmill-labs/windmill/commit/752e43e653c3836cde07541b7509dc5081744b75))
+* wmill app generate-locks ([#7288](https://github.com/windmill-labs/windmill/issues/7288)) ([99b1ae2](https://github.com/windmill-labs/windmill/commit/99b1ae2e034f23efe04f5ad4b7fc401910351707))
+
 ## [1.589.0](https://github.com/windmill-labs/windmill/compare/v1.588.0...v1.589.0) (2025-12-03)
 
 
