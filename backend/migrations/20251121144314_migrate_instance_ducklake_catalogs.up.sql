@@ -3,7 +3,17 @@
 -- the 'custom_instance_user'. The setting below stores the password and logs
 -- about the creation status of these databases.
 
-ALTER ROLE ducklake_user RENAME TO custom_instance_user;
+DO $$
+DECLARE
+    new_settings_value text;
+    old_setting_value text;
+BEGIN
+    ALTER ROLE ducklake_user RENAME TO custom_instance_user;
+EXCEPTION
+    WHEN others THEN
+    RAISE NOTICE 'ducklake_user migration error, skipping.';
+END
+$$;
 
 -- Rename to more generic names
 UPDATE global_settings
