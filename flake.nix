@@ -148,7 +148,7 @@
 
             # Build/helper scripts
             jq
-            gsed
+            gnused # other implementations are inconsistent on osx
 
             # Python
             flock
