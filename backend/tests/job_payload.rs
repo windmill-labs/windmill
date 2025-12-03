@@ -91,8 +91,8 @@ mod job_payload {
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: true,
-                concurrency_settings: ConcurrencySettings::default(),
-                debouncing_settings: DebouncingSettings::default(),
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -164,7 +164,7 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[0],
                 language: ScriptLang::Deno,
-                concurrency_settings: ConcurrencySettings::default(),
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
@@ -182,7 +182,7 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[1],
                 language: ScriptLang::Deno,
-                concurrency_settings: ConcurrencySettings::default(),
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),

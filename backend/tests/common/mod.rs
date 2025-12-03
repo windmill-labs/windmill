@@ -689,8 +689,8 @@ pub async fn run_deployed_relative_imports(
                 language,
                 priority: None,
                 apply_preprocessor: false,
-                concurrency_settings: ConcurrencySettings::default(),
-                debouncing_settings: DebouncingSettings::default(),
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             })
             .push(&db2)
             .await;
@@ -738,8 +738,8 @@ pub async fn run_preview_relative_imports(
                 lock: None,
                 cache_ttl: None,
                 dedicated_worker: None,
-                concurrency_settings: ConcurrencySettings::default(),
-                debouncing_settings: DebouncingSettings::default(),
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             }))
             .push(&db2)
             .await;
