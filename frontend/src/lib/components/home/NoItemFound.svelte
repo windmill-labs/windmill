@@ -3,6 +3,7 @@
 	import { base } from '$lib/base'
 	import { getContext } from 'svelte'
 	import type WorkspaceTutorials from '../WorkspaceTutorials.svelte'
+	import TutorialButton from './TutorialButton.svelte'
 
 	interface Props {
 		hasFilters?: boolean
@@ -40,42 +41,24 @@
 			<div class="text-sm font-normal text-secondary">Get started with these tutorials</div>
 		</div>
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl w-full px-4">
-			<button
+			<TutorialButton
+				icon={GraduationCap}
+				title="Workspace onboarding"
+				description="Discover the basics of Windmill with a quick tour of the workspace."
 				onclick={startWorkspaceOnboarding}
-				class="block border rounded-lg px-6 py-5 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
-			>
-				<div class="flex items-center gap-2 mb-2 text-primary">
-					<GraduationCap size={24} />
-					<h2 class="text-base font-semibold">Workspace onboarding</h2>
-				</div>
-				<p class="text-sm font-normal text-secondary">
-					Discover the basics of Windmill with a quick tour of the workspace.
-				</p>
-			</button>
-			<button
+			/>
+			<TutorialButton
+				icon={Workflow}
+				title="Build a flow"
+				description="Learn how to build workflows in Windmill with our interactive tutorial."
 				onclick={startFlowTutorial}
-				class="block border rounded-lg px-6 py-5 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
-			>
-				<div class="flex items-center gap-2 mb-2 text-primary">
-					<Workflow size={24} />
-					<h2 class="text-base font-semibold">Build a flow</h2>
-				</div>
-				<p class="text-sm font-normal text-secondary">
-					Learn how to build workflows in Windmill with our interactive tutorial.
-				</p>
-			</button>
-			<button
+			/>
+			<TutorialButton
+				icon={Play}
+				title="Fix a broken flow"
+				description="Learn how to monitor and debug your script and flow executions."
 				onclick={startRunsTutorial}
-				class="block border rounded-lg px-6 py-5 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
-			>
-				<div class="flex items-center gap-2 mb-2 text-primary">
-					<Play size={24} />
-					<h2 class="text-base font-semibold">Fix a broken flow</h2>
-				</div>
-				<p class="text-sm font-normal text-secondary">
-					Learn how to monitor and debug your script and flow executions.
-				</p>
-			</button>
+			/>
 		</div>
 	</div>
 {/if}
