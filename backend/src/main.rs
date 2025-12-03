@@ -1247,23 +1247,36 @@ Windmill Community Edition {GIT_VERSION}
                         tracing::error!("Error waiting for monitor handle: {e:#}")
                     }
                 }
-                Connection::Http(_) => loop {
-                    tokio::select! {
-                        _ = monitor_killpill_rx.recv() => {
-                            tracing::info!("Received killpill, exiting");
-                            break;
-                        },
-                        _ = tokio::time::sleep(Duration::from_secs(12 * 60 * 60)) => {
-                            tracing::info!("Reloading config after 12 hours");
-                            initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
-                            if let Err(e) = reload_license_key(&conn).await {
-                                tracing::error!("Failed to reload license key on agent: {e:#}");
+                ref conn @ Connection::Http(_) => {
+                    pub const RELOAD_FREQUENCY: Duration = Duration::from_secs(12 * 60 * 60);
+                    let mut last_time_config_reload: Instant = Instant::now();
+
+                    loop {
+                        tokio::select! {
+                            _ = monitor_killpill_rx.recv() => {
+                                tracing::info!("Received killpill, exiting");
+                                break;
+                            },
+                            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                                // Reload config every 12h
+                                if last_time_config_reload.elapsed() > RELOAD_FREQUENCY {
+                                    last_time_config_reload = Instant::now();
+                                    tracing::info!("Reloading config after 12 hours");
+                                    initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
+                                    if let Err(e) = reload_license_key(&conn).await {
+                                        tracing::error!("Failed to reload license key on agent: {e:#}");
+                                    }
+                                    #[cfg(feature = "enterprise")]
+                                    ee_oss::verify_license_key().await;
+                                }
+
+                                // update min version explicitly.
+                                // for sql connection it is the part of monitor_db.
+                                windmill_common::worker::update_min_version(conn).await;
                             }
-                            #[cfg(feature = "enterprise")]
-                            ee_oss::verify_license_key().await;
-                        }
+                        };
                     }
-                },
+                }
             };
 
             tracing::info!("Monitor exited");

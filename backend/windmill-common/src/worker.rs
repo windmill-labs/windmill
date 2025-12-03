@@ -34,6 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
+    utils::GIT_SEM_VERSION,
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -1238,19 +1239,16 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version(conn: &Connection) -> bool {
-    tracing::debug!("Updating min version");
-    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
+pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
+    use crate::utils::GIT_VERSION;
 
-    let cur_version = GIT_SEM_VERSION.clone();
-
-    let min_version = match conn {
+    let fetched = match conn {
         Connection::Sql(pool) => {
             // fetch all pings with a different version than self from the last 5 minutes.
             let pings = sqlx::query_scalar!(
                 "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
                 GIT_VERSION
-            ).fetch_all(pool).await.unwrap_or_default();
+            ).fetch_all(pool).await?;
 
             pings
                 .iter()
@@ -1259,10 +1257,34 @@ pub async fn update_min_version(conn: &Connection) -> bool {
                     semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
                 })
                 .min()
-                .unwrap_or_else(|| cur_version.clone())
         }
-        Connection::Http(_) => {
-            // TODO: get min version from server, for now we use the current version. Min version should be of no interest for http mode workers
+        Connection::Http(client) => {
+            // Fetch min version from server
+            Some(
+                client
+                    .get::<String>("/api/agent_workers/get_min_version")
+                    .await
+                    .map(|v| Version::parse(&v))??,
+            )
+        }
+    };
+
+    Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
+}
+
+pub async fn update_min_version(conn: &Connection) -> bool {
+    tracing::debug!("Updating min version");
+    use crate::utils::GIT_SEM_VERSION;
+
+    let cur_version = GIT_SEM_VERSION.clone();
+
+    let min_version = match get_min_version(conn).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch min version: {:#?}, using current version",
+                e
+            );
             cur_version.clone()
         }
     };

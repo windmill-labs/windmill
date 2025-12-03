@@ -202,6 +202,12 @@ impl From<tokio::time::error::Elapsed> for Error {
     }
 }
 
+impl From<semver::Error> for Error {
+    fn from(e: semver::Error) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided semver: {e}"))
+    }
+}
+
 impl Error {
     /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
     pub fn alt(&self) -> String {
