@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { CheckCircle2, ArrowRight } from 'lucide-svelte'
-	import type { LucideIcon } from 'lucide-svelte'
+	import { CheckCircle2 } from 'lucide-svelte'
+	import type { ComponentType } from 'svelte'
 
 	interface Props {
-		icon: LucideIcon
+		icon: ComponentType
 		title: string
 		description: string
 		onclick: () => void
@@ -30,29 +30,20 @@
 			<h3 class="text-sm font-semibold text-emphasis group-hover:text-primary transition-colors">
 				{title}
 			</h3>
-			{#if isCompleted}
-				<CheckCircle2 size={14} class="text-secondary flex-shrink-0" />
-			{/if}
 		</div>
-		<div class="flex items-center gap-2 mb-1">
-			<p class="text-xs text-secondary line-clamp-2">{description}</p>
-			<span
-				class="text-xs font-medium flex-shrink-0 {isCompleted
-					? 'text-secondary'
-					: 'text-primary'}"
-			>
-				{isCompleted ? 'Completed' : 'Not started'}
-			</span>
-		</div>
+		<p class="text-xs text-secondary line-clamp-2">{description}</p>
 	</div>
 
-	<!-- Arrow indicator -->
-	<div
-		class="flex-shrink-0 transition-all duration-200 {isCompleted
-			? 'opacity-50'
-			: 'opacity-0 group-hover:opacity-100 group-hover:translate-x-1'}"
+	<!-- Status -->
+	<span
+		class="text-xs font-medium flex-shrink-0 {isCompleted
+			? 'text-green-600'
+			: 'text-primary'}"
 	>
-		<ArrowRight size={16} class="text-primary" />
-	</div>
+		{isCompleted ? 'Completed' : 'Not started'}
+	</span>
+	{#if isCompleted}
+				<CheckCircle2 size={14} class="text-green-600 flex-shrink-0" />
+	{/if}
 </button>
 
