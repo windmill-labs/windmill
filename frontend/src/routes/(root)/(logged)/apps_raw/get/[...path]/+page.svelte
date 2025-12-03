@@ -6,8 +6,8 @@
 	import { canWrite } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
-	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import { page } from '$app/state'
+	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 
@@ -36,7 +36,7 @@
 
 	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
 	function getRunnables(app: AppWithLastVersion) {
-		return (app?.value?.runnables ?? {}) as Record<string, HiddenRunnable>
+		return (app?.value?.runnables ?? {}) as Record<string, Runnable>
 	}
 </script>
 
@@ -57,8 +57,7 @@
 			<Button
 				size="sm"
 				startIcon={{ icon: Pen }}
-				variant="default"
-				btnClasses="bg-white"
+				variant="subtle"
 				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
 			>
 		</div>

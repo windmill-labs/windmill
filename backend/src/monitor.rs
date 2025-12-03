@@ -2316,13 +2316,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             );
 
             let error_message = format!(
-            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
-            job.last_ping.unwrap_or_default(),
-            *ZOMBIE_JOB_TIMEOUT,
-            error_kind.to_string(),
-            job.worker.clone().unwrap_or_default(),
-        );
+                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
+                job.last_ping.unwrap_or_default(),
+                *ZOMBIE_JOB_TIMEOUT,
+                error_kind.to_string(),
+                job.worker.clone().unwrap_or_default(),
+            );
             let memory_peak = job.memory_peak.unwrap_or(0);
+            let (_, killpill_rx_never_used) = KillpillSender::new(1);
             let _ = handle_job_error(
                 db,
                 &client,
@@ -2335,6 +2336,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 "",
                 node_name,
                 send_result_never_used,
+                &killpill_rx_never_used,
                 #[cfg(feature = "benchmark")]
                 &mut windmill_common::bench::BenchmarkIter::new(),
             )

@@ -114,6 +114,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
+    "AI_REQUEST_TIMEOUT_SECONDS",
 ];
 
 use crate::error;
@@ -132,4 +133,19 @@ pub async fn load_value_from_global_settings(
     .await?
     .map(|x| x.value);
     Ok(r)
+}
+
+pub async fn set_value_in_global_settings(
+    db: &Pool<Postgres>,
+    setting_name: &str,
+    value: serde_json::Value,
+) -> error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        setting_name,
+        value
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

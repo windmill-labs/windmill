@@ -285,6 +285,21 @@ pub struct FlowData {
     pub flow: FlowValue,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FlowNotes {
+    pub notes: Option<Box<RawValue>>,
+}
+
+impl FlowData {
+    pub fn notes(&self) -> Option<FlowNotes> {
+        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+            .map_err(|e| {
+                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
+                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+            })
+            .ok()
+    }
+}
 /// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
 #[derive(Deserialize)]
 struct RevertedFlowNodeFlow {
@@ -616,7 +631,8 @@ pub mod script {
                 envs AS \"envs: Vec<String>\", \
                 schema AS \"schema: String\", \
                 schema_validation AS \"schema_validation: bool\", \
-                codebase LIKE '%.tar' as use_tar \
+                codebase LIKE '%.tar' as use_tar, \
+                codebase LIKE '%.esm%' as is_esm \
             FROM script WHERE hash = $1 LIMIT 1",
             hash.0
         )
@@ -632,12 +648,14 @@ pub mod script {
                     language: r.language,
                     envs: r.envs,
                     codebase: if let Some(use_tar) = r.use_tar {
-                        let sh = hash.to_string();
-                        if use_tar {
-                            Some(format!("{sh}.tar"))
-                        } else {
-                            Some(sh)
+                        let mut sh = hash.to_string();
+                        if r.is_esm.unwrap_or(false) {
+                            sh = format!("{sh}.esm");
                         }
+                        if use_tar {
+                            sh = format!("{sh}.tar");
+                        }
+                        Some(sh)
                     } else {
                         None
                     },
@@ -874,6 +892,86 @@ pub mod job {
     }
 }
 
+pub mod workspace_dependencies {
+    use std::{
+        future::Future,
+        time::{Duration, Instant},
+    };
+
+    use crate::{error, scripts::ScriptLang, workspace_dependencies::WorkspaceDependencies, DB};
+
+    make_static! {
+        /// Workspace Dependencies by id and workspace cache.
+        static ref WORKSPACE_DEPENDENCIES: { (i64, String) => WorkspaceDependencies } in "workspace_dependencies" <= 1000;
+    }
+    lazy_static::lazy_static! {
+        /// Cache for checking if default/unnamed workspace dependencies exist for a workspace and language.
+        /// Cache key: (workspace_id, language)
+        /// Cache value: (exists: bool, cached_at timestamp)
+        static ref DEFAULT_WD_EXISTS_CACHE: quick_cache::sync::Cache<(String, ScriptLang), (bool, Instant)> = quick_cache::sync::Cache::new(500);
+    }
+    /// Cache timeout for existence checks (10 seconds)
+    pub const EXISTS_CACHE_TIMEOUT: Duration = Duration::from_secs(10);
+
+    pub fn fetch_workspace_dependencies<'c>(
+        id: i64,
+        workspace_id: String,
+        db: &'c DB,
+    ) -> impl Future<Output = error::Result<WorkspaceDependencies>> + 'c {
+        tracing::debug!(workspace_id = %workspace_id, id, "fetching workspace dependencies");
+        WORKSPACE_DEPENDENCIES.get_or_insert_async(
+            (id, workspace_id.clone()),
+            WorkspaceDependencies::get(id, workspace_id, db),
+        )
+    }
+
+    pub fn get_cached_is_unnamed_workspace_dependencies_exists<'c>(
+        language: ScriptLang,
+        workspace_id: String,
+    ) -> Option<bool> {
+        let exists_key = (workspace_id.to_string(), language);
+        if let Some((exists, cached_at)) = DEFAULT_WD_EXISTS_CACHE.get(&exists_key) {
+            if cached_at.elapsed() < EXISTS_CACHE_TIMEOUT {
+                tracing::debug!(
+                    workspace_id = %workspace_id,
+                    ?language,
+                    exists,
+                    "cache hit for unnamed workspace dependencies existence"
+                );
+                return Some(exists);
+            } else {
+                tracing::debug!(
+                    workspace_id = %workspace_id,
+                    ?language,
+                    "cache expired for unnamed workspace dependencies existence"
+                );
+                DEFAULT_WD_EXISTS_CACHE.remove(&exists_key);
+            }
+        } else {
+            tracing::debug!(
+                workspace_id = %workspace_id,
+                ?language,
+                "cache miss for unnamed workspace dependencies existence"
+            );
+        }
+        None
+    }
+    pub fn set_cached_is_unnamed_workspace_dependencies_exists<'c>(
+        language: ScriptLang,
+        workspace_id: String,
+        exists: bool,
+    ) {
+        tracing::debug!(
+            workspace_id = %workspace_id,
+            ?language,
+            exists,
+            "setting cache for unnamed workspace dependencies existence"
+        );
+        let exists_key = (workspace_id.to_string(), language);
+        DEFAULT_WD_EXISTS_CACHE.insert(exists_key, (exists, Instant::now()));
+    }
+}
+
 const _: () = {
     impl Import for RawFlow {
         fn import(src: &impl Storage) -> error::Result<Self> {
@@ -1057,7 +1155,8 @@ const _: () = {
         (ScriptHash, |x| format!("{:016x}", x.0)),
         ((u8, ScriptHash), |x| format!("{:02x}-{:016x}", x.0, x.1.0)),
         (FlowNodeId, |x| format!("{:016x}", x.0)),
-        (AppScriptId, |x| format!("{:016x}", x.0))
+        (AppScriptId, |x| format!("{:016x}", x.0)),
+        ((i64, String), |x| format!("{}-{}", x.1, x.0))
     }
 
     #[cfg(feature = "scoped_cache")]

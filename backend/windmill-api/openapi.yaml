@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.580.0
+  version: 1.588.0
   title: Windmill API
 
   contact:
@@ -687,6 +687,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
+
+  /w/{workspace}/workspaces/get_as_superadmin:
+    get:
+      summary: get workspace as super admin (require to be super admin)
+      operationId: getWorkspaceAsSuperAdmin
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
 
   /workspaces/list_as_superadmin:
     get:
@@ -2233,6 +2249,56 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/workspaces/get_dependents/{imported_path}:
+    get:
+      summary: get dependents of an imported path
+      operationId: getDependents
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: imported_path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The imported path to get dependents for
+      responses:
+        "200":
+          description: list of dependents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyDependent"
+
+  /w/{workspace}/workspaces/get_dependents_amounts:
+    post:
+      summary: get dependents amounts for multiple imported paths
+      operationId: getDependentsAmounts
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: List of imported paths to get dependents counts for
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: list of dependents amounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependentsAmount"
 
   /w/{workspace}/workspaces/get_dependency_map:
     get:
@@ -5180,6 +5246,14 @@ paths:
             Accepts multiple values as a comma-separated list.
           schema:
             type: string
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+
       responses:
         "200":
           description: All scripts
@@ -5375,6 +5449,126 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/workspace_dependencies/create:
+    post:
+      summary: create workspace dependencies
+      operationId: createWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New workspace dependencies
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewWorkspaceDependencies"
+
+      responses:
+        "201":
+          description: workspace dependencies created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspace_dependencies/archive/{language}:
+    post:
+      summary: archive workspace dependencies (require admin)
+      operationId: archiveWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspace_dependencies/delete/{language}:
+    post:
+      summary: delete workspace dependencies (require admin)
+      operationId: deleteWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspace_dependencies/list:
+    get:
+      summary: list all workspace dependencies
+      operationId: listWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: All workspace dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkspaceDependencies"
+
+  /w/{workspace}/workspace_dependencies/get_latest/{language}:
+    get:
+      summary: get latest workspace dependencies by language and name
+      operationId: getLatestWorkspaceDependencies
+      tags:
+        - workspace_dependencies
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: language
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ScriptLang"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest workspace dependencies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDependencies"
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
@@ -6463,6 +6657,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: without_description
+          in: query
+          description: |
+            (default false)
+            If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -6540,7 +6741,7 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/flows/get/v/{version}/p/{path}:
+  /w/{workspace}/flows/get/v/{version}:
     get:
       summary: get flow version
       operationId: getFlowVersion
@@ -6551,7 +6752,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       tags:
         - flow
       responses:
@@ -6562,7 +6762,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Flow"
 
-  /w/{workspace}/flows/history_update/v/{version}/p/{path}:
+  /w/{workspace}/flows/history_update/v/{version}:
     post:
       summary: update flow history
       operationId: updateFlowHistory
@@ -6573,7 +6773,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       requestBody:
         description: Flow deployment message
         required: true
@@ -7692,6 +7891,9 @@ paths:
                   type: array
                   items:
                     type: string
+                run_query_params:
+                  type: object
+                  description: Runnable query parameters
               required:
                 - args
                 - component
@@ -8636,6 +8838,121 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/export:
+    get:
+      summary: export all completed jobs for backup/migration
+      operationId: exportCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: All completed jobs exported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportableCompletedJob"
+
+  /w/{workspace}/jobs/completed/import:
+    post:
+      summary: import completed jobs from backup/migration
+      operationId: importCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportableCompletedJob"
+      responses:
+        "200":
+          description: Successfully imported completed jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/queue/export:
+    get:
+      summary: export all queued jobs for backup/migration
+      operationId: exportQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: All queued jobs exported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportableQueuedJob"
+
+  /w/{workspace}/jobs/queue/import:
+    post:
+      summary: import queued jobs from backup/migration
+      operationId: importQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportableQueuedJob"
+      responses:
+        "200":
+          description: Successfully imported queued jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/delete:
+    post:
+      summary: delete jobs by IDs from all related tables
+      operationId: deleteJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: Array of job IDs to delete
+      responses:
+        "200":
+          description: Successfully deleted jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Summary of deleted jobs and rows
 
   /w/{workspace}/jobs/list:
     get:
@@ -11999,32 +12316,32 @@ paths:
               schema:
                 type: boolean
   /w/{workspace}/email_triggers/setenabled/{path}:
-      post:
-        summary: enable/disable email trigger
-        operationId: setEmailTriggerEnabled
-        tags:
-          - email_trigger
-        parameters:
-          - $ref: "#/components/parameters/WorkspaceId"
-          - $ref: "#/components/parameters/Path"
-        requestBody:
-          required: true
+    post:
+      summary: enable/disable email trigger
+      operationId: setEmailTriggerEnabled
+      tags:
+        - email_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: email trigger enable/disable
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-        responses:
-          "200":
-            description: email trigger enable/disable
-            content:
-              text/plain:
-                schema:
-                  type: string
+                type: string
 
   /groups/list:
     get:
@@ -15510,6 +15827,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    FlowNote:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
 
@@ -15722,6 +16041,52 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Alert"
+
+    WorkspaceDependencies:
+      type: object
+      properties:
+        id:
+          type: integer
+        archived:
+          type: boolean
+        name:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        workspace_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - workspace_id
+        - language
+        - created_at
+        - content
+        - id
+        - archived
+
+    NewWorkspaceDependencies:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        name:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+      required:
+        - workspace_id
+        - language
+        - content
 
     Script:
       type: object
@@ -16242,6 +16607,297 @@ components:
         - email
         - visible_to_owner
         - tag
+
+    ExportableCompletedJob:
+      type: object
+      description: Completed job with full data for export/import operations
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_job:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        script_path:
+          type: string
+        script_hash:
+          type: string
+        args:
+          type: object
+          description: Full job arguments without size restrictions
+        result:
+          type: object
+          description: Full job result without size restrictions
+        logs:
+          type: string
+          description: Complete job logs from v2_job table
+        raw_code:
+          type: string
+        raw_lock:
+          type: string
+        canceled_by:
+          type: string
+        canceled_reason:
+          type: string
+        job_kind:
+          type: string
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowdependencies",
+              "appdependencies",
+              "flowpreview",
+              "script_hub",
+              "identity",
+              "deploymentcallback",
+              "singlestepflow",
+              "flowscript",
+              "flownode",
+              "appscript",
+            ]
+        trigger:
+          type: string
+          description: Trigger path for the job (replaces schedule_path)
+        trigger_kind:
+          type: string
+          enum:
+            [
+              "webhook",
+              "http",
+              "websocket",
+              "kafka",
+              "email",
+              "nats",
+              "schedule",
+              "app",
+              "ui",
+              "postgres",
+              "sqs",
+              "gcp",
+            ]
+        permissioned_as:
+          type: string
+        permissioned_as_email:
+          type: string
+        flow_status:
+          type: object
+          description: Flow status from v2_job_status table
+        workflow_as_code_status:
+          type: object
+        raw_flow:
+          type: object
+        is_flow_step:
+          type: boolean
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        is_skipped:
+          type: boolean
+        email:
+          type: string
+        visible_to_owner:
+          type: boolean
+        mem_peak:
+          type: integer
+        tag:
+          type: string
+        priority:
+          type: integer
+        labels:
+          type: array
+          items:
+            type: string
+        same_worker:
+          type: boolean
+        flow_step_id:
+          type: string
+        flow_innermost_root_job:
+          type: string
+          format: uuid
+        concurrent_limit:
+          type: integer
+        concurrency_time_window_s:
+          type: integer
+        timeout:
+          type: integer
+        cache_ttl:
+          type: integer
+        self_wait_time_ms:
+          type: integer
+        aggregate_wait_time_ms:
+          type: integer
+        preprocessed:
+          type: boolean
+        worker:
+          type: string
+        status:
+          type: string
+          description: Actual job status from database
+      required:
+        - id
+        - created_by
+        - created_at
+        - job_kind
+        - permissioned_as
+        - email
+        - visible_to_owner
+
+    ExportableQueuedJob:
+      type: object
+      description: Queued job with full data for export/import operations
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_job:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        scheduled_for:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        script_hash:
+          type: string
+        args:
+          type: object
+          description: Full job arguments without size restrictions
+        logs:
+          type: string
+          description: Complete job logs from v2_job table
+        raw_code:
+          type: string
+        raw_lock:
+          type: string
+        canceled_by:
+          type: string
+        canceled_reason:
+          type: string
+        job_kind:
+          type: string
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flowdependencies",
+              "appdependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+              "identity",
+              "deploymentcallback",
+              "singlestepflow",
+              "flowscript",
+              "flownode",
+              "appscript",
+            ]
+        trigger:
+          type: string
+          description: Trigger path for the job (replaces schedule_path)
+        trigger_kind:
+          type: string
+          enum:
+            [
+              "webhook",
+              "http",
+              "websocket",
+              "kafka",
+              "email",
+              "nats",
+              "schedule",
+              "app",
+              "ui",
+              "postgres",
+              "sqs",
+              "gcp",
+            ]
+        permissioned_as:
+          type: string
+        permissioned_as_email:
+          type: string
+        flow_status:
+          type: object
+          description: Flow status from v2_job_status table
+        workflow_as_code_status:
+          type: object
+        raw_flow:
+          type: object
+        is_flow_step:
+          type: boolean
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        email:
+          type: string
+        visible_to_owner:
+          type: boolean
+        mem_peak:
+          type: integer
+        tag:
+          type: string
+        priority:
+          type: integer
+        labels:
+          type: array
+          items:
+            type: string
+        same_worker:
+          type: boolean
+        flow_step_id:
+          type: string
+        flow_innermost_root_job:
+          type: string
+          format: uuid
+        concurrent_limit:
+          type: integer
+        concurrency_time_window_s:
+          type: integer
+        timeout:
+          type: integer
+        cache_ttl:
+          type: integer
+        self_wait_time_ms:
+          type: integer
+        aggregate_wait_time_ms:
+          type: integer
+        preprocessed:
+          type: boolean
+        suspend:
+          type: integer
+        suspend_until:
+          type: string
+          format: date-time
+      required:
+        - id
+        - created_by
+        - created_at
+        - job_kind
+        - permissioned_as
+        - email
+        - visible_to_owner
 
     ObscuredJob:
       type: object
@@ -18920,6 +19576,38 @@ components:
         importer_node_id:
           type: string
           nullable: true
+
+    DependencyDependent:
+      type: object
+      properties:
+        importer_path:
+          type: string
+        importer_kind:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        importer_node_ids:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - importer_path
+        - importer_kind
+
+    DependentsAmount:
+      type: object
+      properties:
+        imported_path:
+          type: string
+        count:
+          type: integer
+          format: int64
+      required:
+        - imported_path
+        - count
 
     WorkspaceInvite:
       type: object

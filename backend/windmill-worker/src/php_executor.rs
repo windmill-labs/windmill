@@ -7,7 +7,9 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
+    scripts::ScriptLang,
     worker::{write_file, Connection},
+    workspace_dependencies::clean_lock_from_annotations,
 };
 use windmill_queue::MiniPulledJob;
 
@@ -17,11 +19,10 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
+        get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NSJAIL_PATH, PHP_PATH,
+    COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -135,9 +136,23 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
+fn split_reqs_and_lock(content: &String) -> error::Result<(Option<String>, Option<String>)> {
+    let splitted = content.split(COMPOSER_LOCK_SPLIT).collect_vec();
+    if splitted.len() != 2 {
+        return Err(error::Error::ExecutionErr(format!(
+            "Invalid requirements, expected to find LOCK split pattern in reqs. Found: |{content}|"
+        )));
+    }
+
+    Ok((
+        Some(clean_lock_from_annotations(splitted[0], ScriptLang::Php)),
+        Some(splitted[1].to_string()),
+    ))
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
-    requirements_o: Option<&String>,
+    maybe_lock: MaybeLock,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
@@ -154,16 +169,14 @@ pub async fn handle_php_job(
 ) -> error::Result<Box<RawValue>> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
-    let (composer_json, composer_lock) = match requirements_o {
-        Some(reqs_and_lock) if !reqs_and_lock.is_empty() => {
-            let splitted = reqs_and_lock.split(COMPOSER_LOCK_SPLIT).collect_vec();
-            if splitted.len() != 2 {
-                return Err(error::Error::ExecutionErr(
-                    format!("Invalid requirements, expected to find LOCK split pattern in reqs. Found: |{reqs_and_lock}|")
-                ));
-            }
-            (Some(splitted[0].to_string()), Some(splitted[1].to_string()))
-        }
+    let (composer_json, composer_lock) = match &maybe_lock {
+        MaybeLock::Resolved { lock } if !lock.is_empty() => split_reqs_and_lock(lock)?,
+        MaybeLock::Unresolved { workspace_dependencies } => (
+            workspace_dependencies
+                .get_php()?
+                .or(parse_php_imports(inner_content)?),
+            None,
+        ),
         _ => (parse_php_imports(inner_content)?, None),
     };
 

@@ -3,8 +3,6 @@
 </script>
 
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -44,7 +42,6 @@
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -54,7 +51,6 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
@@ -76,8 +72,7 @@
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
 		scriptPath?: string | undefined
-		diffEditor?: DiffEditor | undefined
-		args: Record<string, any>
+		args?: Record<string, any>
 		noHistory?: boolean
 		saveToWorkspace?: boolean
 		customUi?: EditorBarUi
@@ -101,8 +96,6 @@
 		collabLive = false,
 		collabUsers = [],
 		scriptPath = undefined,
-		diffEditor = undefined,
-		args,
 		noHistory = false,
 		saveToWorkspace = false,
 		customUi = {},
@@ -227,7 +220,7 @@
 		})
 	}
 
-	run(() => {
+	$effect(() => {
 		editor && untrack(() => addEditorActions())
 	})
 
@@ -764,8 +757,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
-	on:selectAndClose={(s3obj) => {
-		let s = `'${formatS3Object(s3obj.detail)}'`
+	onSelectAndClose={(s3obj) => {
+		let s = `'${formatS3Object(s3obj)}'`
 		if (lang === 'duckdb') {
 			editor?.insertAtCursor(`SELECT * FROM ${s}`)
 		} else if (lang === 'python3') {
@@ -1018,14 +1011,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
 					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
-				{:else}
-					<ScriptGen
-						{editor}
-						{diffEditor}
-						{lang}
-						btnProps={{ variant: 'subtle', iconOnly: true }}
-						{args}
-					/>
 				{/if}
 			{/if}
 

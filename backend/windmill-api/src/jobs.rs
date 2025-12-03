@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
+use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -39,6 +40,9 @@ use windmill_common::jobs::{
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::workspace_dependencies::{
+    RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
+};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -256,6 +260,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/list_filtered_uuids", get(list_filtered_job_uuids))
         .route("/queue/list", get(list_queue_jobs))
+        .route("/queue/export", get(crate::jobs_export::export_queued_jobs))
+        .route(
+            "/queue/import",
+            post(crate::jobs_export::import_queued_jobs),
+        )
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
         .route("/queue/position/:timestamp", get(get_queue_position))
@@ -266,6 +275,18 @@ pub fn workspaced_service() -> Router {
         .route(
             "/completed/list",
             get(list_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/export",
+            get(crate::jobs_export::export_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/import",
+            post(crate::jobs_export::import_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/delete",
+            post(crate::jobs_export::delete_jobs),
         )
         .route(
             "/completed/get/:id",
@@ -1740,7 +1761,7 @@ pub struct ListableCompletedJob {
     pub labels: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct RunJobQuery {
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_in_secs: Option<i64>,
@@ -3947,7 +3968,7 @@ async fn set_flow_memory_id(
     memory_id: Uuid,
 ) -> error::Result<()> {
     sqlx::query!(
-        "UPDATE v2_job_status 
+        "UPDATE v2_job_status
          SET flow_status = jsonb_set(
              flow_status,
              '{memory_id}',
@@ -3959,6 +3980,19 @@ async fn set_flow_memory_id(
     )
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// Apply flow-specific query parameters after job creation
+pub async fn process_flow_run_query_params(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    run_query: &RunJobQuery,
+) -> error::Result<()> {
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(tx, job_id, memory_id).await?;
+    }
     Ok(())
 }
 
@@ -5670,7 +5704,7 @@ pub async fn stream_job(
                 version,
                 run_query,
                 args,
-                None
+                None,
             )
             .await?
             .0
@@ -6103,14 +6137,17 @@ async fn run_bundle_preview_script(
     Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
+    #[serde(default)]
+    pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    #[serde(default)]
     pub raw_deps: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct RawScriptForDependencies {
     pub script_path: String,
     pub raw_code: Option<String>,
@@ -6135,41 +6172,49 @@ async fn run_dependencies_job(
         ));
     }
 
+    if req.raw_deps.is_some() {
+        return Err(error::Error::MigrationNeeded {
+            feature: "cli is outdated".into(),
+            version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
+            guide_url: Url::from_str(
+                "https://www.windmill.dev/docs/core_concepts/workspace_dependencies/migration",
+            )?,
+        });
+    }
+
+    // Check if workers support workspace dependencies feature
+    if req.raw_workspace_dependencies.is_some() {
+        windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
+            .await?;
+    }
+
     if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
         return Err(error::Error::internal_err(
             "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
         ));
     }
-    let raw_script = req.raw_scripts[0].clone();
-    let script_path = raw_script.script_path;
-    let ehm = HashMap::new();
-    let raw_code = raw_script.raw_code.unwrap_or_else(|| "".to_string());
-    let language = raw_script.language;
 
-    let (args, raw_code) = if let Some(deps) = req.raw_deps {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "raw_deps".to_string(),
-            JsonRawValue::from_string("true".to_string()).unwrap(),
-        );
-        if language == ScriptLang::Bun {
-            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(&raw_code);
-            hm.insert(
-                "npm_mode".to_string(),
-                JsonRawValue::from_string(annotation.npm.to_string()).unwrap(),
-            );
-        }
-        (PushArgs { extra: Some(hm), args: &ehm }, deps)
-    } else {
-        (PushArgs::from(&ehm), raw_code)
-    };
+    let RawScriptForDependencies {
+        // unwrap
+        script_path,
+        raw_code,
+        language,
+    } = req.raw_scripts[0].clone();
+
+    let mut hm = HashMap::new();
+    req.raw_workspace_dependencies
+        .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
-        JobPayload::RawScriptDependencies { script_path, content: raw_code, language },
-        args,
+        JobPayload::RawScriptDependencies {
+            script_path,
+            content: raw_code.unwrap_or_default(),
+            language,
+        },
+        PushArgs { extra: Some(hm), args: &HashMap::new() },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -6205,6 +6250,9 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
+    #[serde(default)]
+    pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
+    #[serde(default)]
     pub raw_deps: Option<HashMap<String, String>>,
 }
 
@@ -6226,13 +6274,28 @@ async fn run_flow_dependencies_job(
         ));
     }
 
-    // Create args HashMap with skip_flow_update and raw_deps if present
+    if req.raw_deps.is_some() {
+        return Err(error::Error::MigrationNeeded {
+            feature: "cli is outdated".into(),
+            version: MIN_VERSION_WORKSPACE_DEPENDENCIES.to_owned(),
+            guide_url: Url::from_str(
+                "https://www.windmill.dev/docs/core_concepts/workspace_dependencies/migration",
+            )?,
+        });
+    }
+
+    // Check if workers support workspace dependencies feature
+    if req.raw_workspace_dependencies.is_some() {
+        windmill_common::workspace_dependencies::min_version_supports_v0_workspace_dependencies()
+            .await?;
+    }
+
+    // Create args HashMap with skip_flow_update and raw_workspace_dependencies if present
     let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
 
-    // Add raw_deps to args if present
-    if let Some(ref raw_deps) = req.raw_deps {
-        args_map.insert("raw_deps".to_string(), to_raw_value(raw_deps));
-    }
+    // Add raw_workspace_dependencies to args if present
+    req.raw_workspace_dependencies
+        .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,

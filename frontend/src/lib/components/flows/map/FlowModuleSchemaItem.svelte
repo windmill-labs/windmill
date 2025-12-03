@@ -281,7 +281,7 @@
 		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
-		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
+		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
 	>
 		{#if deletable}
 			<ModuleAcceptReject action={moduleAction ?? action} {id} />

@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, created_at, archived, name, description, workspace_id, content, language AS \"language: ScriptLang\"\n                FROM workspace_dependencies\n                WHERE archived = false AND workspace_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "archived",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d22f81df67d55b2d8f1d15404194a7b4604171d12c6a4620514c6d030086936d"
+}

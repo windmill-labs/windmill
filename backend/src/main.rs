@@ -271,8 +271,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             let job_id = Uuid::new_v4();
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
             create_dir_all(&job_dir)?;
-            if let Some(lockfile) = res.lockfile {
-                let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
+            if let Some(lock) = res.lockfile {
+                let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
@@ -292,7 +292,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
                 if let Err(e) = windmill_worker::prebundle_bun_script(
                     &res.content,
-                    Some(&lockfile),
+                    &lock,
                     &path,
                     &job_id,
                     "admins",
@@ -511,7 +511,14 @@ async fn windmill_main() -> anyhow::Result<()> {
         conn
     } else {
         // This time we use a pool of connections
-        let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+        let db = windmill_common::connect_db(
+            server_mode,
+            indexer_mode,
+            worker_mode,
+            #[cfg(feature = "private")]
+            killpill_rx.resubscribe(),
+        )
+        .await?;
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
@@ -832,10 +839,10 @@ Windmill Community Edition {GIT_VERSION}
             match conn {
                 Connection::Sql(ref db) => {
                     let base_internal_url = base_internal_url.to_string();
-                    let db_url: String = get_database_url().await?;
+                    let db_url = get_database_url().await?;
                     let db = db.clone();
                     let h = tokio::spawn(async move {
-                        let mut listener = retry_listen_pg(&db_url).await;
+                        let mut listener = retry_listen_pg(&db_url.as_str().await).await;
                         let mut last_listener_refresh = Instant::now();
                         let mut monitor_iteration: u64 = 0;
                         let rd_shift: u8 = rand::rng().random_range(0..200);
@@ -1169,13 +1176,14 @@ Windmill Community Edition {GIT_VERSION}
                                         },
                                         Err(e) => {
                                             tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
+                                            let db_url = db_url.clone();
                                             tokio::select! {
                                                 biased;
                                                 _ = monitor_killpill_rx.recv() => {
                                                     tracing::info!("received killpill for monitor job");
                                                     break;
                                                 },
-                                                new_listener = retry_listen_pg(&db_url) => {
+                                                new_listener = async move { retry_listen_pg(&db_url.as_str().await).await } => {
                                                     listener = new_listener;
                                                     continue;
                                                 }
@@ -1189,7 +1197,7 @@ Windmill Community Edition {GIT_VERSION}
                                         if let Err(e) = listener.unlisten_all().await {
                                             tracing::error!(error = %e, "Could not unlisten to database");
                                         }
-                                        listener = retry_listen_pg(&db_url).await;
+                                        listener = retry_listen_pg(&db_url.as_str().await).await;
                                         initial_load(
                                             &conn,
                                             tx.clone(),

@@ -5,7 +5,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
-	import type { AppViewerContext, InlineScript } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs, parseOutputs } from '$lib/infer'
@@ -14,7 +14,7 @@
 	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
-	import type { AppInput } from '../../inputType'
+	import type { AppInput, InlineScript } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './AppRunButton.svelte'
@@ -25,6 +25,7 @@
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { convertManagedFieldsToEvalv2 } from '$lib/components/apps/components/componentManagedFields'
 
 	const {
 		runnableComponents,
@@ -127,55 +128,18 @@
 					fieldType: 'number'
 				}
 			}
-		} else if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			newFields['offset'] = {
-				type: 'evalv2',
-				expr: `${id}.params.offset`,
-				fieldType: 'number'
-			}
-			newFields['limit'] = {
-				type: 'evalv2',
-				expr: `${id}.params.limit`,
-				fieldType: 'number'
-			}
-			newFields['orderBy'] = {
-				type: 'evalv2',
-				expr: `${id}.params.orderBy`,
-				fieldType: 'string'
-			}
-			newFields['isDesc'] = {
-				type: 'evalv2',
-				expr: `${id}.params.isDesc`,
-				fieldType: 'boolean'
-			}
-			newFields['search'] = {
-				type: 'evalv2',
-				expr: `${id}.params.search`,
-				fieldType: 'string'
-			}
+		} else {
+			// Convert component-managed fields to evalv2 type using centralized utility
+			const convertedFields = convertManagedFieldsToEvalv2(componentType, id, newFields)
+			Object.assign(newFields, convertedFields)
 		}
 	}
 
 	function assertConnections(newFields) {
-		if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			const fields = ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-
-			fields.forEach((field) => {
-				if (newFields[field]?.type !== 'evalv2') {
-					newFields[field] = {
-						type: 'evalv2',
-						expr: `${id}.params.${field}`,
-						fieldType: newFields[field]?.fieldType ?? 'string'
-					}
-				}
-			})
-		}
+		// Convert component-managed fields to evalv2 type using centralized utility
+		// This ensures that even if fields were somehow changed, they remain as evalv2
+		const convertedFields = convertManagedFieldsToEvalv2(componentType ?? '', id, newFields)
+		Object.assign(newFields, convertedFields)
 	}
 
 	async function loadSchemaAndInputsByName() {

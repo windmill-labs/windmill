@@ -96,6 +96,16 @@ pub enum JobKind {
     AIAgent,
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_STATUS", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum JobStatus {
+    Success,
+    Failure,
+    Canceled,
+    Skipped,
+}
+
 impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
@@ -412,7 +422,7 @@ pub enum JobPayload {
     /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
-        /// Will reflect raw requirements content (e.g. requirements.txt)
+        /// Will reflect raw requirements content (e.g. requirements.in)
         content: String,
         language: ScriptLang,
     },

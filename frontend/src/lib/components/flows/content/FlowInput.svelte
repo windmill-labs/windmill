@@ -42,7 +42,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import type { ScriptLang } from '$lib/gen'
+	import type { AiAgent, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
@@ -429,8 +429,12 @@
 			},
 			required: ['user_message']
 		}
-		const hasAiAgent = flowStore.val.value.modules.some((m) => m.value.type === 'aiagent')
-		if (!hasAiAgent) {
+
+		// Find all AI agent modules
+		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
+
+		if (aiAgentModules.length === 0) {
+			// No AI agent exists, create one with context memory set to 10
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -442,6 +446,8 @@
 						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
 							if (key === 'user_message') {
 								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+							} else if (key === 'messages_context_length') {
+								accu[key] = { type: 'static', value: 10 }
 							} else {
 								accu[key] = {
 									type: 'static',
@@ -453,7 +459,34 @@
 					}
 				}
 			]
+			sendUserToast(
+				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				false
+			)
+		} else if (aiAgentModules.length === 1) {
+			// Exactly one AI agent exists, configure it
+			const aiAgent = aiAgentModules[0]
+			const value = aiAgent.value as AiAgent
+
+			// Set user_message to flow_input.user_message
+			value.input_transforms['user_message'] = {
+				type: 'javascript',
+				expr: 'flow_input.user_message'
+			}
+
+			// Set messages_context_length to 10
+			value.input_transforms['messages_context_length'] = {
+				type: 'static',
+				value: 10
+			}
+
+			sendUserToast(
+				'Chat mode enabled. AI agent configured with user message input and context memory set to 10.',
+				false
+			)
 		}
+		// If there are multiple AI agents, don't auto-configure (ambiguous which one to configure)
+
 		showChatModeWarning = false
 	}
 </script>

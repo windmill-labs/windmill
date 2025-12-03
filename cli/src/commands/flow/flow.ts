@@ -8,11 +8,11 @@ import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { resolve, track_job } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
-import { generateFlowLockInternal } from "../../utils/metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { generateFlowLockInternal } from "./flow_metadata.ts";
 
 export interface FlowFile {
   summary: string;
@@ -196,13 +196,9 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
-    useRawRequirements?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
-  const useRawReqs =
-    opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
-
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
@@ -212,10 +208,7 @@ async function generateLocks(
       folder,
       false,
       workspace,
-      opts,
-      undefined,
-      undefined,
-      useRawReqs
+      opts
     );
   } else {
     const ignore = await ignoreF(opts);
@@ -241,10 +234,7 @@ async function generateLocks(
         folder,
         true,
         workspace,
-        opts,
-        undefined,
-        undefined,
-        useRawReqs
+        opts
       );
       if (candidate) {
         hasAny = true;
@@ -271,10 +261,7 @@ async function generateLocks(
         folder,
         false,
         workspace,
-        opts,
-        undefined,
-        undefined,
-        useRawReqs
+        opts
       );
     }
   }
@@ -334,10 +321,6 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
-  .option(
-    "-r --use-raw-requirements",
-    "Use raw requirements (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_RAW_REQUIREMENTS=true environment variable)"
-  )
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"

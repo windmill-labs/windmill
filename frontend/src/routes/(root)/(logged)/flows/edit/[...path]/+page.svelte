@@ -27,8 +27,13 @@
 	let nodraft = page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+
+	const urlArgs = page.url.searchParams.get('initial_args')
+
 	let initialArgs = $state({})
-	if ($initialArgsStore) {
+	if (urlArgs) {
+		initialArgs = decodeState(urlArgs)
+	} else if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
 	}

@@ -6,11 +6,11 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
 	import InlineScriptHiddenRunnable from './InlineScriptHiddenRunnable.svelte'
-	import { BG_PREFIX } from '../../utils'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { createScriptFromInlineScript } from './utils'
+	import { BG_PREFIX } from '../appUtilsCore'
 
 	const { app, runnableComponents, appPath } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
@@ -26,7 +26,7 @@
 				inlineScript: undefined,
 				name: `Background Runnable ${index}`,
 				fields: {},
-				type: 'runnableByName',
+				type: 'inline',
 				recomputeIds: undefined
 			}
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts

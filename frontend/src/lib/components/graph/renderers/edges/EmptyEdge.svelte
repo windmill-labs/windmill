@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { getBezierPath, BaseEdge, type Position } from '@xyflow/svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		sourceX: number
@@ -26,9 +25,7 @@
 		data = {}
 	}: Props = $props()
 
-	const { useDataflow } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext')
+	const { useDataflow } = getGraphContext()
 
 	let [edgePath] = $derived(
 		getBezierPath({

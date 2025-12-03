@@ -2,8 +2,6 @@
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -13,11 +11,9 @@
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow, showAssets } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-		showAssets?: Writable<boolean>
-	}>('FlowGraphContext')
+	const { useDataflow, showAssets } = getGraphContext()
 
 	let {
 		// id,
@@ -88,7 +84,41 @@
 	class="base-edge"
 	style=""
 >
-	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents}
+	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
+		<div
+			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
+		>
+			<Hourglass size={12} />
+			<div class="flex">
+				<span class="dot">.</span>
+				<span class="dot">.</span>
+				<span class="dot">.</span>
+			</div>
+		</div>
+		<div
+			class={'fixed top-1/2 -translate-y-1/2 left-[170px] h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
+		>
+			{#if data?.flowJob && data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
+				<FlowStatusWaitingForEvents
+					job={data.flowJob}
+					workspaceId={$workspaceStore!}
+					isOwner={data.isOwner}
+					light
+				/>
+			{:else if suspendStatus && Object.keys(suspendStatus).length > 0}
+				<div class="flex gap-2 flex-col">
+					{#each Object.values(suspendStatus) as suspendCount (suspendCount.job.id)}
+						<FlowStatusWaitingForEvents
+							job={suspendCount.job}
+							workspaceId={$workspaceStore!}
+							isOwner={data.isOwner}
+							light
+						/>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{:else if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
@@ -161,42 +191,6 @@
 				>
 					<ClipboardCopy size={14} />
 				</button>
-			{/if}
-		</div>
-	{/if}
-
-	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
-		<div
-			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
-		>
-			<Hourglass size={12} />
-			<div class="flex">
-				<span class="dot">.</span>
-				<span class="dot">.</span>
-				<span class="dot">.</span>
-			</div>
-		</div>
-		<div
-			class={'fixed top-1/2 -translate-y-1/2 left-[170px] h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
-		>
-			{#if data?.flowJob && data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
-				<FlowStatusWaitingForEvents
-					job={data.flowJob}
-					workspaceId={$workspaceStore!}
-					isOwner={data.isOwner}
-					light
-				/>
-			{:else if suspendStatus && Object.keys(suspendStatus).length > 0}
-				<div class="flex gap-2 flex-col">
-					{#each Object.values(suspendStatus) as suspendCount (suspendCount.job.id)}
-						<FlowStatusWaitingForEvents
-							job={suspendCount.job}
-							workspaceId={$workspaceStore!}
-							isOwner={data.isOwner}
-							light
-						/>
-					{/each}
-				</div>
 			{/if}
 		</div>
 	{/if}
