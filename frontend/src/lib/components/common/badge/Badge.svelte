@@ -103,7 +103,7 @@
 		['dark-indigo']: 'hover:bg-indigo-600 dark:hover:bg-indigo-700',
 		['dark-orange']: 'hover:bg-orange-600 dark:hover:bg-orange-700',
 		['dark-violet']: 'hover:bg-violet-600 dark:hover:bg-violet-700',
-		transparent: 'hover:bg-surface-hover/50 dark:hover:border-gray-500'
+		transparent: 'hover:bg-surface-hover dark:hover:border-gray-500'
 	}
 
 	let badgeClass = $derived(
