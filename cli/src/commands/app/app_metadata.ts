@@ -59,18 +59,10 @@ async function generateAppHash(
         continue;
       }
       if (exts.some((e) => f.path.endsWith(e))) {
-        let reqs: string | undefined;
-        if (rawReqs) {
-          // Get language name from path
-          const lang = inferContentTypeFromFilePath(f.path, defaultTs);
-          // Get lock for that language
-          [, reqs] =
-            Object.entries(rawReqs).find(([lang2, _]) => lang == lang2) ?? [];
-        }
         // Embed lock into hash
         const relativePath = f.path.replace(runnablesFolder + SEP, "");
         hashes[relativePath] = await generateHash(
-          (await f.getContentText()) + (reqs ?? "")
+          (await f.getContentText()) + JSON.stringify(rawReqs)
         );
       }
     }
@@ -342,13 +334,9 @@ async function updateRawAppRunnables(
       continue;
     }
 
-    // Find raw deps for this language if available
-    const langRawDeps = rawDeps?.[language];
-
     log.info(
       colors.gray(
-        `Generating lock for runnable ${runnableId} (${language})${
-          langRawDeps ? " with raw deps" : ""
+        `Generating lock for runnable ${runnableId} (${language})
         }`
       )
     );
@@ -359,7 +347,7 @@ async function updateRawAppRunnables(
         content,
         language,
         `${remotePath}/${runnableId}`,
-        langRawDeps
+        rawDeps
       );
 
       // Determine file extension for this language
@@ -448,9 +436,6 @@ async function updateAppInlineScripts(
       return inlineScript;
     }
 
-    // Find raw deps for this language if available
-    const langRawDeps = rawDeps?.[language];
-
     // Get the name from the parent object (following extractInlineScriptsForApps pattern)
     // For normal apps, the name is stored in the component's "name" property
     const scriptName = context.parentObject?.["name"] || "unnamed";
@@ -460,7 +445,7 @@ async function updateAppInlineScripts(
       colors.gray(
         `Generating lock for inline script "${scriptName}" at ${context.path.join(
           "."
-        )} (${language})${langRawDeps ? " with raw deps" : ""}`
+        )} (${language})`
       )
     );
 
@@ -470,7 +455,7 @@ async function updateAppInlineScripts(
         content,
         language,
         scriptPath,
-        langRawDeps
+        rawDeps
       );
 
       // Determine file extension for this language (following extractInlineScriptsForApps pattern)
@@ -527,7 +512,7 @@ async function generateInlineScriptLock(
   content: string,
   language: string,
   scriptPath: string,
-  rawDeps?: string
+  rawWorkspaceDependencies: Record<string, string> | undefined
 ): Promise<string> {
   const extraHeaders = getHeaders();
 
@@ -548,7 +533,11 @@ async function generateInlineScriptLock(
             script_path: scriptPath,
           },
         ],
-        raw_deps: rawDeps,
+        raw_workspace_dependencies:
+          rawWorkspaceDependencies &&
+          Object.keys(rawWorkspaceDependencies).length > 0
+            ? rawWorkspaceDependencies
+            : null,
         entrypoint: scriptPath,
       }),
     }
