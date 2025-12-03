@@ -160,6 +160,7 @@
 		activeWorkers: number
 		customTags: string[] | undefined
 		workers: [string, WorkerPing[]][]
+		isAgent?: boolean
 		defaultTagPerWorkspace?: boolean | undefined
 		width: number
 		shouldAutoOpenDrawer?: boolean
@@ -173,6 +174,7 @@
 		activeWorkers,
 		customTags,
 		workers,
+		isAgent = false,
 		defaultTagPerWorkspace = undefined,
 		width = 0,
 		shouldAutoOpenDrawer = false,
@@ -924,6 +926,20 @@
 	</DrawerContent>
 </Drawer>
 
+{#if isAgent}
+	<div class="mt-4">
+		<Alert type="info" title="Agent Worker Group" size="xs">
+			{#snippet children()}
+				This group is formed with agent workers, there is no associated config. To modify the tags,
+				generate a new <a
+					href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
+					target="_blank"
+					class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
+				>.
+			{/snippet}
+		</Alert>
+	</div>
+{/if}
 <div class="flex items-center justify-between mt-2">
 	<div class="text-xs flex flex-row gap-2 items-center">
 		<div class="flex flex-row gap-1 items-center">
@@ -971,115 +987,117 @@
 			</div>
 		{/if}
 	</div>
-	<div class="flex gap-4 items-center justify-end flex-row">
-		{#if $superadmin}
-			{#if width > 1000}
-				{#if config}
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						on:click={() => {
-							if (!$enterpriseLicense) {
-								sendUserToast('Worker Management UI is an EE feature', true)
-							} else {
-								openDelete = true
-							}
-						}}
-						startIcon={{ icon: Trash }}
-						destructive
-					>
-						Delete config
-					</Button>
-				{/if}
-
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={() => {
-						loadNConfig()
-						openClean = true
-					}}
-					startIcon={{ icon: RefreshCcwIcon }}
-					destructive
-				>
-					Clean cache
-				</Button>
-
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={() => {
-						navigator.clipboard.writeText(
-							YAML.stringify({
-								name,
-								...config
-							})
-						)
-						sendUserToast('Worker config copied to clipboard as YAML')
-					}}
-					startIcon={{ icon: Copy }}
-				>
-					Copy config
-				</Button>
-			{:else}
-				<Dropdown
-					items={[
-						{
-							displayName: 'Copy config',
-							action: () => {
-								navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
-								sendUserToast('Worker config copied to clipboard as YAML')
-							},
-							disabled: !config
-						},
-						{
-							displayName: 'Clean cache',
-							action: () => {
-								loadNConfig()
-								openClean = true
-							},
-							disabled: !config,
-							type: 'delete'
-						},
-						{
-							displayName: 'Delete config',
-							action: () => {
+	{#if !isAgent}
+		<div class="flex gap-4 items-center justify-end flex-row">
+			{#if $superadmin}
+				{#if width > 1000}
+					{#if config}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
 								if (!$enterpriseLicense) {
 									sendUserToast('Worker Management UI is an EE feature', true)
 								} else {
 									openDelete = true
 								}
+							}}
+							startIcon={{ icon: Trash }}
+							destructive
+						>
+							Delete config
+						</Button>
+					{/if}
+
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => {
+							loadNConfig()
+							openClean = true
+						}}
+						startIcon={{ icon: RefreshCcwIcon }}
+						destructive
+					>
+						Clean cache
+					</Button>
+
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => {
+							navigator.clipboard.writeText(
+								YAML.stringify({
+									name,
+									...config
+								})
+							)
+							sendUserToast('Worker config copied to clipboard as YAML')
+						}}
+						startIcon={{ icon: Copy }}
+					>
+						Copy config
+					</Button>
+				{:else}
+					<Dropdown
+						items={[
+							{
+								displayName: 'Copy config',
+								action: () => {
+									navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
+									sendUserToast('Worker config copied to clipboard as YAML')
+								},
+								disabled: !config
 							},
-							disabled: !config,
-							type: 'delete'
-						}
-					]}
-				/>
+							{
+								displayName: 'Clean cache',
+								action: () => {
+									loadNConfig()
+									openClean = true
+								},
+								disabled: !config,
+								type: 'delete'
+							},
+							{
+								displayName: 'Delete config',
+								action: () => {
+									if (!$enterpriseLicense) {
+										sendUserToast('Worker Management UI is an EE feature', true)
+									} else {
+										openDelete = true
+									}
+								},
+								disabled: !config,
+								type: 'delete'
+							}
+						]}
+					/>
+				{/if}
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					on:click={() => {
+						loadNConfig()
+						drawer?.openDrawer()
+					}}
+					startIcon={{ icon: config == undefined ? Plus : Settings }}
+				>
+					<div class="flex flex-row gap-1 items-center">
+						{config == undefined ? 'Create' : 'Edit'} config
+					</div>
+				</Button>
+			{:else if config}
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					on:click={() => {
+						loadNConfig()
+						drawer?.openDrawer()
+					}}
+				>
+					Config
+				</Button>
 			{/if}
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				on:click={() => {
-					loadNConfig()
-					drawer?.openDrawer()
-				}}
-				startIcon={{ icon: config == undefined ? Plus : Settings }}
-			>
-				<div class="flex flex-row gap-1 items-center">
-					{config == undefined ? 'Create' : 'Edit'} config
-				</div>
-			</Button>
-		{:else if config}
-			<Button
-				unifiedSize="sm"
-				variant="accent"
-				on:click={() => {
-					loadNConfig()
-					drawer?.openDrawer()
-				}}
-			>
-				Config
-			</Button>
-		{/if}
-	</div>
+		</div>
+	{/if}
 </div>

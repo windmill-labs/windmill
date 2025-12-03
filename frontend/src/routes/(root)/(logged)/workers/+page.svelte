@@ -46,7 +46,7 @@
 	function groupWorkers(
 		workers: WorkerPing[] | undefined,
 		workerGroups: Record<string, any> | undefined
-	): [string, [string, WorkerPing[]][]][] {
+	): [string, [string, WorkerPing[]][], boolean][] {
 		if (!workers && !workerGroups) {
 			return []
 		}
@@ -66,7 +66,14 @@
 				grouped.push([group, []])
 			}
 		})
-		return grouped
+
+		// Add isAgent detection to each group
+		return grouped.map(([groupName, workerInstances]) => {
+			const isAgent = workerInstances.some(([_, pings]) =>
+				pings.some(ping => ping.worker.startsWith('ag-'))
+			)
+			return [groupName, workerInstances, isAgent]
+		})
 	}
 	let timeSinceLastPing = $state(0)
 
@@ -304,9 +311,9 @@
 	let search: string = $state('')
 
 	function filterWorkerGroupByNames(
-		worker_group: [string, [string, WorkerPing[]][]] | undefined,
+		worker_group: [string, [string, WorkerPing[]][], boolean] | undefined,
 		search: string
-	): [string, [string, WorkerPing[]][]] | undefined {
+	): [string, [string, WorkerPing[]][], boolean] | undefined {
 		if (!worker_group) {
 			return undefined
 		}
@@ -334,7 +341,7 @@
 			)
 			.filter(([section, workers]) => workers.length > 0)
 
-		return [worker_group[0], filteredWorkerGroup]
+		return [worker_group[0], filteredWorkerGroup, worker_group[2]]
 	}
 
 	function displayOccupancyRate(occupancy_rate: number | undefined) {
@@ -630,6 +637,7 @@
 							{customTags}
 							name={worker_group[0]}
 							workers={worker_group[1]}
+							isAgent={worker_group[2]}
 							{config}
 							on:reload={() => {
 								loadWorkerGroups()
@@ -869,6 +877,7 @@
 							<WorkspaceGroup
 								{customTags}
 								workers={worker_group[1]}
+								isAgent={false}
 								on:reload={() => {
 									loadWorkerGroups()
 								}}
