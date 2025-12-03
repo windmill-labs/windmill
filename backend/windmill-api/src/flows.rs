@@ -69,10 +69,8 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route(
-            "/history_update/v/:version/p/*path",
-            post(update_flow_history),
-        )
+        .route("/history_update/v/:version", post(update_flow_history))
+        .route("/get/v/:version", get(get_flow_version_by_id))
         .route("/get/v/:version/p/*path", get(get_flow_version))
         .route(
             "/toggle_workspace_error_handler/*path",
@@ -709,6 +707,73 @@ async fn get_flow_version(
     Ok(Json(flow))
 }
 
+async fn get_flow_version_by_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> JsonResult<Flow> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    // First, fetch the path to perform authorization check early
+    let path: Option<String> = sqlx::query_scalar(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(version)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let path = not_found_if_none(
+        path,
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
+
+    // Perform authorization check before fetching full data
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
+
+    // Now fetch the full flow data with INNER JOIN to ensure flow exists
+    let flow = sqlx::query_as::<_, Flow>(
+        "SELECT
+            flow.workspace_id,
+            flow.path,
+            flow.summary,
+            flow.description,
+            flow.archived,
+            flow.extra_perms,
+            flow.draft_only,
+            flow.dedicated_worker,
+            flow.tag,
+            flow.ws_error_handler_muted,
+            flow.timeout,
+            flow.visible_to_runner_only,
+            flow.on_behalf_of_email,
+            flow_version.schema,
+            flow_version.value,
+            flow_version.created_at as edited_at,
+            flow_version.created_by as edited_by
+        FROM flow
+        INNER JOIN flow_version
+            ON flow_version.path = flow.path
+            AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow_version.id = $1 AND flow.workspace_id = $2",
+    )
+    .bind(version)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let flow = not_found_if_none(
+        flow,
+        "Flow",
+        format!("for version {} (flow may have been deleted)", version),
+    )?;
+
+    Ok(Json(flow))
+}
+
 #[derive(Deserialize)]
 pub struct FlowHistoryUpdate {
     pub deployment_msg: String,
@@ -717,42 +782,42 @@ pub struct FlowHistoryUpdate {
 async fn update_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+    Path((w_id, version)): Path<(String, i64)>,
     Json(history_update): Json<FlowHistoryUpdate>,
 ) -> Result<()> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-    let path_o = sqlx::query_scalar!(
-        "SELECT flow.path FROM flow
-        LEFT JOIN flow_version
-            ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
-        path,
-        w_id,
-        version
+
+    // Fetch path and perform authorization check early
+    let path: Option<String> = sqlx::query_scalar(
+        "SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2",
     )
+    .bind(&w_id)
+    .bind(version)
     .fetch_optional(&mut *tx)
     .await?;
 
-    if path_o.is_none() {
-        tx.commit().await?;
-        return Err(Error::NotFound(
-            format!("Flow version {version} for path {path} not found").to_string(),
-        ));
-    }
+    let path = not_found_if_none(
+        path,
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
 
+    // Perform authorization check before any modifications
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
+
+    // Insert or update deployment metadata
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
-        w_id,
-        path_o.unwrap(),
+        &w_id,
+        path,
         version,
         history_update.deployment_msg,
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
-    return Ok(());
+    Ok(())
 }
 
 async fn update_flow(

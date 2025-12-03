@@ -96,6 +96,16 @@ pub enum JobKind {
     AIAgent,
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_STATUS", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum JobStatus {
+    Success,
+    Failure,
+    Canceled,
+    Skipped,
+}
+
 impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
