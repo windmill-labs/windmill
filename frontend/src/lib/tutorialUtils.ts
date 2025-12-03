@@ -15,7 +15,7 @@ export async function updateProgress(id: number) {
 			bits = bits | mask
 		}
 	}
-	await UserService.updateTutorialProgress({ requestBody: { progress: bits } })
+	await UserService.updateTutorialProgress({ requestBody: { progress: bits, skipped_all: false } })
 }
 
 export async function skipAllTodos() {
@@ -25,7 +25,7 @@ export async function skipAllTodos() {
 		bits = bits | mask
 	}
 	tutorialsToDo.set([])
-	await UserService.updateTutorialProgress({ requestBody: { progress: bits } })
+	await UserService.updateTutorialProgress({ requestBody: { progress: bits, skipped_all: true } })
 }
 
 export async function resetAllTodos() {
@@ -35,7 +35,7 @@ export async function resetAllTodos() {
 	}
 	tutorialsToDo.set(todos)
 
-	await UserService.updateTutorialProgress({ requestBody: { progress: 0 } })
+	await UserService.updateTutorialProgress({ requestBody: { progress: 0, skipped_all: false } })
 }
 
 export async function syncTutorialsTodos() {

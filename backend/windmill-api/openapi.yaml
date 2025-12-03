@@ -1326,6 +1326,8 @@ paths:
                 properties:
                   progress:
                     type: integer
+                  skipped_all:
+                    type: boolean
     post:
       summary: update tutorial progress
       operationId: updateTutorialProgress
@@ -1341,6 +1343,8 @@ paths:
               properties:
                 progress:
                   type: integer
+                skipped_all:
+                  type: boolean
       responses:
         "200":
           description: tutorial progress

@@ -562,7 +562,7 @@ async fn list_users_as_super_admin(
 #[derive(Serialize, Deserialize)]
 struct Progress {
     progress: u64,
-    skipped_all: Option<bool>,
+    skipped_all: bool,
 }
 async fn get_tutorial_progress(
     authed: ApiAuthed,
@@ -578,12 +578,12 @@ async fn get_tutorial_progress(
     if let Some(row) = row {
         Ok(Json(Progress {
             progress: row.progress.unwrap_or_default() as u64,
-            skipped_all: Some(row.skipped_all),
+            skipped_all: row.skipped_all,
         }))
     } else {
         Ok(Json(Progress {
             progress: 0,
-            skipped_all: Some(false),
+            skipped_all: false,
         }))
     }
 }
@@ -597,7 +597,7 @@ async fn update_tutorial_progress(
         "INSERT INTO tutorial_progress (email, progress, skipped_all) VALUES ($2, $1::bigint::bit(64), $3) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress, skipped_all = EXCLUDED.skipped_all",
         progress.progress as i64,
         authed.email,
-        progress.skipped_all.unwrap_or(false)
+        progress.skipped_all
     )
     .execute(&db)
     .await?;
