@@ -1241,7 +1241,7 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
 pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
     use crate::utils::GIT_VERSION;
 
-    let min_version = match conn {
+    Ok(match conn {
         Connection::Sql(pool) => {
             // fetch all pings with a different version than self from the last 5 minutes.
             let pings = sqlx::query_scalar!(
@@ -1256,7 +1256,7 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
                     semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
                 })
                 .min()
-                .ok_or(Error::from(anyhow!("Failed to fetch min version from sql")))?
+                .ok_or(Error::from(anyhow!("Failed to find min version from sql")))?
         }
         Connection::Http(client) => {
             // Fetch min version from server
@@ -1265,9 +1265,7 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
                 .await
                 .map(|v| Version::parse(&v))??
         }
-    };
-
-    Ok(min_version)
+    })
 }
 
 pub async fn update_min_version(conn: &Connection) -> bool {
