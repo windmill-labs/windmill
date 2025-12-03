@@ -5,5 +5,5 @@ import { derived } from 'svelte/store'
 
 export let isCustomInstanceDbEnabled = derived(
 	[superadmin],
-	(superadmin_) => superadmin_ && !isCloudHosted()
+	([superadmin_]) => superadmin_ && !isCloudHosted()
 )
