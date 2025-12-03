@@ -74,7 +74,10 @@ import {
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/apps.ts";
-import { generateAppLocksInternal } from "../app/app_metadata.ts";
+import {
+  APP_BACKEND_FOLDER,
+  generateAppLocksInternal,
+} from "../app/app_metadata.ts";
 import { updateGlobalVersions } from "./global.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -549,7 +552,7 @@ function ZipFSElement(
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
-                path: path.join(finalPath, "runnables", s.path),
+                path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
                 async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
@@ -1736,6 +1739,19 @@ export async function pull(
       log.info(`Updating lock metadata for raw app ${change}`);
       await generateAppLocksInternal(
         change,
+        false,
+        true,
+        workspace,
+        opts,
+        true,
+        true
+      );
+    }
+    for (const change of tracker.apps) {
+      log.info(`Updating lock metadata for app ${change}`);
+      await generateAppLocksInternal(
+        change,
+        false,
         false,
         workspace,
         opts,

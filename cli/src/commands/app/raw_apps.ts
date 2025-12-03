@@ -16,6 +16,7 @@ import { GlobalOptions, isSuperset } from "../../types.ts";
 import { replaceInlineScripts, repopulateFields } from "./apps.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
+import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 
 export interface AppFile {
   runnables: any;
@@ -39,7 +40,12 @@ async function collectAppFiles(
 
       if (entry.isDirectory) {
         // Skip the runnables and node_modules subfolders
-        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist" || entry.name === ".claude") {
+        if (
+          entry.name === APP_BACKEND_FOLDER ||
+          entry.name === "node_modules" ||
+          entry.name === "dist" ||
+          entry.name === ".claude"
+        ) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
@@ -96,15 +102,19 @@ export async function pushRawApp(
   }
   const path = localPath + "raw_app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
-  replaceInlineScripts(localApp.runnables, localPath + SEP + "runnables/");
-  repopulateFields(localApp.runnables)
+  replaceInlineScripts(
+    localApp.runnables,
+    localPath + SEP + APP_BACKEND_FOLDER + SEP
+  );
+  repopulateFields(localApp.runnables);
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+    const entryFile =
+      frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
     const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
@@ -183,6 +193,12 @@ export async function generatingPolicy(
   }
 }
 
+function getAppFolders(elems: Record<string, any>, extension: string) {
+  return Object.keys(elems)
+    .filter((p) => p.endsWith(SEP + extension))
+    .map((p) => p.substring(0, p.length - (SEP + extension).length));
+}
+
 export async function generateLocksCommand(
   opts: GlobalOptions & {
     yes?: boolean;
@@ -205,41 +221,67 @@ export async function generateLocksCommand(
   opts = await mergeConfigWithConfigFile(opts);
 
   if (appPath) {
+    //TODO: Generate metadata for a specific raw app but handle normal apps to
+    throw new Error("Not implemented");
     // Generate metadata for a specific app
-    await generateAppLocksInternal(
-      appPath,
-      false,
-      workspace,
-      opts,
-      false,
-      false,
-    );
+    // await generateAppLocksInternal(
+    //   appPath,
+    //   true,
+    //   false,
+    //   workspace,
+    //   opts,
+    //   false,
+    //   false
+    // );
   } else {
     // Generate metadata for all apps
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd(), [], true),
       (p, isD) => {
-        return ignore(p, isD) || (!isD && !p.endsWith(SEP + "raw_app.yaml"));
+        return (
+          ignore(p, isD) ||
+          (!isD &&
+            !p.endsWith(SEP + "raw_app.yaml") &&
+            !p.endsWith(SEP + "app.yaml"))
+        );
       },
       false,
       {}
     );
 
-    const appFolders = Object.keys(elems)
-      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
-      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
+    const rawAppFolders = getAppFolders(elems, "raw_app.yaml");
+    const appFolders = getAppFolders(elems, "app.yaml");
 
     let hasAny = false;
-    log.info("Checking metadata for all apps:");
-    for (const appFolder of appFolders) {
+    log.info(
+      `Checking metadata for all apps (${appFolders.length}) and raw apps (${rawAppFolders.length})`
+    );
+    for (const appFolder of rawAppFolders) {
       const candidate = await generateAppLocksInternal(
         appFolder,
+        true,
         true,
         workspace,
         opts,
         false,
+        true
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+
+    for (const appFolder of appFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        false,
         true,
+        workspace,
+        opts,
+        false,
+        true
       );
       if (candidate) {
         hasAny = true;
@@ -266,14 +308,27 @@ export async function generateLocksCommand(
       return;
     }
 
-    for (const appFolder of appFolders) {
+    for (const appFolder of rawAppFolders) {
       await generateAppLocksInternal(
         appFolder,
+        true,
         false,
         workspace,
         opts,
         false,
-        true,
+        true
+      );
+    }
+
+    for (const appFolder of appFolders) {
+      await generateAppLocksInternal(
+        appFolder,
+        false,
+        false,
+        workspace,
+        opts,
+        false,
+        true
       );
     }
   }
