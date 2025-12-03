@@ -15,7 +15,7 @@ import { GlobalOptions, isSuperset } from "../../types.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./apps.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
+import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 
 export interface AppFile {
   runnables: any;
@@ -39,7 +39,12 @@ async function collectAppFiles(
 
       if (entry.isDirectory) {
         // Skip the runnables and node_modules subfolders
-        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist" || entry.name === ".claude") {
+        if (
+          entry.name === APP_BACKEND_FOLDER ||
+          entry.name === "node_modules" ||
+          entry.name === "dist" ||
+          entry.name === ".claude"
+        ) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
@@ -96,15 +101,20 @@ export async function pushRawApp(
   }
   const path = localPath + "raw_app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
-  replaceInlineScripts(localApp.runnables, localPath + SEP + "runnables/");
-  repopulateFields(localApp.runnables)
+  replaceInlineScripts(
+    localApp.runnables,
+    localPath + SEP + APP_BACKEND_FOLDER + SEP,
+    true
+  );
+  repopulateFields(localApp.runnables);
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+    const entryFile =
+      frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
     const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
@@ -180,102 +190,6 @@ export async function generatingPolicy(
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
-  }
-}
-
-export async function generateLocksCommand(
-  opts: GlobalOptions & {
-    yes?: boolean;
-    dryRun?: boolean;
-    defaultTs?: "bun" | "deno";
-  } & SyncOptions,
-  appPath: string | undefined
-) {
-  const { generateAppLocksInternal } = await import("./app_metadata.ts");
-  const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
-  const { ignoreF } = await import("../sync/sync.ts");
-  const { Confirm } = await import("../../../deps.ts");
-
-  if (appPath == "") {
-    appPath = undefined;
-  }
-
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
-  opts = await mergeConfigWithConfigFile(opts);
-
-  if (appPath) {
-    // Generate metadata for a specific app
-    await generateAppLocksInternal(
-      appPath,
-      false,
-      workspace,
-      opts,
-      false,
-      false,
-    );
-  } else {
-    // Generate metadata for all apps
-    const ignore = await ignoreF(opts);
-    const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), [], true),
-      (p, isD) => {
-        return ignore(p, isD) || (!isD && !p.endsWith(SEP + "raw_app.yaml"));
-      },
-      false,
-      {}
-    );
-
-    const appFolders = Object.keys(elems)
-      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
-      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
-
-    let hasAny = false;
-    log.info("Checking metadata for all apps:");
-    for (const appFolder of appFolders) {
-      const candidate = await generateAppLocksInternal(
-        appFolder,
-        true,
-        workspace,
-        opts,
-        false,
-        true,
-      );
-      if (candidate) {
-        hasAny = true;
-        log.info(colors.green(`+ ${candidate}`));
-      }
-    }
-
-    if (hasAny) {
-      if (opts.dryRun) {
-        log.info(colors.gray(`Dry run complete.`));
-        return;
-      }
-      if (
-        !opts.yes &&
-        !(await Confirm.prompt({
-          message: "Update the metadata of the above apps?",
-          default: true,
-        }))
-      ) {
-        return;
-      }
-    } else {
-      log.info(colors.green.bold("No metadata to update"));
-      return;
-    }
-
-    for (const appFolder of appFolders) {
-      await generateAppLocksInternal(
-        appFolder,
-        false,
-        workspace,
-        opts,
-        false,
-        true,
-      );
-    }
   }
 }
 

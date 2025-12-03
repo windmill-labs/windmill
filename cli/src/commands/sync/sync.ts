@@ -36,6 +36,7 @@ import {
 import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
+  fetchRemoteVersion,
   isFileResource,
   isRawAppFile,
   isWorkspaceDependencies,
@@ -74,8 +75,10 @@ import {
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/apps.ts";
-import { generateAppLocksInternal } from "../app/app_metadata.ts";
-import { updateGlobalVersions } from "./global.ts";
+import {
+  APP_BACKEND_FOLDER,
+  generateAppLocksInternal,
+} from "../app/app_metadata.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -549,7 +552,7 @@ function ZipFSElement(
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
-                path: path.join(finalPath, "runnables", s.path),
+                path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
                 async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
@@ -1737,6 +1740,19 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         false,
+        true,
+        workspace,
+        opts,
+        true,
+        true
+      );
+    }
+    for (const change of tracker.apps) {
+      log.info(`Updating lock metadata for app ${change}`);
+      await generateAppLocksInternal(
+        change,
+        false,
+        false,
         workspace,
         opts,
         true,
@@ -1983,6 +1999,7 @@ export async function push(
 
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
+  const staleApps: string[] = [];
 
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
@@ -2036,16 +2053,51 @@ export async function push(
     log.info("");
   }
 
-  const version = await fetchVersion(workspace.remote);
-  if (version) {
-    updateGlobalVersions(version);
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
   }
-  log.info(colors.gray("Remote version: " + version));
+
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
+
+  if (staleApps.length > 0) {
+    log.warn(
+      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:"
+    );
+    for (const stale of staleApps) {
+      log.warn(stale);
+    }
+    log.info("");
+  }
+
+  await fetchRemoteVersion(workspace);
 
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
-
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
