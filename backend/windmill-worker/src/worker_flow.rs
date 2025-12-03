@@ -4766,11 +4766,9 @@ pub async fn script_to_payload(
                 hash,
                 path: script_path,
                 debouncing_settings: DebouncingSettings {
-                    custom_key: todo!(),
-                    delay_s: todo!(),
-                    max_total_time: todo!(),
-                    max_total_debounces: todo!(),
-                    args_to_accumulate: todo!(),
+                    custom_key: debounce_key,
+                    delay_s: debounce_delay_s,
+                    ..Default::default()
                 },
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key,

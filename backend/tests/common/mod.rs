@@ -684,16 +684,13 @@ pub async fn run_deployed_relative_imports(
             let job = RunJob::from(JobPayload::ScriptHash {
                 path: "f/system/test_import".to_string(),
                 hash: ScriptHash(script.hash),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
                 dedicated_worker: None,
                 language,
                 priority: None,
                 apply_preprocessor: false,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
             })
             .push(&db2)
             .await;
@@ -739,13 +736,10 @@ pub async fn run_preview_relative_imports(
                 path: Some("f/system/test_import".to_string()),
                 language,
                 lock: None,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
                 dedicated_worker: None,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
             }))
             .push(&db2)
             .await;

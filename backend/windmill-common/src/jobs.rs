@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use tokio::io::AsyncReadExt;

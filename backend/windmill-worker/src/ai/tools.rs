@@ -21,7 +21,7 @@ use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::flows::InputTransform;
-use windmill_common::jobs::{ConcurrencySettings, JobPayload};
+use windmill_common::jobs::JobPayload;
 use windmill_common::mcp_client::{McpClient, McpToolSource};
 use windmill_common::{
     client::AuthedClient,

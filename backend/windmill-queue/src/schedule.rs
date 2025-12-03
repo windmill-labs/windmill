@@ -386,8 +386,16 @@ pub async fn push_scheduled_job<'c>(
                     language,
                     priority,
                     apply_preprocessor: false,
-                    concurrency_settings: todo!(),
-                    debouncing_settings: todo!(),
+                    debouncing_settings: DebouncingSettings {
+                        custom_key: custom_debounce_key,
+                        delay_s: debounce_delay_s,
+                        ..Default::default()
+                    },
+                    concurrency_settings: ConcurrencySettings {
+                        concurrency_key: custom_concurrency_key,
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    },
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
