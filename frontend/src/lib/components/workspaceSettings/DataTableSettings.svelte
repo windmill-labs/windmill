@@ -85,7 +85,10 @@
 		Database: 'The database where the data is stored.'
 	}
 
-	let tempSettings: DataTableSettingsType = $state($state.snapshot(dataTableSettings))
+	let tempSettings: DataTableSettingsType = $derived.by(() => {
+		let s = $state($state.snapshot(dataTableSettings))
+		return s
+	})
 
 	function removeDataTable(index: number) {
 		tempSettings.dataTables.splice(index, 1)
