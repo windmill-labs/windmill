@@ -639,9 +639,24 @@ function insertIntoNestedParent(
 		parentLocation.type === 'branchone-branch' &&
 		parentModule.value.type === 'branchone'
 	) {
-		const branch = parentModule.value.branches[parentLocation.branchIndex]
+		let branch = parentModule.value.branches[parentLocation.branchIndex]
+		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
+
+		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
+		if (!branch && beforeBranch) {
+			// Ensure we have enough branch slots
+			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
+				parentModule.value.branches.push({ expr: '', modules: [] })
+			}
+			// Restore the branch with its original expr but empty modules (we'll add them)
+			parentModule.value.branches[parentLocation.branchIndex] = {
+				expr: beforeBranch.expr ?? '',
+				modules: []
+			}
+			branch = parentModule.value.branches[parentLocation.branchIndex]
+		}
+
 		if (branch) {
-			const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
 			const beforeModules = beforeBranch?.modules ?? []
 			const insertIndex = findBestInsertPosition(
 				branch.modules,
@@ -655,9 +670,26 @@ function insertIntoNestedParent(
 		parentLocation.type === 'branchall-branch' &&
 		parentModule.value.type === 'branchall'
 	) {
-		const branch = parentModule.value.branches[parentLocation.branchIndex]
+		let branch = parentModule.value.branches[parentLocation.branchIndex]
+		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
+
+		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
+		if (!branch && beforeBranch) {
+			// Ensure we have enough branch slots
+			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
+				parentModule.value.branches.push({ modules: [] })
+			}
+			// Restore the branch with empty modules (we'll add them)
+			parentModule.value.branches[parentLocation.branchIndex] = {
+				modules: [],
+				// Copy other properties from beforeBranch (like skip_failure, summary, etc.)
+				...(beforeBranch.skip_failure !== undefined && { skip_failure: beforeBranch.skip_failure }),
+				...(beforeBranch.summary !== undefined && { summary: beforeBranch.summary })
+			}
+			branch = parentModule.value.branches[parentLocation.branchIndex]
+		}
+
 		if (branch) {
-			const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
 			const beforeModules = beforeBranch?.modules ?? []
 			const insertIndex = findBestInsertPosition(
 				branch.modules,
