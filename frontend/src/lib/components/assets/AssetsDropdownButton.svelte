@@ -134,7 +134,7 @@
 					datatables.current &&
 					!datatables.current.find((name) => name === asset.path)}
 				<li
-					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
+					class="text-sm px-3 h-12 flex gap-3 items-center"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
