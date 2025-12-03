@@ -442,6 +442,7 @@ pub async fn do_bigquery(
                 token.as_str(),
                 timeout_ms,
                 if i == queries.len() - 1
+                    && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
                 {
