@@ -73,7 +73,7 @@ impl std::fmt::Display for JobTriggerKind {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum JobKind {
@@ -88,6 +88,7 @@ pub enum JobKind {
     Identity,
     FlowDependencies,
     AppDependencies,
+    #[default]
     Noop,
     DeploymentCallback,
     FlowScript,
@@ -344,23 +345,13 @@ pub enum JobPayload {
     ScriptHash {
         hash: ScriptHash,
         path: String,
-        /// Override default concurrency key
-        custom_concurrency_key: Option<String>,
-        /// How many jobs can run at the same time
-        concurrent_limit: Option<i32>,
-        /// In seconds
-        concurrency_time_window_s: Option<i32>,
-        /// If not set, will be inferred from the hash(path + step_id + inputs)
-        custom_debounce_key: Option<String>,
-        /// Debouncing delay will be determined by the first job with the key.
-        /// All subsequent jobs with Some will get debounced.
-        /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
-        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
+        concurrency_settings: Option<ConcurrencySettings>,
+        debouncing_settings: Option<DebouncingSettings>,
     },
 
     /// Execute flow step (can be subflow only).
@@ -372,13 +363,11 @@ pub enum JobPayload {
     /// Execute flow step
     FlowScript {
         id: FlowNodeId, // flow_node(id).
+        path: String,
         language: ScriptLang,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
-        path: String,
+        concurrency_settings: Option<ConcurrencySettings>,
     },
 
     /// Inline App Script
@@ -458,25 +447,74 @@ pub enum JobPayload {
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         skip_handler: Option<SkipHandler>,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
-        custom_debounce_key: Option<String>,
-        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
         trigger_path: Option<String>,
         apply_preprocessor: bool,
+        concurrency_settings: Option<ConcurrencySettings>,
+        debouncing_settings: Option<DebouncingSettings>,
     },
     DeploymentCallback {
         path: String,
+        debouncing_settings: Option<DebouncingSettings>,
     },
     Identity,
     Noop,
     AIAgent {
         path: String,
     },
+}
+
+// TODO: Add validation logic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebouncingSettings {
+    #[serde(rename = "custom_debounce_key")]
+    /// debounce key is usually stored in the db
+    /// including when:
+    ///
+    /// 1. User have created custom debounce key from ui or cli
+    /// 2. User used default one
+    ///
+    /// in either cases this argument serves as reactive way of overwriting debounce key from the backend.
+    /// Default: hash(path + step_id + inputs)
+    pub custom_key: Option<String>,
+
+    #[serde(rename = "debounce_delay_s")]
+    /// Debouncing delay will be determined by the first job with the key.
+    /// All subsequent jobs with Some will get debounced.
+    /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
+    pub delay_s: Option<i32>,
+
+    #[serde(rename = "max_total_debouncing_time")]
+    /// Top threshhold on max delay
+    /// TODO(claude): explain better, in 3 lines tops
+    pub max_total_time: Option<i32>,
+
+    #[serde(rename = "max_total_debounces")]
+    /// Top threshold on amount of debounces
+    /// TODO(claude): explain better, in 3 lines tops
+    pub max_total_debounces: Option<i32>,
+
+    #[serde(rename = "debounce_args_to_accumulate")]
+    /// top level arguments to preserve
+    /// For every debounce selected arguments will be saved
+    /// in the end (when job finally starts) arguments will be appended and passed to runnable
+    ///
+    /// NOTE: selected args should be the lists.
+    pub args_to_accumulate: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ConcurrencySettings {
+    #[serde(rename = "custom_concurrency_key")]
+    pub custom_key: Option<String>,
+
+    #[serde(rename = "concurrent_limit")]
+    pub limit: Option<i32>,
+
+    #[serde(rename = "concurrency_time_window_s")]
+    pub time_window_s: Option<i32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -487,6 +525,7 @@ pub struct SkipHandler {
     pub stop_message: String,
 }
 
+// TODO: Where is this serialization is used, should I flatten?
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
@@ -494,13 +533,35 @@ pub struct RawCode {
     pub hash: Option<i64>,
     pub language: ScriptLang,
     pub lock: Option<String>,
-    pub custom_concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub custom_debounce_key: Option<String>,
-    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
+    pub concurrency_settings: Option<ConcurrencySettings>,
+    pub debouncing_settings: Option<DebouncingSettings>,
+}
+
+impl JobPayload {
+    pub fn job_kind(&self) -> JobKind {
+        match self {
+            JobPayload::Noop => JobKind::Noop,
+            JobPayload::Identity => JobKind::Identity,
+            JobPayload::Code { .. } => JobKind::Preview,
+            JobPayload::AIAgent { .. } => JobKind::AIAgent,
+            JobPayload::FlowNode { .. } => JobKind::FlowNode,
+            JobPayload::ScriptHash { .. } => JobKind::Script,
+            JobPayload::AppScript { .. } => JobKind::AppScript,
+            JobPayload::RawFlow { .. } => JobKind::FlowPreview,
+            JobPayload::ScriptHub { .. } => JobKind::Script_Hub,
+            JobPayload::FlowScript { .. } => JobKind::FlowScript,
+            JobPayload::Dependencies { .. } => JobKind::Dependencies,
+            JobPayload::SingleStepFlow { .. } => JobKind::SingleStepFlow,
+            JobPayload::AppDependencies { .. } => JobKind::AppDependencies,
+            JobPayload::FlowDependencies { .. } => JobKind::FlowDependencies,
+            JobPayload::RawScriptDependencies { .. } => JobKind::Dependencies,
+            JobPayload::RawFlowDependencies { .. } => JobKind::FlowDependencies,
+            JobPayload::DeploymentCallback { .. } => JobKind::DeploymentCallback,
+            JobPayload::Flow { .. } | JobPayload::RestartedFlow { .. } => JobKind::Flow,
+        }
+    }
 }
 
 type Tag = String;
@@ -597,17 +658,14 @@ pub async fn script_path_to_payload<'e>(
             JobPayload::ScriptHash {
                 hash: ScriptHash(hash),
                 path: script_path.to_owned(),
-                custom_concurrency_key: concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
-                custom_debounce_key: debounce_key,
-                debounce_delay_s,
                 cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
                 apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                     && has_preprocessor.unwrap_or(false),
+                concurrency_settings: todo!(),
+                debouncing_settings: todo!(),
             },
             tag,
             delete_after_use,

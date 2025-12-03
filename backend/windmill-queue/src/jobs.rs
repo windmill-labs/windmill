@@ -445,13 +445,10 @@ pub async fn push_init_job<'c>(
             path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            concurrency_settings: None,
+            debouncing_settings: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -504,13 +501,10 @@ pub async fn push_periodic_bash_job<'c>(
             )),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            concurrency_settings: None,
+            debouncing_settings: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -1343,9 +1337,6 @@ async fn restart_job_if_perpetual_inner(
             JobPayload::ScriptHash {
                 hash,
                 path: queued_job.runnable_path.clone().unwrap_or_default(),
-                custom_concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: queued_job.cache_ttl,
                 dedicated_worker: None,
                 language: queued_job
@@ -1354,9 +1345,13 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
+                concurrency_settings: Some(ConcurrencySettings {
+                    custom_key: custom_concurrency_key(db, &queued_job.id).await?,
+                    limit: None,
+                    time_window_s: None,
+                }),
                 // TODO(debouncing): handle properly
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                debouncing_settings: None,
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -1442,7 +1437,6 @@ fn apply_completed_job_cloud_usage(
                         tracing::error!("Failed to get team plan status to update usage for workspace {w_id}: {err:#}");
                     }
                 };
-                
             }).await;
 
             if let Err(_) = result {
@@ -2896,7 +2890,10 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = job.is_dependency() && job.concurrent_limit.is_some() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+        let has_concurent_limit = job.is_dependency()
+            && job.concurrent_limit.is_some()
+            && cfg!(feature = "private")
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -4420,16 +4417,13 @@ pub async fn push<'c, 'd>(
             error_handler_args,
             skip_handler,
             args,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             priority,
             tag_override,
             trigger_path,
             apply_preprocessor,
-            custom_debounce_key,
-            debounce_delay_s,
+            debouncing_settings,
+            concurrency_settings,
         } => {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
@@ -4618,20 +4612,20 @@ pub async fn push<'c, 'd>(
             let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
-            let custom_concurrency_key = value.concurrency_key.clone();
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let mut concurrent_limit = value.concurrent_limit;
+            // let custom_concurrency_key = value.concurrency_key.clone();
+            // let concurrency_time_window_s = value.concurrency_time_window_s;
+            // let mut concurrent_limit = value.concurrent_limit;
 
-            let custom_debounce_key = value.debounce_key.clone();
-            let mut debounce_delay_s = value.debounce_delay_s;
+            // let custom_debounce_key = value.debounce_key.clone();
+            // let mut debounce_delay_s = value.debounce_delay_s;
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
-                concurrent_limit = None;
-                // TODO: May be re-enable?
-                debounce_delay_s = None;
+                // concurrent_limit = None;
+                // // TODO: May be re-enable?
+                // debounce_delay_s = None;
                 preprocessed = Some(false);
             }
 
@@ -4687,6 +4681,7 @@ pub async fn push<'c, 'd>(
                 branch_or_iteration_n,
             )
             .await?;
+
             let restarted_flow_status = FlowStatus {
                 step: step_n,
                 modules: truncated_modules,

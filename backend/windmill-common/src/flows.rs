@@ -171,18 +171,10 @@ pub struct FlowValue {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_delay_s: Option<i32>,
-
+    #[serde(skip_serializing_if = "Option::is_none", flatten)]
+    pub concurrency_settings: Option<ConcurrencySettings>,
+    #[serde(skip_serializing_if = "Option::is_none", flatten)]
+    pub debouncing_settings: Option<DebouncingSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_expr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -919,12 +911,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "is_none_or_empty")]
         tag: Option<String>,
         language: ScriptLang,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        custom_concurrency_key: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        concurrent_limit: Option<i32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none", flatten)]
+        concurrency_settings: Option<ConcurrencySettings>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "is_none_or_empty_vec")]
@@ -945,12 +933,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "is_none_or_empty")]
         tag: Option<String>,
         language: ScriptLang,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        custom_concurrency_key: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        concurrent_limit: Option<i32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none", flatten)]
+        concurrency_settings: Option<ConcurrencySettings>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "is_none_or_empty_vec")]
@@ -989,9 +973,6 @@ struct UntaggedFlowModuleValue {
     lock: Option<String>,
     tag: Option<String>,
     language: Option<ScriptLang>,
-    custom_concurrency_key: Option<String>,
-    concurrent_limit: Option<i32>,
-    concurrency_time_window_s: Option<i32>,
     is_trigger: Option<bool>,
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
@@ -1000,6 +981,9 @@ struct UntaggedFlowModuleValue {
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    // TODO: Should I ignore on None?
+    #[serde(flatten)]
+    concurrency_settings: Option<ConcurrencySettings>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -1074,9 +1058,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 language: untagged
                     .language
                     .ok_or_else(|| serde::de::Error::missing_field("language"))?,
-                custom_concurrency_key: untagged.custom_concurrency_key,
-                concurrent_limit: untagged.concurrent_limit,
-                concurrency_time_window_s: untagged.concurrency_time_window_s,
+                concurrency_settings: untagged.concurrency_settings,
                 is_trigger: untagged.is_trigger,
                 assets: untagged.assets,
             }),
@@ -1089,9 +1071,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 language: untagged
                     .language
                     .ok_or_else(|| serde::de::Error::missing_field("language"))?,
-                custom_concurrency_key: untagged.custom_concurrency_key,
-                concurrent_limit: untagged.concurrent_limit,
-                concurrency_time_window_s: untagged.concurrency_time_window_s,
+                concurrency_settings: untagged.concurrency_settings,
                 is_trigger: untagged.is_trigger,
                 assets: untagged.assets,
             }),
@@ -1234,11 +1214,9 @@ pub async fn resolve_module(
                 id,
                 tag,
                 language,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
                 is_trigger,
                 assets,
+                concurrency_settings,
             } = std::mem::replace(&mut val, Identity)
             else {
                 unreachable!()
@@ -1258,11 +1236,9 @@ pub async fn resolve_module(
                 path: None,
                 tag,
                 language,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
                 is_trigger,
                 assets,
+                concurrency_settings,
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {

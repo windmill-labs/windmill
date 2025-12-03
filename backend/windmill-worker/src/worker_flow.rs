@@ -43,7 +43,8 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, ConcurrencySettings, JobKind, JobPayload, OnBehalfOf, RawCode,
+    ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
@@ -3956,9 +3957,7 @@ async fn compute_next_flow_transform(
             language,
             lock,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => {
             let path = path.unwrap_or_else(|| get_path(flow_job, status, module));
@@ -3968,9 +3967,7 @@ async fn compute_next_flow_transform(
                 content,
                 language,
                 lock,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+                concurrency_settings,
                 module,
                 tag,
                 delete_after_use,
@@ -3984,9 +3981,7 @@ async fn compute_next_flow_transform(
             id, // flow_node(id).
             tag,
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => {
             let path = get_path(flow_job, status, module);
@@ -4625,18 +4620,14 @@ async fn payload_from_simple_module(
             language,
             lock,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => raw_script_to_payload(
             path.unwrap_or_else(|| inner_path),
             content,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             module,
             tag,
             delete_after_use,
@@ -4645,20 +4636,16 @@ async fn payload_from_simple_module(
             id, // flow_node(id).
             tag,
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => JobPayloadWithTag {
             payload: JobPayload::FlowScript {
                 id,
                 language,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32),
                 dedicated_worker: None,
                 path: inner_path,
+                concurrency_settings,
             },
             tag,
             delete_after_use,
@@ -4674,9 +4661,7 @@ pub fn raw_script_to_payload(
     content: String,
     language: windmill_common::scripts::ScriptLang,
     lock: Option<String>,
-    custom_concurrency_key: Option<String>,
-    concurrent_limit: Option<i32>,
-    concurrency_time_window_s: Option<i32>,
+    concurrency_settings: Option<ConcurrencySettings>,
     module: &FlowModule,
     tag: Option<String>,
     delete_after_use: bool,
@@ -4688,13 +4673,11 @@ pub fn raw_script_to_payload(
             content,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings,
+            // TODO: Should this have debouncing?
+            debouncing_settings: None,
         }),
         tag,
         delete_after_use,
