@@ -1239,9 +1239,7 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
 }
 
 pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
-    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
-
-    let cur_version = GIT_SEM_VERSION.clone();
+    use crate::utils::GIT_VERSION;
 
     let min_version = match conn {
         Connection::Sql(pool) => {
@@ -1258,25 +1256,14 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
                     semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
                 })
                 .min()
-                .unwrap_or_else(|| {
-                    tracing::warn!("Failed to fetch min version, using current version");
-                    cur_version
-                })
+                .ok_or(Error::from(anyhow!("Failed to fetch min version from sql")))?
         }
         Connection::Http(client) => {
             // Fetch min version from server
             client
                 .get::<String>("/api/agent_workers/get_min_version")
                 .await
-                .map_err(Error::from)
-                .and_then(|v| Version::parse(&v).map_err(Error::from))
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        "Failed to get min version from server: {:#?}, using current version",
-                        e
-                    );
-                    cur_version
-                })
+                .map(|v| Version::parse(&v))??
         }
     };
 
@@ -1292,7 +1279,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     let min_version = match get_min_version(conn).await {
         Ok(v) => v,
         Err(e) => {
-            tracing::error!("Failed to get min version: {:#?}, using current version", e);
+            tracing::warn!("Failed to get min version: {:#?}, using current version", e);
             cur_version.clone()
         }
     };
