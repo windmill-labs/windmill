@@ -24,6 +24,7 @@
 	index={1}
 	name="workspace-onboarding"
 	tainted={false}
+	on:skipAll
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
