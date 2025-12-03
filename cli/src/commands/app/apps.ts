@@ -16,7 +16,7 @@ import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
-import { isVersionsGeq15851 } from "../sync/global.ts";
+import { isVersionsGeq1585 } from "../sync/global.ts";
 
 export interface AppFile {
   value: any;
@@ -59,12 +59,16 @@ export function replaceInlineScripts(rec: any, localPath: string) {
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "runType") {
-        if (isVersionsGeq15851()) {
+        if (isVersionsGeq1585()) {
           rec["type"] = "path";
+        } else {
+          rec["type"] = "runnableByPath";
         }
       } else if (k == "inlineScript" && typeof v == "object") {
-        if (isVersionsGeq15851()) {
+        if (isVersionsGeq1585()) {
           rec["type"] = "inline";
+        } else {
+          rec["type"] = "runnableByName";
         }
         const o: Record<string, any> = v as any;
 
