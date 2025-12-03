@@ -222,10 +222,18 @@ export function argSigToJsonSchemaType(
       }
       newS.originalType = "record[]";
     } else {
-      // Preserve user-defined items for untyped lists
+      // Preserve ALL user-defined fields for untyped lists (same as record[] branch)
       newS.items = { type: oldS.items?.type || "object" };
-      if (oldS.items?.properties) {
-        newS.items.properties = oldS.items.properties;
+
+      const preserveItemFields = ['properties', 'required', 'additionalProperties',
+                                   'enum', 'resourceType', 'contentEncoding', 'description'];
+
+      if (oldS.items && typeof oldS.items === 'object') {
+        preserveItemFields.forEach((field) => {
+          if (oldS.items && oldS.items[field] !== undefined) {
+            newS.items[field] = oldS.items[field];
+          }
+        });
       }
       newS.originalType = "object[]";
     }
