@@ -303,7 +303,6 @@
 		if (isSimplifiable(modules)) {
 			triggerContext?.simplifiedPoll?.set(undefined)
 		}
-		// Clean up diffDrawer reference to prevent memory leaks
 		diffManager.setDiffDrawer(undefined)
 	})
 
@@ -474,7 +473,6 @@
 
 	// Sync props to diffManager
 	$effect(() => {
-		// Always sync current flow state to diffManager
 		const currentFlowValue = {
 			modules: modules,
 			failure_module: failureModule,
@@ -507,6 +505,8 @@
 	let effectivePreprocessorModule = $derived(
 		diffManager.mergedFlow?.preprocessor_module ?? preprocessorModule
 	)
+
+	let canUseDiffDrawer = $derived(diffBeforeFlow || moduleActions || editMode)
 
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
@@ -881,7 +881,9 @@
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
-<DiffDrawer bind:this={diffDrawer} />
+{#if canUseDiffDrawer}
+	<DiffDrawer bind:this={diffDrawer} />
+{/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip relative"
