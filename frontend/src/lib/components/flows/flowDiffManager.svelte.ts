@@ -13,6 +13,7 @@ import {
 	buildFlowTimeline,
 	insertModuleIntoFlow,
 	findModuleParent,
+	locationsEqual,
 	DUPLICATE_MODULE_PREFIX,
 	NEW_MODULE_PREFIX
 } from './flowDiff'
@@ -292,10 +293,28 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 				const existingModule = getModuleFromFlow(actualId, beforeFlow)
 
 				if (existingModule) {
-					// Module already exists (as skeleton or partial), update it in-place
-					const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
-					Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
-					Object.assign(existingModule, $state.snapshot(moduleToApply))
+					// Module exists in beforeFlow - check if it's in the same location
+					const beforeLocation = findModuleParent(beforeFlow.value, actualId)
+					const afterLocation = findModuleParent(currentFlow, actualId)
+
+					// Compare locations - if different, this is a move and we need to insert at new location
+					const sameLocation = locationsEqual(beforeLocation, afterLocation)
+
+					if (sameLocation) {
+						// Module is in the same location, update it in-place
+						const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
+						Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
+						Object.assign(existingModule, $state.snapshot(moduleToApply))
+					} else {
+						// Module is being moved - insert at new location (the old copy will be removed when old__id is accepted)
+						const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
+						insertModuleIntoFlow(
+							beforeFlow.value,
+							$state.snapshot(moduleToInsert),
+							currentFlow,
+							actualId
+						)
+					}
 				} else {
 					// Module doesn't exist, insert it
 					const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module

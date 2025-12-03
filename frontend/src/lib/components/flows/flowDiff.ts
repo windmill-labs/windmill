@@ -201,7 +201,7 @@ function getAllModulesWithLocation(flow: FlowValue): Map<string, ModuleWithLocat
  * Two locations are equal if they refer to the same parent container.
  * Index within the container is not considered (modules can be reordered).
  */
-function locationsEqual(a: ModuleParentLocation | null, b: ModuleParentLocation | null): boolean {
+export function locationsEqual(a: ModuleParentLocation | null, b: ModuleParentLocation | null): boolean {
 	if (!a || !b) return a === b
 	if (a.type !== b.type) return false
 

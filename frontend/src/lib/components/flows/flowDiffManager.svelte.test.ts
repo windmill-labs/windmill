@@ -1441,14 +1441,19 @@ describe('FlowDiffManager', () => {
 				manager.setCurrentFlow(flowStore.val.value)
 				flushSync()
 
-				// Reject the removed 'old__b' - should restore with prefix to avoid duplicate IDs
+				// Reject the removed 'old__b' - restores original at root, renames new to 'new__b'
 				manager.rejectModule('old__b', flowStore)
 				flushSync()
 
-				// 'old__b' should be restored at root level in flowStore (keeps prefix to avoid duplicate)
+				// 'b' should be restored at root level in flowStore
 				const currentModules = flowStore.val.value.modules
 				const rootIds = currentModules.map((m) => m.id)
-				expect(rootIds).toContain('old__b')
+				expect(rootIds).toContain('b')
+
+				// The module in the loop should now be 'new__b'
+				const loopModule = currentModules.find((m) => m.id === 'loop1')
+				const loopModules = (loopModule?.value as ForloopFlow).modules
+				expect(loopModules.some((m) => m.id === `${NEW_MODULE_PREFIX}b`)).toBe(true)
 			})
 			cleanup()
 		})
@@ -1540,7 +1545,7 @@ describe('FlowDiffManager', () => {
 				manager.setCurrentFlow(flowStore.val.value)
 				flushSync()
 
-				// Reject the removal from branch 0 - restores with prefix to avoid duplicate IDs
+				// Reject the removal from branch 0 - restores original 'a', renames new to 'new__a'
 				manager.rejectModule('old__a', flowStore)
 				flushSync()
 
@@ -1548,20 +1553,17 @@ describe('FlowDiffManager', () => {
 				manager.acceptModule('a')
 				flushSync()
 
-				// flowStore should now have 'old__a' in branch 0 (prefixed), not 'a' in branch 1
+				// flowStore should now have 'a' in branch 0 (original), 'new__a' in branch 1 (renamed new)
 				const currentModules = flowStore.val.value.modules
 				const branchModule = currentModules.find((m) => m.id === 'branch1')
 				const branches = (branchModule?.value as BranchOne).branches
-				expect(branches[0].modules.some((m) => m.id === 'old__a')).toBe(true)
-				expect(branches[1].modules.some((m) => m.id === 'a')).toBe(true)
+				expect(branches[0].modules.some((m) => m.id === 'a')).toBe(true)
+				expect(branches[1].modules.some((m) => m.id === `${NEW_MODULE_PREFIX}a`)).toBe(true)
 			})
 			cleanup()
 		})
 
 		it('prevents bug when rejecting moved module removal (branchall scenario)', () => {
-			// NOTE: This test describes the bug but does not fully reproduce it.
-			// So it passes but the actual bug still exists in reality.
-
 			const cleanup = $effect.root(() => {
 				const manager = createFlowDiffManager({ testMode: true })
 
@@ -1594,28 +1596,22 @@ describe('FlowDiffManager', () => {
 				expect(manager.moduleActions['r']).toEqual({ action: 'added', pending: true })
 				expect(manager.moduleActions['old__r']).toEqual({ action: 'removed', pending: true })
 
-				console.log('beforeFlow', beforeFlow)
-				console.log('flowStore', flowStore.val.value)
-
 				// User rejects the removal - wants to keep module at original location (branch 2)
 				manager.rejectModule('old__r', flowStore)
 				flushSync()
 
-				// At this point, we have an error: Error: Cycle detected: adding edge from 'old__r' to 'old__r' would create a cycle.
-
 				// After rejection, verify the current behavior:
-				// 1. Module should be restored at branch 2 (with prefix 'old__r' to avoid collision)
+				// 1. Original module should be restored at branch 2 with id 'r'
+				// 2. New module at branch 0 should be renamed to 'new__r'
 				const currentModules = flowStore.val.value.modules
 				const branchAllModule = currentModules.find((m) => m.id === 'branchall1')
 				const branches = (branchAllModule?.value as BranchAll).branches
 
-				console.log('after flowStore', flowStore.val.value)
+				// Branch 0 should have 'new__r' (renamed new module)
+				expect(branches[0].modules.some((m) => m.id === `${NEW_MODULE_PREFIX}r`)).toBe(true)
 
-				// Branch 0 should still have 'r'
-				expect(branches[0].modules.some((m) => m.id === 'r')).toBe(true)
-
-				// Branch 2 should have 'old__r' (prefixed to avoid duplicate ID)
-				expect(branches[2].modules.some((m) => m.id === 'old__r')).toBe(true)
+				// Branch 2 should have 'r' (restored original)
+				expect(branches[2].modules.some((m) => m.id === 'r')).toBe(true)
 			})
 			cleanup()
 		})
