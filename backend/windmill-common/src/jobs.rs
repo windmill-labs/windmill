@@ -717,7 +717,8 @@ pub async fn script_path_to_payload<'e>(
                     custom_concurrency_key: concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
-                },
+                }
+                .into(),
                 debouncing_settings: DebouncingSettings {
                     custom_key: debounce_key,
                     delay_s: debounce_delay_s,
