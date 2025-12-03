@@ -7,6 +7,7 @@
 	import type { Flow } from '$lib/gen'
 	import { wait, type StateStore } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { updateProgress } from '$lib/tutorialUtils'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -251,7 +252,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={10}
+	index={3}
 	name="troubleshoot-flow"
 	tainted={false}
 	on:error
@@ -438,6 +439,7 @@
 					side: 'top',
 					onNextClick: () => {
 						if (!checkStepComplete(7)) return
+						updateProgress(3)
 						driver.destroy()
 					}
 				}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { CheckCircle2, ArrowRight } from 'lucide-svelte'
 	import type { LucideIcon } from 'lucide-svelte'
 
 	interface Props {
@@ -6,21 +7,52 @@
 		title: string
 		description: string
 		onclick: () => void
+		isCompleted?: boolean
 	}
 
-	let { icon: Icon, title, description, onclick }: Props = $props()
+	let { icon: Icon, title, description, onclick, isCompleted = false }: Props = $props()
 </script>
 
 <button
 	onclick={onclick}
-	class="block border rounded-lg px-6 py-5 bg-surface-secondary hover:bg-surface-hover transition-colors text-left"
+	class="group relative flex items-center gap-4 w-full px-4 py-3 rounded-lg border transition-all duration-200 text-left hover:shadow-md hover:-translate-y-0.5 border-border/50 bg-surface hover:bg-surface-hover hover:border-primary/30"
 >
-	<div class="flex items-center gap-2 mb-2 text-primary">
-		<Icon size={24} />
-		<h2 class="text-base font-semibold">{title}</h2>
+	<!-- Icon -->
+	<div
+		class="flex-shrink-0 p-2.5 rounded-lg transition-colors bg-primary/10 dark:bg-primary/20 group-hover:bg-primary/15"
+	>
+		<Icon size={20} class="transition-colors text-primary" />
 	</div>
-	<p class="text-sm font-normal text-secondary">
-		{description}
-	</p>
+
+	<!-- Content -->
+	<div class="flex-1 min-w-0">
+		<div class="flex items-center gap-2 mb-1">
+			<h3 class="text-sm font-semibold text-emphasis group-hover:text-primary transition-colors">
+				{title}
+			</h3>
+			{#if isCompleted}
+				<CheckCircle2 size={14} class="text-secondary flex-shrink-0" />
+			{/if}
+		</div>
+		<div class="flex items-center gap-2 mb-1">
+			<p class="text-xs text-secondary line-clamp-2">{description}</p>
+			<span
+				class="text-xs font-medium flex-shrink-0 {isCompleted
+					? 'text-secondary'
+					: 'text-primary'}"
+			>
+				{isCompleted ? 'Completed' : 'Not started'}
+			</span>
+		</div>
+	</div>
+
+	<!-- Arrow indicator -->
+	<div
+		class="flex-shrink-0 transition-all duration-200 {isCompleted
+			? 'opacity-50'
+			: 'opacity-0 group-hover:opacity-100 group-hover:translate-x-1'}"
+	>
+		<ArrowRight size={16} class="text-primary" />
+	</div>
 </button>
 

@@ -10,6 +10,7 @@
 	import { wait, type StateStore } from '$lib/utils'
 	import { get } from 'svelte/store'
 	import { sendUserToast } from '$lib/toast'
+	import { updateProgress } from '$lib/tutorialUtils'
 	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
@@ -226,7 +227,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={8}
+	index={2}
 	name="flow-live-tutorial"
 	tainted={isFlowTainted(flowStore.val)}
 	on:error
@@ -719,7 +720,8 @@
 					title: 'Ready to test!',
 					description: 'Run the complete flow and see your temperature converter in action.',
 					onNextClick: () => {
-						driver.moveNext()
+						updateProgress(2)
+						driver.destroy()
 					},
 					onPrevClick: () => {
 						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)

@@ -7,10 +7,31 @@
 	import { base } from '$lib/base'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { onMount } from 'svelte'
+	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 
 	let tab: 'quickstart' | 'team' = $state('quickstart')
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
+
+	// Tutorial index mapping
+	const TUTORIAL_INDEXES = {
+		'workspace-onboarding': 1,
+		'flow-live-tutorial': 2,
+		'troubleshoot-flow': 3
+	} as const
+
+	// Sync tutorial progress on mount
+	onMount(async () => {
+		await syncTutorialsTodos()
+	})
+
+	// Check if a tutorial is completed
+	function isTutorialCompleted(tutorialId: keyof typeof TUTORIAL_INDEXES): boolean {
+		const index = TUTORIAL_INDEXES[tutorialId]
+		return !$tutorialsToDo.includes(index)
+	}
 
 	function startWorkspaceOnboarding() {
 		workspaceTutorials?.runTutorialById('workspace-onboarding')
@@ -40,24 +61,27 @@
 
 	{#if tab === 'quickstart'}
 		<div class="pt-8">
-			<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl w-full px-4">
+			<div class="flex flex-col gap-3 max-w-3xl w-full px-4">
 				<TutorialButton
 					icon={GraduationCap}
 					title="Workspace onboarding"
 					description="Discover the basics of Windmill with a quick tour of the workspace."
 					onclick={startWorkspaceOnboarding}
+					isCompleted={isTutorialCompleted('workspace-onboarding')}
 				/>
 				<TutorialButton
 					icon={Workflow}
 					title="Build a flow"
 					description="Learn how to build workflows in Windmill with our interactive tutorial."
 					onclick={startFlowTutorial}
+					isCompleted={isTutorialCompleted('flow-live-tutorial')}
 				/>
 				<TutorialButton
 					icon={Wrench}
 					title="Fix a broken flow"
 					description="Learn how to monitor and debug your script and flow executions."
 					onclick={startTroubleshootFlowTutorial}
+					isCompleted={isTutorialCompleted('troubleshoot-flow')}
 				/>
 			</div>
 		</div>

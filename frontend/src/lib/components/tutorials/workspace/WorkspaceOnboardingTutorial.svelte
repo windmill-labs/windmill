@@ -21,7 +21,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={8}
+	index={1}
 	name="workspace-onboarding"
 	tainted={false}
 	getSteps={(driver) => {
@@ -89,7 +89,7 @@
 						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px;" /><p>Build low-code applications with Windmill. That\'s it for the tour!</p>',
 					onNextClick: async () => {
 						// Mark tutorial as complete
-						updateProgress(8)
+						updateProgress(1)
 						driver.destroy()
 
 						// Clean up URL parameter if present
