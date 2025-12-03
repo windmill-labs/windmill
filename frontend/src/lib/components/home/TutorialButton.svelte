@@ -15,7 +15,7 @@
 
 <button
 	onclick={onclick}
-	class="group relative flex items-center gap-4 w-full px-4 py-3 rounded-lg border transition-all duration-200 text-left hover:shadow-md hover:-translate-y-0.5 border-border/50 bg-surface hover:bg-surface-hover hover:border-primary/30"
+	class="group relative flex items-center gap-4 w-full px-4 py-3 rounded-lg border transition-all duration-200 text-left border-light bg-surface hover:bg-surface-hover hover:border-normal"
 >
 	<!-- Icon -->
 	<div
@@ -35,15 +35,17 @@
 	</div>
 
 	<!-- Status -->
-	<span
-		class="text-xs font-medium flex-shrink-0 {isCompleted
-			? 'text-green-600'
-			: 'text-primary'}"
-	>
-		{isCompleted ? 'Completed' : 'Not started'}
-	</span>
-	{#if isCompleted}
-				<CheckCircle2 size={14} class="text-green-600 flex-shrink-0" />
-	{/if}
+	<div class="flex items-center gap-1.5 flex-shrink-0">
+		{#if isCompleted}
+			<CheckCircle2 size={14} class="text-green-500 flex-shrink-0" />
+		{/if}
+		<span
+			class="text-xs font-medium {isCompleted
+				? 'text-green-500'
+				: 'text-secondary'}"
+		>
+			{isCompleted ? 'Completed' : 'Not started'}
+		</span>
+	</div>
 </button>
 
