@@ -35,6 +35,7 @@
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import TagList from '$lib/components/TagList.svelte'
 
 	let workers: WorkerPing[] | undefined = $state(undefined)
 	let workerGroups: Record<string, any> | undefined = $state(undefined)
@@ -687,8 +688,8 @@
 									<tr>
 										<Cell head first>Worker</Cell>
 										<Cell head>
-											<div class="flex flex-row items-center gap-1">
-												Worker Tags
+											<div class="flex flex-row items-center gap-1 min-w-32">
+												Worker tags
 												<Tooltip
 													documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
 												>
@@ -709,7 +710,7 @@
 										<Cell head>Liveness</Cell>
 										{#if $superadmin || $devopsRole}
 											<Cell head>
-												Live Shell
+												Repl
 												<Tooltip>
 													<p class="text-sm">
 														Open a live shell to execute bash commands on the machine where the
@@ -762,13 +763,8 @@
 																<Tooltip>{worker}</Tooltip>
 															{/if}
 														</Cell>
-														<Cell class="text-secondary">
-															{#if custom_tags && custom_tags?.length > 2}
-																{truncate(custom_tags?.join(', ') ?? '', 10)}
-																<Tooltip>{custom_tags?.join(', ')}</Tooltip>
-															{:else}
-																{custom_tags?.join(', ') ?? ''}
-															{/if}
+														<Cell class="min-w-0 max-w-32">
+															<TagList tags={custom_tags ?? []} />
 														</Cell>
 														<Cell class="text-secondary"
 															>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
@@ -853,9 +849,8 @@
 																		replForWorkerDrawer?.openDrawer()
 																	}}
 																	startIcon={{ icon: Terminal }}
-																>
-																	ssh
-																</Button>
+																	title="Open repl"
+																></Button>
 															</Cell>
 														{/if}
 													</tr>
