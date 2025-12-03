@@ -191,24 +191,6 @@ pub struct FlowValue {
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
 }
 
-#[cfg(test)]
-mod test_parsing {
-    use crate::{flows::FlowValue, jobs::ConcurrencySettings};
-
-    #[test]
-    fn slashed_annotations() {
-        let mut fv = FlowValue::default();
-        fv.concurrency_settings = ConcurrencySettings {
-            concurrency_key: Some("key".to_owned()),
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-        };
-
-        assert_eq!(serde_json::to_string(&fv).unwrap(), "".to_owned());
-        // assert_eq!(serde_yml::to_string(&fv).unwrap(), "".to_owned());
-    }
-}
-
 impl FlowValue {
     pub fn get_flow_module_at_step(&self, step: Step) -> anyhow::Result<&FlowModule> {
         let flow_module = match step {
