@@ -7,8 +7,11 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
-		devopsRole
+		devopsRole,
+		tutorialsToDo,
+		skippedAll
 	} from '$lib/stores'
+	import { syncTutorialsTodos, shouldHideTutorialsFromMainMenu } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -84,7 +87,7 @@
 	let recentChangelogs: Changelog[] = $state([])
 	let lastOpened = localStorage.getItem('changelogsLastOpened')
 
-	onMount(() => {
+	onMount(async () => {
 		if (lastOpened) {
 			// @ts-ignore
 			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
@@ -93,6 +96,8 @@
 		} else {
 			recentChangelogs = changelogs.slice(0, 3)
 		}
+		// Sync tutorial progress on mount
+		await syncTutorialsTodos()
 	})
 
 	function openChangelogs() {
@@ -215,7 +220,19 @@
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-assets',
 			aiDescription: 'Button to navigate to assets'
-		}
+		},
+		// Add Tutorials to main menu only if not all completed and not skipped
+		...($tutorialsToDo.length > 0 && !$skippedAll
+			? [
+					{
+						label: 'Tutorials',
+						href: `${base}/tutorials`,
+						icon: GraduationCap,
+						aiId: 'sidebar-menu-link-tutorials-main',
+						aiDescription: 'Button to navigate to tutorials'
+					}
+				]
+			: [])
 	])
 	let defaultExtraTriggerLinks = $derived([
 		{
