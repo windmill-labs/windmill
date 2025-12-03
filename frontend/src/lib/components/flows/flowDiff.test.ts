@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFlowTimeline } from './flowDiff'
+import { buildFlowTimeline, hasInputSchemaChanged } from './flowDiff'
 import type {
 	FlowValue,
 	FlowModule,
@@ -89,6 +89,19 @@ function createBranchAllModule(id: string, branches: { modules: FlowModule[] }[]
 // Helper to create a FlowValue with modules
 function createFlow(modules: FlowModule[]): FlowValue {
 	return { modules }
+}
+
+// Helper to create a FlowValue with special modules
+function createFlowWithSpecialModules(options: {
+	modules?: FlowModule[]
+	failure_module?: FlowModule
+	preprocessor_module?: FlowModule
+}): FlowValue {
+	return {
+		modules: options.modules ?? [],
+		...(options.failure_module && { failure_module: options.failure_module }),
+		...(options.preprocessor_module && { preprocessor_module: options.preprocessor_module })
+	}
 }
 
 /**
@@ -916,6 +929,667 @@ describe('buildFlowTimeline', () => {
 			expectModuleOrder(parallelBranches[0].modules, ['par1'])
 			// Second parallel branch has par2 and added par3 in correct order
 			expectModuleOrder(parallelBranches[1].modules, ['par2', 'par3'])
+		})
+	})
+
+	describe('special modules', () => {
+		it('detects added failure_module', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const failureModule = createRawScriptModule('failure', 'handle failure')
+
+			const beforeFlow = createFlowWithSpecialModules({ modules: [moduleA] })
+			const afterFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModule
+			})
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['failure']).toEqual({ action: 'added', pending: false })
+			expect(result.beforeActions['failure']).toBeUndefined()
+
+			// Verify mergedFlow contains the failure_module
+			expect(result.mergedFlow.failure_module?.id).toBe('failure')
+		})
+
+		it('detects removed failure_module', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const failureModule = createRawScriptModule('failure', 'handle failure')
+
+			const beforeFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModule
+			})
+			const afterFlow = createFlowWithSpecialModules({ modules: [moduleA] })
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.beforeActions['failure']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['failure']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow contains the removed failure_module
+			expect(result.mergedFlow.failure_module?.id).toBe('failure')
+		})
+
+		it('detects modified failure_module', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const failureModuleBefore = createRawScriptModule('failure', 'handle failure v1')
+			const failureModuleAfter = createRawScriptModule('failure', 'handle failure v2')
+
+			const beforeFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModuleBefore
+			})
+			const afterFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModuleAfter
+			})
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.beforeActions['failure']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['failure']).toEqual({ action: 'modified', pending: false })
+
+			// Verify mergedFlow contains the modified failure_module with new content
+			expect(result.mergedFlow.failure_module?.id).toBe('failure')
+			expect((result.mergedFlow.failure_module?.value as RawScript).content).toBe(
+				'handle failure v2'
+			)
+		})
+
+		it('detects added preprocessor_module', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const preprocessorModule = createRawScriptModule('preprocessor', 'preprocess input')
+
+			const beforeFlow = createFlowWithSpecialModules({ modules: [moduleA] })
+			const afterFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				preprocessor_module: preprocessorModule
+			})
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['preprocessor']).toEqual({ action: 'added', pending: false })
+			expect(result.beforeActions['preprocessor']).toBeUndefined()
+
+			// Verify mergedFlow contains the preprocessor_module
+			expect(result.mergedFlow.preprocessor_module?.id).toBe('preprocessor')
+		})
+
+		it('detects removed preprocessor_module', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const preprocessorModule = createRawScriptModule('preprocessor', 'preprocess input')
+
+			const beforeFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				preprocessor_module: preprocessorModule
+			})
+			const afterFlow = createFlowWithSpecialModules({ modules: [moduleA] })
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.beforeActions['preprocessor']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['preprocessor']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow contains the removed preprocessor_module
+			expect(result.mergedFlow.preprocessor_module?.id).toBe('preprocessor')
+		})
+
+		it('detects changes to both failure and preprocessor modules simultaneously', () => {
+			const moduleA = createRawScriptModule('a', 'main step')
+			const failureModuleBefore = createRawScriptModule('failure', 'handle failure v1')
+			const failureModuleAfter = createRawScriptModule('failure', 'handle failure v2')
+			const preprocessorModule = createRawScriptModule('preprocessor', 'preprocess input')
+
+			const beforeFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModuleBefore,
+				preprocessor_module: preprocessorModule
+			})
+			const afterFlow = createFlowWithSpecialModules({
+				modules: [moduleA],
+				failure_module: failureModuleAfter
+				// preprocessor_module removed
+			})
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// failure_module was modified
+			expect(result.beforeActions['failure']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['failure']).toEqual({ action: 'modified', pending: false })
+
+			// preprocessor_module was removed
+			expect(result.beforeActions['preprocessor']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['preprocessor']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow structure
+			expect(result.mergedFlow.failure_module?.id).toBe('failure')
+			expect(result.mergedFlow.preprocessor_module?.id).toBe('preprocessor')
+		})
+	})
+
+	describe('branchall entire branch removal', () => {
+		it('detects removal of entire parallel branch from branchall', () => {
+			const parallel1A = createRawScriptModule('p1_a', 'parallel 1 a')
+			const parallel1B = createRawScriptModule('p1_b', 'parallel 1 b')
+			const parallel2A = createRawScriptModule('p2_a', 'parallel 2 a')
+
+			const beforeBranchAll = createBranchAllModule('branchall1', [
+				{ modules: [parallel1A, parallel1B] },
+				{ modules: [parallel2A] } // entire branch removed
+			])
+			const afterBranchAll = createBranchAllModule('branchall1', [
+				{ modules: [parallel1A, parallel1B] }
+			])
+
+			const beforeFlow = createFlow([beforeBranchAll])
+			const afterFlow = createFlow([afterBranchAll])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// Module from removed branch should be marked as removed
+			expect(result.beforeActions['p2_a']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['p2_a']).toEqual({ action: 'removed', pending: false })
+
+			// Modules from preserved branch should be unchanged
+			expect(result.beforeActions['p1_a']).toBeUndefined()
+			expect(result.beforeActions['p1_b']).toBeUndefined()
+
+			// Verify mergedFlow structure - should have 2 branches with removed modules restored
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['branchall1'])
+			const mergedBranchAll = result.mergedFlow.modules?.find((m) => m.id === 'branchall1')
+			const branches = (mergedBranchAll?.value as BranchAll).branches
+
+			// First branch unchanged
+			expectModuleOrder(branches[0].modules, ['p1_a', 'p1_b'])
+
+			// Second branch should be restored with its module
+			expect(branches).toHaveLength(2)
+			expectModuleOrder(branches[1].modules, ['p2_a'])
+		})
+
+		it('detects removal of multiple parallel branches from branchall', () => {
+			const p1_a = createRawScriptModule('p1_a', 'parallel 1')
+			const p2_a = createRawScriptModule('p2_a', 'parallel 2')
+			const p3_a = createRawScriptModule('p3_a', 'parallel 3')
+
+			const beforeBranchAll = createBranchAllModule('branchall1', [
+				{ modules: [p1_a] },
+				{ modules: [p2_a] }, // removed
+				{ modules: [p3_a] } // removed
+			])
+			const afterBranchAll = createBranchAllModule('branchall1', [{ modules: [p1_a] }])
+
+			const beforeFlow = createFlow([beforeBranchAll])
+			const afterFlow = createFlow([afterBranchAll])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// Modules from removed branches should be marked as removed
+			expect(result.beforeActions['p2_a']).toEqual({ action: 'removed', pending: false })
+			expect(result.beforeActions['p3_a']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow structure - should have 3 branches restored
+			const mergedBranchAll = result.mergedFlow.modules?.find((m) => m.id === 'branchall1')
+			const branches = (mergedBranchAll?.value as BranchAll).branches
+
+			expect(branches).toHaveLength(3)
+			expectModuleOrder(branches[0].modules, ['p1_a'])
+			expectModuleOrder(branches[1].modules, ['p2_a'])
+			expectModuleOrder(branches[2].modules, ['p3_a'])
+		})
+	})
+
+	describe('hasInputSchemaChanged', () => {
+		it('returns false for identical schemas', () => {
+			const schema = {
+				type: 'object',
+				properties: {
+					name: { type: 'string' },
+					age: { type: 'number' }
+				}
+			}
+			const beforeFlow = { schema }
+			const afterFlow = { schema: JSON.parse(JSON.stringify(schema)) }
+
+			expect(hasInputSchemaChanged(beforeFlow, afterFlow)).toBe(false)
+		})
+
+		it('returns true for different schemas', () => {
+			const beforeFlow = {
+				schema: {
+					type: 'object',
+					properties: {
+						name: { type: 'string' }
+					}
+				}
+			}
+			const afterFlow = {
+				schema: {
+					type: 'object',
+					properties: {
+						name: { type: 'string' },
+						email: { type: 'string' }
+					}
+				}
+			}
+
+			expect(hasInputSchemaChanged(beforeFlow, afterFlow)).toBe(true)
+		})
+
+		it('returns false for undefined flows', () => {
+			expect(hasInputSchemaChanged(undefined, undefined)).toBe(false)
+			expect(hasInputSchemaChanged(undefined, { schema: {} })).toBe(false)
+			expect(hasInputSchemaChanged({ schema: {} }, undefined)).toBe(false)
+		})
+
+		it('returns true when schema is added', () => {
+			const beforeFlow = {}
+			const afterFlow = { schema: { type: 'object' } }
+
+			expect(hasInputSchemaChanged(beforeFlow, afterFlow)).toBe(true)
+		})
+
+		it('returns true when schema is removed', () => {
+			const beforeFlow = { schema: { type: 'object' } }
+			const afterFlow = {}
+
+			expect(hasInputSchemaChanged(beforeFlow, afterFlow)).toBe(true)
+		})
+
+		it('returns false for both empty schemas', () => {
+			const beforeFlow = { schema: {} }
+			const afterFlow = { schema: {} }
+
+			expect(hasInputSchemaChanged(beforeFlow, afterFlow)).toBe(false)
+		})
+	})
+
+	describe('multiple removed modules ordering', () => {
+		it('restores multiple removed modules in correct order', () => {
+			const moduleA = createRawScriptModule('a', 'first')
+			const moduleB = createRawScriptModule('b', 'second')
+			const moduleC = createRawScriptModule('c', 'third')
+			const moduleD = createRawScriptModule('d', 'fourth')
+			const moduleE = createRawScriptModule('e', 'fifth')
+
+			// Remove modules at beginning, middle, and end
+			const beforeFlow = createFlow([moduleA, moduleB, moduleC, moduleD, moduleE])
+			const afterFlow = createFlow([moduleB, moduleD]) // Remove a, c, e
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// All removed modules should be marked as removed
+			expect(result.beforeActions['a']).toEqual({ action: 'removed', pending: false })
+			expect(result.beforeActions['c']).toEqual({ action: 'removed', pending: false })
+			expect(result.beforeActions['e']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow restores all modules in the original order
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'b', 'c', 'd', 'e'])
+		})
+
+		it('restores multiple removed modules inside a loop in correct order', () => {
+			const innerA = createRawScriptModule('inner_a', 'first')
+			const innerB = createRawScriptModule('inner_b', 'second')
+			const innerC = createRawScriptModule('inner_c', 'third')
+			const innerD = createRawScriptModule('inner_d', 'fourth')
+
+			const beforeLoop = createForloopModule('loop1', [innerA, innerB, innerC, innerD])
+			const afterLoop = createForloopModule('loop1', [innerB]) // Remove a, c, d
+
+			const beforeFlow = createFlow([beforeLoop])
+			const afterFlow = createFlow([afterLoop])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// All removed modules should be marked as removed
+			expect(result.beforeActions['inner_a']).toEqual({ action: 'removed', pending: false })
+			expect(result.beforeActions['inner_c']).toEqual({ action: 'removed', pending: false })
+			expect(result.beforeActions['inner_d']).toEqual({ action: 'removed', pending: false })
+
+			// Verify mergedFlow restores all modules in the original order inside the loop
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'loop1')
+			const loopModules = (mergedLoop?.value as ForloopFlow).modules
+			expectModuleOrder(loopModules, ['inner_a', 'inner_b', 'inner_c', 'inner_d'])
+		})
+	})
+
+	describe('insert position tests', () => {
+		it('handles module added at beginning of list', () => {
+			const moduleA = createRawScriptModule('a', 'existing first')
+			const moduleB = createRawScriptModule('b', 'existing second')
+			const moduleNew = createRawScriptModule('new', 'new at beginning')
+
+			const beforeFlow = createFlow([moduleA, moduleB])
+			const afterFlow = createFlow([moduleNew, moduleA, moduleB])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['new']).toEqual({ action: 'added', pending: false })
+
+			// Verify mergedFlow maintains correct order with new module at beginning
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['new', 'a', 'b'])
+		})
+
+		it('handles module added in middle of list', () => {
+			const moduleA = createRawScriptModule('a', 'first')
+			const moduleB = createRawScriptModule('b', 'second')
+			const moduleC = createRawScriptModule('c', 'third')
+			const moduleNew = createRawScriptModule('new', 'new in middle')
+
+			const beforeFlow = createFlow([moduleA, moduleB, moduleC])
+			const afterFlow = createFlow([moduleA, moduleNew, moduleB, moduleC])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['new']).toEqual({ action: 'added', pending: false })
+
+			// Verify mergedFlow maintains correct order with new module in middle
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'new', 'b', 'c'])
+		})
+
+		it('handles module added at beginning inside a loop', () => {
+			const innerA = createRawScriptModule('inner_a', 'existing first')
+			const innerB = createRawScriptModule('inner_b', 'existing second')
+			const innerNew = createRawScriptModule('inner_new', 'new at beginning')
+
+			const beforeLoop = createForloopModule('loop1', [innerA, innerB])
+			const afterLoop = createForloopModule('loop1', [innerNew, innerA, innerB])
+
+			const beforeFlow = createFlow([beforeLoop])
+			const afterFlow = createFlow([afterLoop])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['inner_new']).toEqual({ action: 'added', pending: false })
+
+			// Verify correct order inside the loop
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'loop1')
+			const loopModules = (mergedLoop?.value as ForloopFlow).modules
+			expectModuleOrder(loopModules, ['inner_new', 'inner_a', 'inner_b'])
+		})
+
+		it('handles multiple modules added at different positions', () => {
+			const moduleA = createRawScriptModule('a', 'original a')
+			const moduleB = createRawScriptModule('b', 'original b')
+			const moduleNew1 = createRawScriptModule('new1', 'new at start')
+			const moduleNew2 = createRawScriptModule('new2', 'new in middle')
+			const moduleNew3 = createRawScriptModule('new3', 'new at end')
+
+			const beforeFlow = createFlow([moduleA, moduleB])
+			const afterFlow = createFlow([moduleNew1, moduleA, moduleNew2, moduleB, moduleNew3])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['new1']).toEqual({ action: 'added', pending: false })
+			expect(result.afterActions['new2']).toEqual({ action: 'added', pending: false })
+			expect(result.afterActions['new3']).toEqual({ action: 'added', pending: false })
+
+			// Verify mergedFlow maintains correct order
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['new1', 'a', 'new2', 'b', 'new3'])
+		})
+	})
+
+	describe('empty containers', () => {
+		it('handles adding empty forloop', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const emptyLoop = createForloopModule('empty_loop', [])
+
+			const beforeFlow = createFlow([moduleA])
+			const afterFlow = createFlow([moduleA, emptyLoop])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['empty_loop']).toEqual({ action: 'added', pending: false })
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'empty_loop'])
+
+			// Verify the empty loop has no modules
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'empty_loop')
+			expect((mergedLoop?.value as ForloopFlow).modules).toHaveLength(0)
+		})
+
+		it('handles removing empty forloop', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const emptyLoop = createForloopModule('empty_loop', [])
+
+			const beforeFlow = createFlow([moduleA, emptyLoop])
+			const afterFlow = createFlow([moduleA])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.beforeActions['empty_loop']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['empty_loop']).toEqual({ action: 'removed', pending: false })
+
+			// Verify the removed empty loop is in mergedFlow
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'empty_loop'])
+		})
+
+		it('handles adding empty branchone', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const emptyBranch = createBranchOneModule('empty_branch', [], [])
+
+			const beforeFlow = createFlow([moduleA])
+			const afterFlow = createFlow([moduleA, emptyBranch])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.afterActions['empty_branch']).toEqual({ action: 'added', pending: false })
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'empty_branch'])
+
+			// Verify the empty branch has no modules in default or branches
+			const mergedBranch = result.mergedFlow.modules?.find((m) => m.id === 'empty_branch')
+			expect((mergedBranch?.value as BranchOne).default).toHaveLength(0)
+			expect((mergedBranch?.value as BranchOne).branches).toHaveLength(0)
+		})
+
+		it('handles removing empty branchone with empty default and branches', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const emptyBranch = createBranchOneModule('empty_branch', [], [{ expr: 'true', modules: [] }])
+
+			const beforeFlow = createFlow([moduleA, emptyBranch])
+			const afterFlow = createFlow([moduleA])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			expect(result.beforeActions['empty_branch']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['empty_branch']).toEqual({ action: 'removed', pending: false })
+
+			// Verify the removed empty branch is in mergedFlow with its structure
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['a', 'empty_branch'])
+			const mergedBranch = result.mergedFlow.modules?.find((m) => m.id === 'empty_branch')
+			expect((mergedBranch?.value as BranchOne).default).toHaveLength(0)
+			expect((mergedBranch?.value as BranchOne).branches).toHaveLength(1)
+		})
+	})
+
+	describe('container type changes', () => {
+		it('treats forloop to whileloop change as removed + added', () => {
+			const innerModule = createRawScriptModule('inner', 'inner step')
+
+			const forLoop = createForloopModule('loop1', [innerModule])
+			const whileLoop = createWhileloopModule('loop1', [innerModule])
+
+			const beforeFlow = createFlow([forLoop])
+			const afterFlow = createFlow([whileLoop])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// The container itself should be treated as removed + added (type changed)
+			expect(result.beforeActions['loop1']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['loop1']).toEqual({ action: 'added', pending: false })
+
+			// Inner module exists in both, so it's unchanged
+			expect(result.beforeActions['inner']).toBeUndefined()
+			expect(result.afterActions['inner']).toBeUndefined()
+		})
+
+		it('treats branchone to branchall change as removed + added', () => {
+			const innerModule = createRawScriptModule('inner', 'inner step')
+
+			const branchOne = createBranchOneModule('branch1', [innerModule], [])
+			const branchAll = createBranchAllModule('branch1', [{ modules: [innerModule] }])
+
+			const beforeFlow = createFlow([branchOne])
+			const afterFlow = createFlow([branchAll])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// The container itself should be treated as removed + added (type changed)
+			expect(result.beforeActions['branch1']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['branch1']).toEqual({ action: 'added', pending: false })
+
+			// Inner module exists in both, so it's unchanged
+			expect(result.beforeActions['inner']).toBeUndefined()
+			expect(result.afterActions['inner']).toBeUndefined()
+		})
+	})
+
+	describe('module movement', () => {
+		it('detects module moved from root to inside a loop', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const moduleB = createRawScriptModule('b', 'step b')
+			const emptyLoop = createForloopModule('loop1', [])
+			const loopWithB = createForloopModule('loop1', [moduleB])
+
+			// Before: a, b, loop1(empty)
+			// After: a, loop1(b)
+			const beforeFlow = createFlow([moduleA, moduleB, emptyLoop])
+			const afterFlow = createFlow([moduleA, loopWithB])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// Module b is in both flows but at different locations
+			// The implementation doesn't track "movement" - it sees b in both places
+			// The loop itself is modified because its modules changed
+			expect(result.beforeActions['loop1']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['loop1']).toEqual({ action: 'modified', pending: false })
+
+			// b is removed from root and added inside loop - implementation sees it as existing in both
+			// but since it's the same module ID, no action is recorded
+			// The mergedFlow should contain both the old position (at root) and the new position (in loop)
+			// This is handled by the duplicate ID logic - old__b prefix
+			const rootModuleIds = result.mergedFlow.modules?.map((m) => m.id) ?? []
+			expect(rootModuleIds).toContain('a')
+			expect(rootModuleIds).toContain('loop1')
+			// The old 'b' at root level gets prefixed with 'old__'
+			expect(rootModuleIds).toContain('old__b')
+		})
+
+		it('detects module moved from one branch to another', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+
+			// Before: branch with 'a' in first conditional branch
+			const beforeBranch = createBranchOneModule('branch1', [], [
+				{ expr: 'x > 0', modules: [moduleA] },
+				{ expr: 'x < 0', modules: [] }
+			])
+			// After: branch with 'a' in second conditional branch
+			const afterBranch = createBranchOneModule('branch1', [], [
+				{ expr: 'x > 0', modules: [] },
+				{ expr: 'x < 0', modules: [moduleA] }
+			])
+
+			const beforeFlow = createFlow([beforeBranch])
+			const afterFlow = createFlow([afterBranch])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// The branch container is modified
+			expect(result.beforeActions['branch1']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['branch1']).toEqual({ action: 'modified', pending: false })
+
+			// Module 'a' exists in both flows at same ID, so no action recorded for it
+			expect(result.beforeActions['a']).toBeUndefined()
+			expect(result.afterActions['a']).toBeUndefined()
+		})
+
+		it('detects module moved from loop to root', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const moduleB = createRawScriptModule('b', 'step b')
+
+			const loopWithA = createForloopModule('loop1', [moduleA])
+			const emptyLoop = createForloopModule('loop1', [])
+
+			// Before: b, loop1(a)
+			// After: b, loop1(empty), a
+			const beforeFlow = createFlow([moduleB, loopWithA])
+			const afterFlow = createFlow([moduleB, emptyLoop, moduleA])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// The loop is modified because its modules changed
+			expect(result.beforeActions['loop1']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['loop1']).toEqual({ action: 'modified', pending: false })
+
+			// Module 'a' exists in both flows, so no action recorded for it
+			// The mergedFlow should contain the old 'a' inside the loop (prefixed) and new 'a' at root
+			const rootModuleIds = result.mergedFlow.modules?.map((m) => m.id) ?? []
+			expect(rootModuleIds).toContain('b')
+			expect(rootModuleIds).toContain('loop1')
+			expect(rootModuleIds).toContain('a')
+
+			// The old 'a' inside the loop gets prefixed
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'loop1')
+			const loopModuleIds = (mergedLoop?.value as ForloopFlow).modules.map((m) => m.id)
+			expect(loopModuleIds).toContain('old__a')
+		})
+	})
+
+	describe('module reordering', () => {
+		it('detects modules reordered at root level', () => {
+			const moduleA = createRawScriptModule('a', 'step a')
+			const moduleB = createRawScriptModule('b', 'step b')
+			const moduleC = createRawScriptModule('c', 'step c')
+
+			// Before: a, b, c
+			// After: c, a, b
+			const beforeFlow = createFlow([moduleA, moduleB, moduleC])
+			const afterFlow = createFlow([moduleC, moduleA, moduleB])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// No modules were added, removed, or modified - just reordered
+			// The implementation doesn't detect reordering as a change
+			expect(result.beforeActions['a']).toBeUndefined()
+			expect(result.beforeActions['b']).toBeUndefined()
+			expect(result.beforeActions['c']).toBeUndefined()
+			expect(result.afterActions['a']).toBeUndefined()
+			expect(result.afterActions['b']).toBeUndefined()
+			expect(result.afterActions['c']).toBeUndefined()
+
+			// mergedFlow should reflect the afterFlow order
+			expectModuleOrder(result.mergedFlow.modules ?? [], ['c', 'a', 'b'])
+		})
+
+		it('detects modules reordered inside a loop', () => {
+			const innerA = createRawScriptModule('inner_a', 'inner a')
+			const innerB = createRawScriptModule('inner_b', 'inner b')
+			const innerC = createRawScriptModule('inner_c', 'inner c')
+
+			// Before: loop with [a, b, c]
+			// After: loop with [c, b, a]
+			const beforeLoop = createForloopModule('loop1', [innerA, innerB, innerC])
+			const afterLoop = createForloopModule('loop1', [innerC, innerB, innerA])
+
+			const beforeFlow = createFlow([beforeLoop])
+			const afterFlow = createFlow([afterLoop])
+
+			const result = buildFlowTimeline(beforeFlow, afterFlow)
+
+			// The loop is modified because its internal structure changed
+			// (deepEqual compares the modules array which includes order)
+			expect(result.beforeActions['loop1']).toEqual({ action: 'modified', pending: false })
+			expect(result.afterActions['loop1']).toEqual({ action: 'modified', pending: false })
+
+			// Individual modules are not marked as changed
+			expect(result.beforeActions['inner_a']).toBeUndefined()
+			expect(result.beforeActions['inner_b']).toBeUndefined()
+			expect(result.beforeActions['inner_c']).toBeUndefined()
+
+			// mergedFlow should reflect the afterFlow order inside the loop
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'loop1')
+			const loopModules = (mergedLoop?.value as ForloopFlow).modules
+			expectModuleOrder(loopModules, ['inner_c', 'inner_b', 'inner_a'])
 		})
 	})
 })
