@@ -189,7 +189,10 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
-	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDucklakePicker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showGitRepoPicker = $derived(lang === 'ansible')
 
@@ -716,8 +719,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	<ItemPicker
 		bind:this={ducklakePicker}
 		pickCallback={async (_, name) => {
-			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
-			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`db = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				}
+				editor?.insertAtCursor(`let sql = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			}
 		}}
 		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
