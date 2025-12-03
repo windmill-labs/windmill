@@ -61,7 +61,7 @@
 
 	{#if tab === 'quickstart'}
 		<div class="pt-8">
-			<div class="flex flex-col gap-3 max-w-3xl w-full px-4">
+			<div class="border rounded-md bg-surface-tertiary">
 				<TutorialButton
 					icon={GraduationCap}
 					title="Workspace onboarding"
