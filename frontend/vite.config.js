@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -99,7 +100,11 @@ const config = {
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},
-	assetsInclude: ['**/*.wasm']
+	assetsInclude: ['**/*.wasm'],
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'node'
+	}
 }
 
 export default config
