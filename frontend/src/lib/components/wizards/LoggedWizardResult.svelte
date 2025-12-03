@@ -60,7 +60,7 @@
 			}}
 		>
 			<div class="flex gap-3">
-				<span class="inline-flex w-10 h-10 shrink-0 justify-center items-center">
+				<span class="inline-flex w-5 h-10 shrink-0 justify-center items-center">
 					{#if step.status == 'SKIP'}
 						<Circle size={20} class="inline text-hint/50" />
 					{:else if step.status == 'FAIL'}

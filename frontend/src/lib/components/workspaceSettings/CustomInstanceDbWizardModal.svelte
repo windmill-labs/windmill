@@ -82,7 +82,7 @@
 				</div>
 			</div>
 			<div class="flex-1 shrink-0 flex flex-col pl-4 gap-4">
-				<div class="flex-1 overflow-y-auto">
+				<div class="flex-1 overflow-y-scroll">
 					{#if status?.error}
 						<div transition:slide={{ duration: 200 }} class="mb-4">
 							<Alert title="Error setting up custom instance database" type="error">
