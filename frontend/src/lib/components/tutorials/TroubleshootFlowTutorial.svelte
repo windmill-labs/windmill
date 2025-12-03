@@ -435,7 +435,7 @@
 				popover: {
 					title: 'Your turn now!',
 					description:
-						'Fix the issue in the code, and run the flow again to confirm everything works.',
+						'Fix the issue in the code, and run the flow again to confirm everything works.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
 					side: 'top',
 					onNextClick: () => {
 						if (!checkStepComplete(7)) return
