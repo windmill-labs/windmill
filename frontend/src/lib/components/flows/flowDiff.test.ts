@@ -1,116 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { buildFlowTimeline, hasInputSchemaChanged } from './flowDiff'
-import type {
-	FlowValue,
-	FlowModule,
-	RawScript,
-	Identity,
-	ForloopFlow,
-	WhileloopFlow,
-	BranchOne,
-	BranchAll
-} from '$lib/gen'
-
-// Helper to create a minimal RawScript module
-function createRawScriptModule(id: string, content: string): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'rawscript',
-			content,
-			language: 'bun',
-			input_transforms: {}
-		} as RawScript
-	}
-}
-
-// Helper to create a minimal Identity module (for type-change tests)
-function createIdentityModule(id: string): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'identity'
-		} as Identity
-	}
-}
-
-// Helper to create a ForloopFlow module with nested modules
-function createForloopModule(id: string, nestedModules: FlowModule[]): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'forloopflow',
-			modules: nestedModules,
-			iterator: { type: 'javascript', expr: '[1,2,3]' },
-			skip_failures: false
-		} as ForloopFlow
-	}
-}
-
-// Helper to create a WhileloopFlow module with nested modules
-function createWhileloopModule(id: string, nestedModules: FlowModule[]): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'whileloopflow',
-			modules: nestedModules,
-			skip_failures: false
-		} as WhileloopFlow
-	}
-}
-
-// Helper to create a BranchOne module with default and conditional branches
-function createBranchOneModule(
-	id: string,
-	defaultModules: FlowModule[],
-	branches: { expr: string; modules: FlowModule[] }[]
-): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'branchone',
-			default: defaultModules,
-			branches: branches.map((b) => ({ expr: b.expr, modules: b.modules }))
-		} as BranchOne
-	}
-}
-
-// Helper to create a BranchAll module with parallel branches
-function createBranchAllModule(id: string, branches: { modules: FlowModule[] }[]): FlowModule {
-	return {
-		id,
-		value: {
-			type: 'branchall',
-			branches: branches.map((b) => ({ modules: b.modules }))
-		} as BranchAll
-	}
-}
-
-// Helper to create a FlowValue with modules
-function createFlow(modules: FlowModule[]): FlowValue {
-	return { modules }
-}
-
-// Helper to create a FlowValue with special modules
-function createFlowWithSpecialModules(options: {
-	modules?: FlowModule[]
-	failure_module?: FlowModule
-	preprocessor_module?: FlowModule
-}): FlowValue {
-	return {
-		modules: options.modules ?? [],
-		...(options.failure_module && { failure_module: options.failure_module }),
-		...(options.preprocessor_module && { preprocessor_module: options.preprocessor_module })
-	}
-}
-
-/**
- * Asserts that modules appear in the exact order specified.
- * Also implicitly verifies the count of modules.
- */
-function expectModuleOrder(modules: FlowModule[], expectedIds: string[]) {
-	expect(modules.map((m) => m.id)).toEqual(expectedIds)
-}
+import type { FlowValue, RawScript, ForloopFlow, WhileloopFlow, BranchOne, BranchAll } from '$lib/gen'
+import {
+	createRawScriptModule,
+	createIdentityModule,
+	createForloopModule,
+	createWhileloopModule,
+	createBranchOneModule,
+	createBranchAllModule,
+	createFlow,
+	createFlowWithSpecialModules,
+	expectModuleOrder
+} from './flowDiff.testUtils'
 
 describe('buildFlowTimeline', () => {
 	describe('basic detection', () => {
@@ -1418,9 +1319,16 @@ describe('buildFlowTimeline', () => {
 			expect(result.beforeActions['loop1']).toEqual({ action: 'removed', pending: false })
 			expect(result.afterActions['loop1']).toEqual({ action: 'added', pending: false })
 
-			// Inner module exists in both, so it's unchanged
-			expect(result.beforeActions['inner']).toBeUndefined()
-			expect(result.afterActions['inner']).toBeUndefined()
+			// Inner module's location type changes (forloop -> whileloop), so it's also treated as moved
+			expect(result.beforeActions['inner']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['inner']).toEqual({ action: 'added', pending: false })
+
+			// The old inner module should appear with prefix in the merged flow
+			const mergedLoop = result.mergedFlow.modules?.find((m) => m.id === 'loop1')
+			expect(mergedLoop).toBeDefined()
+			const loopModules = (mergedLoop?.value as WhileloopFlow).modules
+			// The whileloop contains 'inner' (new) and the old one gets prefixed
+			expect(loopModules.some((m) => m.id === 'inner')).toBe(true)
 		})
 
 		it('treats branchone to branchall change as removed + added', () => {
@@ -1438,9 +1346,15 @@ describe('buildFlowTimeline', () => {
 			expect(result.beforeActions['branch1']).toEqual({ action: 'removed', pending: false })
 			expect(result.afterActions['branch1']).toEqual({ action: 'added', pending: false })
 
-			// Inner module exists in both, so it's unchanged
-			expect(result.beforeActions['inner']).toBeUndefined()
-			expect(result.afterActions['inner']).toBeUndefined()
+			// Inner module's location type changes (branchone-default -> branchall-branch), so it's also treated as moved
+			expect(result.beforeActions['inner']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['inner']).toEqual({ action: 'added', pending: false })
+
+			// The new inner module should appear in the branchall
+			const mergedBranch = result.mergedFlow.modules?.find((m) => m.id === 'branch1')
+			expect(mergedBranch).toBeDefined()
+			const branchModules = (mergedBranch?.value as BranchAll).branches[0].modules
+			expect(branchModules.some((m) => m.id === 'inner')).toBe(true)
 		})
 	})
 
@@ -1498,9 +1412,19 @@ describe('buildFlowTimeline', () => {
 			expect(result.beforeActions['branch1']).toEqual({ action: 'modified', pending: false })
 			expect(result.afterActions['branch1']).toEqual({ action: 'modified', pending: false })
 
-			// Module 'a' exists in both flows at same ID, so no action recorded for it
-			expect(result.beforeActions['a']).toBeUndefined()
-			expect(result.afterActions['a']).toBeUndefined()
+			// Module 'a' moved from branchIndex 0 to branchIndex 1, so it's treated as removed + added
+			expect(result.beforeActions['a']).toEqual({ action: 'removed', pending: false })
+			expect(result.afterActions['a']).toEqual({ action: 'added', pending: false })
+
+			// The old 'a' should appear with prefix in the first branch of mergedFlow
+			const mergedBranch = result.mergedFlow.modules?.find((m) => m.id === 'branch1')
+			expect(mergedBranch).toBeDefined()
+			const firstBranchModules = (mergedBranch?.value as BranchOne).branches[0].modules
+			expect(firstBranchModules.some((m) => m.id === 'old__a')).toBe(true)
+
+			// The new 'a' should appear in the second branch
+			const secondBranchModules = (mergedBranch?.value as BranchOne).branches[1].modules
+			expect(secondBranchModules.some((m) => m.id === 'a')).toBe(true)
 		})
 
 		it('detects module moved from loop to root', () => {
