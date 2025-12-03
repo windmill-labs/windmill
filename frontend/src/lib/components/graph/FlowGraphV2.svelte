@@ -476,9 +476,7 @@
 		const currentFlowValue = {
 			modules: modules,
 			failure_module: failureModule,
-			preprocessor_module: preprocessorModule,
-			skip_expr: earlyStop ? '' : undefined,
-			cache_ttl: cache ? 300 : undefined
+			preprocessor_module: preprocessorModule
 		}
 		diffManager.setCurrentFlow(currentFlowValue)
 		diffManager.setCurrentInputSchema(currentInputSchema)
