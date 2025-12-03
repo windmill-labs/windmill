@@ -3,7 +3,7 @@
 	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
-	import type { OpenFlow } from '$lib/gen'
+	import type { InputTransform, OpenFlow } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
 	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
@@ -11,6 +11,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import { SPECIAL_MODULE_IDS } from '../shared'
+	import type { FlowCopilotContext } from '../../flow'
 
 	let {
 		flowModuleSchemaMap,
@@ -23,6 +24,8 @@
 	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
+
+	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
@@ -103,6 +106,11 @@
 				module.value.input_transforms = input_transforms
 				refreshStateStore(flowStore)
 
+				// Update exprsToSet if this module is currently selected
+				if (id === selectedId && exprsToSet) {
+					exprsToSet.set(input_transforms)
+				}
+
 				if (flowStateStore.val[id]) {
 					flowStateStore.val[id].schema = schema
 				} else {
@@ -130,6 +138,12 @@
 		},
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
+		},
+
+		updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => {
+			if (id === selectedId && exprsToSet) {
+				exprsToSet.set(inputTransforms)
+			}
 		},
 
 		// accept/reject operations (via flowDiffManager)

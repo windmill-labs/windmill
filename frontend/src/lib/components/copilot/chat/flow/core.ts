@@ -1,4 +1,11 @@
-import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
+import {
+	ScriptService,
+	type FlowModule,
+	type InputTransform,
+	type RawScript,
+	type Script,
+	JobService
+} from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -60,6 +67,8 @@ export interface FlowAIChatHelpers {
 	setCode: (id: string, code: string) => Promise<void>
 	setFlowJson: (json: string) => Promise<void>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
+	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
+	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
 
 	// accept/reject operations (via flowDiffManager)
 	/** Accept all pending module changes */
@@ -681,6 +690,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
 
+			// Update exprsToSet if this module is selected and has input_transforms
+			if (value.id && value.value?.input_transforms) {
+				helpers.updateExprsToSet(value.id, value.value.input_transforms)
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Module '${value.id}' added successfully`,
 				result: 'Success'
@@ -830,6 +844,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			await helpers.setFlowJson(JSON.stringify(updatedFlow))
+
+			// Update exprsToSet if this module is selected and has input_transforms
+			if (value.value?.input_transforms) {
+				helpers.updateExprsToSet(id, value.value.input_transforms)
+			}
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Module '${id}' modified successfully`,
