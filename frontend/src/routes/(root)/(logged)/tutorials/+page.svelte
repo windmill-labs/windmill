@@ -9,7 +9,9 @@
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { onMount } from 'svelte'
-	import { syncTutorialsTodos } from '$lib/tutorialUtils'
+	import { syncTutorialsTodos, resetAllTodos } from '$lib/tutorialUtils'
+	import { Button } from '$lib/components/common'
+	import { RefreshCw } from 'lucide-svelte'
 
 	let tab: 'quickstart' | 'team' = $state('quickstart')
 
@@ -51,7 +53,19 @@
 		title="Tutorials"
 		tooltip="Learn how to use Windmill with our interactive tutorials"
 		documentationLink="https://www.windmill.dev/docs/intro"
-	/>
+	>
+		<Button
+			size="xs"
+			variant="default"
+			startIcon={{ icon: RefreshCw }}
+			onclick={async () => {
+				await resetAllTodos()
+				await syncTutorialsTodos()
+			}}
+		>
+			Reset tutorials
+		</Button>
+	</PageHeader>
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
 			<Tab value="quickstart" label="Quickstart" icon={BookOpen} />
