@@ -283,9 +283,13 @@
 		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
-			<Alert type="warning" title="Worker management UI is EE only" class="mb-4">
+			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
+			</Alert>
+		{:else if !$superadmin || !$devopsRole}
+			<Alert type="info" title="Read-only mode" class="mb-4">
+				Only superadmin or devops role can edit the worker config.
 			</Alert>
 		{/if}
 		<Label label="Workers assignment">
@@ -366,6 +370,7 @@
 								dropdownItems={dropdownResetToAllTags}
 								dropdownWidth={300}
 								startIcon={{ icon: RotateCcw }}
+								disabled={!$superadmin && !$devopsRole}
 							>
 								Reset to all tags <Tooltip>
 									{#snippet text()}
@@ -383,6 +388,7 @@
 									items={workspaces.map((w) => ({ value: w.id }))}
 									onCreateItem={(c) => (workspaceTag = c)}
 									placeholder="Workspace ID"
+									disabled={!$superadmin && !$devopsRole}
 								/>
 							{/if}
 						</div>
@@ -399,6 +405,7 @@
 						}}
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
+						disabled={!$superadmin && !$devopsRole}
 					/>
 				{/if}
 			</Label>
@@ -418,7 +425,7 @@
 						</Tooltip>
 					{/snippet}
 					<MultiSelect
-						disabled={!$enterpriseLicense}
+						disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
 						bind:value={
 							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 							(v) => {
@@ -444,7 +451,7 @@
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
 							}
 						}}
-						disabled={!$enterpriseLicense}
+						disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center text-xs gap-2">
@@ -452,7 +459,7 @@
 							<input
 								type="number"
 								class="!w-14 text-center"
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense || !($superadmin || $devopsRole)}
 								min="1"
 								bind:value={nconfig.min_alive_workers_alert_threshold}
 							/>
@@ -516,8 +523,18 @@
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="dynamic" label="Dynamic" {item} />
-								<ToggleButton value="static" label="Static" {item} />
+								<ToggleButton
+									value="dynamic"
+									label="Dynamic"
+									{item}
+									disabled={!$superadmin && !$devopsRole}
+								/>
+								<ToggleButton
+									value="static"
+									label="Static"
+									{item}
+									disabled={!$superadmin && !$devopsRole}
+								/>
 							{/snippet}
 						</ToggleButtonGroup>
 						<TextInput
@@ -550,6 +567,7 @@
 								startIcon={{ icon: Trash }}
 								iconOnly
 								destructive
+								disabled={!($superadmin || $devopsRole)}
 							/>
 						{/if}
 					</div>
@@ -631,7 +649,11 @@
 		</Label>
 		<div class="mt-8"></div>
 
-		<AutoscalingConfigEditor worker_tags={config?.worker_tags} bind:config={nconfig.autoscaling} />
+		<AutoscalingConfigEditor
+			worker_tags={config?.worker_tags}
+			bind:config={nconfig.autoscaling}
+			disabled={!$superadmin && !$devopsRole}
+		/>
 
 		<div class="mt-8"></div>
 		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
@@ -1093,14 +1115,14 @@
 				</Button>
 			{:else if config}
 				<Button
-					unifiedSize="sm"
+					unifiedSize="md"
 					variant="accent"
 					on:click={() => {
 						loadNConfig()
 						drawer?.openDrawer()
 					}}
 				>
-					Config
+					See config
 				</Button>
 			{/if}
 		</div>

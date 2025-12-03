@@ -19,9 +19,10 @@
 	interface Props {
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
+		disabled: boolean
 	}
 
-	let { config = $bindable(), worker_tags }: Props = $props()
+	let { config = $bindable(), worker_tags, disabled }: Props = $props()
 	let test_input: number = $state(3)
 	let healthCheckLoading: boolean = $state(false)
 	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
@@ -70,6 +71,7 @@
 			<Toggle
 				checked={config?.enabled ?? false}
 				options={{ right: 'Enabled' }}
+				{disabled}
 				on:change={(e) => {
 					if (e.detail) {
 						collapsed = false
@@ -107,6 +109,7 @@
 					min="1"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50 disabled:bg-surface-disabled disabled:border-transparent disabled:text-disabled"
 					bind:value={config.min_workers}
+					{disabled}
 				/>
 				{#if validateMinMax()}
 					<div class="text-2xs text-red-500 font-normal mt-1">
@@ -114,7 +117,7 @@
 					</div>
 				{/if}
 			{:else}
-				<input type="number" disabled placeholder="3" />
+				<input type="number" {disabled} placeholder="3" />
 			{/if}
 		</Label>
 		<Label label="Max # of workers" disabled={config === undefined} class="grow min-w-0">
@@ -125,6 +128,7 @@
 					min="1"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50 disabled:bg-surface-disabled disabled:border-transparent disabled:text-disabled"
 					bind:value={config.max_workers}
+					{disabled}
 				/>
 			{:else}
 				<input type="number" disabled placeholder="10" />
@@ -136,7 +140,7 @@
 		<span class="text-xs text-secondary">Choose how to autoscale your worker group</span>
 		{#if config?.integration}
 			<div class="flex flex-col gap-2">
-				<ToggleButtonGroup bind:selected={config.integration.type}>
+				<ToggleButtonGroup bind:selected={config.integration.type} {disabled}>
 					{#snippet children({ item })}
 						<ToggleButton
 							value="dryrun"
@@ -175,6 +179,7 @@
 										}
 									}
 									clearable
+									{disabled}
 								/>
 
 								{#if config?.integration?.['path'] === undefined || config?.integration?.['path'] === ''}
@@ -184,6 +189,7 @@
 										endIcon={{ icon: ExternalLink }}
 										href="/scripts/add?hub=hub%2F9204%2Fhelper%2FScale%20a%20worker%20group%20deployed%20as%20a%20kubernetes%20service&workspace=admins"
 										>Create from template
+										{disabled}
 									</Button>
 								{:else}
 									<Button
@@ -191,6 +197,7 @@
 										target="_blank"
 										href={`/runs/${config.integration.path}?workspace=admins`}
 										endIcon={{ icon: ExternalLink }}
+										{disabled}
 									>
 										See jobs
 									</Button>
@@ -207,7 +214,7 @@
 							<Select
 								clearable
 								id="custom_tag_select"
-								disabled={!config || !config.integration}
+								disabled={!config || !config.integration || disabled}
 								bind:value={
 									() => config?.integration?.['tags'] ?? undefined,
 									(v) => {
@@ -323,7 +330,7 @@
 	<Section label="Advanced" small collapsable={true} class="flex flex-col gap-6">
 		<Label
 			label="Cooldown seconds after incremental scale-in/out"
-			disabled={config === undefined}
+			disabled={config === undefined || disabled}
 			tooltip="Time to wait between incremental scaling operations"
 		>
 			{#if config !== undefined}
@@ -334,6 +341,7 @@
 					placeholder="300"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50"
 					bind:value={config.cooldown_seconds}
+					{disabled}
 				/>
 			{:else}
 				<input type="number" disabled />
@@ -341,7 +349,7 @@
 		</Label>
 		<Label
 			label="Cooldown seconds after full scale out"
-			disabled={config === undefined}
+			disabled={config === undefined || disabled}
 			tooltip="Time to wait after scaling to maximum capacity"
 		>
 			{#if config !== undefined}
@@ -352,6 +360,7 @@
 					placeholder="1500"
 					class="rounded-md border border-border-light text-xs text-primary font-normal bg-surface-input px-2 py-1 focus:border-border-selected hover:border-border-selected/50"
 					bind:value={config.full_scale_cooldown_seconds}
+					{disabled}
 				/>
 			{:else}
 				<input
@@ -364,7 +373,12 @@
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<Label label="Num jobs waiting to trigger an incremental scale-out">
 			{#if config !== undefined}
-				<input type="number" bind:value={config.inc_scale_num_jobs_waiting} placeholder="1" />
+				<input
+					type="number"
+					bind:value={config.inc_scale_num_jobs_waiting}
+					placeholder="1"
+					{disabled}
+				/>
 			{:else}
 				<input type="number" disabled />
 			{/if}
@@ -382,6 +396,7 @@
 					placeholder="max workers"
 					bind:value={config.full_scale_jobs_waiting}
 					id="full_scale_jobs_waiting"
+					{disabled}
 				/>
 			{:else}
 				<input type="number" disabled />
@@ -450,6 +465,7 @@
 					min="1"
 					placeholder="(max_workers - min_workers) / 5"
 					bind:value={config.inc_num_workers}
+					{disabled}
 				/>
 			{:else}
 				<input type="number" disabled />
@@ -474,6 +490,7 @@
 					}
 					items={safeSelectItems(worker_tags)}
 					placeholder="Tags"
+					{disabled}
 				/>
 			{/if}
 		</Label>
