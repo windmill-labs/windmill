@@ -244,9 +244,7 @@ describe('FlowDiffManager', () => {
 				const currentFlowValue: FlowValue = {
 					modules: [deepClone(moduleA), deepClone(moduleB)]
 				}
-				const flowStore = createFlowStore(
-					createExtendedOpenFlow(currentFlowValue)
-				)
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
 
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
@@ -278,9 +276,7 @@ describe('FlowDiffManager', () => {
 				})
 
 				const currentFlowValue: FlowValue = { modules: [deepClone(moduleA)] }
-				const flowStore = createFlowStore(
-					createExtendedOpenFlow(currentFlowValue)
-				)
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
 
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
@@ -309,9 +305,7 @@ describe('FlowDiffManager', () => {
 				const beforeFlow = createExtendedOpenFlow({ modules: [deepClone(moduleBeforeA)] })
 
 				const currentFlowValue: FlowValue = { modules: [deepClone(moduleAfterA)] }
-				const flowStore = createFlowStore(
-					createExtendedOpenFlow(currentFlowValue)
-				)
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
 
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
@@ -339,9 +333,7 @@ describe('FlowDiffManager', () => {
 				const afterSchema = { properties: { x: { type: 'string' }, y: { type: 'number' } } }
 				const beforeFlow = createExtendedOpenFlow({ modules: [] }, beforeSchema)
 
-				const flowStore = createFlowStore(
-					createExtendedOpenFlow({ modules: [] }, afterSchema)
-				)
+				const flowStore = createFlowStore(createExtendedOpenFlow({ modules: [] }, afterSchema))
 
 				manager.setEditMode(true)
 				manager.setBeforeFlow(beforeFlow)
@@ -610,7 +602,12 @@ describe('FlowDiffManager', () => {
 					modules: [deepClone(moduleA), deepClone(moduleB), deepClone(moduleC)]
 				})
 				const afterFlow: FlowValue = {
-					modules: [deepClone(moduleA), deepClone(moduleNew), deepClone(moduleB), deepClone(moduleC)]
+					modules: [
+						deepClone(moduleA),
+						deepClone(moduleNew),
+						deepClone(moduleB),
+						deepClone(moduleC)
+					]
 				}
 
 				manager.setEditMode(true)
@@ -941,12 +938,16 @@ describe('FlowDiffManager', () => {
 
 					// beforeFlow: branch with [branch_a] in conditional branch
 					// afterFlow: branch with [branch_a, branch_b] in conditional branch
-					const beforeBranch = createBranchOneModule('branch1', [], [
-						{ expr: 'x > 0', modules: [deepClone(branchModuleA)] }
-					])
-					const afterBranch = createBranchOneModule('branch1', [], [
-						{ expr: 'x > 0', modules: [deepClone(branchModuleA), deepClone(branchModuleB)] }
-					])
+					const beforeBranch = createBranchOneModule(
+						'branch1',
+						[],
+						[{ expr: 'x > 0', modules: [deepClone(branchModuleA)] }]
+					)
+					const afterBranch = createBranchOneModule(
+						'branch1',
+						[],
+						[{ expr: 'x > 0', modules: [deepClone(branchModuleA), deepClone(branchModuleB)] }]
+					)
 
 					const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranch] })
 					const afterFlow: FlowValue = { modules: [afterBranch] }
@@ -982,12 +983,16 @@ describe('FlowDiffManager', () => {
 
 					// beforeFlow: branch with [branch_a, branch_b] in conditional branch
 					// afterFlow: branch with [branch_a] in conditional branch - branch_b removed
-					const beforeBranch = createBranchOneModule('branch1', [], [
-						{ expr: 'x > 0', modules: [deepClone(branchModuleA), deepClone(branchModuleB)] }
-					])
-					const afterBranch = createBranchOneModule('branch1', [], [
-						{ expr: 'x > 0', modules: [deepClone(branchModuleA)] }
-					])
+					const beforeBranch = createBranchOneModule(
+						'branch1',
+						[],
+						[{ expr: 'x > 0', modules: [deepClone(branchModuleA), deepClone(branchModuleB)] }]
+					)
+					const afterBranch = createBranchOneModule(
+						'branch1',
+						[],
+						[{ expr: 'x > 0', modules: [deepClone(branchModuleA)] }]
+					)
 
 					const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranch] })
 					const currentFlowValue: FlowValue = { modules: [afterBranch] }
@@ -1062,13 +1067,19 @@ describe('FlowDiffManager', () => {
 
 					// beforeFlow: branch with 2 conditional branches
 					// afterFlow: branch with only 1 conditional branch - second branch removed
-					const beforeBranch = createBranchOneModule('branch1', [deepClone(defaultModule)], [
-						{ expr: 'x > 0', modules: [deepClone(branch1ModuleA)] },
-						{ expr: 'x < 0', modules: [deepClone(branch2ModuleA), deepClone(branch2ModuleB)] }
-					])
-					const afterBranch = createBranchOneModule('branch1', [deepClone(defaultModule)], [
-						{ expr: 'x > 0', modules: [deepClone(branch1ModuleA)] }
-					])
+					const beforeBranch = createBranchOneModule(
+						'branch1',
+						[deepClone(defaultModule)],
+						[
+							{ expr: 'x > 0', modules: [deepClone(branch1ModuleA)] },
+							{ expr: 'x < 0', modules: [deepClone(branch2ModuleA), deepClone(branch2ModuleB)] }
+						]
+					)
+					const afterBranch = createBranchOneModule(
+						'branch1',
+						[deepClone(defaultModule)],
+						[{ expr: 'x > 0', modules: [deepClone(branch1ModuleA)] }]
+					)
 
 					const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranch] })
 					const currentFlowValue: FlowValue = { modules: [afterBranch] }
@@ -1243,6 +1254,263 @@ describe('FlowDiffManager', () => {
 				})
 				cleanup()
 			})
+		})
+	})
+
+	describe('module movement', () => {
+		it('accept module moved from root to loop - accepts the addition in loop', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'content-a')
+				const moduleB = createRawScriptModule('b', 'content-b')
+				const emptyLoop = createForloopModule('loop1', [])
+				const loopWithB = createForloopModule('loop1', [deepClone(moduleB)])
+
+				// beforeFlow: [a, b, loop(empty)]
+				// afterFlow: [a, loop(b)]
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [deepClone(moduleA), deepClone(moduleB), deepClone(emptyLoop)]
+				})
+				const afterFlow: FlowValue = {
+					modules: [deepClone(moduleA), deepClone(loopWithB)]
+				}
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(afterFlow)
+				flushSync()
+
+				// 'b' should be detected as moved (removed from root, added in loop)
+				expect(manager.moduleActions['b']).toEqual({ action: 'added', pending: true })
+				expect(manager.moduleActions['old__b']).toEqual({ action: 'removed', pending: true })
+
+				// Accept the added 'b' in loop
+				manager.acceptModule('b')
+				flushSync()
+
+				// After accepting, beforeFlow should have 'b' inside the loop
+				const beforeModules = manager.beforeFlow?.value.modules ?? []
+				const loopModule = beforeModules.find((m) => m.id === 'loop1')
+				const loopModules = (loopModule?.value as ForloopFlow).modules
+				expect(loopModules.some((m) => m.id === 'b')).toBe(true)
+			})
+			cleanup()
+		})
+
+		it('accept module moved from root to loop - accepts the removal at root', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'content-a')
+				const moduleB = createRawScriptModule('b', 'content-b')
+				const emptyLoop = createForloopModule('loop1', [])
+				const loopWithB = createForloopModule('loop1', [deepClone(moduleB)])
+
+				// beforeFlow: [a, b, loop(empty)]
+				// afterFlow: [a, loop(b)]
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [deepClone(moduleA), deepClone(moduleB), deepClone(emptyLoop)]
+				})
+				const afterFlow: FlowValue = {
+					modules: [deepClone(moduleA), deepClone(loopWithB)]
+				}
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(afterFlow)
+				flushSync()
+
+				// Accept the removed 'old__b' at root
+				manager.acceptModule('old__b')
+				flushSync()
+
+				// After accepting removal, 'b' should no longer be at root in beforeFlow
+				const beforeModules = manager.beforeFlow?.value.modules ?? []
+				const rootIds = beforeModules.map((m) => m.id)
+				expect(rootIds).not.toContain('b')
+			})
+			cleanup()
+		})
+
+		it('reject module moved from root to loop - rejects the addition', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'content-a')
+				const moduleB = createRawScriptModule('b', 'content-b')
+				const emptyLoop = createForloopModule('loop1', [])
+				const loopWithB = createForloopModule('loop1', [deepClone(moduleB)])
+
+				// beforeFlow: [a, b, loop(empty)]
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [deepClone(moduleA), deepClone(moduleB), deepClone(emptyLoop)]
+				})
+
+				// currentFlow (flowStore): [a, loop(b)]
+				const currentFlowValue: FlowValue = {
+					modules: [deepClone(moduleA), deepClone(loopWithB)]
+				}
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				// Reject the added 'b' in loop - should remove it from flowStore
+				manager.rejectModule('b', flowStore)
+				flushSync()
+
+				// 'b' should no longer be in the loop in flowStore
+				const currentModules = flowStore.val.value.modules
+				const loopModule = currentModules.find((m) => m.id === 'loop1')
+				const loopModules = (loopModule?.value as ForloopFlow).modules
+				expect(loopModules.some((m) => m.id === 'b')).toBe(false)
+			})
+			cleanup()
+		})
+
+		it('reject module moved from root to loop - rejects the removal (restores at root)', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'content-a')
+				const moduleB = createRawScriptModule('b', 'content-b')
+				const emptyLoop = createForloopModule('loop1', [])
+				const loopWithB = createForloopModule('loop1', [deepClone(moduleB)])
+
+				// beforeFlow: [a, b, loop(empty)]
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [deepClone(moduleA), deepClone(moduleB), deepClone(emptyLoop)]
+				})
+
+				// currentFlow (flowStore): [a, loop(b)]
+				const currentFlowValue: FlowValue = {
+					modules: [deepClone(moduleA), deepClone(loopWithB)]
+				}
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				// Reject the removed 'old__b' - should restore with prefix to avoid duplicate IDs
+				manager.rejectModule('old__b', flowStore)
+				flushSync()
+
+				// 'old__b' should be restored at root level in flowStore (keeps prefix to avoid duplicate)
+				const currentModules = flowStore.val.value.modules
+				const rootIds = currentModules.map((m) => m.id)
+				expect(rootIds).toContain('old__b')
+			})
+			cleanup()
+		})
+
+		it('accept module moved between branches', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'step a')
+
+				// beforeFlow: branch with 'a' in first conditional branch
+				const beforeBranch = createBranchOneModule(
+					'branch1',
+					[],
+					[
+						{ expr: 'x > 0', modules: [deepClone(moduleA)] },
+						{ expr: 'x < 0', modules: [] }
+					]
+				)
+				// afterFlow: branch with 'a' in second conditional branch
+				const afterBranch = createBranchOneModule(
+					'branch1',
+					[],
+					[
+						{ expr: 'x > 0', modules: [] },
+						{ expr: 'x < 0', modules: [deepClone(moduleA)] }
+					]
+				)
+
+				const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranch] })
+				const afterFlow: FlowValue = { modules: [afterBranch] }
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(afterFlow)
+				flushSync()
+
+				// 'a' is moved - should be removed from branch 0 and added to branch 1
+				expect(manager.moduleActions['a']).toEqual({ action: 'added', pending: true })
+				expect(manager.moduleActions['old__a']).toEqual({ action: 'removed', pending: true })
+
+				// Accept both the addition and removal
+				manager.acceptModule('a')
+				flushSync()
+				manager.acceptModule('old__a')
+				flushSync()
+
+				// beforeFlow should now have 'a' in branch 1, not in branch 0
+				const beforeModules = manager.beforeFlow?.value.modules ?? []
+				const branchModule = beforeModules.find((m) => m.id === 'branch1')
+				const branches = (branchModule?.value as BranchOne).branches
+				expect(branches[0].modules.some((m) => m.id === 'a')).toBe(false)
+				expect(branches[1].modules.some((m) => m.id === 'a')).toBe(true)
+			})
+			cleanup()
+		})
+
+		it('reject module moved between branches - restores original position', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleA = createRawScriptModule('a', 'step a')
+
+				// beforeFlow: branch with 'a' in first conditional branch
+				const beforeBranch = createBranchOneModule(
+					'branch1',
+					[],
+					[
+						{ expr: 'x > 0', modules: [deepClone(moduleA)] },
+						{ expr: 'x < 0', modules: [] }
+					]
+				)
+				// afterFlow: branch with 'a' in second conditional branch
+				const afterBranch = createBranchOneModule(
+					'branch1',
+					[],
+					[
+						{ expr: 'x > 0', modules: [] },
+						{ expr: 'x < 0', modules: [deepClone(moduleA)] }
+					]
+				)
+
+				const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranch] })
+				const currentFlowValue: FlowValue = { modules: [afterBranch] }
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				// Reject the removal from branch 0 - restores with prefix to avoid duplicate IDs
+				manager.rejectModule('old__a', flowStore)
+				flushSync()
+
+				// Accept the addition in branch 1
+				manager.acceptModule('a')
+				flushSync()
+
+				// flowStore should now have 'old__a' in branch 0 (prefixed), not 'a' in branch 1
+				const currentModules = flowStore.val.value.modules
+				const branchModule = currentModules.find((m) => m.id === 'branch1')
+				const branches = (branchModule?.value as BranchOne).branches
+				expect(branches[0].modules.some((m) => m.id === 'old__a')).toBe(true)
+				expect(branches[1].modules.some((m) => m.id === 'a')).toBe(true)
+			})
+			cleanup()
 		})
 	})
 })
