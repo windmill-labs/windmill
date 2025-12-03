@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AgentWorkersService, type ListBlacklistedAgentTokensResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { RefreshCw, Trash } from 'lucide-svelte'
+	import { ExternalLink, RefreshCw, Trash } from 'lucide-svelte'
 	import { Alert, Button, Tab, Tabs } from './common'
 	import Section from './Section.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
@@ -11,6 +11,7 @@
 	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
 	import { shell, json } from 'svelte-highlight/languages'
 	import TokenDisplay from './settings/TokenDisplay.svelte'
+	import Description from './Description.svelte'
 
 	type Props = {
 		customTags: string[] | undefined
@@ -121,7 +122,6 @@
 		}
 	}
 
-
 	$effect(() => {
 		if (selectedTab === 'blacklist' && $enterpriseLicense && $superadmin) {
 			loadBlacklistedTokens()
@@ -135,73 +135,77 @@
 	{#snippet content()}
 		<div class="flex flex-col gap-y-6 pt-2">
 			{#if selectedTab === 'create'}
-				<Alert type="info" title="HTTP agent workers"
-					>Remote workers with unreliable connectivity, workers behind firewalls (HTTP-only),
-					untrusted environments (no database access), or large deployments (thousands of workers).
-					More latency than normal workers.</Alert
+				<Description
+					><a href="https://www.windmill.dev/docs/core_concepts/agent_workers" target="_blank"
+						>Agent workers <ExternalLink size={12} class="inline-block" /></a
+					> can be used to run jobs with remote workers with unreliable connectivity, workers behind
+					firewalls (HTTP-only), untrusted environments (no database access), or large deployments (thousands
+					of workers). They have more latency than normal workers. Follow the steps below to create an
+					agent worker.</Description
 				>
 
-				<Label
-					label="Worker group"
-					tooltip="This is only used to give a name prefix to the agent worker and to group workers in the workers page, no worker group config is passed to an agent worker."
+				<Section
+					label="1. Generate an agent worker token"
+					class="flex flex-col gap-y-6"
+					description="Generate a JWT token to authenticate the agent worker."
 				>
-					<input class="max-w-md" type="text" bind:value={workerGroup} />
-				</Label>
-				<Label
-					label="Tags to listen to"
-					eeOnly
-					tooltip="Tags determine which jobs this worker can execute. They are encoded in the JWT token and cannot be changed by the worker. You can use dynamic tags like 'tag-$args[argName]' or 'tag-$workspace' to target different workers based on job arguments or workspace."
-				>
-					{#if !$enterpriseLicense}
-						<div class="text-sm text-secondary mb-2 max-w-md">
-							Agent workers are only available in the enterprise edition. For evaluation purposes,
-							you can only use the tag `agent_test` tag and it is limited to 100 jobs.
-						</div>
-					{/if}
-					<TagsToListenTo
-						disabled={!$enterpriseLicense}
-						bind:worker_tags={selectedTags}
-						{customTags}
-					/>
-				</Label>
-
-				{#if !$enterpriseLicense}
-					<div class="text-sm text-secondary mb-4 max-w-md">
-						Agent workers are only available in the enterprise edition. For evaluation purposes,
-						you can only use the tag `agent_test` tag and it is limited to 100 jobs.
-					</div>
-				{/if}
-
-				{#if !token}
-					<div class="mb-4">
-						<Button
-							variant="accent"
-							unifiedSize="md"
-							disabled={selectedTags.length === 0 || !$superadmin || isGeneratingToken}
-							onclick={generateToken}
-							loading={isGeneratingToken}
-						>
-							{isGeneratingToken ? 'Generating...' : 'Generate JWT Token'}
-						</Button>
-						{#if selectedTags.length === 0}
-							<div class="text-xs text-secondary mt-2">
-								Please select at least one tag to generate a token.
-							</div>
-						{:else if !$superadmin}
-							<div class="text-xs text-secondary mt-2">
-								Only superadmins can generate JWT tokens.
+					<Label
+						label="Worker group"
+						tooltip="This is only used to give a name prefix to the agent worker and to group workers in the workers page, no worker group config is passed to an agent worker."
+					>
+						<input class="max-w-md" type="text" bind:value={workerGroup} />
+					</Label>
+					<Label
+						label="Tags to listen to"
+						eeOnly
+						tooltip="Tags determine which jobs this worker can execute. They are encoded in the JWT token and cannot be changed by the worker. You can use dynamic tags like 'tag-$args[argName]' or 'tag-$workspace' to target different workers based on job arguments or workspace."
+					>
+						{#if !$enterpriseLicense}
+							<div class="text-xs text-secondary mb-2 max-w-md">
+								Agent workers are only available in the enterprise edition. For evaluation purposes,
+								you can only use the tag `agent_test` tag and it is limited to 100 jobs.
 							</div>
 						{/if}
-					</div>
-				{:else}
-					<TokenDisplay
-						{token}
-						title="JWT Token Generated Successfully"
-						onCopy={() => sendUserToast('JWT token copied to clipboard')}
-					/>
-				{/if}
+						<TagsToListenTo
+							disabled={!$enterpriseLicense}
+							bind:worker_tags={selectedTags}
+							{customTags}
+						/>
+					</Label>
 
-				<div class="flex flex-col gap-2 text-xs mt-2 leading-relaxed border rounded-md p-4">
+					{#if !token}
+						<div class="mb-4">
+							<Button
+								variant="accent"
+								unifiedSize="md"
+								disabled={selectedTags.length === 0 || !$superadmin || isGeneratingToken}
+								onclick={generateToken}
+								loading={isGeneratingToken}
+							>
+								{isGeneratingToken ? 'Generating...' : 'Generate token'}
+							</Button>
+							{#if selectedTags.length === 0}
+								<div class="text-xs text-secondary mt-2">
+									Please select at least one tag to generate a token.
+								</div>
+							{:else if !$superadmin}
+								<div class="text-xs text-secondary mt-2">
+									Only superadmins can generate JWT tokens.
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<TokenDisplay
+							{token}
+							title="JWT Token Generated Successfully"
+							onClose={() => {
+								token = ''
+							}}
+						/>
+					{/if}
+				</Section>
+
+				<Section label="2. Create an agent worker" class="flex flex-col gap-y-2">
 					<p class="text-xs text-primary">
 						Set these environment variables for your agent worker.
 					</p>
@@ -212,8 +216,8 @@ BASE_INTERNAL_URL=<base url>
 `}
 						language={shell}
 					/>
-					<p class="text-xs text-primary">
-						<strong>BASE_INTERNAL_URL:</strong> Base URL without trailing slash (e.g.,
+					<p class="text-2xs text-secondary">
+						BASE_INTERNAL_URL: Base URL without trailing slash (e.g.,
 						<code>http://windmill.example.com</code>). Can be same as BASE_URL or private network
 						URL. <code>INIT_SCRIPT</code> can be passed as env variable if needed.
 					</p>
@@ -250,9 +254,9 @@ BASE_INTERNAL_URL=<base url>
 							</p>
 						</div>
 					</Section>
-				</div>
+				</Section>
 			{:else if selectedTab === 'blacklist'}
-				<div class="flex flex-col gap-y-4 mt-4">
+				<div class="flex flex-col gap-y-4">
 					<Section label="Agent Token Blacklist" eeOnly>
 						{#if !$enterpriseLicense}
 							<div class="text-xs text-secondary mb-2 max-w-md">
@@ -308,9 +312,9 @@ BASE_INTERNAL_URL=<base url>
 							</div>
 
 							<!-- Blacklisted Tokens List -->
-							<div class="border-t pt-6">
+							<div class="pt-6">
 								<div class="flex items-center justify-between mb-2">
-									<h3 class="text-sm font-semibold text-emphasis">Blacklisted tokens</h3>
+									<h3 class="text-xs text-primary">Blacklisted tokens</h3>
 									<Button
 										variant="subtle"
 										unifiedSize="sm"

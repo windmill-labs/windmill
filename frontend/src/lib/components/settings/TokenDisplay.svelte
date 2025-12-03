@@ -1,27 +1,22 @@
 <script lang="ts">
-	import { copyToClipboard } from '$lib/utils'
-	import { Check, Copy, Link } from 'lucide-svelte'
+	import { Check, Link, X } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { classes } from '../common/alert/model'
+	import { shell } from 'svelte-highlight/languages'
+	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
 
 	interface Props {
 		token: string
 		mcpUrl?: string
 		title?: string
-		onCopy?: () => void
+		onClose?: () => void
 	}
 
-	let { token, mcpUrl, title, onCopy }: Props = $props()
-
-	function handleCopyClick() {
-		copyToClipboard(mcpUrl || token)
-		onCopy?.()
-	}
+	let { token, mcpUrl, title, onClose }: Props = $props()
 
 	const displayTitle = $derived(
 		title || (mcpUrl ? 'MCP URL Generated Successfully' : 'Token Created Successfully')
 	)
-
-	const label = $derived(mcpUrl ? 'Your MCP Server URL' : 'Your Token')
 
 	const info = $derived(
 		`Make sure to copy your ${mcpUrl ? 'MCP Server URL' : 'personal access token'} now. You won\'t be able to see it again!`
@@ -29,25 +24,27 @@
 
 	const tokenOrUrl = $derived(mcpUrl ? mcpUrl : token)
 
-	const colorScheme = {
-		gradient: 'from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20',
-		border: 'border-blue-200 dark:border-blue-700',
-		iconBg: 'bg-blue-100 dark:bg-blue-800',
-		iconColor: 'text-blue-600 dark:text-blue-300',
-		titleColor: 'text-blue-800 dark:text-blue-200',
-		labelColor: 'text-blue-700 dark:text-blue-300',
-		infoBg: 'bg-blue-50 dark:bg-blue-900/30',
-		infoBorder: 'border-blue-200 dark:border-blue-600',
-		infoText: 'text-blue-700 dark:text-blue-300'
-	}
+	// Use alert model for consistent styling with design system
+	const alertStyles = classes.info
 </script>
 
-<div
-	class="border rounded-lg mb-6 p-4 bg-gradient-to-r {colorScheme.gradient} {colorScheme.border} shadow-sm"
->
+<!-- Use surface-tertiary for elevated content according to brand guidelines -->
+<div class="border bg-surface-tertiary rounded-lg mb-6 p-4 surface-tertiary shadow-md relative">
+	<!-- Close button in top-right corner -->
+	{#if onClose}
+		<button
+			onclick={onClose}
+			class="absolute top-2 right-2 p-1 text-secondary hover:text-primary surface-hover hover:surface-secondary rounded transition-colors"
+			title="Close"
+		>
+			<X size={16} />
+		</button>
+	{/if}
+
 	<div class="flex items-start gap-3">
+		<!-- Icon with info alert styling -->
 		<div
-			class="flex-shrink-0 w-8 h-8 {colorScheme.iconBg} rounded-full flex items-center justify-center mt-0.5"
+			class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-0.5 {alertStyles.iconClass}"
 		>
 			{#if mcpUrl}
 				<Link size={16} />
@@ -55,38 +52,28 @@
 				<Check size={16} />
 			{/if}
 		</div>
-		<div class="flex-1 min-w-0">
-			<h4 class="text-sm font-semibold {colorScheme.titleColor} mb-2">
+
+		<div class="flex-1 min-w-0 pr-6">
+			<!-- Page title typography according to brand guidelines -->
+			<h4 class="text-sm font-semibold text-emphasis mb-2">
 				{displayTitle}
 			</h4>
 
-			<div class="space-y-3">
-				<div>
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="block text-xs font-normal {colorScheme.labelColor} mb-1 mt-4">
-						{label}
-					</label>
-					<div class="bg-white dark:bg-gray-800 rounded-md p-3 border {colorScheme.border}">
-						<div class="flex items-center justify-between gap-2">
-							<code class="text-sm font-mono text-gray-800 dark:text-gray-200 break-all flex-1">
-								{tokenOrUrl}
-							</code>
-							<button
-								onclick={handleCopyClick}
-								class="flex-shrink-0 p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-								title="Copy token"
-							>
-								<Copy size={16} />
-							</button>
-						</div>
-					</div>
+			<div class="flex flex-col gap-y-1">
+				<!-- Token display with proper surface and border styling -->
+				<CopyableCodeBlock code={tokenOrUrl} language={shell} wrap />
+
+				<!-- Warning alert using existing Alert component -->
+				<div class="mt-1">
+					<Alert type="warning" title="Important" size="xs">
+						{info}
+					</Alert>
 				</div>
-				<Alert type="warning" title="Important" size="xs">
-					{info}
-				</Alert>
+
 				{#if mcpUrl}
-					<div class="{colorScheme.infoBg} rounded-md p-2 border {colorScheme.infoBorder}">
-						<p class="text-xs {colorScheme.infoText}">
+					<!-- Additional info using alert info styling -->
+					<div class="mt-1 {alertStyles.bgClass} rounded-md p-2">
+						<p class="text-xs {alertStyles.descriptionClass}">
 							<strong>Next steps:</strong> Use this URL in your MCP-compatible client (like Claude Desktop)
 							to access your Windmill scripts and flows as tools.
 						</p>

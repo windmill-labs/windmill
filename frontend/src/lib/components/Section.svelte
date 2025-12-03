@@ -54,7 +54,7 @@
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
 	{#if !headless}
-		<div class="flex flex-row justify-between items-center mb-2">
+		<div class="flex flex-row justify-between items-center">
 			<h2
 				class={twMerge(
 					'text-emphasis flex flex-row items-center gap-1',
@@ -98,13 +98,13 @@
 	{/if}
 	{#if !collapsable || !collapsed}
 		<div
-			class={'grow min-h-0'}
+			class={'grow min-h-0 '}
 			transition:slide={animate || collapsable ? { duration: 200 } : { duration: 0 }}
 		>
-			<div class="flex flex-col gap-2 h-full">
-				{#if description}
-					<span class="text-xs text-secondary mb-2">{description}</span>
-				{/if}
+			{#if description}
+				<div class="text-xs text-primary mt-1">{description}</div>
+			{/if}
+			<div class="flex flex-col gap-6 h-full mt-4">
 				<div class={twMerge('grow min-h-0', clazz)}>
 					{@render children?.()}
 				</div>
