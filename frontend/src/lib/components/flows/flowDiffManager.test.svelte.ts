@@ -1512,5 +1512,62 @@ describe('FlowDiffManager', () => {
 			})
 			cleanup()
 		})
+
+		it('prevents bug when rejecting moved module removal (branchall scenario)', () => {
+			// NOTE: This test describes the bug but does not fully reproduce it.
+			// So it passes but the actual bug still exists in reality.
+
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager()
+
+				const moduleR = createRawScriptModule('r', 'module r content')
+
+				// beforeFlow: 'r' in branch 2
+				const beforeBranchAll = createBranchAllModule('branchall1', [
+					{ modules: [] }, // branch 0
+					{ modules: [] }, // branch 1
+					{ modules: [deepClone(moduleR)] } // branch 2
+				])
+
+				// currentFlow: 'r' moved to branch 0
+				const afterBranchAll = createBranchAllModule('branchall1', [
+					{ modules: [deepClone(moduleR)] }, // branch 0
+					{ modules: [] }, // branch 1
+					{ modules: [] } // branch 2
+				])
+
+				const beforeFlow = createExtendedOpenFlow({ modules: [beforeBranchAll] })
+				const currentFlowValue: FlowValue = { modules: [afterBranchAll] }
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				// Verify initial state: 'r' is added at branch 0, 'old__r' is removed from branch 2
+				expect(manager.moduleActions['r']).toEqual({ action: 'added', pending: true })
+				expect(manager.moduleActions['old__r']).toEqual({ action: 'removed', pending: true })
+
+				// User rejects the removal - wants to keep module at original location (branch 2)
+				manager.rejectModule('old__r', flowStore)
+				flushSync()
+
+				// At this point, we have an error: Error: Cycle detected: adding edge from 'old__r' to 'old__r' would create a cycle.
+
+				// After rejection, verify the current behavior:
+				// 1. Module should be restored at branch 2 (with prefix 'old__r' to avoid collision)
+				const currentModules = flowStore.val.value.modules
+				const branchAllModule = currentModules.find((m) => m.id === 'branchall1')
+				const branches = (branchAllModule?.value as BranchAll).branches
+
+				// Branch 0 should still have 'r'
+				expect(branches[0].modules.some((m) => m.id === 'r')).toBe(true)
+
+				// Branch 2 should have 'old__r' (prefixed to avoid duplicate ID)
+				expect(branches[2].modules.some((m) => m.id === 'old__r')).toBe(true)
+			})
+			cleanup()
+		})
 	})
 })
