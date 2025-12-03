@@ -39,6 +39,7 @@
 	import { onMount, setContext } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -272,6 +273,10 @@
 			{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 		{/if}
 	</PageHeader>
+
+	{#if !$userStore?.operator}
+		<TutorialBanner />
+	{/if}
 
 	{#if !$userStore?.operator}
 		<div class="w-full overflow-auto scrollbar-hidden pb-2">
