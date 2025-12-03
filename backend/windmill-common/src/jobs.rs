@@ -469,8 +469,11 @@ pub enum JobPayload {
 // TODO: Add validation logic.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct DebouncingSettings {
-    #[serde(rename = "debounce_key")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "debounce_key",
+        alias = "custom_debounce_key"
+    )]
     /// debounce key is usually stored in the db
     /// including when:
     ///
@@ -481,27 +484,32 @@ pub struct DebouncingSettings {
     /// Default: hash(path + step_id + inputs)
     pub custom_key: Option<String>,
 
-    #[serde(rename = "debounce_delay_s")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "debounce_delay_s")]
     /// Debouncing delay will be determined by the first job with the key.
     /// All subsequent jobs with Some will get debounced.
     /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
     pub delay_s: Option<i32>,
 
-    #[serde(rename = "max_total_debouncing_time")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "max_total_debouncing_time"
+    )]
     /// Top threshhold on max delay
     /// TODO(claude): explain better, in 3 lines tops
     pub max_total_time: Option<i32>,
 
-    #[serde(rename = "max_total_debounces")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "max_total_debounces_amount"
+    )]
     /// Top threshold on amount of debounces
     /// TODO(claude): explain better, in 3 lines tops
-    pub max_total_debounces: Option<i32>,
+    pub max_total_amount: Option<i32>,
 
-    #[serde(rename = "debounce_args_to_accumulate")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "debounce_args_to_accumulate"
+    )]
     /// top level arguments to preserve
     /// For every debounce selected arguments will be saved
     /// in the end (when job finally starts) arguments will be appended and passed to runnable
@@ -572,8 +580,7 @@ pub struct SkipHandler {
     pub stop_message: String,
 }
 
-// TODO: Where is this serialization is used, should I flatten?
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
     pub path: Option<String>,
@@ -585,6 +592,11 @@ pub struct RawCode {
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettingsWithCustom,
     #[serde(flatten)]
+    // NOTE: Since we can only deserialize the struct,
+    // even though the older versions pass `custom_debounce_key` to RawCode,
+    // we can still have `debounce_key` in DebouncingSettings
+    // we just add alias `custom_debouce_key`
+    // however, serializing this settings will produce `debounce_key`
     pub debouncing_settings: DebouncingSettings,
 }
 
