@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.588.0
+  version: 1.589.1
   title: Windmill API
 
   contact:
@@ -13474,6 +13474,21 @@ paths:
                     - expires_at
                     - blacklisted_at
                     - blacklisted_by
+
+  /agent_workers/get_min_version:
+    get:
+      summary: get minimum worker version across all workers
+      operationId: getMinVersion
+      tags:
+        - agent_workers
+      responses:
+        "200":
+          description: minimum worker version
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Minimum semantic version across all workers (e.g. "1.583.0")
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:

@@ -25,7 +25,6 @@ import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker_groups.ts";
 
 import dev from "./commands/dev/dev.ts";
-import { fetchVersion } from "./core/context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
 import { getHeaders, getIsWin } from "./utils/utils.ts";
@@ -39,6 +38,7 @@ import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
 import jobs from "./commands/jobs/jobs.ts";
+import { fetchVersion } from "./core/context.ts";
 
 export {
   flow,
@@ -70,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.588.0";
+export const VERSION = "1.589.1";
 
 export const WM_FORK_PREFIX = "wm-fork";
 

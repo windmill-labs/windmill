@@ -2108,6 +2108,7 @@ async fn cancel_jobs(
     force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
+    tracing::info!("Cancelling jobs: {:?}", jobs);
     let mut tx = db.begin().await?;
     let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
                    ( workspace_id
@@ -2131,7 +2132,7 @@ async fn cancel_jobs(
                    , worker
         FROM v2_job_queue q
             JOIN v2_job USING (id)
-        WHERE q.id = any($2) AND running = false AND parent_job IS NULL AND q.workspace_id = $3 AND trigger IS NULL
+        WHERE q.id = any($2) AND running = false AND parent_job IS NULL AND q.workspace_id = $3 AND trigger_kind IS DISTINCT FROM 'schedule'
             FOR UPDATE SKIP LOCKED
         ON CONFLICT (id) DO NOTHING RETURNING id AS \"id!\"", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
         .fetch_all(&mut *tx)
