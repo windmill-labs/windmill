@@ -5938,7 +5938,7 @@ async fn run_preview_script(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: preview.lock,
-                concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here                debouncing_settings: DebouncingSettings::default(),
+                concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 debouncing_settings: DebouncingSettings::default(), // TODO(pyra): same as for concurrency limits.
                 cache_ttl: None,
                 dedicated_worker: preview.dedicated_worker,

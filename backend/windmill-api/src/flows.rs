@@ -1554,7 +1554,6 @@ mod tests {
 
     use std::{collections::HashMap, time::Duration};
 
-    use aws_sdk_config::operation::stop_configuration_recorder::builders::StopConfigurationRecorderOutputBuilder;
     use windmill_common::{
         flows::{
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,

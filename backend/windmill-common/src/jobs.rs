@@ -494,16 +494,12 @@ pub struct DebouncingSettings {
         skip_serializing_if = "Option::is_none",
         rename = "max_total_debouncing_time"
     )]
-    /// Top threshhold on max delay
-    /// TODO(claude): explain better, in 3 lines tops
     pub max_total_time: Option<i32>,
 
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "max_total_debounces_amount"
     )]
-    /// Top threshold on amount of debounces
-    /// TODO(claude): explain better, in 3 lines tops
     pub max_total_amount: Option<i32>,
 
     #[serde(
@@ -595,7 +591,7 @@ pub struct RawCode {
     // NOTE: Since we can only deserialize the struct,
     // even though the older versions pass `custom_debounce_key` to RawCode,
     // we can still have `debounce_key` in DebouncingSettings
-    // we just add alias `custom_debouce_key`
+    // we just add alias `custom_debounce_key`
     // however, serializing this settings will produce `debounce_key`
     pub debouncing_settings: DebouncingSettings,
 }
