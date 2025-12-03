@@ -5,7 +5,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { OpenFlow } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
-	import { restoreInlineScriptReferences } from './core'
+	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
