@@ -75,7 +75,7 @@ export function formatAssetKind(asset: {
 		case 'ducklake':
 			return 'Ducklake'
 		case 'datatable':
-			return 'Datatable'
+			return 'Data table'
 	}
 }
 
