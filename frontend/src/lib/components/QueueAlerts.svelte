@@ -16,7 +16,6 @@
 	let configName = 'alert__job_queue_waiting'
 
 	let editingRowIndex = $state<number>(-1)
-	let hasUnsavedChanges = $state(false)
 	let editForm = $state<{
 		tags_to_monitor: string[]
 		jobs_num_threshold: string
@@ -84,14 +83,12 @@
 			alert_cooldown_seconds: config.alert_cooldown_seconds.toString(),
 			alert_time_threshold_seconds: config.alert_time_threshold_seconds.toString()
 		}
-		hasUnsavedChanges = false
 		// Reset expanded state when entering edit mode
 		expandedTagRows = expandedTagRows.filter((i) => i !== index)
 	}
 
 	function cancelEdit() {
 		editingRowIndex = -1
-		hasUnsavedChanges = false
 		formErrors = {}
 	}
 
@@ -109,7 +106,6 @@
 
 			await saveQueueAlertConfig()
 			editingRowIndex = -1
-			hasUnsavedChanges = false
 			formErrors = {}
 			sendUserToast('Alert configuration updated successfully')
 		} catch (error) {
@@ -196,10 +192,6 @@
 			name: configName,
 			requestBody: { alerts: queueAlertConfig }
 		})
-	}
-
-	function markFormChanged() {
-		hasUnsavedChanges = true
 	}
 
 	function safeSelectItems(items: string[]) {
@@ -425,7 +417,6 @@
 											onCreateItem={(tag) => {
 												if (!editForm.tags_to_monitor.includes(tag)) {
 													editForm.tags_to_monitor = [...editForm.tags_to_monitor, tag]
-													markFormChanged()
 												}
 											}}
 											createText="Press Enter to add custom tag"
@@ -438,7 +429,6 @@
 												unifiedSize="sm"
 												onclick={() => {
 													editForm.tags_to_monitor = [...availableTags]
-													markFormChanged()
 												}}
 											>
 												Add all
@@ -480,8 +470,7 @@
 									<TextInput
 										inputProps={{
 											type: 'number',
-											min: '1',
-											oninput: markFormChanged
+											min: '1'
 										}}
 										bind:value={editForm.jobs_num_threshold}
 										size="sm"
@@ -496,8 +485,7 @@
 									<TextInput
 										inputProps={{
 											type: 'number',
-											min: '1',
-											oninput: markFormChanged
+											min: '1'
 										}}
 										bind:value={editForm.alert_cooldown_seconds}
 										size="sm"
@@ -512,8 +500,7 @@
 									<TextInput
 										inputProps={{
 											type: 'number',
-											min: '1',
-											oninput: markFormChanged
+											min: '1'
 										}}
 										bind:value={editForm.alert_time_threshold_seconds}
 										size="sm"
