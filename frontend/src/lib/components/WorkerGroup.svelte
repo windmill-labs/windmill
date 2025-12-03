@@ -573,7 +573,7 @@
 					</div>
 				{/each}
 				{#if $superadmin || $devopsRole}
-					<div class="flex">
+					<div class="flex flex-col gap-2">
 						<Button
 							variant="default"
 							unifiedSize="md"
@@ -585,67 +585,61 @@
 						>
 							Add environment variable
 						</Button>
+
+						<span class="text-secondary text-xs">
+							Set up env variables for AWS or SSL using our
+							<Dropdown
+								placement="bottom-start"
+								class="inline-block"
+								items={[
+									{
+										displayName: `AWS (${aws_env_vars_preset.join(', ')})`,
+										action: () => {
+											let updated = false
+											aws_env_vars_preset.forEach((envvar) => {
+												if (!customEnvVars.some((e) => e.key === envvar)) {
+													updated = true
+													customEnvVars.push({
+														key: envvar,
+														type: 'dynamic',
+														value: undefined
+													})
+												}
+											})
+											if (updated) {
+												customEnvVars = [...customEnvVars]
+											}
+										}
+									},
+									{
+										displayName: `SSL (${ssl_env_vars_preset.join(', ')})`,
+										action: () => {
+											let updated = false
+											ssl_env_vars_preset.forEach((envvar) => {
+												if (!customEnvVars.some((e) => e.key === envvar)) {
+													updated = true
+													customEnvVars.push({
+														key: envvar,
+														type: 'dynamic',
+														value: undefined
+													})
+												}
+											})
+											if (updated) {
+												customEnvVars = [...customEnvVars]
+											}
+										}
+									}
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<button class="text-accent font-medium"> presets </button>
+								{/snippet}
+							</Dropdown>
+						</span>
 					</div>
 				{/if}
 			</div>
-			{#if !($superadmin || $devopsRole)}
-				<div class="flex flex-wrap items-center gap-1 pt-2">
-					<Button
-						variant="subtle"
-						unifiedSize="md"
-						on:click={() => {
-							let updated = false
-							aws_env_vars_preset.forEach((envvar) => {
-								if (!customEnvVars.some((e) => e.key === envvar)) {
-									updated = true
-									customEnvVars.push({
-										key: envvar,
-										type: 'dynamic',
-										value: undefined
-									})
-								}
-							})
-							if (updated) {
-								customEnvVars = [...customEnvVars]
-							}
-						}}
-					>
-						AWS env var preset <Tooltip>
-							{#snippet text()}
-								{`${aws_env_vars_preset.join(
-									', '
-								)} - see https://docs.aws.amazon.com/fr_fr/cli/latest/userguide/cli-configure-envvars.html for more options`}
-							{/snippet}
-						</Tooltip>
-					</Button>
-					<Button
-						variant="subtle"
-						unifiedSize="md"
-						on:click={() => {
-							let updated = false
-							ssl_env_vars_preset.forEach((envvar) => {
-								if (!customEnvVars.some((e) => e.key === envvar)) {
-									updated = true
-									customEnvVars.push({
-										key: envvar,
-										type: 'dynamic',
-										value: undefined
-									})
-								}
-							})
-							if (updated) {
-								customEnvVars = [...customEnvVars]
-							}
-						}}
-					>
-						SSL env var preset <Tooltip>
-							{#snippet text()}
-								{`${ssl_env_vars_preset.join(', ')}`}
-							{/snippet}
-						</Tooltip>
-					</Button>
-				</div>
-			{/if}
 		</Label>
 		<div class="mt-8"></div>
 
