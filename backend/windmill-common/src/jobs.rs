@@ -469,7 +469,7 @@ pub enum JobPayload {
 // TODO: Add validation logic.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct DebouncingSettings {
-    #[serde(rename = "custom_debounce_key")]
+    #[serde(rename = "debounce_key")]
     #[serde(skip_serializing_if = "Option::is_none")]
     /// debounce key is usually stored in the db
     /// including when:
