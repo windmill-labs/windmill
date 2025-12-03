@@ -52,23 +52,31 @@ export function repopulateFields(runnables: Record<string, any>) {
     }
   });
 }
-export function replaceInlineScripts(rec: any, localPath: string) {
+export function replaceInlineScripts(
+  rec: any,
+  localPath: string,
+  addType: boolean
+) {
   if (!rec) {
     return;
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "runType") {
-        if (isVersionsGeq1585()) {
-          rec["type"] = "path";
-        } else {
-          rec["type"] = "runnableByPath";
+        if (addType) {
+          if (isVersionsGeq1585()) {
+            rec["type"] = "path";
+          } else {
+            rec["type"] = "runnableByPath";
+          }
         }
       } else if (k == "inlineScript" && typeof v == "object") {
-        if (isVersionsGeq1585()) {
-          rec["type"] = "inline";
-        } else {
-          rec["type"] = "runnableByName";
+        if (addType) {
+          if (isVersionsGeq1585()) {
+            rec["type"] = "inline";
+          } else {
+            rec["type"] = "runnableByName";
+          }
         }
         const o: Record<string, any> = v as any;
 
@@ -81,7 +89,7 @@ export function replaceInlineScripts(rec: any, localPath: string) {
           o["lock"] = readInlinePathSync(basePath);
         }
       } else {
-        replaceInlineScripts(v, localPath);
+        replaceInlineScripts(v, localPath, addType);
       }
     });
   }
@@ -125,7 +133,7 @@ export async function pushApp(
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
 
-  replaceInlineScripts(localApp.value, localPath);
+  replaceInlineScripts(localApp.value, localPath, true);
   await generatingPolicy(
     localApp,
     remotePath,

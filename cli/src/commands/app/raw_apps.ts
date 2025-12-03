@@ -17,6 +17,7 @@ import { replaceInlineScripts, repopulateFields } from "./apps.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { fetchRemoteVersion } from "../../utils/utils.ts";
 
 export interface AppFile {
   runnables: any;
@@ -104,7 +105,8 @@ export async function pushRawApp(
   const localApp = (await yamlParseFile(path)) as AppFile;
   replaceInlineScripts(
     localApp.runnables,
-    localPath + SEP + APP_BACKEND_FOLDER + SEP
+    localPath + SEP + APP_BACKEND_FOLDER + SEP,
+    true
   );
   repopulateFields(localApp.runnables);
   await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);

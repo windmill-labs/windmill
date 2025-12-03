@@ -36,6 +36,7 @@ import {
 import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
+  fetchRemoteVersion,
   isFileResource,
   isRawAppFile,
   isWorkspaceDependencies,
@@ -78,7 +79,6 @@ import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
 } from "../app/app_metadata.ts";
-import { updateGlobalVersions } from "./global.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -2093,16 +2093,11 @@ export async function push(
     log.info("");
   }
 
-  const version = await fetchVersion(workspace.remote);
-  if (version) {
-    updateGlobalVersions(version);
-  }
-  log.info(colors.gray("Remote version: " + version));
+  await fetchRemoteVersion(workspace);
 
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
-
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {

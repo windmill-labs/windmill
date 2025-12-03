@@ -165,7 +165,7 @@ export async function generateAppLocksInternal(
         const rawAppFile = appFile as RawAppFile;
 
         // Replace inline scripts for changed runnables
-        replaceInlineScripts(rawAppFile.runnables, runnablesPath);
+        replaceInlineScripts(rawAppFile.runnables, runnablesPath, false);
 
         // Update the app runnables with new locks
         rawAppFile.runnables = await updateRawAppRunnables(
@@ -180,7 +180,7 @@ export async function generateAppLocksInternal(
         const normalAppFile = appFile as NormalAppFile;
 
         // Replace inline scripts for normal apps
-        replaceInlineScripts(normalAppFile.value, appFolder + SEP);
+        replaceInlineScripts(normalAppFile.value, appFolder + SEP, false);
 
         // Update the app value with new locks
         normalAppFile.value = await updateAppInlineScripts(

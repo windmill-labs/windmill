@@ -702,7 +702,8 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     )) as any;
     replaceInlineScripts(
       rawApp.runnables,
-      path.join(localPath, APP_BACKEND_FOLDER) + SEP
+      path.join(localPath, APP_BACKEND_FOLDER) + SEP,
+      true
     );
 
     return rawApp?.runnables ?? {};
