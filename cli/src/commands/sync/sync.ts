@@ -1999,6 +1999,7 @@ export async function push(
 
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
+  const staleApps: string[] = [];
 
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
@@ -2047,6 +2048,46 @@ export async function push(
       "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:"
     );
     for (const stale of staleFlows) {
+      log.warn(stale);
+    }
+    log.info("");
+  }
+
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
+
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
+
+  if (staleApps.length > 0) {
+    log.warn(
+      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:"
+    );
+    for (const stale of staleApps) {
       log.warn(stale);
     }
     log.info("");

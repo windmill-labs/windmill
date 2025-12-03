@@ -167,12 +167,8 @@ export async function generatingPolicy(
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    log.info(JSON.stringify(app.value, null, 2));
     app.policy = await windmillUtils.updatePolicy(app.value, undefined);
     app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
-    log.info("--------------------------------");
-    log.info(JSON.stringify(app.policy, null, 2));
-    log.info("--------------------------------");
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
