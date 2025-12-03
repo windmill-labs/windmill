@@ -713,8 +713,16 @@ pub async fn script_path_to_payload<'e>(
                 priority,
                 apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                     && has_preprocessor.unwrap_or(false),
-                concurrency_settings: todo!(),
-                debouncing_settings: todo!(),
+                concurrency_settings: ConcurrencySettingsWithCustom {
+                    custom_concurrency_key: concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                },
+                debouncing_settings: DebouncingSettings {
+                    custom_key: debounce_key,
+                    delay_s: debounce_delay_s,
+                    ..Default::default()
+                },
             },
             tag,
             delete_after_use,
