@@ -1,44 +1,86 @@
 use crate::{
     db::{ApiAuthed, DB},
     jobs::cancel_jobs,
-    triggers::{trigger_helpers::trigger_runnable_inner, TriggerCrud, TriggerForReassignment},
+    triggers::trigger_helpers::trigger_runnable_inner,
 };
-
-#[cfg(feature = "http_trigger")]
-use crate::triggers::http::handler::HttpTrigger;
-
-#[cfg(feature = "mqtt_trigger")]
-use crate::triggers::mqtt::{MqttConfig, MqttTrigger};
-
-#[cfg(feature = "postgres_trigger")]
-use crate::triggers::postgres::{PostgresConfig, PostgresTrigger};
-
-#[cfg(feature = "websocket")]
-use crate::triggers::websocket::WebsocketTrigger;
-
-#[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
-use crate::triggers::email::EmailTrigger;
-
-#[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
-use crate::triggers::gcp::{GcpConfig, GcpTrigger};
-
-#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
-use crate::triggers::kafka::{KafkaConfig, KafkaTrigger};
-
-#[cfg(all(feature = "nats", feature = "enterprise", feature = "private"))]
-use crate::triggers::nats::{NatsConfig, NatsTrigger};
-
-#[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
-use crate::triggers::sqs::{SqsConfig, SqsTrigger};
 use axum::{
     extract::{Extension, Path},
     response::Json,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sqlx::PgConnection;
 use std::collections::HashMap;
 use uuid::Uuid;
-use windmill_common::{db::UserDB, error, jobs::JobTriggerKind, triggers::TriggerMetadata};
+use windmill_common::{
+    db::UserDB,
+    error::{self, Error, Result},
+    jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
+};
+
+#[derive(sqlx::FromRow)]
+pub struct SuspendedTrigger {
+    pub script_path: String,
+    pub is_flow: bool,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: DateTime<Utc>,
+    pub error_handler_path: Option<String>,
+    pub error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
+}
+
+async fn get_suspended_trigger(
+    tx: &mut PgConnection,
+    workspace_id: &str,
+    trigger_kind: &JobTriggerKind,
+    path: &str,
+) -> Result<SuspendedTrigger> {
+    match trigger_kind {
+        JobTriggerKind::Webhook | JobTriggerKind::Schedule => {
+            return Err(Error::BadRequest(format!(
+                "{} triggers do not support job reassignment",
+                trigger_kind
+            )));
+        }
+        _ => {}
+    }
+
+    let table_name = format!("{}_trigger", trigger_kind.to_string());
+
+    let fields = vec![
+        "script_path",
+        "is_flow",
+        "edited_by",
+        "email",
+        "edited_at",
+        "error_handler_path",
+        "error_handler_args",
+        "retry",
+    ];
+
+    let sql = format!(
+        r#"SELECT 
+        {} 
+    FROM 
+        {} 
+    WHERE 
+        workspace_id = $1 AND 
+        path = $2
+    "#,
+        fields.join(", "),
+        table_name
+    );
+
+    sqlx::query_as(&sql)
+        .bind(workspace_id)
+        .bind(path)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Trigger not found at path: {}", path)))
+}
 
 struct JobWithArgs {
     id: Uuid,
@@ -61,139 +103,7 @@ pub async fn resume_suspended_trigger_jobs(
 ) -> error::Result<Json<String>> {
     let mut tx = user_db.clone().begin(&authed).await?;
 
-    let trigger: TriggerForReassignment = match trigger_kind {
-        JobTriggerKind::Websocket => {
-            #[cfg(feature = "websocket")]
-            {
-                WebsocketTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(feature = "websocket"))]
-            {
-                return Err(error::Error::BadRequest(
-                    "Websocket triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Http => {
-            #[cfg(feature = "http_trigger")]
-            {
-                HttpTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(feature = "http_trigger"))]
-            {
-                return Err(error::Error::BadRequest(
-                    "HTTP triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Mqtt => {
-            #[cfg(feature = "mqtt_trigger")]
-            {
-                MqttTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(feature = "mqtt_trigger"))]
-            {
-                return Err(error::Error::BadRequest(
-                    "MQTT triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Postgres => {
-            #[cfg(feature = "postgres_trigger")]
-            {
-                PostgresTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(feature = "postgres_trigger"))]
-            {
-                return Err(error::Error::BadRequest(
-                    "Postgres triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Kafka => {
-            #[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
-            {
-                KafkaTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(all(feature = "kafka", feature = "enterprise", feature = "private")))]
-            {
-                return Err(error::Error::BadRequest(
-                    "Kafka triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Email => {
-            #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
-            {
-                EmailTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(all(feature = "smtp", feature = "enterprise", feature = "private")))]
-            {
-                return Err(error::Error::BadRequest(
-                    "Email triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Nats => {
-            #[cfg(all(feature = "nats", feature = "enterprise", feature = "private"))]
-            {
-                NatsTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(all(feature = "nats", feature = "enterprise", feature = "private")))]
-            {
-                return Err(error::Error::BadRequest(
-                    "NATS triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Sqs => {
-            #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
-            {
-                SqsTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(all(feature = "sqs_trigger", feature = "enterprise", feature = "private")))]
-            {
-                return Err(error::Error::BadRequest(
-                    "SQS triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Gcp => {
-            #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]
-            {
-                GcpTrigger
-                    .get_trigger_for_reassignment(&mut *tx, &w_id, &trigger_path)
-                    .await?
-            }
-            #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
-            {
-                return Err(error::Error::BadRequest(
-                    "GCP triggers are not enabled in this build".to_string(),
-                ));
-            }
-        }
-        JobTriggerKind::Webhook | JobTriggerKind::Schedule => {
-            return Err(error::Error::BadRequest(
-                "Webhook and Schedule triggers do not support job reassignment".to_string(),
-            ));
-        }
-    };
+    let trigger = get_suspended_trigger(&mut *tx, &w_id, &trigger_kind, &trigger_path).await?;
 
     let jobs = if let Some(job_ids) = body.job_ids.as_ref() {
         if job_ids.is_empty() {

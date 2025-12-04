@@ -634,15 +634,16 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			mode={enabled ? 'enabled' : 'suspended'}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
+			disableSuspendedMode
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}

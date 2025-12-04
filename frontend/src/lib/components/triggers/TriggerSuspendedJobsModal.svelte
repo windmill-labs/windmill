@@ -5,7 +5,6 @@
 		retry?: Retry
 		errorHandlerPath?: string
 		errorHandlerArgs?: ScriptArgs
-		editedAt: string | undefined
 	}
 </script>
 

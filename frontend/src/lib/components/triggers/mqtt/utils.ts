@@ -25,9 +25,8 @@ export async function saveMqttTriggerFromCfg(
 		subscribe_topics: cfg.subscribe_topics,
 		path: cfg.path,
 		script_path: cfg.script_path,
-		enabled: cfg.enabled,
 		is_flow: cfg.is_flow,
-		suspended_mode: cfg.suspended_mode,
+		mode: cfg.mode,
 		...errorHandlerAndRetries
 	}
 	try {
@@ -41,7 +40,7 @@ export async function saveMqttTriggerFromCfg(
 		} else {
 			await MqttTriggerService.createMqttTrigger({
 				workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`MQTT trigger ${cfg.path} created`)
 		}

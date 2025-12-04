@@ -3,11 +3,10 @@ use crate::{
     triggers::{StandardTriggerQuery, TriggerData, TriggerMode},
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -28,18 +27,6 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
-
-#[derive(FromRow)]
-pub struct TriggerForReassignment {
-    pub script_path: String,
-    pub is_flow: bool,
-    pub edited_by: String,
-    pub email: String,
-    pub edited_at: DateTime<Utc>,
-    pub error_handler_path: Option<String>,
-    pub error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
-    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
-}
 
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
@@ -165,44 +152,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
-
-        let sql = format!(
-            r#"SELECT 
-                {} 
-            FROM 
-                {} 
-            WHERE 
-                workspace_id = $1 AND 
-                path = $2
-            "#,
-            fields.join(", "),
-            Self::TABLE_NAME
-        );
-
-        sqlx::query_as(&sql)
-            .bind(workspace_id)
-            .bind(path)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Trigger not found at path: {}", path)))
-    }
-
-    async fn get_trigger_for_reassignment(
-        &self,
-        tx: &mut PgConnection,
-        workspace_id: &str,
-        path: &str,
-    ) -> Result<TriggerForReassignment> {
-        let fields = vec![
-            "script_path",
-            "is_flow",
-            "edited_by",
-            "email",
-            "edited_at",
-            "error_handler_path",
-            "error_handler_args",
-            "retry",
-        ];
 
         let sql = format!(
             r#"SELECT 

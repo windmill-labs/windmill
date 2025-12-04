@@ -125,8 +125,7 @@ export async function savePostgresTriggerFromCfg(
 			replication_slot_name: config.replication_slot_name,
 			publication_name: config.publication_name,
 			publication: config.publication,
-			enabled: config.enabled,
-			suspended_mode: config.suspended_mode,
+			mode: config.mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {
@@ -141,7 +140,7 @@ export async function savePostgresTriggerFromCfg(
 				workspace: workspace,
 				requestBody: {
 					...requestBody,
-					enabled: true
+					mode: 'enabled'
 				}
 			})
 			sendUserToast(`PostgresTrigger ${config.path} created`)

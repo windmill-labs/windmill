@@ -4,7 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -13,7 +13,8 @@
 		type PushConfig,
 		type SubscriptionMode,
 		type Retry,
-		type ErrorHandler
+		type ErrorHandler,
+		type TriggerMode
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -23,6 +24,9 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -40,7 +44,7 @@
 	let fixedScriptPath = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -61,6 +65,8 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let suspended_mode = $state(true)
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -95,9 +101,10 @@
 		cloudDisabled?: boolean
 	} = $props()
 
+	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
 	const saveDisabled = $derived(
-		pathError != '' || emptyString(script_path) || !isValid || !can_write
+		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
 	const captureConfig = $derived.by(isEditor ? getGcpCaptureConfig : () => ({}))
 
@@ -114,6 +121,7 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultValues)
+			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
@@ -146,7 +154,7 @@
 			initialPath = ''
 			edit = false
 			dirtyPath = false
-			enabled = defaultValues?.enabled ?? false
+			mode = defaultValues?.mode ?? 'enabled'
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
@@ -184,7 +192,7 @@
 		delivery_config = cfg?.delivery_config
 		subscription_mode = cfg?.subscription_mode
 		path = cfg?.path
-		enabled = cfg?.enabled
+		mode = cfg?.mode ?? 'enabled'
 		topic_id = cfg?.topic_id ?? ''
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
@@ -211,7 +219,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(cfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -228,7 +241,7 @@
 			topic_id,
 			path,
 			script_path,
-			enabled,
+			mode,
 			is_flow: itemKind === 'flow',
 			error_handler_path,
 			error_handler_args,
@@ -253,15 +266,20 @@
 		}
 	}
 
-	async function handleToggleEnabled(toggleEnabled: boolean) {
-		enabled = toggleEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await GcpTriggerService.setGcpTriggerEnabled({
+			await GcpTriggerService.setGcpTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: toggleEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} GCP Pub/Sub trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -276,6 +294,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="gcp"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -312,7 +347,7 @@
 		<TriggerEditorToolbar
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			{mode}
 			isLoading={deploymentLoading}
 			{edit}
 			{allowDraft}
@@ -320,9 +355,10 @@
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={handleToggleMode}
 			{cloudDisabled}
 			{trigger}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}
@@ -335,6 +371,9 @@
 		</div>
 	{:else}
 		<div class="flex flex-col gap-5">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			{#if description}
 				{@render description()}
 			{/if}

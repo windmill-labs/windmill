@@ -23,7 +23,6 @@ export async function saveKafkaTriggerFromCfg(
 		kafka_resource_path: cfg.kafka_resource_path,
 		group_id: cfg.group_id,
 		topics: cfg.topics,
-		suspended_mode: cfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {
@@ -37,7 +36,7 @@ export async function saveKafkaTriggerFromCfg(
 		} else {
 			await KafkaTriggerService.createKafkaTrigger({
 				workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`Kafka trigger ${cfg.path} created`)
 		}

@@ -29,8 +29,7 @@ export async function saveEmailTriggerFromCfg(
 		workspaced_local_part: emailCfg.workspaced_local_part,
 		error_handler_path: emailCfg.error_handler_path,
 		error_handler_args: emailCfg.error_handler_path ? emailCfg.error_handler_args : undefined,
-		suspended_mode: emailCfg.suspended_mode,
-		enabled: emailCfg.enabled,
+		mode: emailCfg.mode,
 		retry: emailCfg.retry
 	}
 	try {
@@ -47,7 +46,7 @@ export async function saveEmailTriggerFromCfg(
 		} else {
 			await EmailTriggerService.createEmailTrigger({
 				workspace: workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`Email trigger ${emailCfg.path} created`)
 		}

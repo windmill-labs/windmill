@@ -115,7 +115,6 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let editedAt: string | undefined = $state(undefined)
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
@@ -264,7 +263,6 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			editedAt = undefined
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 		} finally {
 			clearTimeout(loader)
@@ -306,7 +304,6 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		editedAt = cfg?.edited_at ?? undefined
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -341,6 +338,8 @@
 			if (isSaved) {
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+				initialPath = saveCfg.path
+				initialScriptPath = saveCfg.script_path
 				if (mode !== 'suspended') {
 					drawer?.closeDrawer()
 				}
@@ -393,6 +392,8 @@
 				requestBody: { mode: newMode }
 			})
 			sendUserToast(`${capitalize(newMode)} HTTP trigger ${initialPath}`)
+
+			onUpdate(initialPath)
 		}
 		if (originalConfig) {
 			originalConfig['mode'] = newMode
@@ -449,8 +450,7 @@
 			kind: itemKind,
 			retry,
 			errorHandlerPath: error_handler_path,
-			errorHandlerArgs: error_handler_args,
-			editedAt
+			errorHandlerArgs: error_handler_args
 		}}
 	/>
 {/if}
@@ -538,8 +538,18 @@
 							>
 								{#snippet children({ item, disabled })}
 									<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
-									<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
-									<ToggleButton label="Static website" value="static_website" {item} {disabled} />
+									<ToggleButton
+										label="Static asset"
+										value="static_asset"
+										{item}
+										disabled={disabled || mode === 'suspended'}
+									/>
+									<ToggleButton
+										label="Static website"
+										value="static_website"
+										{item}
+										disabled={disabled || mode === 'suspended'}
+									/>
 								{/snippet}
 							</ToggleButtonGroup>
 						{/if}

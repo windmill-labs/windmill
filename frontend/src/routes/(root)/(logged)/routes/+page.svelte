@@ -218,7 +218,9 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (mode === 'enabled' ? 'enable' : 'disable') + ` http trigger: ${err.body}`,
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` http trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -381,7 +383,6 @@
 										runnableConfig: {
 											path: script_path,
 											kind: is_flow ? 'flow' : 'script',
-											editedAt: edited_at,
 											retry,
 											errorHandlerPath: error_handler_path,
 											errorHandlerArgs: error_handler_args

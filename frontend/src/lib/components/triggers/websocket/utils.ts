@@ -29,7 +29,6 @@ export async function saveWebsocketTriggerFromCfg(
 		url_runnable_args: triggerCfg.url_runnable_args,
 		can_return_message: triggerCfg.can_return_message,
 		can_return_error_result: triggerCfg.can_return_error_result,
-		suspended_mode: triggerCfg.suspended_mode,
 		...errorHandlerAndRetries
 	}
 	try {
@@ -43,7 +42,7 @@ export async function saveWebsocketTriggerFromCfg(
 		} else {
 			await WebsocketTriggerService.createWebsocketTrigger({
 				workspace: workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`Websocket trigger ${triggerCfg.path} created`)
 		}

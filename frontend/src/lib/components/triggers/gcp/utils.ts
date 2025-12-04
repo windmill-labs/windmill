@@ -28,11 +28,10 @@ export async function saveGcpTriggerFromCfg(
 			topic_id: cfg.topic_id,
 			path: cfg.path,
 			script_path: cfg.script_path,
-			enabled: cfg.enabled,
+			mode: cfg.mode,
 			is_flow: cfg.is_flow,
 			auto_acknowledge_msg: cfg.auto_acknowledge_msg,
 			ack_deadline: cfg.ack_deadline,
-			suspended_mode: cfg.suspended_mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {
@@ -47,7 +46,7 @@ export async function saveGcpTriggerFromCfg(
 				workspace: workspace,
 				requestBody: {
 					...requestBody,
-					enabled: true
+					mode: 'enabled'
 				}
 			})
 			sendUserToast(`GCP Pub/Sub trigger ${cfg.path} created`)

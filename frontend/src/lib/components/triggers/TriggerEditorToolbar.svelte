@@ -25,7 +25,8 @@
 		onUpdate?: () => void
 		cloudDisabled?: boolean
 		trigger?: Trigger
-		suspendedJobsModal: TriggerSuspendedJobsModal | null
+		suspendedJobsModal?: TriggerSuspendedJobsModal | null
+		disableSuspendedMode?: boolean
 	}
 
 	let {
@@ -43,7 +44,8 @@
 		onUpdate,
 		cloudDisabled = false,
 		trigger,
-		suspendedJobsModal
+		suspendedJobsModal,
+		disableSuspendedMode = false
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
@@ -52,7 +54,13 @@
 {#if !allowDraft}
 	{@render extra?.()}
 	{#if edit}
-		<TriggerModeToggle canWrite={canSave} triggerMode={mode} {onToggleMode} {suspendedJobsModal} />
+		<TriggerModeToggle
+			canWrite={canSave}
+			triggerMode={mode}
+			{onToggleMode}
+			{suspendedJobsModal}
+			hideDropdown={disableSuspendedMode}
+		/>
 	{/if}
 	{#if canSave}
 		<Button
@@ -77,6 +85,7 @@
 					triggerMode={mode}
 					{onToggleMode}
 					{suspendedJobsModal}
+					hideDropdown={disableSuspendedMode}
 				/>
 			</div>
 		{/if}
