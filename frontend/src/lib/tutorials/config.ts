@@ -1,5 +1,5 @@
 import type { ComponentType } from 'svelte'
-import { BookOpen, Users, Workflow, GraduationCap, Wrench } from 'lucide-svelte'
+import { BookOpen, Users, Workflow, GraduationCap, Wrench, PlayCircle, Link2 } from 'lucide-svelte'
 import { base } from '$lib/base'
 
 export interface TutorialConfig {
@@ -78,6 +78,32 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				disabled: false,
 				comingSoon: false,
 				order: 3
+			},
+			{
+				id: 'backgroundrunnables',
+				icon: PlayCircle,
+				title: 'Background runnables',
+				description: 'Learn how to create and use background runnables in your apps.',
+				onClick: () => {
+					window.location.href = `${base}/apps/add?tutorial=backgroundrunnables&nodraft=true`
+				},
+				index: 4,
+				disabled: false,
+				comingSoon: false,
+				order: 4
+			},
+			{
+				id: 'connection',
+				icon: Link2,
+				title: 'Connection',
+				description: 'Learn how to connect component inputs to outputs in your apps.',
+				onClick: () => {
+					window.location.href = `${base}/apps/add?tutorial=connection&nodraft=true`
+				},
+				index: 5,
+				disabled: false,
+				comingSoon: false,
+				order: 5
 			}
 		]
 	},

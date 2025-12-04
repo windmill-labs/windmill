@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { skipAllTodos } from '$lib/tutorialUtils'
-	import AppTutorial from './tutorials/app/AppTutorial.svelte'
 	import BackgroundRunnablesTutorial from './tutorials/app/BackgroundRunnablesTutorial.svelte'
 	import ConnectionTutorial from './tutorials/app/ConnectionTutorial.svelte'
+	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	let backgroundRunnablesTutorial: BackgroundRunnablesTutorial | undefined = $state(undefined)
 	let connectionTutorial: ConnectionTutorial | undefined = $state(undefined)
-	let appTutorial: AppTutorial | undefined = $state(undefined)
 
 	// Map tutorial IDs to their component instances
 	const tutorialInstances = new Map<
@@ -18,7 +17,6 @@
 	$effect(() => {
 		tutorialInstances.set('backgroundrunnables', backgroundRunnablesTutorial)
 		tutorialInstances.set('connection', connectionTutorial)
-		tutorialInstances.set('simpleapptutorial', appTutorial)
 	})
 
 	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
@@ -39,21 +37,12 @@
 	}
 </script>
 
-<AppTutorial
-	bind:this={appTutorial}
-	on:error
-	on:skipAll={skipAll}
-	on:reload
-	index={7}
-	name="simpleapptutorial"
-/>
-
 <BackgroundRunnablesTutorial
 	bind:this={backgroundRunnablesTutorial}
 	on:error
 	on:skipAll={skipAll}
 	on:reload
-	index={5}
+	index={getTutorialIndex('backgroundrunnables')}
 	name="backgroundrunnables"
 />
 
@@ -62,6 +51,6 @@
 	on:error
 	on:skipAll={skipAll}
 	on:reload
-	index={6}
+	index={getTutorialIndex('connection')}
 	name="connection"
 />
