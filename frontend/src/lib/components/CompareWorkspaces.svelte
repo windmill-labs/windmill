@@ -17,6 +17,7 @@
 		GitFork,
 		Key,
 		Layout,
+		Loader2,
 		Workflow
 	} from 'lucide-svelte'
 	import { Alert, Badge, Tab, Tabs } from './common'
@@ -46,6 +47,9 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Row from './common/table/Row.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import Tooltip from './Tooltip.svelte'
+	import { sleep } from '$lib/utils'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -233,7 +237,323 @@
 			.map((d) => getItemKey(d))
 	}
 
-	function deployChanges() {}
+	async function checkAlreadyExists(kind: Kind, path: string, workspace: string): Promise<boolean> {
+		let exists: boolean
+		if (kind == 'flow') {
+			exists = await FlowService.existsFlowByPath({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'script') {
+			exists = await ScriptService.existsScriptByPath({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'app') {
+			exists = await AppService.existsApp({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'raw_app') {
+			exists = await RawAppService.existsRawApp({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'variable') {
+			exists = await VariableService.existsVariable({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'resource') {
+			exists = await ResourceService.existsResource({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'schedule') {
+			exists = await ScheduleService.existsSchedule({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'resource_type') {
+			exists = await ResourceService.existsResourceType({
+				workspace: workspace,
+				path: path
+			})
+		} else if (kind == 'folder') {
+			exists = await FolderService.existsFolder({
+				workspace: workspace,
+				name: path
+			})
+		} else if (kind === 'trigger') {
+			const triggersKind: TriggerKind[] = [
+				'kafka',
+				'mqtt',
+				'nats',
+				'postgres',
+				'routes',
+				'schedules',
+				'sqs',
+				'websockets',
+				'gcp'
+			]
+			if (
+				additionalInformation?.triggers &&
+				triggersKind.includes(additionalInformation.triggers.kind)
+			) {
+				exists = await existsTrigger(
+					{ workspace: workspace, path },
+					additionalInformation.triggers.kind
+				)
+			} else {
+				throw new Error(
+					`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+						additionalInformation?.triggers?.kind
+					}`
+				)
+			}
+		} else {
+			throw new Error(`Unknown kind ${kind}`)
+		}
+		return exists
+	}
+
+	const deploymentStatus: Record<
+		string,
+		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
+	> = $state({})
+
+	async function deploy(kind: Kind, path: string, workspaceToDeployTo: string, workspaceFrom: string) {
+		const statusPath = `${kind}:${path}`
+
+		// deploymentStatus[statusPath] = {status: 'loading'}
+		// await sleep(1000)
+		// if (Math.random() > 0.5) {
+		// 	deploymentStatus[statusPath] = {status: 'failed'}
+		// } else {
+		// 	deploymentStatus[statusPath] = {status: 'deployed'}
+		// }
+		// return
+
+		deploymentStatus[statusPath] = { status: 'loading' }
+		try {
+			let alreadyExists = await checkAlreadyExists(kind, path, workspaceToDeployTo)
+			if (kind == 'flow') {
+				const flow = await FlowService.getFlowByPath({
+					workspace: workspaceFrom,
+					path: path
+				})
+				getAllModules(flow.value.modules).forEach((x) => {
+					if (x.value.type == 'script' && x.value.hash != undefined) {
+						x.value.hash = undefined
+					}
+				})
+				if (alreadyExists) {
+					await FlowService.updateFlow({
+						workspace: workspaceToDeployTo,
+						path: path,
+						requestBody: {
+							...flow
+						}
+					})
+				} else {
+					await FlowService.createFlow({
+						workspace: workspaceToDeployTo,
+						requestBody: {
+							...flow
+						}
+					})
+				}
+			} else if (kind == 'script') {
+				const script = await ScriptService.getScriptByPath({
+					workspace: workspaceFrom,
+					path: path
+				})
+				await ScriptService.createScript({
+					workspace: workspaceToDeployTo,
+					requestBody: {
+						...script,
+						lock: script.lock,
+						parent_hash: alreadyExists
+							? (
+									await ScriptService.getScriptByPath({
+										workspace: workspaceToDeployTo,
+										path: path
+									})
+								).hash
+							: undefined
+					}
+				})
+			} else if (kind == 'app') {
+				const app = await AppService.getAppByPath({
+					workspace: workspaceFrom,
+					path: path
+				})
+				if (alreadyExists) {
+					await AppService.updateApp({
+						workspace: workspaceToDeployTo,
+						path: path,
+						requestBody: {
+							...app
+						}
+					})
+				} else {
+					await AppService.createApp({
+						workspace: workspaceToDeployTo,
+						requestBody: {
+							...app
+						}
+					})
+				}
+			} else if (kind == 'variable') {
+				const variable = await VariableService.getVariable({
+					workspace: workspaceFrom,
+					path: path,
+					decryptSecret: true
+				})
+				if (alreadyExists) {
+					await VariableService.updateVariable({
+						workspace: workspaceToDeployTo,
+						path: path,
+						requestBody: {
+							path: path,
+							value: variable.value ?? '',
+							is_secret: variable.is_secret,
+							description: variable.description ?? ''
+						},
+						alreadyEncrypted: false
+					})
+				} else {
+					await VariableService.createVariable({
+						workspace: workspaceToDeployTo,
+						requestBody: {
+							path: path,
+							value: variable.value ?? '',
+							is_secret: variable.is_secret,
+							description: variable.description ?? ''
+						}
+					})
+				}
+			} else if (kind == 'resource') {
+				const resource = await ResourceService.getResource({
+					workspace: workspaceFrom,
+					path: path
+				})
+				if (alreadyExists) {
+					await ResourceService.updateResource({
+						workspace: workspaceToDeployTo,
+						path: path,
+						requestBody: {
+							path: path,
+							value: resource.value ?? '',
+							description: resource.description ?? ''
+						}
+					})
+				} else {
+					await ResourceService.createResource({
+						workspace: workspaceToDeployTo,
+						requestBody: {
+							path: path,
+							value: resource.value ?? '',
+							resource_type: resource.resource_type,
+							description: resource.description ?? ''
+						}
+					})
+				}
+			} else if (kind == 'resource_type') {
+				const resource = await ResourceService.getResourceType({
+					workspace: workspaceFrom,
+					path: path
+				})
+				if (alreadyExists) {
+					await ResourceService.updateResourceType({
+						workspace: workspaceToDeployTo,
+						path: path,
+						requestBody: {
+							schema: resource.schema,
+							description: resource.description ?? ''
+						}
+					})
+				} else {
+					await ResourceService.createResourceType({
+						workspace: workspaceToDeployTo,
+						requestBody: {
+							description: resource.description ?? '',
+							schema: resource.schema,
+							name: resource.name
+						}
+					})
+				}
+			} else if (kind == 'raw_app') {
+				throw new Error('Raw app deploy not implemented yet')
+				// const app = await RawAppService.getRawAppData({
+				// 	workspace: workspaceFrom,
+				// 	path: path
+				// })
+				// if (alreadyExists) {
+				// }
+				// await RawAppService.updateRawApp({
+				// 	workspace: workspaceFrom,
+				// 	path: path,
+				// 	requestBody: {
+				// 		path: path
+				// 	}
+				// })
+			} else if (kind == 'folder') {
+				await FolderService.createFolder({
+					workspace: workspaceToDeployTo,
+					requestBody: {
+						name: path
+					}
+				})
+			// } else if (kind === 'trigger') {
+			// 	if (additionalInformation?.triggers) {
+			// 		const { data, createFn, updateFn } = await getTriggersDeployData(
+			// 			additionalInformation.triggers.kind,
+			// 			path,
+			// 			workspaceFrom
+			// 		)
+			// 		if (alreadyExists) {
+			// 			await updateFn({
+			// 				path,
+			// 				workspace: workspaceToDeployTo,
+			// 				requestBody: data
+			// 			} as any)
+			// 		} else {
+			// 			await createFn({
+			// 				workspace: workspaceToDeployTo,
+			// 				requestBody: data
+			// 			} as any)
+			// 		}
+			// 	} else {
+			// 		throw new Error('Missing triggers kind')
+			// 	}
+			} else {
+				throw new Error(`Unknown kind ${kind}`)
+			}
+
+			// allAlreadyExists[statusPath] = true
+			deploymentStatus[statusPath] = { status: 'deployed' }
+		} catch (e) {
+			deploymentStatus[statusPath] = { status: 'failed', error: e.body || e.message }
+		}
+
+	}
+	async function deployChanges() {
+		for (const itemKey of selectedItems) {
+			const diff = selectableDiffs.find((d) => itemKey == getItemKey(d))
+
+			if (!diff) {
+				sendUserToast(`Undeployable item: ${itemKey}`, true)
+				continue
+			}
+
+			if (mergeIntoParent) {
+				await deploy(diff.kind, diff.path, parentWorkspaceId, currentWorkspaceId)
+			} else {
+				await deploy(diff.kind, diff.path, currentWorkspaceId, parentWorkspaceId)
+			}
+		}
+	}
 
 	function groupDiffsByKind(diffs: WorkspaceItemDiff[]) {
 		const grouped: Record<string, WorkspaceItemDiff[]> = {}
@@ -434,10 +754,10 @@
 					{@const Icon = getItemIcon(diff.kind)}
 
 					<Row
-						{isSelectable}
+						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
 						alignWithSelectable={true}
 						disabled={!isSelectable}
-						selected={isSelected}
+						selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
 						onSelect={() => toggleItem(diff)}
 						path={diff.path}
 						marked={undefined}
@@ -448,6 +768,7 @@
 					>
 						{#snippet actions()}
 							<!-- Status badges -->
+							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
 							<div class="flex items-center gap-2">
 								{#if diff.versions_ahead > 0}
 									<Badge color="green" size="xs">
@@ -482,6 +803,19 @@
 								<DiffIcon class="w-3 h-3" />
 								Show diff
 							</Button>
+							{/if}
+							{#if deploymentStatus[key]}
+								{#if deploymentStatus[key].status == 'loading'}
+									<Loader2 class="animate-spin" />
+								{:else if deploymentStatus[key].status == 'deployed'}
+									<Badge color="green">Deployed</Badge>
+								{:else if deploymentStatus[key].status == 'failed'}
+									<div class="inline-flex gap-1">
+										<Badge color="red">Failed</Badge>
+										<Tooltip>{deploymentStatus[key].error}</Tooltip></div
+									>
+								{/if}
+							{/if}
 						{/snippet}
 					</Row>
 				{/each}
