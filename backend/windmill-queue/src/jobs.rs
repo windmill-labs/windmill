@@ -2368,28 +2368,31 @@ pub async fn get_mini_pulled_job<'c>(
 ) -> windmill_common::error::Result<Option<MiniPulledJob>> {
     let job = sqlx::query_as!(
         MiniPulledJob,
-        "SELECT 
+        r#"SELECT 
         v2_job_queue.workspace_id,
         v2_job_queue.id,
-        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+        v2_job.args as "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
         v2_job.parent_job,
         v2_job.created_by,
         v2_job_queue.started_at,
         scheduled_for,
         runnable_path,
-        kind as \"kind: JobKind\",
-        runnable_id as \"runnable_id: ScriptHash\",
+        kind as "kind: JobKind",
+        runnable_id as "runnable_id: ScriptHash",
         canceled_reason,
         canceled_by,
         permissioned_as,
         permissioned_as_email,
-        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+        flow_status as "flow_status: sqlx::types::Json<Box<RawValue>>",
         v2_job.tag,
-        script_lang as \"script_lang: ScriptLang\",
+        script_lang as "script_lang: ScriptLang",
         same_worker,
         pre_run_error,
-        concurrent_limit,
-        concurrency_time_window_s,
+        -- for backwards compat we assume that v2_job might still be used for storage
+        COALESCE(cs.concurrent_limit, v2_job.concurrent_limit) AS concurrent_limit,
+        COALESCE(cs.concurrency_time_window_s, v2_job.concurrency_time_window_s) AS concurrency_time_window_s,
+        -- Fetch the rest from other tables
+        -- ds AS "debouncing_settings: DebouncingSettings",
         flow_innermost_root_job,
         root_job,
         timeout,
@@ -2399,11 +2402,16 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: JobTriggerKind\",
+        trigger_kind as "trigger_kind: JobTriggerKind",
         visible_to_owner,
         NULL as permissioned_as_end_user_email
-        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
-        job_id,
+        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+            LEFT JOIN runnable_settings_references  srefs ON v2_job_queue.id::text = srefs.referencer_id::text AND srefs.referencer_kind = 'job' -- TODO: optimize ::text
+            LEFT JOIN runnable_concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN runnable_debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+         WHERE v2_job_queue.id = $1"#,
+         job_id,
     )
     .fetch_optional(e)
     .await?;
