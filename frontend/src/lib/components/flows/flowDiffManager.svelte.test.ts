@@ -205,7 +205,7 @@ describe('FlowDiffManager', () => {
 
 		it('handles duplicate ID prefix (old__) for type changes', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 	   
 				// Create a real type change: rawscript -> identity
 				const moduleBeforeA = createRawScriptModule('a', 'content')
@@ -402,7 +402,7 @@ describe('FlowDiffManager', () => {
 
 		it('rejects duplicate ID prefix (old__) for type changes - restores original and renames new', () => {
 			const cleanup = $effect.root(() => {
-				const manager = createFlowDiffManager()
+				const manager = createFlowDiffManager({ testMode: true })
 
 				// Create a real type change: rawscript -> identity
 				const moduleBeforeA = createRawScriptModule('a', 'original-content')
