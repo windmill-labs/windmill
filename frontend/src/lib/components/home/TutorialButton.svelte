@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CheckCircle2 } from 'lucide-svelte'
+	import { CheckCircle2, Circle } from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
 
 	interface Props {
@@ -50,16 +50,18 @@
 
 	<!-- Status -->
 	<div class="flex items-center gap-1.5 flex-shrink-0">
-		{#if isCompleted}
-			<CheckCircle2 size={14} class="text-green-500 flex-shrink-0" />
-		{/if}
 		<span
 			class="text-xs font-normal {isCompleted
 				? 'text-green-500'
-				: 'text-secondary'}"
+				: 'text-blue-300'}"
 		>
 			{isCompleted ? 'Completed' : 'Not started'}
 		</span>
+		{#if isCompleted}
+			<CheckCircle2 size={14} class="text-green-500 flex-shrink-0" />
+		{:else if !isCompleted}
+			<Circle size={14} class="text-blue-300 flex-shrink-0" />
+		{/if}
 	</div>
 </button>
 

@@ -203,9 +203,17 @@
 						{/snippet}
 					</Tab>
 				{:else if badge.type === 'check'}
-					<Tab value={tabId} label={config.label} icon={CheckCircle2} />
+					<Tab value={tabId} label={config.label}>
+						{#snippet extra()}
+							<CheckCircle2 size={14} class="ml-1.5 flex-shrink-0" />
+						{/snippet}
+					</Tab>
 				{:else if badge.type === 'dot'}
-					<Tab value={tabId} label={config.label} icon={Circle} />
+					<Tab value={tabId} label={config.label}>
+						{#snippet extra()}
+							<Circle size={14} class="ml-1.5 flex-shrink-0" />
+						{/snippet}
+					</Tab>
 				{:else}
 					<Tab value={tabId} label={config.label} />
 				{/if}
