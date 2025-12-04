@@ -577,6 +577,20 @@ async fn create_flow(
     .execute(&mut *new_tx)
     .await?;
 
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
+    )
+    .execute(&mut *new_tx)
+    .await?;
+
     new_tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
@@ -715,13 +729,12 @@ async fn get_flow_version_by_id(
     let mut tx = user_db.begin(&authed).await?;
 
     // First, fetch the path to perform authorization check early
-    let path: Option<String> = sqlx::query_scalar(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(version)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2")
+            .bind(version)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let path = not_found_if_none(
         path,
@@ -788,13 +801,12 @@ async fn update_flow_history(
     let mut tx = user_db.begin(&authed).await?;
 
     // Fetch path and perform authorization check early
-    let path: Option<String> = sqlx::query_scalar(
-        "SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2",
-    )
-    .bind(&w_id)
-    .bind(version)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2")
+            .bind(&w_id)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let path = not_found_if_none(
         path,
@@ -1115,6 +1127,25 @@ async fn update_flow(
         ))
     })?;
 
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
+    )
+    .execute(&mut *new_tx)
+    .await
+    .map_err(|e| {
+        error::Error::internal_err(format!(
+            "Error updating deployment_metadata with job_id: {e:#}"
+        ))
+    })?;
+
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE v2_job_queue SET
@@ -1154,9 +1185,10 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
@@ -1164,9 +1196,12 @@ async fn get_deployment_status(
 ) -> JsonResult<DeploymentStatus> {
     let path = path.to_path();
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock_error_logs FROM flow WHERE path = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT f.lock_error_logs, dm.job_id
+         FROM flow f
+         LEFT JOIN deployment_metadata dm ON f.versions[array_upper(f.versions, 1)] = dm.flow_version
+             AND f.workspace_id = dm.workspace_id AND f.path = dm.path
+         WHERE f.path = $1 AND f.workspace_id = $2",
         path,
         w_id,
     )
@@ -1175,8 +1210,13 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
 
+    let deployment_status = DeploymentStatus {
+        lock_error_logs: status.lock_error_logs,
+        job_id: status.job_id,
+    };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 async fn get_flow_by_path(
@@ -1440,10 +1480,9 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
-        let flow_value = nf.parse_flow_value()?;
-        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
-    } {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
@@ -1562,6 +1601,7 @@ mod tests {
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
+        jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
         scripts,
     };
 
@@ -1612,11 +1652,9 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
                         is_trigger: None,
                         assets: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1702,17 +1740,14 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
             priority: None,
             early_return: None,
-            concurrency_key: None,
             chat_input_enabled: None,
             flow_env: None,
-            debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings: DebouncingSettings::default(),
         };
         let expect = serde_json::json!({
           "modules": [
