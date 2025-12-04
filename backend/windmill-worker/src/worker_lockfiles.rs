@@ -1172,11 +1172,9 @@ async fn lock_modules<'c>(
             mut language,
             input_transforms,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             is_trigger,
             assets,
+            concurrency_settings,
         } = e.get_value()?
         else {
             let mut nmodified_ids = Vec::new();
@@ -1542,11 +1540,9 @@ async fn lock_modules<'c>(
             content,
             language,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             is_trigger,
             assets,
+            concurrency_settings,
         });
         new_flow_modules.push(e);
 
@@ -1738,11 +1734,9 @@ async fn reduce_flow<'c>(
                     language,
                     input_transforms,
                     tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
                     is_trigger,
                     assets,
+                    concurrency_settings,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1765,11 +1759,9 @@ async fn reduce_flow<'c>(
                     id,
                     tag,
                     language,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
                     is_trigger,
                     assets,
+                    concurrency_settings,
                 };
             }
             ForloopFlow { modules, modules_node, .. }
