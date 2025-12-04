@@ -8,10 +8,10 @@
 		class?: string | undefined
 	}
 
-	let { tags, maxVisible = 1, class: clazz = undefined }: Props = $props()
+	let { tags, maxVisible = undefined, class: clazz = undefined }: Props = $props()
 
-	const visibleTags = $derived(tags.slice(0, maxVisible))
-	const extraTags = $derived(tags.slice(maxVisible))
+	const visibleTags = $derived(maxVisible ? tags.slice(0, maxVisible) : tags)
+	const extraTags = $derived(maxVisible ? tags.slice(maxVisible) : [])
 	const hasExtraTags = $derived(extraTags.length > 0)
 </script>
 

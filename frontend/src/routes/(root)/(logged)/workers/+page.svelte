@@ -26,7 +26,15 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
-	import { ExternalLink, LineChart, Plus, Search, Tags, Terminal } from 'lucide-svelte'
+	import {
+		ExternalLink,
+		LineChart,
+		Plus,
+		Search,
+		Tags,
+		Terminal,
+		TriangleAlert
+	} from 'lucide-svelte'
 	import { onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
@@ -38,6 +46,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import TagList from '$lib/components/TagList.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	let workers: WorkerPing[] | undefined = $state(undefined)
 	let workerGroups: Record<string, any> | undefined = $state(undefined)
@@ -212,21 +221,29 @@
 	let shouldAutoOpenDrawer = $state('')
 
 	function handleWorkerGroupDeleted(deletedGroupName: string) {
-		// If the deleted group was the currently selected one, select another group
+		// If the deleted group was the currently selected one, check if group has workers
 		if (selectedTab === deletedGroupName) {
-			// After deletion, we need to wait for loadWorkerGroups to update the workerGroups state
-			// So we'll use the current groupedWorkers to find available groups
-			const availableGroups = groupedWorkers
-				.map((group) => group[0])
-				.filter((group) => group !== deletedGroupName)
+			// Find the current group to check if it has active workers
+			const currentGroup = groupedWorkers.find((group) => group[0] === deletedGroupName)
+			const hasActiveWorkers =
+				currentGroup && currentGroup[1].some(([_, workers]) => workers.length > 0)
 
-			if (availableGroups.length > 0) {
-				// Prioritize 'default' group if available, otherwise pick the first one
-				selectedTab = availableGroups.includes('default') ? 'default' : availableGroups[0]
-			} else {
-				// No groups left, fall back to 'default'
-				selectedTab = 'default'
+			// Only select a new group if the current group has no active workers
+			if (!hasActiveWorkers) {
+				// Find available groups (after deletion)
+				const availableGroups = groupedWorkers
+					.map((group) => group[0])
+					.filter((group) => group !== deletedGroupName)
+
+				if (availableGroups.length > 0) {
+					// Prioritize 'default' group if available, otherwise pick the first one
+					selectedTab = availableGroups.includes('default') ? 'default' : availableGroups[0]
+				} else {
+					// No groups left, fall back to 'default'
+					selectedTab = 'default'
+				}
 			}
+			// If group has active workers, stay on the same group (workers remain visible without config)
 		}
 	}
 
@@ -352,6 +369,25 @@
 
 	function isWorkerMaybeAlive(last_ping: number | undefined): boolean | undefined {
 		return last_ping != undefined ? last_ping < 60 : undefined
+	}
+
+	function getTagMismatchInfo(
+		workerTags: string[] | undefined,
+		configTags: string[] | undefined
+	): { hasMismatch: boolean; added: string[]; removed: string[] } {
+		if (!configTags || configTags.length === 0) {
+			return { hasMismatch: false, added: [], removed: [] }
+		}
+
+		const worker = new Set(workerTags || [])
+		const config = new Set(configTags || [])
+
+		const added = [...worker].filter((tag) => !config.has(tag))
+		const removed = [...config].filter((tag) => !worker.has(tag))
+
+		const hasMismatch = added.length > 0 || removed.length > 0
+
+		return { hasMismatch, added, removed }
 	}
 
 	let newGroupPopover: Popover | undefined = $state(undefined)
@@ -730,19 +766,71 @@
 										{#if workers}
 											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
+												{@const tagMismatchInfo = getTagMismatchInfo(
+													custom_tags,
+													config?.worker_tags
+												)}
 												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
 													<Cell class="text-primary" first>
 														{@const underscorePos = worker.search('_')}
-														{#if underscorePos === -1}
-															{worker}
-														{:else}
-															{truncate(worker, underscorePos)}
-															<Tooltip>{worker}</Tooltip>
-														{/if}
+														<div class="flex items-center gap-2">
+															<span>
+																{#if underscorePos === -1}
+																	{worker}
+																{:else}
+																	{truncate(worker, underscorePos)}
+																	<Tooltip>{worker}</Tooltip>
+																{/if}
+															</span>
+															{#if config && tagMismatchInfo.hasMismatch}
+																<MeltTooltip>
+																	<Badge color="yellow">
+																		<TriangleAlert size={14} />
+																	</Badge>
+
+																	{#snippet text()}
+																		<div class="flex flex-col gap-2 text-xs max-w-md">
+																			<div class="font-semibold text-emphasis"
+																				>Tag configuration mismatch</div
+																			>
+																			<p
+																				>This worker has tags that differ from the config. This
+																				could be due to a recent update of the config or because the
+																				worker has tags defined as environment variables.</p
+																			>
+
+																			{#if tagMismatchInfo.added.length > 0}
+																				<div>
+																					<div class="text-emphasis font-semibold"
+																						>Additional tags:</div
+																					>
+																					<TagList
+																						tags={tagMismatchInfo.added}
+																						class="flex flex-wrap gap-1"
+																					/>
+																				</div>
+																			{/if}
+
+																			{#if tagMismatchInfo.removed.length > 0}
+																				<div>
+																					<div class="text-emphasis font semibold"
+																						>Missing tags:</div
+																					>
+																					<TagList
+																						tags={tagMismatchInfo.removed}
+																						class="flex flex-wrap gap-1"
+																					/>
+																				</div>
+																			{/if}
+																		</div>
+																	{/snippet}
+																</MeltTooltip>
+															{/if}
+														</div>
 													</Cell>
 													{#if !config || !config.worker_tags || config.worker_tags.length === 0}
 														<Cell class="min-w-0 max-w-32">
-															<TagList tags={custom_tags ?? []} />
+															<TagList tags={custom_tags ?? []} maxVisible={1} />
 														</Cell>
 													{/if}
 													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
@@ -807,17 +895,17 @@
 																	? 'Alive'
 																	: 'Dead'
 																: 'Unknown'}
-														<div class="min-w-24">
+														<div class="min-w-24 flex flex-row gap-1 items-center">
 															<Badge
 																color={isWorkerAlive != undefined
 																	? isWorkerAlive
 																		? 'green'
 																		: 'red'
 																	: 'gray'}
-																baseClass="w-24"
 															>
-																{statusText} ({pingText})
+																{statusText}
 															</Badge>
+															<div class="text-2xs text-hint">{pingText}</div>
 														</div>
 													</Cell>
 													{#if $superadmin || $devopsRole}
