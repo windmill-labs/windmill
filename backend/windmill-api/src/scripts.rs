@@ -998,14 +998,14 @@ async fn create_script_internal<'c>(
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
-        let (_, new_tx) = windmill_queue::push(
+        let (job_id, mut new_tx) = windmill_queue::push(
             &db,
             tx,
             &w_id,
             JobPayload::Dependencies {
                 hash,
                 language: ns.language,
-                path: ns.path,
+                path: ns.path.clone(),
                 dedicated_worker: ns.dedicated_worker,
             },
             windmill_queue::PushArgs::from(&args),
@@ -1034,6 +1034,20 @@ async fn create_script_internal<'c>(
             None,
         )
         .await?;
+
+        // Store the job_id in deployment_metadata for this script deployment
+        sqlx::query!(
+            "INSERT INTO deployment_metadata (workspace_id, script_hash, job_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
+             DO UPDATE SET job_id = EXCLUDED.job_id",
+            w_id,
+            hash.0,
+            job_id
+        )
+        .execute(&mut *new_tx)
+        .await?;
+
         Ok((hash, new_tx, None))
     } else {
         if codebase.is_none() {
@@ -1750,19 +1764,22 @@ async fn raw_script_by_hash(
     Ok(r.script.content)
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock: Option<String>,
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT s.lock, s.lock_error_logs, dm.job_id
+         FROM script s
+         LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id
+         WHERE s.hash = $1 AND s.workspace_id = $2",
         hash.0,
         w_id,
     )
@@ -1771,8 +1788,14 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
 
+    let deployment_status = DeploymentStatus {
+        lock: status.lock,
+        lock_error_logs: status.lock_error_logs,
+        job_id: status.job_id,
+    };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
