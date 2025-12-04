@@ -52,11 +52,8 @@ mod job_payload {
             let result = RunJob::from(JobPayload::ScriptHash {
                 hash: ScriptHash(123412),
                 path: "f/system/hello".to_string(),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
                 cache_ttl: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
