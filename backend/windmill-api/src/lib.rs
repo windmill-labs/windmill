@@ -94,8 +94,10 @@ mod favorite;
 mod flow_conversations;
 pub mod flows;
 mod folders;
+mod folder_history;
 mod granular_acls;
 mod groups;
+mod group_history;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
@@ -466,7 +468,9 @@ pub async fn run_server(
                             flow_conversations::workspaced_service(),
                         )
                         .nest("/folders", folders::workspaced_service())
+                        .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
+                        .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
