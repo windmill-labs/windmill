@@ -376,6 +376,16 @@
 			search
 		)
 	)
+
+	let columnCount = $derived.by(() => {
+		const config = (workerGroups ?? {})[selectedTab]
+		let cols = 7 // Worker, Worker start, Jobs ran, Memory usage, Limits, Version, Status
+		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
+		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
+			cols += 2 // Last job, Occupancy rate
+		if ($superadmin || $devopsRole) cols += 1 // Repl
+		return cols
+	})
 </script>
 
 {#if $superadmin || $devopsRole}
@@ -657,16 +667,18 @@
 							<Head>
 								<tr>
 									<Cell head first>Worker</Cell>
-									<Cell head>
-										<div class="flex flex-row items-center gap-1 min-w-32">
-											Worker tags
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
-											>
-												If defined, the workers only pull jobs with the same corresponding tag
-											</Tooltip>
-										</div>
-									</Cell>
+									{#if !config || !config.worker_tags || config.worker_tags.length === 0}
+										<Cell head>
+											<div class="flex flex-row items-center gap-1 min-w-32">
+												Worker tags
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+												>
+													If defined, the workers only pull jobs with the same corresponding tag
+												</Tooltip>
+											</div>
+										</Cell>
+									{/if}
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
 									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
@@ -697,15 +709,12 @@
 										<tr>
 											<Cell
 												first
-												colspan={(!config || config?.dedicated_worker == undefined) &&
-												($superadmin || $devopsRole)
-													? 11
-													: 8}
+												colspan={columnCount}
 												scope="colgroup"
-												class="!text-xs {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
+												class="!text-xs !pb-0 {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
 											>
 												<div class="flex flex-row w-full text-2xs text-hint">
-													<div class="min-w-64">
+													<div class="">
 														Host:
 														<span class="">{hostname}</span>
 													</div>
@@ -722,7 +731,7 @@
 											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
-													<Cell class="py-6 text-primary" first>
+													<Cell class="text-primary" first>
 														{@const underscorePos = worker.search('_')}
 														{#if underscorePos === -1}
 															{worker}
@@ -731,9 +740,11 @@
 															<Tooltip>{worker}</Tooltip>
 														{/if}
 													</Cell>
-													<Cell class="min-w-0 max-w-32">
-														<TagList tags={custom_tags ?? []} />
-													</Cell>
+													{#if !config || !config.worker_tags || config.worker_tags.length === 0}
+														<Cell class="min-w-0 max-w-32">
+															<TagList tags={custom_tags ?? []} />
+														</Cell>
+													{/if}
 													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
 													<Cell class="text-secondary">{jobs_executed}</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
@@ -833,7 +844,7 @@
 									{/each}
 								{:else if search}
 									<tr>
-										<Cell colspan="11">
+										<Cell colspan={columnCount}>
 											<div class="text-xs text-primary py-2 text-center">
 												No active workers found matching the search query
 											</div>
@@ -841,7 +852,7 @@
 									</tr>
 								{:else}
 									<tr>
-										<Cell colspan="11">
+										<Cell colspan={columnCount}>
 											<div class="text-xs text-primary py-2 text-center">
 												No active workers found for the group '{worker_group[0]}'
 											</div>

@@ -41,7 +41,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Dropdown from './DropdownV2.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import TagList from './TagList.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -965,180 +965,192 @@
 </Drawer>
 
 <div
-	class={twMerge(
-		'flex items-center justify-between mt-2 rounded-md',
-		selectGroup ? 'border border-light p-4' : '',
-		isAgent ? 'flex-col gap-2 items-start' : ''
-	)}
+	class="flex flex-col gap-6 items-center justify-between mt-2 rounded-md border border-light p-4 bg-surface-tertiary"
 >
-	<div class="text-xs flex flex-row gap-2 items-center">
-		<div class="flex flex-row gap-1 items-center">
-			{#if selectGroup}
-				{@render selectGroup()}
-				<span class="ml-r"></span>
-			{:else}
-				<span class="text-secondary text-xs">Worker group:</span>
-				<span class="text-emphasis font-semibold text-sm">{name} - </span>
-			{/if}
-			<span class="inline-flex">
-				{`${pluralize(activeWorkers, 'worker')} `}
-				<Tooltip
-					>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
-				></span
-			>
-		</div>
-
-		{#if vcpus_memory?.vcpus}
-			- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
-		{#if vcpus_memory?.memory}
-			- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
-		{#if hasWorkersWithoutIsolation(workers)}
-			{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
-			<div class="flex justify-end">
-				<Tooltip
-					placement="bottom"
-					closeButton
-					containerClasses="border rounded-lg shadow-lg bg-surface"
-				>
-					<TriangleAlert size={14} class="text-yellow-600" />
-
-					{#snippet text()}
-						<div class="flex flex-col gap-2 text-xs max-w-md p-4">
-							<div class="font-semibold text-emphasis">Workers without job isolation</div>
-							<p class="text-primary">
-								{unsafeWorkers.length}
-								{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
-								{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
-							</p>
-							<div class="flex flex-wrap gap-1">
-								{#each unsafeWorkers as worker}
-									<Badge color="orange" small>
-										{worker.worker}
-									</Badge>
-								{/each}
-							</div>
-							<a href="https://www.windmill.dev/docs/advanced/security_isolation" target="_blank">
-								Learn more about job isolation <ExternalLink size={12} class="inline-block" />
-							</a>
-						</div>
-					{/snippet}
-				</Tooltip>
-			</div>
-		{/if}
-	</div>
-	{#if !isAgent}
-		<div class="flex gap-4 items-center justify-end flex-row">
-			{#if canEditConfig}
-				{#if width > 1000}
-					{#if config}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							on:click={() => {
-								if (!hasEnterpriseFeatures) {
-									sendUserToast('Worker Management UI is an EE feature', true)
-								} else {
-									openDelete = true
-								}
-							}}
-							startIcon={{ icon: Trash }}
-							destructive
-						>
-							Delete config
-						</Button>
-					{/if}
-
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						on:click={() => {
-							loadNConfig()
-							openClean = true
-						}}
-						startIcon={{ icon: RefreshCcwIcon }}
-						destructive
-					>
-						Clean cache
-					</Button>
-
-					{#if config}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							on:click={() => {
-								navigator.clipboard.writeText(
-									YAML.stringify({
-										name,
-										...config
-									})
-								)
-								sendUserToast('Worker config copied to clipboard as YAML')
-							}}
-							startIcon={{ icon: Copy }}
-						>
-							Copy config
-						</Button>
-					{/if}
+	<div class="flex gap-2 justify-between w-full">
+		<div class="text-xs flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-1 items-center">
+				{#if selectGroup}
+					{@render selectGroup()}
+					<span class="ml-r"></span>
 				{:else}
-					<Dropdown
-						items={[
-							{
-								displayName: 'Copy config',
-								action: () => {
-									navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
-									sendUserToast('Worker config copied to clipboard as YAML')
-								},
-								disabled: !config
-							},
-							{
-								displayName: 'Clean cache',
-								action: () => {
-									loadNConfig()
-									openClean = true
-								},
-								disabled: !config,
-								type: 'delete'
-							},
-							{
-								displayName: 'Delete config',
-								action: () => {
+					<span class="text-secondary text-xs">Worker group:</span>
+					<span class="text-emphasis font-semibold text-sm">{name} - </span>
+				{/if}
+				<span class="inline-flex">
+					{`${pluralize(activeWorkers, 'worker')} `}
+					<Tooltip
+						>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
+					></span
+				>
+			</div>
+
+			{#if vcpus_memory?.vcpus}
+				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
+			{#if vcpus_memory?.memory}
+				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
+			{#if hasWorkersWithoutIsolation(workers)}
+				{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
+				<div class="flex justify-end">
+					<Tooltip
+						placement="bottom"
+						closeButton
+						containerClasses="border rounded-lg shadow-lg bg-surface"
+					>
+						<TriangleAlert size={14} class="text-yellow-600" />
+
+						{#snippet text()}
+							<div class="flex flex-col gap-2 text-xs max-w-md p-4">
+								<div class="font-semibold text-emphasis">Workers without job isolation</div>
+								<p class="text-primary">
+									{unsafeWorkers.length}
+									{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
+									{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
+								</p>
+								<div class="flex flex-wrap gap-1">
+									{#each unsafeWorkers as worker}
+										<Badge color="orange" small>
+											{worker.worker}
+										</Badge>
+									{/each}
+								</div>
+								<a href="https://www.windmill.dev/docs/advanced/security_isolation" target="_blank">
+									Learn more about job isolation <ExternalLink size={12} class="inline-block" />
+								</a>
+							</div>
+						{/snippet}
+					</Tooltip>
+				</div>
+			{/if}
+		</div>
+		{#if !isAgent}
+			<div class="flex gap-4 items-center justify-end flex-row">
+				{#if canEditConfig}
+					{#if width > 1000}
+						{#if config}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => {
 									if (!hasEnterpriseFeatures) {
 										sendUserToast('Worker Management UI is an EE feature', true)
 									} else {
 										openDelete = true
 									}
+								}}
+								startIcon={{ icon: Trash }}
+								destructive
+							>
+								Delete config
+							</Button>
+						{/if}
+
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								loadNConfig()
+								openClean = true
+							}}
+							startIcon={{ icon: RefreshCcwIcon }}
+							destructive
+						>
+							Clean cache
+						</Button>
+
+						{#if config}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => {
+									navigator.clipboard.writeText(
+										YAML.stringify({
+											name,
+											...config
+										})
+									)
+									sendUserToast('Worker config copied to clipboard as YAML')
+								}}
+								startIcon={{ icon: Copy }}
+							>
+								Copy config
+							</Button>
+						{/if}
+					{:else}
+						<Dropdown
+							items={[
+								{
+									displayName: 'Copy config',
+									action: () => {
+										navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
+										sendUserToast('Worker config copied to clipboard as YAML')
+									},
+									disabled: !config
 								},
-								disabled: !config,
-								type: 'delete'
-							}
-						]}
-					/>
+								{
+									displayName: 'Clean cache',
+									action: () => {
+										loadNConfig()
+										openClean = true
+									},
+									disabled: !config,
+									type: 'delete'
+								},
+								{
+									displayName: 'Delete config',
+									action: () => {
+										if (!hasEnterpriseFeatures) {
+											sendUserToast('Worker Management UI is an EE feature', true)
+										} else {
+											openDelete = true
+										}
+									},
+									disabled: !config,
+									type: 'delete'
+								}
+							]}
+						/>
+					{/if}
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						on:click={() => {
+							loadNConfig()
+							drawer?.openDrawer()
+						}}
+						startIcon={{ icon: config == undefined ? Plus : Settings }}
+					>
+						<div class="flex flex-row gap-1 items-center">
+							{config == undefined ? 'Create' : 'Edit'} config
+						</div>
+					</Button>
+				{:else if config}
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						on:click={() => {
+							loadNConfig()
+							drawer?.openDrawer()
+						}}
+					>
+						See config
+					</Button>
 				{/if}
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					on:click={() => {
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-					startIcon={{ icon: config == undefined ? Plus : Settings }}
-				>
-					<div class="flex flex-row gap-1 items-center">
-						{config == undefined ? 'Create' : 'Edit'} config
-					</div>
-				</Button>
-			{:else if config}
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					on:click={() => {
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-				>
-					See config
-				</Button>
-			{/if}
+			</div>
+		{/if}
+	</div>
+
+	{#if config?.worker_tags && config.worker_tags.length > 0}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Tags:</div>
+			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+		</div>
+	{:else if config?.dedicated_worker}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
+			<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
+				{config.dedicated_worker}
+			</div>
 		</div>
 	{/if}
 </div>
