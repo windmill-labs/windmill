@@ -63,6 +63,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
+	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
@@ -1105,6 +1106,7 @@
 							<Dropdown items={moreItems} />
 						{/if}
 					</div>
+					<FlowEditorTutorial />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"
