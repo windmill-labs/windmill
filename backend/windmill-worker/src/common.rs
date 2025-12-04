@@ -751,6 +751,7 @@ async fn hash_args(
     _workspace_id: &str,
     v: &Option<Json<HashMap<String, Box<RawValue>>>>,
     hasher: &mut sha2::Sha256,
+    job_id: &Uuid,
 ) {
     if let Some(Json(hm)) = v {
         for k in hm.keys().sorted() {
@@ -758,7 +759,8 @@ async fn hash_args(
             let arg_value = hm.get(k).unwrap();
             #[cfg(feature = "parquet")]
             let (_, arg_additions) =
-                arg_value_hash_additions(_db, _client, _workspace_id, hm.get(k).unwrap()).await;
+                arg_value_hash_additions(_db, _client, _workspace_id, hm.get(k).unwrap(), job_id)
+                    .await;
             hasher.update(arg_value.get().as_bytes());
             #[cfg(feature = "parquet")]
             for (_, arg_addition) in arg_additions {
@@ -788,7 +790,15 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
-    hash_args(db, client, &job.workspace_id, &job.args, &mut hasher).await;
+    hash_args(
+        db,
+        client,
+        &job.workspace_id,
+        &job.args,
+        &mut hasher,
+        &job.id,
+    )
+    .await;
     format!("g/results/{:064x}", hasher.finalize())
 }
 
@@ -798,6 +808,7 @@ async fn get_workspace_s3_resource_path(
     client: &AuthedClient,
     workspace_id: &str,
     storage: Option<&String>,
+    job_id: &Uuid,
 ) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
     use windmill_common::{
         job_s3_helpers_oss::get_s3_resource_internal, s3_helpers::StorageResourceType,
@@ -860,7 +871,10 @@ async fn get_workspace_s3_resource_path(
     };
 
     let s3_resource_value_raw = client
-        .get_resource_value::<serde_json::Value>(path.as_str())
+        .get_resource_value_interpolated::<serde_json::Value>(
+            path.as_str(),
+            Some(job_id.to_string()),
+        )
         .await?;
     get_s3_resource_internal(
         rt,
@@ -878,6 +892,7 @@ async fn arg_value_hash_additions(
     client: &AuthedClient,
     workspace_id: &str,
     raw_value: &Box<RawValue>,
+    job_id: &Uuid,
 ) -> (Option<String>, HashMap<String, String>) {
     let mut result: HashMap<String, String> = HashMap::new();
 
@@ -885,9 +900,14 @@ async fn arg_value_hash_additions(
 
     let mut storage = None;
     if let Ok(s3_object) = parsed_value {
-        let s3_resource_opt =
-            get_workspace_s3_resource_path(db, client, workspace_id, s3_object.storage.as_ref())
-                .await;
+        let s3_resource_opt = get_workspace_s3_resource_path(
+            db,
+            client,
+            workspace_id,
+            s3_object.storage.as_ref(),
+            job_id,
+        )
+        .await;
         storage = s3_object.storage.clone();
 
         if let Some(mut s3_resource) = s3_resource_opt.ok().flatten() {
@@ -923,7 +943,7 @@ lazy_static! {
 pub async fn get_cached_resource_value_if_valid(
     _db: &DB,
     client: &AuthedClient,
-    _job_id: &Uuid,
+    job_id: &Uuid,
     _workspace_id: &str,
     cached_res_path: &str,
 ) -> Option<Arc<Box<RawValue>>> {
@@ -962,10 +982,16 @@ pub async fn get_cached_resource_value_if_valid(
         let object_store_resource_opt: Option<ObjectStoreResource> = if s3_etags.is_empty() {
             None
         } else {
-            get_workspace_s3_resource_path(_db, &client, _workspace_id, resource.storage.as_ref())
-                .await
-                .ok()
-                .flatten()
+            get_workspace_s3_resource_path(
+                _db,
+                &client,
+                _workspace_id,
+                resource.storage.as_ref(),
+                job_id,
+            )
+            .await
+            .ok()
+            .flatten()
         };
 
         if !s3_etags.is_empty() && object_store_resource_opt.is_none() {
@@ -1005,7 +1031,7 @@ pub async fn save_in_cache(
 
     #[cfg(feature = "parquet")]
     let (storage, s3_etags) =
-        arg_value_hash_additions(db, _client, job.workspace_id.as_str(), &r).await;
+        arg_value_hash_additions(db, _client, job.workspace_id.as_str(), &r, &job.id).await;
 
     #[cfg(feature = "parquet")]
     let s3_etags = if s3_etags.is_empty() {
