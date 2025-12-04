@@ -217,8 +217,8 @@
 								<Toggle
 									size="2xs"
 									bind:checked={
-										() => flowStore.val.value.cache_use_s3_etag_only,
-										(v) => (flowStore.val.value.cache_use_s3_etag_only = v || undefined)
+										() => flowStore.val.value.cache_ignore_s3_path,
+										(v) => (flowStore.val.value.cache_ignore_s3_path = v || undefined)
 									}
 									options={{
 										right: 'Ignore S3 Object paths for caching purposes',

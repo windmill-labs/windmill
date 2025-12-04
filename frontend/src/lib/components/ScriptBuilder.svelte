@@ -523,7 +523,7 @@
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
 					cache_ttl: script.cache_ttl,
-					cache_use_s3_etag_only: script.cache_use_s3_etag_only,
+					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
@@ -667,7 +667,7 @@
 						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						debounce_delay_s: script.debounce_delay_s,
 						cache_ttl: script.cache_ttl,
-						cache_use_s3_etag_only: script.cache_use_s3_etag_only,
+						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
@@ -1320,8 +1320,8 @@
 												<Toggle
 													size="2xs"
 													bind:checked={
-														() => script.cache_use_s3_etag_only,
-														(v) => (script.cache_use_s3_etag_only = v || undefined)
+														() => script.cache_ignore_s3_path,
+														(v) => (script.cache_ignore_s3_path = v || undefined)
 													}
 													options={{
 														right: 'Ignore S3 Object paths for caching purposes',

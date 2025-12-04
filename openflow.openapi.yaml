@@ -62,7 +62,7 @@ components:
           type: string
         cache_ttl:
           type: number
-        cache_use_s3_etag_only:
+        cache_ignore_s3_path:
           type: boolean
         flow_env:
           type: object
@@ -210,7 +210,7 @@ components:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
           type: number
-        cache_use_s3_etag_only:
+        cache_ignore_s3_path:
           type: boolean
         timeout:
           $ref: "#/components/schemas/InputTransform"
