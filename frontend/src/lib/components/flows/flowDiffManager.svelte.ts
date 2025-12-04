@@ -13,7 +13,9 @@ import {
 	buildFlowTimeline,
 	insertModuleIntoFlow,
 	findModuleParent,
-	DUPLICATE_MODULE_PREFIX
+	locationsEqual,
+	DUPLICATE_MODULE_PREFIX,
+	NEW_MODULE_PREFIX
 } from './flowDiff'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -52,7 +54,7 @@ function createSkeletonModule(module: FlowModule): FlowModule {
 	return clone
 }
 
-export function createFlowDiffManager() {
+export function createFlowDiffManager({ testMode = false } = {}) {
 	// State: snapshot of flow before changes
 	let beforeFlow = $state<ExtendedOpenFlow | undefined>(undefined)
 
@@ -109,7 +111,7 @@ export function createFlowDiffManager() {
 			updateModuleActions(newActions)
 
 			// If no more actions, clear the snapshot (exit diff mode)
-			if (Object.keys(newActions).length === 0) {
+			if (Object.keys(newActions).length === 0 && !testMode) {
 				clearSnapshot()
 			}
 		} else if (!beforeFlow) {
@@ -291,10 +293,28 @@ export function createFlowDiffManager() {
 				const existingModule = getModuleFromFlow(actualId, beforeFlow)
 
 				if (existingModule) {
-					// Module already exists (as skeleton or partial), update it in-place
-					const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
-					Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
-					Object.assign(existingModule, $state.snapshot(moduleToApply))
+					// Module exists in beforeFlow - check if it's in the same location
+					const beforeLocation = findModuleParent(beforeFlow.value, actualId)
+					const afterLocation = findModuleParent(currentFlow, actualId)
+
+					// Compare locations - if different, this is a move and we need to insert at new location
+					const sameLocation = locationsEqual(beforeLocation, afterLocation)
+
+					if (sameLocation) {
+						// Module is in the same location, update it in-place
+						const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
+						Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
+						Object.assign(existingModule, $state.snapshot(moduleToApply))
+					} else {
+						// Module is being moved - insert at new location (the old copy will be removed when old__id is accepted)
+						const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
+						insertModuleIntoFlow(
+							beforeFlow.value,
+							$state.snapshot(moduleToInsert),
+							currentFlow,
+							actualId
+						)
+					}
 				} else {
 					// Module doesn't exist, insert it
 					const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
@@ -352,6 +372,13 @@ export function createFlowDiffManager() {
 				// Source from beforeFlow
 				const oldModule = getModuleFromFlow(actualId, beforeFlow)
 				if (oldModule) {
+					// For type changes (old__ prefix), rename the new module to avoid ID conflict
+					if (id.startsWith(DUPLICATE_MODULE_PREFIX)) {
+						const existingNew = getModuleFromFlow(actualId, flowStore.val)
+						if (existingNew) {
+							existingNew.id = `${NEW_MODULE_PREFIX}${actualId}`
+						}
+					}
 					insertModuleIntoFlow(
 						flowStore.val.value,
 						$state.snapshot(oldModule),

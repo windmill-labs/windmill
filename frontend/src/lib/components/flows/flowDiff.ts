@@ -5,6 +5,9 @@ import { deepEqual } from 'fast-equals'
 /** Prefix added to module IDs when the original module coexists with a replacement */
 export const DUPLICATE_MODULE_PREFIX = 'old__'
 
+/** Prefix added to new module IDs when restoring original during type change rejection */
+export const NEW_MODULE_PREFIX = 'new__'
+
 /**
  * Action types for flow module changes during diff tracking
  * - added: Module was added to the flow
@@ -77,40 +80,47 @@ export function computeFlowModuleDiff(
 	const beforeActions: Record<string, ModuleActionInfo> = {}
 	const afterActions: Record<string, ModuleActionInfo> = {}
 
-	// Get all modules from both flows using dfs
-	const beforeModules = getAllModulesMap(beforeFlow)
-	const afterModules = getAllModulesMap(afterFlow)
+	// Get all modules with their locations from both flows
+	const beforeModulesWithLoc = getAllModulesWithLocation(beforeFlow)
+	const afterModulesWithLoc = getAllModulesWithLocation(afterFlow)
 
 	// Find all module IDs
-	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
+	const allModuleIds = new Set([...beforeModulesWithLoc.keys(), ...afterModulesWithLoc.keys()])
 
 	for (const moduleId of allModuleIds) {
-		const beforeModule = beforeModules.get(moduleId)
-		const afterModule = afterModules.get(moduleId)
+		const beforeEntry = beforeModulesWithLoc.get(moduleId)
+		const afterEntry = afterModulesWithLoc.get(moduleId)
 
-		if (!beforeModule && afterModule) {
+		if (!beforeEntry && afterEntry) {
 			// Module exists in after but not before -> added
 			afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
-		} else if (beforeModule && !afterModule) {
+		} else if (beforeEntry && !afterEntry) {
 			// Module exists in before but not after -> removed
 			beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
 			afterActions[moduleId] = { action: 'shadowed', pending: options.markAsPending }
-		} else if (beforeModule && afterModule) {
-			// Module exists in both -> check type and content
-			const typeChanged = beforeModule.value.type !== afterModule.value.type
-			if (typeChanged) {
-				// Type changed -> treat as removed + added
+		} else if (beforeEntry && afterEntry) {
+			// Module exists in both -> check location first, then type and content
+			if (!locationsEqual(beforeEntry.location, afterEntry.location)) {
+				// Location changed -> treat as removed from old + added at new
 				beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
 				afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
-			} else if (
-				!deepEqual(
-					normalizeModuleForComparison(beforeModule),
-					normalizeModuleForComparison(afterModule)
-				)
-			) {
-				// Same type but different content -> modified
-				beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
-				afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }
+			} else {
+				// Same location -> check type and content
+				const typeChanged = beforeEntry.module.value.type !== afterEntry.module.value.type
+				if (typeChanged) {
+					// Type changed -> treat as removed + added
+					beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
+					afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
+				} else if (
+					!deepEqual(
+						normalizeModuleForComparison(beforeEntry.module),
+						normalizeModuleForComparison(afterEntry.module)
+					)
+				) {
+					// Same type but different content -> modified
+					beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
+					afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }
+				}
 			}
 		}
 	}
@@ -143,6 +153,77 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 	}
 
 	return moduleMap
+}
+
+/**
+ * Represents a module along with its location in the flow
+ */
+type ModuleWithLocation = {
+	module: FlowModule
+	location: ModuleParentLocation
+}
+
+/**
+ * Helper function to get all modules from a flow as a Map with their locations
+ */
+function getAllModulesWithLocation(flow: FlowValue): Map<string, ModuleWithLocation> {
+	const result = new Map<string, ModuleWithLocation>()
+	const allModules = dfs(flow.modules ?? [], (m) => m)
+
+	for (const module of allModules) {
+		if (module?.id) {
+			const location = findModuleParent(flow, module.id)
+			if (location) {
+				result.set(module.id, { module, location })
+			}
+		}
+	}
+
+	// Add special modules
+	if (flow.failure_module?.id) {
+		result.set(flow.failure_module.id, {
+			module: flow.failure_module,
+			location: { type: 'failure', index: -1 }
+		})
+	}
+	if (flow.preprocessor_module?.id) {
+		result.set(flow.preprocessor_module.id, {
+			module: flow.preprocessor_module,
+			location: { type: 'preprocessor', index: -1 }
+		})
+	}
+
+	return result
+}
+
+/**
+ * Compares two module locations for equality.
+ * Two locations are equal if they refer to the same parent container.
+ * Index within the container is not considered (modules can be reordered).
+ */
+export function locationsEqual(a: ModuleParentLocation | null, b: ModuleParentLocation | null): boolean {
+	if (!a || !b) return a === b
+	if (a.type !== b.type) return false
+
+	switch (a.type) {
+		case 'root':
+		case 'failure':
+		case 'preprocessor':
+			return true // Same type is enough (index doesn't matter for location equality)
+		case 'forloop':
+		case 'whileloop':
+		case 'aiagent':
+			return a.parentId === (b as typeof a).parentId
+		case 'branchone-default':
+			return a.parentId === (b as typeof a).parentId
+		case 'branchone-branch':
+		case 'branchall-branch':
+			return (
+				a.parentId === (b as typeof a).parentId && a.branchIndex === (b as typeof a).branchIndex
+			)
+		default:
+			return false
+	}
 }
 
 /**
@@ -293,26 +374,22 @@ function prependModuleId(module: FlowModule, prefix: string): FlowModule {
 			// If the tool has nested modules (it's a container type), recurse
 			const innerValue = tool.value as FlowModule['value']
 			if (innerValue.type === 'forloopflow' || innerValue.type === 'whileloopflow') {
-				;(prefixedTool.value as any).modules = (innerValue as any).modules.map(
-					(m: FlowModule) => prependModuleId(m, prefix)
+				;(prefixedTool.value as any).modules = (innerValue as any).modules.map((m: FlowModule) =>
+					prependModuleId(m, prefix)
 				)
 			} else if (innerValue.type === 'branchone') {
-				;(prefixedTool.value as any).default = (innerValue as any).default.map(
-					(m: FlowModule) => prependModuleId(m, prefix)
+				;(prefixedTool.value as any).default = (innerValue as any).default.map((m: FlowModule) =>
+					prependModuleId(m, prefix)
 				)
-				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
-					(branch: any) => ({
-						...branch,
-						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
-					})
-				)
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map((branch: any) => ({
+					...branch,
+					modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+				}))
 			} else if (innerValue.type === 'branchall') {
-				;(prefixedTool.value as any).branches = (innerValue as any).branches.map(
-					(branch: any) => ({
-						...branch,
-						modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
-					})
-				)
+				;(prefixedTool.value as any).branches = (innerValue as any).branches.map((branch: any) => ({
+					...branch,
+					modules: branch.modules.map((m: FlowModule) => prependModuleId(m, prefix))
+				}))
 			}
 			return prefixedTool
 		})
@@ -639,9 +716,24 @@ function insertIntoNestedParent(
 		parentLocation.type === 'branchone-branch' &&
 		parentModule.value.type === 'branchone'
 	) {
-		const branch = parentModule.value.branches[parentLocation.branchIndex]
+		let branch = parentModule.value.branches[parentLocation.branchIndex]
+		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
+
+		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
+		if (!branch && beforeBranch) {
+			// Ensure we have enough branch slots
+			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
+				parentModule.value.branches.push({ expr: '', modules: [] })
+			}
+			// Restore the branch with its original expr but empty modules (we'll add them)
+			parentModule.value.branches[parentLocation.branchIndex] = {
+				...beforeBranch,
+				modules: []
+			}
+			branch = parentModule.value.branches[parentLocation.branchIndex]
+		}
+
 		if (branch) {
-			const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
 			const beforeModules = beforeBranch?.modules ?? []
 			const insertIndex = findBestInsertPosition(
 				branch.modules,
@@ -655,9 +747,24 @@ function insertIntoNestedParent(
 		parentLocation.type === 'branchall-branch' &&
 		parentModule.value.type === 'branchall'
 	) {
-		const branch = parentModule.value.branches[parentLocation.branchIndex]
+		let branch = parentModule.value.branches[parentLocation.branchIndex]
+		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
+
+		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
+		if (!branch && beforeBranch) {
+			// Ensure we have enough branch slots
+			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
+				parentModule.value.branches.push({ modules: [] })
+			}
+			// Restore the branch with empty modules (we'll add them)
+			parentModule.value.branches[parentLocation.branchIndex] = {
+				...beforeBranch,
+				modules: []
+			}
+			branch = parentModule.value.branches[parentLocation.branchIndex]
+		}
+
 		if (branch) {
-			const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
 			const beforeModules = beforeBranch?.modules ?? []
 			const insertIndex = findBestInsertPosition(
 				branch.modules,
