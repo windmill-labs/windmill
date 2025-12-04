@@ -3,8 +3,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Tab } from '$lib/components/common'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { BookOpen, Users, Workflow, GraduationCap, Wrench } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
 	import TutorialProgressBar from '$lib/components/tutorials/TutorialProgressBar.svelte'
@@ -19,8 +17,9 @@
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
+	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 
-	let tab: 'quickstart' | 'team' = $state('quickstart')
+	let tab: TabId = $state('quickstart')
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
 
@@ -31,11 +30,26 @@
 		'troubleshoot-flow': 3
 	} as const
 
-	// Calculate progress for quickstart tutorials
-	const totalQuickstartTutorials = getTutorialProgressTotal(TUTORIAL_INDEXES)
-	const completedQuickstartTutorials = $derived(
-		getTutorialProgressCompleted(TUTORIAL_INDEXES, $tutorialsToDo)
+	// Get current tab configuration
+	const currentTabConfig = $derived(TUTORIALS_CONFIG[tab])
+
+	// Create tutorial index mapping for current tab
+	const currentTabTutorialIndexes = $derived(
+		Object.fromEntries(
+			currentTabConfig.tutorials
+				.filter((tutorial) => tutorial.id in TUTORIAL_INDEXES)
+				.map((tutorial) => [tutorial.id, TUTORIAL_INDEXES[tutorial.id as keyof typeof TUTORIAL_INDEXES]])
+		)
 	)
+
+	// Calculate progress for current tab
+	const totalTutorials = $derived(getTutorialProgressTotal(currentTabTutorialIndexes))
+	const completedTutorials = $derived(
+		getTutorialProgressCompleted(currentTabTutorialIndexes, $tutorialsToDo)
+	)
+
+	// Tutorials are ready to use directly from config
+	const tutorials = $derived(currentTabConfig.tutorials)
 
 	// Sync tutorial progress on mount and when navigating to this page
 	onMount(() => {
@@ -68,21 +82,10 @@
 	})
 
 	// Check if a tutorial is completed
-	function isTutorialCompleted(tutorialId: keyof typeof TUTORIAL_INDEXES): boolean {
-		const index = TUTORIAL_INDEXES[tutorialId]
+	function isTutorialCompleted(tutorialId: string): boolean {
+		const index = TUTORIAL_INDEXES[tutorialId as keyof typeof TUTORIAL_INDEXES]
+		if (index === undefined) return false
 		return !$tutorialsToDo.includes(index)
-	}
-
-	function startWorkspaceOnboarding() {
-		workspaceTutorials?.runTutorialById('workspace-onboarding')
-	}
-
-	function startFlowTutorial() {
-		window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial&nodraft=true`
-	}
-
-	function startTroubleshootFlowTutorial() {
-		window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow&nodraft=true`
 	}
 </script>
 
@@ -106,45 +109,38 @@
 	</PageHeader>
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
-			<Tab value="quickstart" label="Quickstart" icon={BookOpen} />
-			<Tab value="team" label="Team Collaboration" icon={Users} />
+			{#each Object.entries(TUTORIALS_CONFIG) as [tabId, config]}
+				<Tab value={tabId} label={config.label} icon={config.icon} />
+			{/each}
 		</Tabs>
 	</div>
 
-	{#if tab === 'quickstart'}
+	{#if currentTabConfig && currentTabConfig.tutorials.length > 0}
 		<div class="pt-8">
 			<TutorialProgressBar
-				completed={completedQuickstartTutorials}
-				total={totalQuickstartTutorials}
+				completed={completedTutorials}
+				total={totalTutorials}
 				label="tutorials"
 			/>
 
 			<div class="border rounded-md bg-surface-tertiary">
-				<TutorialButton
-					icon={GraduationCap}
-					title="Workspace onboarding"
-					description="Discover the basics of Windmill with a quick tour of the workspace."
-					onclick={startWorkspaceOnboarding}
-					isCompleted={isTutorialCompleted('workspace-onboarding')}
-				/>
-				<TutorialButton
-					icon={Workflow}
-					title="Build a flow"
-					description="Learn how to build workflows in Windmill with our interactive tutorial."
-					onclick={startFlowTutorial}
-					isCompleted={isTutorialCompleted('flow-live-tutorial')}
-				/>
-				<TutorialButton
-					icon={Wrench}
-					title="Fix a broken flow"
-					description="Learn how to monitor and debug your script and flow executions."
-					onclick={startTroubleshootFlowTutorial}
-					isCompleted={isTutorialCompleted('troubleshoot-flow')}
-				/>
+				{#each tutorials as tutorial}
+					<TutorialButton
+						icon={tutorial.icon}
+						title={tutorial.title}
+						description={tutorial.description}
+						onclick={tutorial.onClick}
+						isCompleted={isTutorialCompleted(tutorial.id)}
+					/>
+				{/each}
 			</div>
 		</div>
-	{:else if tab === 'team'}
-		<!-- Team Collaboration content will go here -->
+	{:else if currentTabConfig}
+		<div class="pt-8">
+			<div class="text-center text-secondary text-sm py-8">
+				No tutorials available for this section yet.
+			</div>
+		</div>
 	{/if}
 </CenteredPage>
 
