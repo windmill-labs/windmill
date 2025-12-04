@@ -9,6 +9,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import { updateProgress } from '$lib/tutorialUtils'
 
+	interface Props {
+		index: number
+	}
+
+	let { index }: Props = $props()
+
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
@@ -252,7 +258,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={3}
+	index={index}
 	name="troubleshoot-flow"
 	tainted={false}
 	on:error
@@ -439,7 +445,7 @@
 					side: 'top',
 					onNextClick: () => {
 						if (!checkStepComplete(7)) return
-						updateProgress(3)
+						updateProgress(index)
 						driver.destroy()
 					}
 				}

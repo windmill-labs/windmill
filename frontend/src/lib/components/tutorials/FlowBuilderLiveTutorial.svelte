@@ -13,6 +13,12 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	interface Props {
+		index: number
+	}
+
+	let { index }: Props = $props()
+
 	let tutorial: Tutorial | undefined = undefined
 
 	// Flags to track if steps are complete
@@ -227,7 +233,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={2}
+	index={index}
 	name="flow-live-tutorial"
 	tainted={isFlowTainted(flowStore.val)}
 	on:error
@@ -720,7 +726,7 @@
 					title: 'Ready to test!',
 					description: 'Run the complete flow and see your temperature converter in action.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
 					onNextClick: () => {
-						updateProgress(2)
+						updateProgress(index)
 						driver.destroy()
 					},
 					onPrevClick: () => {
