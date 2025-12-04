@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.588.0
+  version: 1.589.1
   title: Windmill API
 
   contact:
@@ -5950,6 +5950,9 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
@@ -6741,7 +6744,7 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/flows/get/v/{version}/p/{path}:
+  /w/{workspace}/flows/get/v/{version}:
     get:
       summary: get flow version
       operationId: getFlowVersion
@@ -6752,7 +6755,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       tags:
         - flow
       responses:
@@ -6763,7 +6765,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Flow"
 
-  /w/{workspace}/flows/history_update/v/{version}/p/{path}:
+  /w/{workspace}/flows/history_update/v/{version}:
     post:
       summary: update flow history
       operationId: updateFlowHistory
@@ -6774,7 +6776,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       requestBody:
         description: Flow deployment message
         required: true
@@ -6838,6 +6839,9 @@ paths:
                 properties:
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
@@ -13398,6 +13402,21 @@ paths:
                     - expires_at
                     - blacklisted_at
                     - blacklisted_by
+
+  /agent_workers/get_min_version:
+    get:
+      summary: get minimum worker version across all workers
+      operationId: getMinVersion
+      tags:
+        - agent_workers
+      responses:
+        "200":
+          description: minimum worker version
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Minimum semantic version across all workers (e.g. "1.583.0")
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:

@@ -366,9 +366,7 @@ async fn execute_windmill_tool(
             language,
             lock,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => {
             let path = path
@@ -379,32 +377,20 @@ async fn execute_windmill_tool(
                 content,
                 language,
                 lock,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+                concurrency_settings,
                 tool_module,
                 tag,
                 tool_module.delete_after_use.unwrap_or(false),
             )
         }
-        FlowModuleValue::FlowScript {
-            id,
-            language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            tag,
-            ..
-        } => {
+        FlowModuleValue::FlowScript { id, language, concurrency_settings, tag, .. } => {
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
 
             let payload = JobPayloadWithTag {
                 payload: JobPayload::FlowScript {
                     id,
                     language,
-                    custom_concurrency_key: custom_concurrency_key.clone(),
-                    concurrent_limit,
-                    concurrency_time_window_s,
+                    concurrency_settings: concurrency_settings.into(),
                     cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
                     path,

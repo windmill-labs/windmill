@@ -21,11 +21,11 @@ export function updateGlobalVersions(version: string) {
   }
 }
 
-export function isVersionsGeq15851(): boolean {
+export function isVersionsGeq1585(): boolean {
   return (
     GLOBAL_VERSIONS.remoteMajor !== undefined &&
     GLOBAL_VERSIONS.remoteMajor >= 1 &&
     GLOBAL_VERSIONS.remoteMinor !== undefined &&
-    GLOBAL_VERSIONS.remoteMinor >= 5851
+    GLOBAL_VERSIONS.remoteMinor >= 585
   );
 }

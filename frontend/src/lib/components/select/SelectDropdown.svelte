@@ -191,9 +191,9 @@
 									class={twMerge(
 										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
 										itemIndex === keyArrowPos
-											? 'bg-surface-hover/60'
+											? 'bg-surface-secondary'
 											: item.value === value
-												? 'bg-surface-hover/60'
+												? 'bg-surface-secondary'
 												: 'hover:bg-surface-hover',
 										itemButtonWrapperClasses,
 										item.disabled ? 'cursor-not-allowed text-disabled' : ''
