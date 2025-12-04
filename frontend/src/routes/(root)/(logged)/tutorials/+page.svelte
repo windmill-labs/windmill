@@ -12,10 +12,11 @@
 		syncTutorialsTodos,
 		resetAllTodos,
 		getTutorialProgressTotal,
-		getTutorialProgressCompleted
+		getTutorialProgressCompleted,
+		skipAllTodos
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
-	import { RefreshCw } from 'lucide-svelte'
+	import { RefreshCw, CheckCheck } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 
@@ -102,17 +103,30 @@
 		tooltip="Learn how to use Windmill with our interactive tutorials"
 		documentationLink="https://www.windmill.dev/docs/intro"
 	>
-		<Button
-			size="xs"
-			variant="default"
-			startIcon={{ icon: RefreshCw }}
-			onclick={async () => {
-				await resetAllTodos()
-				await syncTutorialsTodos()
-			}}
-		>
-			Reset tutorials
-		</Button>
+		<div class="flex gap-2">
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: CheckCheck }}
+				onclick={async () => {
+					await skipAllTodos()
+					await syncTutorialsTodos()
+				}}
+			>
+				Mark all as complete
+			</Button>
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: RefreshCw }}
+				onclick={async () => {
+					await resetAllTodos()
+					await syncTutorialsTodos()
+				}}
+			>
+				Reset tutorials
+			</Button>
+		</div>
 	</PageHeader>
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
