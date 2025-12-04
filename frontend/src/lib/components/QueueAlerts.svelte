@@ -370,7 +370,7 @@
 
 	{#if !$enterpriseLicense}
 		<div class="text-xs text-primary">
-			Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting jobs.
+			Queue Metric Alerts is an enterprise feature allowing you to monitor queues for waiting jobs.
 			Please upgrade to access this functionality. <a
 				href="https://www.windmill.dev/pricing"
 				target="_blank"
