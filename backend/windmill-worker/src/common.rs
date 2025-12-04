@@ -746,9 +746,9 @@ pub async fn resolve_job_timeout(
 }
 
 async fn hash_args(
-    _db: &DB,
-    _client: &AuthedClient,
-    _workspace_id: &str,
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
     v: &Option<Json<HashMap<String, Box<RawValue>>>>,
     hasher: &mut sha2::Sha256,
     job_id: &Uuid,
@@ -757,7 +757,35 @@ async fn hash_args(
         for k in hm.keys().sorted() {
             hasher.update(k.as_bytes());
             let arg_value = hm.get(k).unwrap();
-            hasher.update(arg_value.get().as_bytes());
+
+            #[cfg(feature = "parquet")]
+            let etag = match serde_json::from_str::<S3Object>(arg_value.get()).ok() {
+                Some(s3_object) => {
+                    let s3_resource = get_workspace_s3_resource_path(
+                        db,
+                        client,
+                        workspace_id,
+                        s3_object.storage.as_ref(),
+                        job_id,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                    match s3_resource {
+                        Some(s3_resource) => get_etag_or_empty(&s3_resource, s3_object).await,
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+
+            #[cfg(feature = "parquet")]
+            let arg_value = etag.as_deref().unwrap_or(arg_value.get());
+
+            #[cfg(not(feature = "parquet"))]
+            let arg_value = arg_value.get();
+
+            hasher.update(arg_value);
         }
     }
 }
@@ -898,7 +926,6 @@ lazy_static! {
 pub async fn get_cached_resource_value_if_valid(
     _db: &DB,
     client: &AuthedClient,
-    job_id: &Uuid,
     _workspace_id: &str,
     cached_res_path: &str,
 ) -> Option<Arc<Box<RawValue>>> {
