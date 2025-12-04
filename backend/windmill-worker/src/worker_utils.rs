@@ -395,15 +395,19 @@ pub async fn get_tag_and_concurrency(job_id: &Uuid, db: &DB) -> Option<TagAndCon
                 Err(_) => cache::flow::fetch_version(db, version).await,
             };
             let flow_value = flow.map(|f| f.value().clone()).ok();
+
             let concurrency_key = flow_value
                 .as_ref()
-                .map(|fv| fv.concurrency_key.clone())
-                .flatten();
-            let concurrent_limit = flow_value.as_ref().map(|fv| fv.concurrent_limit).flatten();
+                .and_then(|fv| fv.concurrency_settings.concurrency_key.to_owned());
+
+            let concurrent_limit = flow_value
+                .as_ref()
+                .and_then(|fv| fv.concurrency_settings.concurrent_limit);
+
             let concurrent_time_window_s = flow_value
                 .as_ref()
-                .map(|fv| fv.concurrency_time_window_s)
-                .flatten();
+                .and_then(|fv| fv.concurrency_settings.concurrency_time_window_s);
+
             Some(TagAndConcurrencyKey {
                 tag: tag_and_concurrency_key.tag,
                 concurrency_key,
