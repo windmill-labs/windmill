@@ -222,13 +222,7 @@
 					>
 				{/snippet}
 				{#snippet content()}
-					<form
-						class="flex flex-col gap-y-6"
-						onsubmit={(e) => {
-							e.preventDefault()
-							addNewAlert()
-						}}
-					>
+					<form class="flex flex-col gap-y-6">
 						<h3 class="text-sm font-semibold text-emphasis">Add queue alert</h3>
 
 						<div class="flex flex-col gap-y-1">
@@ -240,7 +234,6 @@
 							</span>
 							<div class="flex gap-2 items-start">
 								<MultiSelect
-									id="new-tags"
 									items={safeSelectItems(availableTags)}
 									bind:value={newAlertForm.tags_to_monitor}
 									onCreateItem={(tag) => {
@@ -252,16 +245,17 @@
 									placeholder="Select or create tags..."
 									error={!!formErrors.tags_to_monitor}
 									class="flex-1"
+									disablePortal
 								/>
 								{#if newAlertForm.tags_to_monitor.length === 0}
 									<Button
 										variant="default"
-										unifiedSize="sm"
+										unifiedSize="md"
 										onclick={() => {
 											newAlertForm.tags_to_monitor = [...availableTags]
 										}}
 									>
-										Add all
+										Add all tags
 									</Button>
 								{/if}
 							</div>
@@ -424,11 +418,12 @@
 					{#each queueAlertConfig as config, index}
 						<tr
 							class={twMerge(
+								'text-xs text-primary',
 								index !== queueAlertConfig.length - 1 ? 'border-b' : '',
 								editingRowIndex === index ? 'bg-surface-selected' : ''
 							)}
 						>
-							<td class="py-3 px-4">
+							<td class="p-2">
 								{#if editingRowIndex === index}
 									<div class="flex gap-2 items-start">
 										<MultiSelect
@@ -446,12 +441,12 @@
 										{#if editForm.tags_to_monitor.length === 0}
 											<Button
 												variant="default"
-												unifiedSize="sm"
+												unifiedSize="md"
 												onclick={() => {
 													editForm.tags_to_monitor = [...availableTags]
 												}}
 											>
-												Add all
+												Add all tags
 											</Button>
 										{/if}
 									</div>
@@ -484,7 +479,7 @@
 									</div>
 								{/if}
 							</td>
-							<td class="py-3 px-4">
+							<td class="p-2">
 								{#if editingRowIndex === index}
 									<TextInput
 										inputProps={{
@@ -496,10 +491,10 @@
 										class="w-20"
 									/>
 								{:else}
-									<span class="text-sm">{config.jobs_num_threshold}</span>
+									<span>{config.jobs_num_threshold}</span>
 								{/if}
 							</td>
-							<td class="py-3 px-4">
+							<td class="p-2">
 								{#if editingRowIndex === index}
 									<TextInput
 										inputProps={{
@@ -511,10 +506,10 @@
 										class="w-24"
 									/>
 								{:else}
-									<span class="text-sm">{config.alert_cooldown_seconds}</span>
+									<span>{config.alert_cooldown_seconds}</span>
 								{/if}
 							</td>
-							<td class="py-3 px-4">
+							<td class="p-2">
 								{#if editingRowIndex === index}
 									<TextInput
 										inputProps={{
@@ -526,10 +521,10 @@
 										class="w-24"
 									/>
 								{:else}
-									<span class="text-sm">{config.alert_time_threshold_seconds}</span>
+									<span>{config.alert_time_threshold_seconds}</span>
 								{/if}
 							</td>
-							<td class="py-3 px-4">
+							<td class="p-2">
 								{#if editingRowIndex === index}
 									<div class="flex items-center gap-2 justify-end">
 										<Button

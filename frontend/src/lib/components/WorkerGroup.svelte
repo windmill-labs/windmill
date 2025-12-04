@@ -1045,22 +1045,24 @@
 						Clean cache
 					</Button>
 
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						on:click={() => {
-							navigator.clipboard.writeText(
-								YAML.stringify({
-									name,
-									...config
-								})
-							)
-							sendUserToast('Worker config copied to clipboard as YAML')
-						}}
-						startIcon={{ icon: Copy }}
-					>
-						Copy config
-					</Button>
+					{#if config}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								navigator.clipboard.writeText(
+									YAML.stringify({
+										name,
+										...config
+									})
+								)
+								sendUserToast('Worker config copied to clipboard as YAML')
+							}}
+							startIcon={{ icon: Copy }}
+						>
+							Copy config
+						</Button>
+					{/if}
 				{:else}
 					<Dropdown
 						items={[
