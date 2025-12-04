@@ -3,6 +3,7 @@
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import OccupancyBars from '$lib/components/OccupancyBars.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -346,13 +347,6 @@
 		return [worker_group[0], filteredWorkerGroup, worker_group[2]]
 	}
 
-	function displayOccupancyRate(occupancy_rate: number | undefined) {
-		if (occupancy_rate == undefined) {
-			return '--'
-		}
-
-		return Math.ceil(occupancy_rate * 100) + '%'
-	}
 	let newHttpAgentWorkerDrawer: Drawer | undefined = $state(undefined)
 	let replForWorkerDrawer: Drawer | undefined = $state(undefined)
 
@@ -673,7 +667,6 @@
 											</Tooltip>
 										</div>
 									</Cell>
-									<Cell head>Last ping</Cell>
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
 									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
@@ -683,7 +676,7 @@
 									<Cell head>Memory usage<br />(Windmill)</Cell>
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
-									<Cell head>Liveness</Cell>
+									<Cell head>Status</Cell>
 									{#if $superadmin || $devopsRole}
 										<Cell head>
 											Repl
@@ -706,8 +699,8 @@
 												first
 												colspan={(!config || config?.dedicated_worker == undefined) &&
 												($superadmin || $devopsRole)
-													? 12
-													: 9}
+													? 11
+													: 8}
 												scope="colgroup"
 												class="!text-xs {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
 											>
@@ -741,9 +734,6 @@
 													<Cell class="min-w-0 max-w-32">
 														<TagList tags={custom_tags ?? []} />
 													</Cell>
-													<Cell class="text-secondary"
-														>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
-													>
 													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
 													<Cell class="text-secondary">{jobs_executed}</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
@@ -754,15 +744,16 @@
 																	<ExternalLink size={12} class="inline-block" />
 																</a>
 																<br />
-																(workspace {last_job_workspace_id})
+																{last_job_workspace_id}
 															{/if}
 														</Cell>
 														<Cell class="text-secondary">
-															{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
-																occupancy_rate_5m
-															)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
-																occupancy_rate
-															)}
+															<OccupancyBars
+																rate_15s={occupancy_rate_15s}
+																rate_5m={occupancy_rate_5m}
+																rate_30m={occupancy_rate_30m}
+																rate_ever={occupancy_rate}
+															/>
 														</Cell>
 													{/if}
 													<Cell class="text-secondary">
@@ -795,19 +786,28 @@
 														</div>
 													</Cell>
 													<Cell class="text-secondary">
-														<Badge
-															color={isWorkerAlive != undefined
-																? isWorkerAlive
-																	? 'green'
-																	: 'red'
-																: 'gray'}
-														>
-															{isWorkerAlive != undefined
+														{@const pingText =
+															last_ping != undefined
+																? `${last_ping + timeSinceLastPing}s ago`
+																: 'Unknown'}
+														{@const statusText =
+															isWorkerAlive != undefined
 																? isWorkerAlive
 																	? 'Alive'
 																	: 'Dead'
 																: 'Unknown'}
-														</Badge>
+														<div class="min-w-24">
+															<Badge
+																color={isWorkerAlive != undefined
+																	? isWorkerAlive
+																		? 'green'
+																		: 'red'
+																	: 'gray'}
+																baseClass="w-24"
+															>
+																{statusText} ({pingText})
+															</Badge>
+														</div>
 													</Cell>
 													{#if $superadmin || $devopsRole}
 														<Cell class="text-secondary">
@@ -833,7 +833,7 @@
 									{/each}
 								{:else if search}
 									<tr>
-										<Cell colspan="12">
+										<Cell colspan="11">
 											<div class="text-xs text-primary py-2 text-center">
 												No active workers found matching the search query
 											</div>
@@ -841,7 +841,7 @@
 									</tr>
 								{:else}
 									<tr>
-										<Cell colspan="12">
+										<Cell colspan="11">
 											<div class="text-xs text-primary py-2 text-center">
 												No active workers found for the group '{worker_group[0]}'
 											</div>
