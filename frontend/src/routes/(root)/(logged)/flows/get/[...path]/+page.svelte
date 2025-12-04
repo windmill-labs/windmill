@@ -75,6 +75,7 @@
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 
 	let intervalId: number | undefined = undefined
 
@@ -166,8 +167,11 @@
 			})
 			if (status.lock_error_logs == undefined || status.lock_error_logs != '') {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				flow.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -541,6 +545,13 @@
 						<HeaderBadge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</HeaderBadge>
 					{/if}
 					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
