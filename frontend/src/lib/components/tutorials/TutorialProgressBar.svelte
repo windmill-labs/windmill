@@ -12,12 +12,12 @@
 	)
 </script>
 
-<div class="mb-6">
-	<div class="flex items-center justify-between mb-2">
-		<div class="text-xs font-semibold text-emphasis">
+<div class="flex-1 min-w-0">
+	<div class="flex items-center justify-between mb-2 gap-2">
+		<div class="text-xs font-semibold text-emphasis whitespace-nowrap">
 			Progress: {completed} of {total} {label} completed
 		</div>
-		<div class="text-xs font-normal text-secondary">{progressPercentage}%</div>
+		<div class="text-xs font-normal text-secondary flex-shrink-0">{progressPercentage}%</div>
 	</div>
 	<div class="w-full h-2 bg-surface-secondary rounded-full overflow-hidden">
 		<div

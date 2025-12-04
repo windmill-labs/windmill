@@ -61,6 +61,61 @@ export async function resetAllTodos() {
 	await UserService.updateTutorialProgress({ requestBody: { progress: 0, skipped_all: false } })
 }
 
+/**
+ * Skip (mark as complete) all tutorials in a specific set of indexes
+ */
+export async function skipTutorialsByIndexes(tutorialIndexes: number[]) {
+	const currentTodos = get(tutorialsToDo)
+	const aft = currentTodos.filter((x) => !tutorialIndexes.includes(x))
+	tutorialsToDo.set(aft)
+	
+	// Get current progress bits
+	const currentResponse = await UserService.getTutorialProgress()
+	let bits: number = currentResponse.progress ?? 0
+	
+	// Set bits for the specified indexes
+	for (const index of tutorialIndexes) {
+		const mask = 1 << index
+		bits = bits | mask
+	}
+	
+	// Only set skipped_all to true if ALL tutorials are now complete
+	const allComplete = aft.length === 0
+	await UserService.updateTutorialProgress({ 
+		requestBody: { 
+			progress: bits, 
+			skipped_all: allComplete 
+		} 
+	})
+}
+
+/**
+ * Reset (mark as incomplete) all tutorials in a specific set of indexes
+ */
+export async function resetTutorialsByIndexes(tutorialIndexes: number[]) {
+	const currentTodos = get(tutorialsToDo)
+	const aft = [...new Set([...currentTodos, ...tutorialIndexes])]
+	tutorialsToDo.set(aft)
+	skippedAll.set(false)
+	
+	// Get current progress bits
+	const currentResponse = await UserService.getTutorialProgress()
+	let bits: number = currentResponse.progress ?? 0
+	
+	// Clear bits for the specified indexes
+	for (const index of tutorialIndexes) {
+		const mask = 1 << index
+		bits = bits & ~mask
+	}
+	
+	await UserService.updateTutorialProgress({ 
+		requestBody: { 
+			progress: bits, 
+			skipped_all: false 
+		} 
+	})
+}
+
 export async function syncTutorialsTodos() {
 	const response = await UserService.getTutorialProgress()
 	const bits: number = response.progress!

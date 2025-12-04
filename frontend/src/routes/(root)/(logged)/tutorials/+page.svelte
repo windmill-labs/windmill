@@ -13,7 +13,9 @@
 		resetAllTodos,
 		getTutorialProgressTotal,
 		getTutorialProgressCompleted,
-		skipAllTodos
+		skipAllTodos,
+		skipTutorialsByIndexes,
+		resetTutorialsByIndexes
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
 	import { RefreshCw, CheckCheck } from 'lucide-svelte'
@@ -38,32 +40,6 @@
 	const totalTutorials = $derived(getTutorialProgressTotal(currentTabTutorialIndexes))
 	const completedTutorials = $derived(
 		getTutorialProgressCompleted(currentTabTutorialIndexes, $tutorialsToDo)
-	)
-
-	// Calculate overall progress across all tabs
-	const allTutorialIndexes = $derived.by(() => {
-		const indexes: Record<string, number> = {}
-		const user = $userStore
-
-		for (const tabConfig of Object.values(TUTORIALS_CONFIG)) {
-			for (const tutorial of tabConfig.tutorials) {
-				if (tutorial.disabled || tutorial.index === undefined) continue
-				if (tutorial.requiredRole && user) {
-					const { requiredRole } = tutorial
-					if (requiredRole === 'admin' && !user.is_admin && !user.is_super_admin) continue
-					if (requiredRole === 'operator' && !user.operator && !user.is_admin && !user.is_super_admin) continue
-					if (requiredRole === 'developer' && user.operator && !user.is_admin && !user.is_super_admin) continue
-				}
-				indexes[tutorial.id] = tutorial.index
-			}
-		}
-		return indexes
-	})
-
-	// Calculate overall progress
-	const overallTotal = $derived(getTutorialProgressTotal(allTutorialIndexes))
-	const overallCompleted = $derived(
-		getTutorialProgressCompleted(allTutorialIndexes, $tutorialsToDo)
 	)
 
 	// Filter and sort tutorials based on props
@@ -121,6 +97,25 @@
 		if (!tutorial || tutorial.index === undefined) return false
 		return !$tutorialsToDo.includes(tutorial.index)
 	}
+
+	// Get list of tutorial indexes for current tab
+	const currentTabIndexes = $derived(
+		Object.values(currentTabTutorialIndexes)
+	)
+
+	// Skip all tutorials in current tab
+	async function skipCurrentTabTutorials() {
+		if (currentTabIndexes.length === 0) return
+		await skipTutorialsByIndexes(currentTabIndexes)
+		await syncTutorialsTodos()
+	}
+
+	// Reset all tutorials in current tab
+	async function resetCurrentTabTutorials() {
+		if (currentTabIndexes.length === 0) return
+		await resetTutorialsByIndexes(currentTabIndexes)
+		await syncTutorialsTodos()
+	}
 </script>
 
 <CenteredPage>
@@ -154,15 +149,6 @@
 			</Button>
 		</div>
 	</PageHeader>
-	
-	<!-- Overall progress bar across all categories -->
-	<div class="pt-4">
-		<TutorialProgressBar
-			completed={overallCompleted}
-			total={overallTotal}
-			label="tutorials"
-		/>
-	</div>
 
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
@@ -174,11 +160,31 @@
 
 	{#if currentTabConfig && currentTabConfig.tutorials.length > 0}
 		<div class="pt-8">
-			<TutorialProgressBar
-				completed={completedTutorials}
-				total={totalTutorials}
-				label="tutorials"
-			/>
+			<div class="flex items-start gap-4 mb-6">
+				<TutorialProgressBar
+					completed={completedTutorials}
+					total={totalTutorials}
+					label="tutorials"
+				/>
+				<div class="flex gap-2 flex-shrink-0 pt-1">
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: CheckCheck }}
+						onclick={skipCurrentTabTutorials}
+					>
+						Skip all
+					</Button>
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: RefreshCw }}
+						onclick={resetCurrentTabTutorials}
+					>
+						Reset
+					</Button>
+				</div>
+			</div>
 
 			<div class="border rounded-md bg-surface-tertiary">
 				{#each tutorials as tutorial}
