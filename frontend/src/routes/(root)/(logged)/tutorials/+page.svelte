@@ -40,6 +40,32 @@
 		getTutorialProgressCompleted(currentTabTutorialIndexes, $tutorialsToDo)
 	)
 
+	// Calculate overall progress across all tabs
+	const allTutorialIndexes = $derived.by(() => {
+		const indexes: Record<string, number> = {}
+		const user = $userStore
+
+		for (const tabConfig of Object.values(TUTORIALS_CONFIG)) {
+			for (const tutorial of tabConfig.tutorials) {
+				if (tutorial.disabled || tutorial.index === undefined) continue
+				if (tutorial.requiredRole && user) {
+					const { requiredRole } = tutorial
+					if (requiredRole === 'admin' && !user.is_admin && !user.is_super_admin) continue
+					if (requiredRole === 'operator' && !user.operator && !user.is_admin && !user.is_super_admin) continue
+					if (requiredRole === 'developer' && user.operator && !user.is_admin && !user.is_super_admin) continue
+				}
+				indexes[tutorial.id] = tutorial.index
+			}
+		}
+		return indexes
+	})
+
+	// Calculate overall progress
+	const overallTotal = $derived(getTutorialProgressTotal(allTutorialIndexes))
+	const overallCompleted = $derived(
+		getTutorialProgressCompleted(allTutorialIndexes, $tutorialsToDo)
+	)
+
 	// Filter and sort tutorials based on props
 	const tutorials = $derived(
 		currentTabConfig.tutorials
@@ -128,6 +154,16 @@
 			</Button>
 		</div>
 	</PageHeader>
+	
+	<!-- Overall progress bar across all categories -->
+	<div class="pt-4">
+		<TutorialProgressBar
+			completed={overallCompleted}
+			total={overallTotal}
+			label="tutorials"
+		/>
+	</div>
+
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
 			{#each Object.entries(TUTORIALS_CONFIG) as [tabId, config]}
