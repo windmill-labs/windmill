@@ -164,7 +164,7 @@
 						{#if !$enterpriseLicense}
 							<div class="text-xs text-secondary mb-2 max-w-md">
 								Agent workers are only available in the enterprise edition. For evaluation purposes,
-								you can only use the tag `agent_test` tag and it is limited to 100 jobs.
+								you can only use the `agent_test` tag and it is limited to 100 jobs.
 							</div>
 						{/if}
 						<div class="flex flex-row gap-2 w-full">
