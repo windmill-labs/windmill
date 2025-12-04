@@ -83,7 +83,7 @@
 			class={queue_count && ($queue_count ?? 0) > 0
 				? 'bg-yellow-500 text-white rounded-full min-w-6 h-6 flex center-center'
 				: ''}
-			on:click={() => onJobsWaiting?.()}
+			onclick={() => onJobsWaiting?.()}
 		>
 			{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}
 		</button>

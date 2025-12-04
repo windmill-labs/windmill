@@ -1131,12 +1131,12 @@
 	<div class="mt-4">
 		<Alert type="info" title="Agent Worker Group" size="xs">
 			{#snippet children()}
-				This group is formed with agent workers, there is no associated config. To modify the tags,
-				generate a new <a
-					href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
-					target="_blank"
-					class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
-				>.
+				This group is formed with agent workers, there is no associated config. {#if $superadmin || $devopsRole}
+					To modify the tags, generate a new <a
+						href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
+						target="_blank"
+						class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
+					>.{/if}
 			{/snippet}
 		</Alert>
 	</div>
