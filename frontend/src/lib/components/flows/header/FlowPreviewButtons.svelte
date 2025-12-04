@@ -8,7 +8,6 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 
 	interface Props {
@@ -94,8 +93,7 @@
 				'Input',
 				'Trigger'
 			].includes(upToSelected) ||
-			upToSelected?.includes('branch') ||
-			aiChatManager.flowAiChatHelpers?.getModuleAction(upToSelected) === 'removed'
+			upToSelected?.includes('branch')
 		)
 	})
 

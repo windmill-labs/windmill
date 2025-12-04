@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Bug, X } from 'lucide-svelte'
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
@@ -7,22 +8,18 @@
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
-	import {
-		aiModuleActionToBgColor,
-		aiModuleActionToBorderColor,
-		aiModuleActionToTextColor
-	} from '$lib/components/copilot/chat/flow/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import DiffActionBar from './DiffActionBar.svelte'
+	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
 
 	let {
 		disableAi,
-		small
+		small,
+		diffManager
 	}: {
 		small: boolean
 		disableAi?: boolean
+		diffManager?: FlowDiffManager
 	} = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -31,6 +28,14 @@
 
 	const { selectionManager, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const failureModuleId = $derived(flowStore.val?.value?.failure_module?.id)
+	const moduleAction = $derived(
+		failureModuleId ? diffManager?.moduleActions?.[failureModuleId] : undefined
+	)
+	const aiColorClasses = $derived(
+		moduleAction ? getNodeColorClasses(aiActionToNodeState(moduleAction.action), false) : undefined
+	)
 
 	async function insertFailureModule(
 		inlineScript?: {
@@ -53,42 +58,43 @@
 		selectionManager.selectId('failure')
 		refreshStateStore(flowStore)
 	}
-
-	const action = $derived(getAiModuleAction('failure'))
 </script>
 
 {#if flowStore.val?.value?.failure_module}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<Button
-		variant="default"
-		unifiedSize="sm"
-		wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
-		btnClasses={twMerge(
-			aiModuleActionToBgColor(action),
-			aiModuleActionToBorderColor(action),
-			aiModuleActionToTextColor(action)
-		)}
-		id="flow-editor-error-handler"
-		selected={selectionManager.getSelectedId()?.includes('failure')}
-		onClick={() => {
-			if (flowStore.val?.value?.failure_module) {
-				selectionManager.selectId('failure')
-			}
-		}}
-	>
-		<ModuleAcceptReject id="failure" {action} placement="bottom" />
+	<div class="relative">
+		<Button
+			variant="default"
+			unifiedSize="sm"
+			wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
+			id="flow-editor-error-handler"
+			selected={selectionManager.getSelectedId()?.includes('failure')}
+			onClick={() => {
+				if (flowStore.val?.value?.failure_module) {
+					selectionManager.selectId('failure')
+				}
+			}}
+			btnClasses={aiColorClasses?.bg ?? ''}
+		>
+			{#if failureModuleId}
+				<DiffActionBar
+					moduleId={failureModuleId}
+					{moduleAction}
+					{diffManager}
+					{flowStore}
+					placement="bottom"
+				/>
+			{/if}
+			<Bug size={14} class="shrink-0" />
 
-		<Bug size={14} class="shrink-0" />
+			<div class="truncate grow min-w-0 text-center text-xs">
+				{flowStore.val.value.failure_module?.summary ||
+					(flowStore.val.value.failure_module?.value.type === 'rawscript'
+						? `${flowStore.val.value.failure_module?.value.language}`
+						: 'TBD')}
+			</div>
 
-		<div class="truncate grow min-w-0 text-center text-xs">
-			{flowStore.val.value.failure_module?.summary ||
-				(flowStore.val.value.failure_module?.value.type === 'rawscript'
-					? `${flowStore.val.value.failure_module?.value.language}`
-					: 'TBD')}
-		</div>
-
-		{#if !action}
 			<button
 				title="Delete failure script"
 				type="button"
@@ -100,8 +106,8 @@
 			>
 				<X size={12} />
 			</button>
-		{/if}
-	</Button>
+		</Button>
+	</div>
 {:else}
 	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModulePopover

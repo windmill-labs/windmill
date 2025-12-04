@@ -36,6 +36,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onOpenDetails?: () => void
 		previewOpen?: boolean
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		isOwner,
 		suspendStatus,
 		onOpenDetails,
-		previewOpen = false
+		previewOpen = false,
+		flowModuleSchemaMap = undefined
 	}: Props = $props()
 
 	const {
@@ -72,6 +74,7 @@
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
+
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
 		for (const m of modules) {
@@ -104,6 +107,7 @@
 		on:applyArgs
 		{onTestFlow}
 		{previewOpen}
+		{flowModuleSchemaMap}
 	/>
 {:else if selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />

@@ -60,8 +60,8 @@
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-2 bg-surface space-y-3">
-			<!-- Parameters Section - only show if we have parameters -->
-			{#if hasParameters}
+			<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
+			{#if hasParameters || message.needsConfirmation}
 				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
 					<ToolContentDisplay
 						title="Parameters"

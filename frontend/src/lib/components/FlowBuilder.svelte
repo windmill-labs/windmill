@@ -165,7 +165,7 @@
 	}
 
 	function hasAIChanges(): boolean {
-		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 	}
 
 	function withAIChangesWarning(callback: () => void) {
@@ -900,7 +900,7 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
-		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 
@@ -1133,8 +1133,7 @@
 								)
 
 								diffDrawer?.openDrawer()
-								const currentFlow =
-									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
+								const currentFlow = flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,

@@ -1,4 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
+import type { AIModuleAction } from '$lib/components/flows/flowDiff'
 
 export const NODE = {
 	width: 275,
@@ -18,7 +19,33 @@ export type FlowNodeColorClasses = {
 
 export const AI_OR_ASSET_NODE_TYPES = ['asset', 'assetsOverflowed', 'newAiTool', 'aiTool']
 
-export type FlowNodeState = FlowStatusModule['type'] | '_VirtualItem' | '_Skipped' | undefined
+export type FlowNodeState =
+	| FlowStatusModule['type']
+	| '_VirtualItem'
+	| '_Skipped'
+	| '_AIAdded'
+	| '_AIModified'
+	| '_AIRemoved'
+	| '_AIShadowed'
+	| undefined
+
+/**
+ * Convert AI module action to FlowNodeState
+ */
+export function aiActionToNodeState(action: AIModuleAction): FlowNodeState {
+	switch (action) {
+		case 'added':
+			return '_AIAdded'
+		case 'modified':
+			return '_AIModified'
+		case 'removed':
+			return '_AIRemoved'
+		case 'shadowed':
+			return '_AIShadowed'
+		default:
+			return undefined
+	}
+}
 
 export function getNodeColorClasses(state: FlowNodeState, selected: boolean): FlowNodeColorClasses {
 	let outlined = ' outline outline-1 active:outline active:outline-1'
@@ -111,6 +138,63 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 				outline: '',
 				text: 'text-purple-700 dark:text-purple-200',
 				badge: 'bg-purple-200 text-purple-700'
+			}
+		},
+		// AI Module Action states (distinct shades from execution states)
+		_AIAdded: {
+			selected: {
+				bg: 'bg-green-300 dark:bg-green-800',
+				outline: 'outline-green-600 dark:outline-green-500' + outlined,
+				text: 'text-green-900 dark:text-green-100',
+				badge: 'bg-green-200 text-green-800'
+			},
+			notSelected: {
+				bg: 'bg-green-300 dark:bg-green-900',
+				outline: '',
+				text: 'text-green-800 dark:text-green-200',
+				badge: 'bg-green-300 text-green-800'
+			}
+		},
+		_AIModified: {
+			selected: {
+				bg: 'bg-orange-300 dark:bg-orange-800',
+				outline: 'outline-orange-600' + outlined,
+				text: 'text-orange-900 dark:text-orange-100',
+				badge: 'bg-orange-200 text-orange-800'
+			},
+			notSelected: {
+				bg: 'bg-orange-300 dark:bg-orange-900',
+				outline: '',
+				text: 'text-orange-800 dark:text-orange-200',
+				badge: 'bg-orange-300 text-orange-800'
+			}
+		},
+		_AIRemoved: {
+			selected: {
+				bg: 'bg-red-300/50 dark:bg-red-800/50',
+				outline: 'outline-red-600' + outlined,
+				text: 'text-red-900 dark:text-red-100',
+				badge: 'bg-red-200 text-red-800'
+			},
+			notSelected: {
+				bg: 'bg-red-300/50 dark:bg-red-900/50',
+				outline: '',
+				text: 'text-red-800 dark:text-red-200',
+				badge: 'bg-red-300 text-red-800'
+			}
+		},
+		_AIShadowed: {
+			selected: {
+				bg: 'bg-gray-300/30 dark:bg-gray-600/30 opacity-50',
+				outline: 'outline-gray-500' + outlined,
+				text: 'text-gray-700 dark:text-gray-300',
+				badge: 'bg-gray-200 text-gray-700'
+			},
+			notSelected: {
+				bg: 'bg-gray-300/30 dark:bg-gray-700/30 opacity-50',
+				outline: '',
+				text: 'text-gray-600 dark:text-gray-400',
+				badge: 'bg-gray-300 text-gray-700'
 			}
 		},
 		default: defaultStyle
