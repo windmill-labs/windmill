@@ -813,7 +813,7 @@
 
 																			{#if tagMismatchInfo.removed.length > 0}
 																				<div>
-																					<div class="text-emphasis font semibold"
+																					<div class="text-emphasis font-semibold"
 																						>Missing tags:</div
 																					>
 																					<TagList

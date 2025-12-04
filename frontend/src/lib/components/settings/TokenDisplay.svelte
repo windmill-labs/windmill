@@ -29,7 +29,7 @@
 </script>
 
 <!-- Use surface-tertiary for elevated content according to brand guidelines -->
-<div class="border bg-surface-tertiary rounded-lg mb-6 p-4 surface-tertiary shadow-md relative">
+<div class="border bg-surface-tertiary rounded-lg mb-6 p-4 shadow-md relative">
 	<!-- Close button in top-right corner -->
 	{#if onClose}
 		<button
