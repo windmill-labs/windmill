@@ -28,13 +28,14 @@
 	const searchText = $derived(multiSelect?.getFilteredInputText())
 
 	async function createCustomTag(tag: string) {
+		const tagName = tag.trim().replaceAll(' ', '_')
+		// optimistic update
+		worker_tags = [...worker_tags, tagName]
 		try {
 			// Get current custom tags
 			const currentCustomTags = await WorkerService.getCustomTags({
 				showWorkspaceRestriction: Boolean($superadmin || $devopsRole)
 			})
-
-			const tagName = tag.trim().replaceAll(' ', '_')
 
 			// Check if tag already exists
 			if (currentCustomTags?.includes(tagName)) {
@@ -53,11 +54,10 @@
 				customTags = [...customTags, tagName]
 			}
 
-			// Add the tag to worker_tags
-			worker_tags = [...worker_tags, tagName]
-
 			sendUserToast('Custom tag created and added successfully')
 		} catch (err) {
+			// rollback optimistic update
+			worker_tags = worker_tags.filter((t) => t !== tagName)
 			sendUserToast(`Could not create custom tag: ${err}`, true)
 		}
 	}
