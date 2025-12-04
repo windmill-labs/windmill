@@ -746,12 +746,12 @@ pub async fn resolve_job_timeout(
 }
 
 async fn hash_args(
-    db: &DB,
-    client: &AuthedClient,
-    workspace_id: &str,
+    #[allow(unused)] db: &DB,
+    #[allow(unused)] client: &AuthedClient,
+    #[allow(unused)] workspace_id: &str,
     v: &Option<Json<HashMap<String, Box<RawValue>>>>,
     hasher: &mut sha2::Sha256,
-    job_id: &Uuid,
+    #[allow(unused)] job_id: &Uuid,
 ) {
     if let Some(Json(hm)) = v {
         for k in hm.keys().sorted() {
