@@ -16259,6 +16259,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_use_s3_etag_only:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:

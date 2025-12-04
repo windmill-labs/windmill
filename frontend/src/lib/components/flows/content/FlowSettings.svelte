@@ -212,12 +212,20 @@
 							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
 								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
 								<div class="-mt-5">
-									{#if flowStore.val.value.cache_ttl}
-										<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-									{:else}
-										<SecondsInput disabled />
-									{/if}
+									<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 								</div>
+								<Toggle
+									size="2xs"
+									bind:checked={
+										() => flowStore.val.value.cache_use_s3_etag_only,
+										(v) => (flowStore.val.value.cache_use_s3_etag_only = v || undefined)
+									}
+									options={{
+										right: 'Ignore S3 Object paths for caching purposes',
+										rightTooltip:
+											'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+									}}
+								/>
 							</div>
 						{/if}
 					</div>
@@ -471,7 +479,6 @@
 				{#if customUi?.settingsTabs?.debouncing != false}
 					<DebounceLimit
 						size="xs"
-						color="nord"
 						fontClass="font-medium"
 						bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
 						bind:debounce_key={flowStore.val.value.debounce_key}

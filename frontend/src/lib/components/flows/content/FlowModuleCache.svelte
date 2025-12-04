@@ -44,12 +44,24 @@
 				right: 'Cache the results for each possible inputs'
 			}}
 		/>
-		<Label label="How long to keep cache valid">
-			{#if flowModule.cache_ttl}
-				<SecondsInput bind:seconds={flowModule.cache_ttl} />
-			{:else}
-				<SecondsInput disabled />
-			{/if}
-		</Label>
+		{#if flowModule.cache_ttl}
+			<Label label="How long to keep cache valid">
+				<div class="-mt-5">
+					<SecondsInput bind:seconds={flowModule.cache_ttl} />
+				</div>
+			</Label>
+			<Toggle
+				size="2xs"
+				bind:checked={
+					() => flowModule.cache_use_s3_etag_only,
+					(v) => (flowModule.cache_use_s3_etag_only = v || undefined)
+				}
+				options={{
+					right: 'Ignore S3 Object paths for caching purposes',
+					rightTooltip:
+						'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+				}}
+			/>
+		{/if}
 	{/if}
 </Section>
