@@ -18,6 +18,7 @@ export interface TutorialConfig {
 export interface TabConfig {
 	label: string
 	tutorials: TutorialConfig[]
+	progressBar?: boolean // Whether to display the progress bar for this tab (default: true)
 }
 
 export type TabId = 'quickstart' | 'app_editor' 
@@ -37,6 +38,7 @@ export function getTutorialIndex(id: string): number {
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
+		progressBar: true,
 		tutorials: [
 			{
 				id: 'workspace-onboarding',
@@ -81,6 +83,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	},
 	app_editor: {
 		label: 'App Editor',
+		progressBar: false,
 		tutorials: [
             {
 				id: 'backgroundrunnables',

@@ -176,7 +176,7 @@
 					await syncTutorialsTodos()
 				}}
 			>
-				Mark all as complete
+				Mark all as completed
 			</Button>
 			<Button
 				size="xs"
@@ -187,7 +187,7 @@
 					await syncTutorialsTodos()
 				}}
 			>
-				Reset tutorials
+				Reset all
 			</Button>
 		</div>
 	</PageHeader>
@@ -224,11 +224,13 @@
 	{#if currentTabConfig && currentTabConfig.tutorials.length > 0}
 		<div class="pt-8">
 			<div class="flex items-start gap-4 mb-6">
-				<TutorialProgressBar
-					completed={completedTutorials}
-					total={totalTutorials}
-					label="tutorials"
-				/>
+				{#if currentTabConfig.progressBar !== false}
+					<TutorialProgressBar
+						completed={completedTutorials}
+						total={totalTutorials}
+						label="tutorials"
+					/>
+				{/if}
 				<div class="flex gap-2 flex-shrink-0 pt-1">
 					<Button
 						size="xs"
@@ -236,7 +238,7 @@
 						startIcon={{ icon: CheckCheck }}
 						onclick={skipCurrentTabTutorials}
 					>
-						Skip all
+						Mark as completed
 					</Button>
 					<Button
 						size="xs"
