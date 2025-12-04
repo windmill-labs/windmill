@@ -1601,7 +1601,7 @@ mod tests {
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
-        jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
+        runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
         scripts,
     };
 

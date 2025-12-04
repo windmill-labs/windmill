@@ -43,9 +43,9 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
-    JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
@@ -4745,11 +4745,8 @@ pub async fn script_to_payload(
             timeout,
             on_behalf_of_email,
             created_by,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            concurrency_settings,
+            debouncing_settings,
             ..
         } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
@@ -4765,16 +4762,8 @@ pub async fn script_to_payload(
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
-                concurrency_settings: ConcurrencySettings {
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                },
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,

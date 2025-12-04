@@ -20,9 +20,9 @@ use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
-use windmill_common::jobs::ConcurrencySettings;
-use windmill_common::jobs::DebouncingSettings;
 use windmill_common::jobs::JobPayload;
+use windmill_common::runnable_settings::ConcurrencySettings;
+use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
@@ -387,8 +387,8 @@ pub async fn push_scheduled_job<'c>(
                     priority,
                     apply_preprocessor: false,
                     debouncing_settings: DebouncingSettings {
-                        custom_key: custom_debounce_key,
-                        delay_s: debounce_delay_s,
+                        debounce_key: custom_debounce_key,
+                        debounce_delay_s,
                         ..Default::default()
                     },
                     concurrency_settings: ConcurrencySettings {

@@ -38,9 +38,9 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, JobTriggerKind,
-    EMAIL_ERROR_HANDLER_USER_EMAIL,
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -4521,7 +4521,7 @@ pub async fn push<'c, 'd>(
 
                 concurrency_settings.concurrent_limit = None;
                 // TODO: May be re-enable?
-                debouncing_settings.delay_s = None;
+                debouncing_settings.debounce_delay_s = None;
 
                 preprocessed = Some(false);
             }
@@ -4986,8 +4986,8 @@ pub async fn push<'c, 'd>(
     if schedule_path.is_none() {
         if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
             &job_id,
-            debouncing_settings.delay_s,
-            debouncing_settings.custom_key,
+            debouncing_settings.debounce_delay_s,
+            debouncing_settings.debounce_key,
             workspace_id,
             runnable_path.clone(),
             &job_kind,
@@ -5165,6 +5165,8 @@ pub async fn push<'c, 'd>(
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    // RunnableSettings::insert(RunnableType::Job)
 
     //     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     //     let uuid = sqlx::query_scalar!(

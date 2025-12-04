@@ -23,7 +23,7 @@ use tokio::{spawn, sync::broadcast};
 use ee_oss::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
-use sqlx::{Acquire, Postgres};
+use sqlx::{Acquire, FromRow, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
@@ -74,6 +74,7 @@ pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
 pub mod result_stream;
+pub mod runnable_settings;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
@@ -343,7 +344,9 @@ pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
 
     let scheme = parsed_url.scheme().to_string();
     let username = parsed_url.username().to_string();
-    let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
+    let username = urlencoding::decode(&username)
+        .map_err(to_anyhow)?
+        .to_string();
     let password = parsed_url.password().map(|p| p.to_string());
     let password = match password {
         Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
@@ -403,12 +406,9 @@ impl DatabaseUrl {
             DatabaseUrl::Static(_) => Ok(()),
         }
     }
-
-
 }
 
-static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> =
-    tokio::sync::OnceCell::const_new();
+static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> = tokio::sync::OnceCell::const_new();
 
 pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
     let database_url = DATABASE_URL_CACHE
@@ -441,22 +441,27 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
                 })?;
 
                 tracing::info!("iamrds mode detected, generating IAM RDS URL for region: {region}");
-                #[cfg(all(feature = "enterprise", feature = "private"))] 
+                #[cfg(all(feature = "enterprise", feature = "private"))]
                 {
-                let rds_url = db_iam_ee::generate_database_url(&url, &region)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("Failed to generate IAM database URL: {}", e))
-                    })?;
-                tracing::info!("IAM RDS URL generated successfully");
-                Ok::<DatabaseUrl, Error>(DatabaseUrl::IamRds(
-                    std::sync::Arc::new(tokio::sync::RwLock::new(rds_url))
-                ))
+                    let rds_url = db_iam_ee::generate_database_url(&url, &region)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "Failed to generate IAM database URL: {}",
+                                e
+                            ))
+                        })?;
+                    tracing::info!("IAM RDS URL generated successfully");
+                    Ok::<DatabaseUrl, Error>(DatabaseUrl::IamRds(std::sync::Arc::new(
+                        tokio::sync::RwLock::new(rds_url),
+                    )))
                 }
 
                 #[cfg(not(all(feature = "enterprise", feature = "private")))]
                 {
-                    return Err(Error::BadConfig("IAM RDS authentication is not enabled in OSS mode".to_string()));
+                    return Err(Error::BadConfig(
+                        "IAM RDS authentication is not enabled in OSS mode".to_string(),
+                    ));
                 }
             } else {
                 Ok::<DatabaseUrl, Error>(DatabaseUrl::Static(url.to_string()))
@@ -502,8 +507,7 @@ pub async fn connect_db(
     server_mode: bool,
     indexer_mode: bool,
     worker_mode: bool,
-    #[cfg(feature = "private")]
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    #[cfg(feature = "private")] mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
@@ -527,7 +531,6 @@ pub async fn connect_db(
             }
         }
     };
-
 
     let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -570,7 +573,6 @@ pub async fn connect_db(
                         }
                     }
                 }
-                
             }
         });
     }
@@ -628,7 +630,8 @@ pub async fn connect(
             }
         })
         .connect_with(
-            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?.statement_cache_capacity(400),
+            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?
+                .statement_cache_capacity(400),
         )
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
@@ -639,7 +642,7 @@ type Tag = String;
 pub use db::DB;
 
 use crate::{
-    auth::{FLOW_PERMS_CACHE, HASH_PERMS_CACHE, PermsCache}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, scripts::ScriptHash
+    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, runnable_settings::{ConcurrencySettings, DebouncingSettings}, scripts::ScriptHash
 };
 
 #[derive(Clone)]
@@ -648,16 +651,11 @@ pub struct ExpiringLatestVersionId {
     expires_at: std::time::Instant,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, sqlx::FromRow)]
 pub struct ScriptHashInfo {
     pub path: String,
     pub hash: i64,
     pub tag: Option<String>,
-    pub concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub debounce_key: Option<String>,
-    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub language: ScriptLang,
     pub dedicated_worker: Option<bool>,
@@ -667,6 +665,10 @@ pub struct ScriptHashInfo {
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub created_by: String,
+    #[sqlx(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 pub fn get_latest_deployed_hash_for_path<'e>(
@@ -802,15 +804,42 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
     w_id: &str,
     hash: i64,
 ) -> error::Result<Option<ScriptHashInfo>> {
-    let r = sqlx::query_as!(
-        ScriptHashInfo,
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
-        hash,
-        w_id
+    sqlx::query_as::<_, ScriptHashInfo>(
+        r#"
+       SELECT
+            script.hash AS hash,
+            tag,
+            COALESCE(cs.concurrency_key, script.concurrency_key) AS concurrency_key,
+            COALESCE(cs.concurrent_limit, script.concurrent_limit) AS concurrent_limit,
+            COALESCE(cs.concurrency_time_window_s, script.concurrency_time_window_s) AS concurrency_time_window_s,
+            COALESCE(ds.debounce_key, script.debounce_key) AS debounce_key,
+            COALESCE(ds.debounce_delay_s, script.debounce_delay_s) AS debounce_delay_s,
+            ds.max_total_debouncing_time,
+            ds.max_total_debounces_amount,
+            ds.debounce_args_to_accumulate,
+            cache_ttl,
+            language,
+            dedicated_worker,
+            priority,
+            delete_after_use,
+            timeout,
+            has_preprocessor,
+            on_behalf_of_email,
+            created_by,
+            path
+        FROM
+            script
+            LEFT JOIN runnable_settings_references  srefs  ON script.hash = srefs.referencer_id AND srefs.referencer_kind = 'script'
+            LEFT JOIN runnable_concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN runnable_debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+        WHERE script.hash = $1 AND script.workspace_id = $2 
+        "#,
     )
+    .bind(hash)
+    .bind(w_id)
     .fetch_optional(db)
-    .await?;
-    Ok(r)
+    .await
+    .map_err(Error::from)
 }
 #[derive(Clone)]
 pub struct FlowVersionInfo {
