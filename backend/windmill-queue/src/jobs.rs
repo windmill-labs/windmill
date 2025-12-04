@@ -14,9 +14,9 @@ use async_recursion::async_recursion;
 use chrono::{DateTime, Utc};
 use futures::future::TryFutureExt;
 use itertools::Itertools;
-use quick_cache::sync::Cache;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
+use quick_cache::sync::Cache;
 use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
@@ -38,7 +38,10 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, JobTriggerKind,
+    EMAIL_ERROR_HANDLER_USER_EMAIL,
+};
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
@@ -168,7 +171,6 @@ pub async fn cancel_single_job<'c>(
     db: &Pool<Postgres>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-
     let id = job_running.id;
     if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
@@ -236,7 +238,6 @@ pub async fn cancel_job<'c>(
     //TODO fetch mini completed job instead of QueuedJob
     let job = get_queued_job_v2(&mut *tx, &id).await?;
 
-
     if job.is_none() {
         return Ok((tx, None));
     }
@@ -248,7 +249,6 @@ pub async fn cancel_job<'c>(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
-
 
     if job.workspace_id != w_id {
         return Err(Error::BadRequest(
@@ -324,16 +324,8 @@ ORDER BY depth, id
         tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
     }
 
-    let (ntx, _) = cancel_single_job(
-        username,
-        reason.clone(),
-        job,
-        w_id,
-        tx,
-        db,
-        force_cancel,
-    )
-    .await?;
+    let (ntx, _) =
+        cancel_single_job(username, reason.clone(), job, w_id, tx, db, force_cancel).await?;
     tx = ntx;
 
     if !force_cancel {
@@ -357,16 +349,9 @@ ORDER BY depth, id
         let job = get_queued_job_v2(&mut *tx, &job_id).await?;
 
         if let Some(job) = job {
-            let (ntx, _) = cancel_single_job(
-                username,
-                reason.clone(),
-                job,
-                w_id,
-                tx,
-                db,
-                force_cancel,
-            )
-            .await?;
+            let (ntx, _) =
+                cancel_single_job(username, reason.clone(), job, w_id, tx, db, force_cancel)
+                    .await?;
             tx = ntx;
         }
     }
@@ -445,13 +430,10 @@ pub async fn push_init_job<'c>(
             path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+            debouncing_settings: DebouncingSettings::default(),
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -504,13 +486,10 @@ pub async fn push_periodic_bash_job<'c>(
             )),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+            debouncing_settings: DebouncingSettings::default(),
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -866,7 +845,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .await;
 
     restart_job_if_perpetual(db, completed_job, &canceled_by).await?;
-
 
     // tracing::error!("4 {:?}", start.elapsed());
 
@@ -1343,9 +1321,6 @@ async fn restart_job_if_perpetual_inner(
             JobPayload::ScriptHash {
                 hash,
                 path: queued_job.runnable_path.clone().unwrap_or_default(),
-                custom_concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: queued_job.cache_ttl,
                 dedicated_worker: None,
                 language: queued_job
@@ -1354,9 +1329,13 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings {
+                    concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
+                },
                 // TODO(debouncing): handle properly
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                debouncing_settings: DebouncingSettings::default(),
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -1442,7 +1421,6 @@ fn apply_completed_job_cloud_usage(
                         tracing::error!("Failed to get team plan status to update usage for workspace {w_id}: {err:#}");
                     }
                 };
-                
             }).await;
 
             if let Err(_) = result {
@@ -1571,8 +1549,9 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                 (cached.0.clone(), cached.1.clone(), cached.2)
             } else {
                 // Cache expired, fetch from database
-                let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-                    r#"
+                let row_result =
+                    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                        r#"
                         SELECT
                             error_handler,
                             error_handler_extra_args,
@@ -1582,25 +1561,33 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                         WHERE
                             workspace_id = $1
                     "#,
-                )
-                .bind(&w_id)
-                .fetch_optional(db)
-                .await
-                .context("fetching error handler info from workspace_settings")?
-                .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+                    )
+                    .bind(&w_id)
+                    .fetch_optional(db)
+                    .await
+                    .context("fetching error handler info from workspace_settings")?
+                    .ok_or_else(|| {
+                        Error::internal_err(format!("no workspace settings for id {w_id}"))
+                    })?;
 
                 // Update cache with 60s TTL
                 let expiry = now + 60;
                 WORKSPACE_ERROR_HANDLER_CACHE.insert(
                     w_id.clone(),
-                    (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+                    (
+                        row_result.0.clone(),
+                        row_result.1.clone(),
+                        row_result.2,
+                        expiry,
+                    ),
                 );
                 row_result
             }
         } else {
             // Cache miss, fetch from database
-            let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-                r#"
+            let row_result =
+                sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                    r#"
                     SELECT
                         error_handler,
                         error_handler_extra_args,
@@ -1610,18 +1597,25 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
                     WHERE
                         workspace_id = $1
                 "#,
-            )
-            .bind(&w_id)
-            .fetch_optional(db)
-            .await
-            .context("fetching error handler info from workspace_settings")?
-            .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+                )
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await
+                .context("fetching error handler info from workspace_settings")?
+                .ok_or_else(|| {
+                    Error::internal_err(format!("no workspace settings for id {w_id}"))
+                })?;
 
             // Store in cache with 60s TTL
             let expiry = now + 60;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+                (
+                    row_result.0.clone(),
+                    row_result.1.clone(),
+                    row_result.2,
+                    expiry,
+                ),
             );
             row_result
         };
@@ -1991,7 +1985,6 @@ pub struct MiniPulledJob {
     pub permissioned_as_end_user_email: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct MiniCompletedJob {
@@ -2041,7 +2034,6 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             concurrent_limit: job.concurrent_limit,
             tag: job.tag,
             cache_ttl: job.cache_ttl,
-
         }
     }
 }
@@ -2116,11 +2108,16 @@ impl MiniCompletedJob {
     pub fn is_dependency(&self) -> bool {
         self.kind.is_dependency()
     }
-
 }
 
-fn schedule_path(trigger_kind: &Option<JobTriggerKind>, trigger: &Option<String>) -> Option<String> {
-    if trigger_kind.as_ref().is_some_and(|t| matches!(t, JobTriggerKind::Schedule)) {
+fn schedule_path(
+    trigger_kind: &Option<JobTriggerKind>,
+    trigger: &Option<String>,
+) -> Option<String> {
+    if trigger_kind
+        .as_ref()
+        .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
+    {
         trigger.clone()
     } else {
         None
@@ -2413,7 +2410,6 @@ pub async fn get_mini_pulled_job<'c>(
     Ok(job)
 }
 
-
 pub struct QueuedJobV2 {
     pub id: Uuid,
     pub workspace_id: String,
@@ -2449,7 +2445,9 @@ impl QueuedJobV2 {
 }
 
 pub async fn get_queued_job_v2<'c>(
-    e: impl PgExecutor<'c>, job_id: &Uuid) -> error::Result<Option<QueuedJobV2>> {
+    e: impl PgExecutor<'c>,
+    job_id: &Uuid,
+) -> error::Result<Option<QueuedJobV2>> {
     let job = sqlx::query_as!(
         QueuedJobV2,
         "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
@@ -2469,7 +2467,7 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
-    pub error_while_preprocessing: Option<String>
+    pub error_while_preprocessing: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -2479,7 +2477,6 @@ pub enum PulledJobResultToJobErr {
     #[error("pulled job preprocessor error: {}", .0.result)]
     ErrorWhilePreprocessing(JobCompleted),
 }
-
 
 impl PulledJobResult {
     pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
@@ -2761,7 +2758,6 @@ impl PulledJobResult {
                     }
                 } else {
                     tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
-                
                 }
                 // This will unblock pusher.
                 tx.commit().await?;
@@ -2853,21 +2849,21 @@ pub async fn pull(
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
-                        crate::jobs_ee::apply_concurrency_limit(
-                            db,
-                            pull_loop_count,
-                            suspended,
-                            job,
-                        )
-                        .await?
-                        .unwrap_or(PulledJobResult {
-                            job: None,
-                            suspended,
-                            missing_concurrency_key: false,
-                            error_while_preprocessing: None,
-                        })
+                        crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, job)
+                            .await?
+                            .unwrap_or(PulledJobResult {
+                                job: None,
+                                suspended,
+                                missing_concurrency_key: false,
+                                error_while_preprocessing: None,
+                            })
                     }
-                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false, error_while_preprocessing: None },
+                    _ => PulledJobResult {
+                        job,
+                        suspended,
+                        missing_concurrency_key: false,
+                        error_while_preprocessing: None,
+                    },
                 };
 
                 Ok::<_, Error>(pulled_job_result)
@@ -2885,7 +2881,12 @@ pub async fn pull(
         )
         .await?;
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false, error_while_preprocessing: None });
+            return Ok(PulledJobResult {
+                job: None,
+                suspended,
+                missing_concurrency_key: false,
+                error_while_preprocessing: None,
+            });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2896,7 +2897,10 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = job.is_dependency() && job.concurrent_limit.is_some() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+        let has_concurent_limit = job.is_dependency()
+            && job.concurrent_limit.is_some()
+            && cfg!(feature = "private")
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -3593,13 +3597,13 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .unwrap_or(false))
 }
 
-pub fn get_mini_completed_job<
-'a,
-'e,
-A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
->(id: &'a Uuid, w_id: &'a str, db: A) -> impl Future<Output = error::Result<Option<MiniCompletedJob>>> + Send + 'a {
-    async move {        
-     let mut conn = db.acquire().await?;
+pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
+    id: &'a Uuid,
+    w_id: &'a str,
+    db: A,
+) -> impl Future<Output = error::Result<Option<MiniCompletedJob>>> + Send + 'a {
+    async move {
+        let mut conn = db.acquire().await?;
         sqlx::query_as!(
             MiniCompletedJob,
             "SELECT 
@@ -3615,7 +3619,6 @@ A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
         .map_err(Into::into)
     }
 }
-
 
 pub enum PushIsolationLevel<'c> {
     IsolatedRoot(DB),
@@ -3828,8 +3831,7 @@ pub async fn push<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
-    #[allow(unused_mut)]
-    mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    #[allow(unused_mut)] mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
@@ -4031,87 +4033,87 @@ pub async fn push<'c, 'd>(
         }
     }
 
+    #[derive(Default)]
+    struct JobPayloadUntagged {
+        runnable_id: Option<i64>,
+        runnable_path: Option<String>,
+        raw_code_tuple: Option<(String, Option<String>)>, // (content, lock)
+        job_kind: JobKind,
+        raw_flow: Option<FlowValue>,
+        flow_status: Option<FlowStatus>,
+        language: Option<ScriptLang>,
+        cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
+        _low_level_priority: Option<i16>,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
+    }
     let mut preprocessed = None;
-    #[allow(unused)] 
-    let (
-        script_hash,
-        script_path,
+    #[allow(unused)]
+    let JobPayloadUntagged {
+        runnable_id,
+        runnable_path,
         raw_code_tuple,
         job_kind,
         raw_flow,
         flow_status,
         language,
-        mut custom_concurrency_key,
-        mut concurrent_limit,
-        concurrency_time_window_s,
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
-        custom_debounce_key,
-        debounce_delay_s,
-    ) = match job_payload {
+        concurrency_settings:
+            ConcurrencySettings {
+                mut concurrency_key,
+                mut concurrent_limit,
+                concurrency_time_window_s, //
+            },
+        debouncing_settings,
+    } = match job_payload {
         JobPayload::ScriptHash {
             hash,
             path,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             language,
             dedicated_worker,
             priority,
             apply_preprocessor,
-            custom_debounce_key,
-            debounce_delay_s,
+            concurrency_settings,
+            debouncing_settings,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
             }
 
-            (
-                Some(hash.0),
-                Some(path),
-                None,
-                JobKind::Script,
-                None,
-                None,
-                Some(language),
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: Some(hash.0),
+                runnable_path: Some(path),
+                job_kind: JobKind::Script,
+                language: Some(language),
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl,
                 dedicated_worker,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                ..Default::default()
+            }
         }
         JobPayload::FlowScript {
             id, // flow_node(id).
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
             path,
-        } => (
-            Some(id.0),
-            Some(path),
-            None,
-            JobKind::FlowScript,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
+        } => JobPayloadUntagged {
+            runnable_id: Some(id.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::FlowScript,
+            language: Some(language),
+            concurrency_settings,
             cache_ttl,
             dedicated_worker,
-            None,
-            None, // custom_debounce_key removed for flow steps
-            None, // debounce_delay_s removed for flow steps
-        ),
+            ..Default::default()
+        },
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
             let value = data.value();
@@ -4124,46 +4126,28 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(id.0),
-                Some(path),
-                None,
-                JobKind::FlowNode,
-                value_o,
-                status,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                runnable_id: Some(id.0),
+                runnable_path: Some(path),
+                job_kind: JobKind::FlowNode,
+                raw_flow: value_o,
+                flow_status: status,
+                ..Default::default()
+            }
         }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
             language,
             cache_ttl,
-        } => (
-            Some(id.0),
-            path,
-            None,
-            JobKind::AppScript,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
+        } => JobPayloadUntagged {
+            runnable_id: Some(id.0),
+            runnable_path: path,
+            job_kind: JobKind::AppScript,
+            language: Some(language),
             cache_ttl,
-            None,
-            None,
-            None,
-            None,
-        ),
+            ..Default::default()
+        },
         JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
@@ -4180,24 +4164,12 @@ pub async fn push<'c, 'd>(
                 get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(_db))
                     .await?;
 
-            (
-                None,
-                Some(path),
-                None,
-                // Some((script.content, script.lockfile)),
-                JobKind::Script_Hub,
-                None,
-                None,
-                Some(hub_script.language),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                runnable_path: Some(path),
+                job_kind: JobKind::Script_Hub,
+                language: Some(hub_script.language),
+                ..Default::default()
+            }
         }
         JobPayload::Code(RawCode {
             content,
@@ -4205,85 +4177,49 @@ pub async fn push<'c, 'd>(
             hash,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
-            custom_debounce_key,
-            debounce_delay_s,
-        }) => (
-            hash,
-            path,
-            Some((content, lock)),
-            JobKind::Preview,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
+            debouncing_settings,
+        }) => JobPayloadUntagged {
+            runnable_id: hash,
+            runnable_path: path,
+            raw_code_tuple: Some((content, lock)),
+            job_kind: JobKind::Preview,
+            language: Some(language),
+            concurrency_settings: concurrency_settings.into(),
+            debouncing_settings,
             cache_ttl,
             dedicated_worker,
-            None,
-            custom_debounce_key,
-            debounce_delay_s,
-        ),
-        JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
-            Some(hash.0),
-            Some(path.clone()),
-            None,
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
+            ..Default::default()
+        },
+        JobPayload::Dependencies { hash, language, path, dedicated_worker } => JobPayloadUntagged {
+            runnable_id: Some(hash.0),
+            runnable_path: Some(path.clone()),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
             dedicated_worker,
-            None,
-            None,
-            None,
-        ),
+            ..Default::default()
+        },
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawScriptDependencies { script_path, content, language } => (
-            None,
-            Some(script_path),
-            Some((content, None)),
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::RawScriptDependencies { script_path, content, language } => {
+            JobPayloadUntagged {
+                runnable_path: Some(script_path),
+                raw_code_tuple: Some((content, None)),
+                job_kind: JobKind::Dependencies,
+                language: Some(language),
+                ..Default::default()
+            }
+        }
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawFlowDependencies { path, flow_value } => (
-            None,
-            Some(path),
-            None,
-            JobKind::FlowDependencies,
-            Some(flow_value),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::RawFlowDependencies { path, flow_value } => JobPayloadUntagged {
+            runnable_path: Some(path),
+            job_kind: JobKind::FlowDependencies,
+            raw_flow: Some(flow_value),
+            ..Default::default()
+        },
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             #[cfg(test)]
             let skip_compat = args
@@ -4305,41 +4241,21 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(version),
-                Some(path.clone()),
-                None,
-                JobKind::FlowDependencies,
-                value_o,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+            JobPayloadUntagged {
+                runnable_id: Some(version),
+                runnable_path: Some(path.clone()),
+                job_kind: JobKind::FlowDependencies,
+                raw_flow: value_o,
                 dedicated_worker,
-                None,
-                None,
-                None,
-            )
+                ..Default::default()
+            }
         }
-        JobPayload::AppDependencies { path, version } => (
-            Some(version),
-            Some(path.clone()),
-            None,
-            JobKind::AppDependencies,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::AppDependencies { path, version } => JobPayloadUntagged {
+            runnable_id: Some(version),
+            runnable_path: Some(path.clone()),
+            job_kind: JobKind::AppDependencies,
+            ..Default::default()
+        },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
             add_virtual_items_if_necessary(&mut value.modules);
 
@@ -4386,30 +4302,19 @@ pub async fn push<'c, 'd>(
                     FlowStatus::new(&value)
                 } // this is a new flow being pushed, flow_status is set to flow_value
             };
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let debounce_key = value.debounce_key.clone();
-            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
-            (
-                None,
-                path,
-                None,
-                JobKind::FlowPreview,
-                Some(value),
-                Some(flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_path: path,
+                job_kind: JobKind::FlowPreview,
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-                debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings: value.concurrency_settings.clone(),
+                debouncing_settings: value.debouncing_settings.clone(),
+                raw_flow: Some(value),
+                ..Default::default()
+            }
         }
         JobPayload::SingleStepFlow {
             path,
@@ -4420,16 +4325,13 @@ pub async fn push<'c, 'd>(
             error_handler_args,
             skip_handler,
             args,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
             priority,
             tag_override,
             trigger_path,
             apply_preprocessor,
-            custom_debounce_key,
-            debounce_delay_s,
+            debouncing_settings,
+            concurrency_settings,
         } => {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
@@ -4563,13 +4465,10 @@ pub async fn push<'c, 'd>(
             let flow_value = FlowValue {
                 modules,
                 failure_module,
-                concurrency_time_window_s,
-                concurrent_limit,
-                debounce_key: custom_debounce_key.clone(),
-                debounce_delay_s,
+                concurrency_settings: concurrency_settings.clone(),
+                debouncing_settings: debouncing_settings.clone(),
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
-                concurrency_key: custom_concurrency_key.clone(),
                 same_worker: false,
                 early_return: None,
                 skip_expr: None,
@@ -4579,23 +4478,17 @@ pub async fn push<'c, 'd>(
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
-            (
-                None, // No version needed - flow is stored in raw_flow like FlowPreview
-                Some(path),
-                None,
-                JobKind::SingleStepFlow,
-                Some(flow_value),
-                Some(flow_status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_path: Some(path),
+                job_kind: JobKind::SingleStepFlow,
+                raw_flow: Some(flow_value),
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
@@ -4618,20 +4511,18 @@ pub async fn push<'c, 'd>(
             let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
-            let custom_concurrency_key = value.concurrency_key.clone();
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let mut concurrent_limit = value.concurrent_limit;
-
-            let custom_debounce_key = value.debounce_key.clone();
-            let mut debounce_delay_s = value.debounce_delay_s;
+            let mut concurrency_settings = value.concurrency_settings.clone();
+            let mut debouncing_settings = value.debouncing_settings.clone();
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
-                concurrent_limit = None;
+
+                concurrency_settings.concurrent_limit = None;
                 // TODO: May be re-enable?
-                debounce_delay_s = None;
+                debouncing_settings.delay_s = None;
+
                 preprocessed = Some(false);
             }
 
@@ -4652,23 +4543,19 @@ pub async fn push<'c, 'd>(
                 // by additional checks when handling the flow.
                 None
             };
-            (
-                Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
-                Some(path),
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
+                runnable_path: Some(path),
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(status),
                 cache_ttl,
                 dedicated_worker,
-                priority,
-                custom_debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
             let (
@@ -4687,6 +4574,7 @@ pub async fn push<'c, 'd>(
                 branch_or_iteration_n,
             )
             .await?;
+
             let restarted_flow_status = FlowStatus {
                 step: step_n,
                 modules: truncated_modules,
@@ -4715,11 +4603,8 @@ pub async fn push<'c, 'd>(
             };
             let value = flow_data.value();
             let priority = value.priority;
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let debounce_key = value.debounce_key.clone();
-            let debounce_delay_s = value.debounce_delay_s;
+            let concurrency_settings = value.concurrency_settings.clone();
+            let debouncing_settings = value.debouncing_settings.clone();
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4729,92 +4614,38 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                version,
-                flow_path,
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(restarted_flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: version,
+                runnable_path: flow_path,
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(restarted_flow_status),
                 cache_ttl,
-                None,
-                priority,
-                debounce_key,
-                debounce_delay_s,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
-        JobPayload::DeploymentCallback { path } => (
-            None,
-            Some(path.clone()),
-            None,
-            JobKind::DeploymentCallback,
-            None,
-            None,
-            None,
-            Some(format!("{workspace_id}:git_sync")),
-            Some(1),
-            Some(0),
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Identity => (
-            None,
-            None,
-            None,
-            JobKind::Identity,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Noop => (
-            None,
-            None,
-            None,
-            JobKind::Noop,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::AIAgent { path } => (
-            None,
-            Some(path),
-            None,
-            JobKind::AIAgent,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::DeploymentCallback { path } => JobPayloadUntagged {
+            runnable_path: Some(path.clone()),
+            job_kind: JobKind::DeploymentCallback,
+            concurrency_settings: ConcurrencySettings {
+                concurrency_key: Some(format!("{workspace_id}:git_sync")),
+                concurrent_limit: Some(1),
+                concurrency_time_window_s: Some(0),
+            },
+            ..Default::default()
+        },
+        JobPayload::Identity => {
+            JobPayloadUntagged { job_kind: JobKind::Identity, ..Default::default() }
+        }
+        JobPayload::Noop => JobPayloadUntagged { job_kind: JobKind::Noop, ..Default::default() },
+        JobPayload::AIAgent { path } => JobPayloadUntagged {
+            runnable_path: Some(path),
+            job_kind: JobKind::AIAgent,
+            ..Default::default()
+        },
     };
 
     // Enforce concurrency limit on all dependency jobs.
@@ -4823,13 +4654,13 @@ pub async fn push<'c, 'd>(
     //
     // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
-        &script_path,
+        &runnable_path,
         cfg!(feature = "private")
             && job_kind.is_dependency()
             && !*WMDEBUG_NO_DJOB_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrent_limit = Some(1);
     }
 
@@ -4895,7 +4726,7 @@ pub async fn push<'c, 'd>(
             } else {
                 ""
             },
-            script_path.clone().expect("dedicated script has a path")
+            runnable_path.clone().expect("dedicated script has a path")
         )
     } else {
         if tag == Some("".to_string()) {
@@ -4973,7 +4804,7 @@ pub async fn push<'c, 'd>(
     match (
         scheduled_for_o.is_some(),
         job_kind.is_dependency(),
-        script_path.clone(),
+        runnable_path.clone(),
         *WMDEBUG_NO_DJOB_DEBOUNCING,
         *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
         // We only do debouncing for jobs triggered by relative imports
@@ -5155,10 +4986,10 @@ pub async fn push<'c, 'd>(
     if schedule_path.is_none() {
         if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
             &job_id,
-            debounce_delay_s,
-            custom_debounce_key,
+            debouncing_settings.delay_s,
+            debouncing_settings.custom_key,
             workspace_id,
-            script_path.clone(),
+            runnable_path.clone(),
             &job_kind,
             &args,
             &mut scheduled_for_o,
@@ -5174,9 +5005,9 @@ pub async fn push<'c, 'd>(
         insert_concurrency_key(
             workspace_id,
             &args,
-            &script_path,
+            &runnable_path,
             job_kind,
-            custom_concurrency_key,
+            concurrency_key,
             &mut tx,
             job_id,
         )
@@ -5294,8 +5125,8 @@ pub async fn push<'c, 'd>(
         parent_job,
         user,
         permissioned_as,
-        script_hash,
-        script_path.clone(),
+        runnable_id,
+        runnable_path.clone(),
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
@@ -5384,7 +5215,7 @@ pub async fn push<'c, 'd>(
         let operation_name = match job_kind {
             JobKind::Preview => "jobs.run.preview",
             JobKind::Script => {
-                s = ScriptHash(script_hash.unwrap()).to_string();
+                s = ScriptHash(runnable_id.unwrap()).to_string();
                 hm.insert("hash", s.as_str());
                 "jobs.run.script"
             }
@@ -5430,7 +5261,7 @@ pub async fn push<'c, 'd>(
             operation_name,
             ActionKind::Execute,
             workspace_id,
-            script_path.as_ref().map(|x| x.as_str()),
+            runnable_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
         .warn_after_seconds(1)
@@ -5721,8 +5552,6 @@ async fn restarted_flows_resolution(
     ))
 }
 
-
-
 // Wrapper struct to send both job and optional flow_runners to dedicated workers
 pub struct DedicatedWorkerJob {
     pub job: Arc<MiniPulledJob>,
@@ -5740,7 +5569,11 @@ pub struct FlowRunners {
 impl Drop for FlowRunners {
     fn drop(&mut self) {
         let total_runners = self.handles.len();
-        tracing::info!("dropping {} flow runners for job {}", total_runners, self.job_id);
+        tracing::info!(
+            "dropping {} flow runners for job {}",
+            total_runners,
+            self.job_id
+        );
 
         // First, drop all senders to signal workers to stop gracefully
         self.runners.clear();
@@ -5756,12 +5589,17 @@ impl Drop for FlowRunners {
             // Wait up to 5 seconds for natural termination
             let timeout_result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
-                futures::future::join_all(handles)
-            ).await;
+                futures::future::join_all(handles),
+            )
+            .await;
 
             match timeout_result {
                 Ok(_) => {
-                    tracing::info!("all {} flow runners for job {} terminated gracefully", total_runners, job_id);
+                    tracing::info!(
+                        "all {} flow runners for job {} terminated gracefully",
+                        total_runners,
+                        job_id
+                    );
                 }
                 Err(_) => {
                     // Timeout reached, abort only the handles that haven't finished
@@ -5859,4 +5697,3 @@ pub async fn get_same_worker_job(
         ))
     })
 }
-

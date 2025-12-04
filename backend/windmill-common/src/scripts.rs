@@ -495,6 +495,10 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    // NOTE: concurrency and debounce data is inline,
+    // bc it was this before refactor
+    // and rust seems to hash it differently
+    // for backwards compat we keep them inline
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
