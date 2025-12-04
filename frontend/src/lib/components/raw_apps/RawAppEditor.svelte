@@ -14,10 +14,9 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import { isRunnableByName } from '../apps/inputType'
-	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
-	import { langToExt } from '$lib/editorLangUtils'
-	import { extToScriptLang, scriptLangToEditorLang } from '$lib/scripts'
+	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
+	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { onMount } from 'svelte'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -92,6 +91,57 @@
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
 
+	// Helper function to convert internal Runnable to BackendRunnable format
+	function convertToBackendRunnable(key: string, runnable: Runnable): any | undefined {
+		if (!runnable) return undefined
+
+		const backendRunnable: any = {
+			name: runnable.name ?? key
+		}
+
+		if (isRunnableByName(runnable)) {
+			backendRunnable.type = 'inline'
+			if (runnable.inlineScript) {
+				// Map frontend language to backend API language
+				let language = runnable.inlineScript.language
+				// Backend API only supports 'bun' and 'python3' for inline scripts
+				// Map TypeScript variants to 'bun'
+				if (language === 'nativets' || language === 'deno') {
+					language = 'bun'
+				}
+				backendRunnable.inlineScript = {
+					language: language as 'bun' | 'python3',
+					content: runnable.inlineScript.content ?? ''
+				}
+			}
+		} else if (isRunnableByPath(runnable)) {
+			// Determine type based on runType
+			if (runnable.runType === 'flow') {
+				backendRunnable.type = 'flow'
+			} else if (runnable.runType === 'hubscript') {
+				backendRunnable.type = 'hubscript'
+			} else {
+				backendRunnable.type = 'script'
+			}
+			backendRunnable.path = runnable.path
+		}
+
+		// Extract static inputs from fields
+		if (runnable.fields) {
+			const staticInputs: Record<string, any> = {}
+			Object.entries(runnable.fields).forEach(([fieldKey, field]) => {
+				if (field.type === 'static') {
+					staticInputs[fieldKey] = field.value
+				}
+			})
+			if (Object.keys(staticInputs).length > 0) {
+				backendRunnable.staticInputs = staticInputs
+			}
+		}
+
+		return backendRunnable
+	}
+
 	let iframeLoaded = $state(false) // @hmr:keep
 
 	function populateFiles() {
@@ -120,67 +170,103 @@
 		)
 	}
 
+	onMount(() => {
+		aiChatManager.saveAndClear()
+		aiChatManager.changeMode(AIMode.APP)
+	})
+
 	$effect(() => {
 		return aiChatManager.setAppHelpers({
-			getFiles: () => {
-				let allFiles = $state.snapshot(files ?? {})
-				allFiles['/wmill.d.ts'] = genWmillTs(runnables)
-				let backendRunnables: Record<string, Runnable> = {}
-				Object.entries(runnables).forEach(([key, runnable]) => {
-					if (runnable?.inlineScript?.content) {
-						allFiles[
-							'/backend/' +
-								key +
-								'.' +
-								langToExt(scriptLangToEditorLang(runnable.inlineScript.language))
-						] = runnable.inlineScript?.content ?? ''
-					} else {
-						backendRunnables[key] = runnable
-					}
-				})
-				allFiles['/raw_app.json'] = JSON.stringify({
-					summary: summary,
-					backend: backendRunnables
-				})
-				console.log('allFiles:', allFiles)
-				return allFiles ?? {}
+			listFrontendFiles: () => {
+				return Object.keys($state.snapshot(files ?? {}))
 			},
-			setFile: (path, content, name) => {
-				console.log('setFile:', path, content)
+			getFrontendFile: (path) => {
+				return $state.snapshot(files ?? {})[path]
+			},
+			getFrontendFiles: () => {
+				return $state.snapshot(files ?? {})
+			},
+			setFrontendFile: (path, content) => {
+				console.log('setting frontend file', path, content)
 				if (!files) {
 					files = {}
 				}
-				if (path.startsWith('/backend/')) {
-					console.log('backend file changed:', path, name)
-					let splitted = path.substring(9).split('.')
-					let key = splitted[0]
-					let language = splitted[1]
+				files[path] = content
+				setFilesInIframe(files)
+				console.log('files after setting', files)
+			},
+			deleteFrontendFile: (path) => {
+				if (!files) {
+					files = {}
+				}
+				delete files[path]
+				setFilesInIframe(files)
+			},
+			listBackendRunnables: () => {
+				return Object.entries(runnables).map(([key, runnable]) => ({
+					key,
+					name: runnable?.name ?? key
+				}))
+			},
+			getBackendRunnable: (key) => {
+				return convertToBackendRunnable(key, runnables[key])
+			},
+			getBackendRunnables: () => {
+				const backendRunnables: Record<string, any> = {}
+				Object.entries(runnables).forEach(([key, runnable]) => {
+					const converted = convertToBackendRunnable(key, runnable)
+					if (converted) {
+						backendRunnables[key] = converted
+					}
+				})
+				return backendRunnables
+			},
+			setBackendRunnable: (key, runnable) => {
+				if (runnable.type === 'inline' && runnable.inlineScript) {
 					runnables[key] = {
-						name: name ?? key,
+						name: runnable.name,
 						type: 'inline',
 						inlineScript: {
-							content: content,
-							language: extToScriptLang(language) ?? runnables[key]?.inlineScript?.language ?? 'bun'
-						}
+							content: runnable.inlineScript.content,
+							language: runnable.inlineScript.language
+						},
+						fields: runnable.staticInputs
+							? Object.fromEntries(
+									Object.entries(runnable.staticInputs).map(([k, v]) => [
+										k,
+										{ type: 'static', value: v, fieldType: 'object' }
+									])
+								)
+							: {}
 					}
-				} else {
-					files[path] = content
-					setFilesInIframe(files)
+				} else if (runnable.path) {
+					runnables[key] = {
+						name: runnable.name,
+						type: 'path',
+						runType: runnable.type as 'script' | 'flow' | 'hubscript',
+						path: runnable.path,
+						fields: runnable.staticInputs
+							? Object.fromEntries(
+									Object.entries(runnable.staticInputs).map(([k, v]) => [
+										k,
+										{ type: 'static', value: v, fieldType: 'object' }
+									])
+								)
+							: {},
+						schema: {}
+					}
 				}
+				populateRunnables()
 			},
-			deleteFile: (path) => {
-				console.log('deleteFile:', path)
-				if (!files) {
-					files = {}
+			deleteBackendRunnable: (key) => {
+				delete runnables[key]
+				populateRunnables()
+			},
+			getFiles: () => {
+				return {
+					frontend: $state.snapshot(files ?? {}),
+					backend: aiChatManager.appAiChatHelpers?.getBackendRunnables() ?? {}
 				}
-
-				if (path.startsWith('/backend/')) {
-					let key = path.substring(9).split('.')[0]
-					delete runnables[key]
-				} else {
-					delete files[path]
-				}
-				setFilesInIframe(files)
 			}
 		})
 	})

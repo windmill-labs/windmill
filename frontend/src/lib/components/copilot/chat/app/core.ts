@@ -33,10 +33,14 @@ export interface AppFiles {
 
 export interface AppAIChatHelpers {
 	// Frontend file operations
+	listFrontendFiles: () => string[]
+	getFrontendFile: (path: string) => string | undefined
 	getFrontendFiles: () => Record<string, string>
 	setFrontendFile: (path: string, content: string) => void
 	deleteFrontendFile: (path: string) => void
 	// Backend runnable operations
+	listBackendRunnables: () => { key: string; name: string }[]
+	getBackendRunnable: (key: string) => BackendRunnable | undefined
 	getBackendRunnables: () => Record<string, BackendRunnable>
 	setBackendRunnable: (key: string, runnable: BackendRunnable) => void
 	deleteBackendRunnable: (key: string) => void
@@ -46,11 +50,27 @@ export interface AppAIChatHelpers {
 
 // ============= Frontend File Tools =============
 
+const listFrontendFilesSchema = z.object({})
+const listFrontendFilesToolDef = createToolDef(
+	listFrontendFilesSchema,
+	'list_frontend_files',
+	'List all frontend file paths in the raw app. Returns an array of file paths without content. Use this for overview, then get specific files.'
+)
+
+const getFrontendFileSchema = z.object({
+	path: z.string().describe('The path of the frontend file to get (e.g., /index.tsx, /styles.css)')
+})
+const getFrontendFileToolDef = createToolDef(
+	getFrontendFileSchema,
+	'get_frontend_file',
+	'Get the content of a specific frontend file by path. Use this to inspect individual files.'
+)
+
 const getFrontendFilesSchema = z.object({})
 const getFrontendFilesToolDef = createToolDef(
 	getFrontendFilesSchema,
 	'get_frontend_files',
-	'Get all frontend files in the raw app. Returns a record of file paths to their content.'
+	'Get all frontend files in the raw app. Returns a record of file paths to their content. Use list_frontend_files + get_frontend_file for large apps.'
 )
 
 const setFrontendFileSchema = z.object({
@@ -74,11 +94,27 @@ const deleteFrontendFileToolDef = createToolDef(
 
 // ============= Backend Runnable Tools =============
 
+const listBackendRunnablesSchema = z.object({})
+const listBackendRunnablesToolDef = createToolDef(
+	listBackendRunnablesSchema,
+	'list_backend_runnables',
+	'List all backend runnable keys and names in the raw app. Returns an array without full content. Use this for overview, then get specific runnables.'
+)
+
+const getBackendRunnableSchema = z.object({
+	key: z.string().describe('The key of the backend runnable to get')
+})
+const getBackendRunnableToolDef = createToolDef(
+	getBackendRunnableSchema,
+	'get_backend_runnable',
+	'Get the full configuration of a specific backend runnable by key. Use this to inspect individual runnables.'
+)
+
 const getBackendRunnablesSchema = z.object({})
 const getBackendRunnablesToolDef = createToolDef(
 	getBackendRunnablesSchema,
 	'get_backend_runnables',
-	'Get all backend runnables in the raw app. Returns a record of runnable keys to their configuration.'
+	'Get all backend runnables in the raw app. Returns a record of runnable keys to their configuration. Use list_backend_runnables + get_backend_runnable for large apps.'
 )
 
 const inlineScriptSchema = z.object({
@@ -217,7 +253,31 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 			return JSON.stringify(files, null, 2)
 		}
 	},
-	// Frontend tools
+	// Frontend tools - list
+	{
+		def: listFrontendFilesToolDef,
+		fn: async ({ helpers, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing frontend files...' })
+			const paths = helpers.listFrontendFiles()
+			toolCallbacks.setToolStatus(toolId, { content: `Found ${paths.length} frontend files` })
+			return JSON.stringify(paths, null, 2)
+		}
+	},
+	{
+		def: getFrontendFileToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getFrontendFileSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: `Getting frontend file '${parsedArgs.path}'...` })
+			const content = helpers.getFrontendFile(parsedArgs.path)
+			if (content === undefined) {
+				const errorMsg = `Frontend file '${parsedArgs.path}' not found`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
+			toolCallbacks.setToolStatus(toolId, { content: `Retrieved frontend file '${parsedArgs.path}'` })
+			return content
+		}
+	},
 	{
 		def: getFrontendFilesToolDef,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
@@ -251,7 +311,31 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 			return `Frontend file '${parsedArgs.path}' has been deleted successfully`
 		}
 	},
-	// Backend tools
+	// Backend tools - list
+	{
+		def: listBackendRunnablesToolDef,
+		fn: async ({ helpers, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing backend runnables...' })
+			const list = helpers.listBackendRunnables()
+			toolCallbacks.setToolStatus(toolId, { content: `Found ${list.length} backend runnables` })
+			return JSON.stringify(list, null, 2)
+		}
+	},
+	{
+		def: getBackendRunnableToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getBackendRunnableSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: `Getting backend runnable '${parsedArgs.key}'...` })
+			const runnable = helpers.getBackendRunnable(parsedArgs.key)
+			if (runnable === undefined) {
+				const errorMsg = `Backend runnable '${parsedArgs.key}' not found`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
+			toolCallbacks.setToolStatus(toolId, { content: `Retrieved backend runnable '${parsedArgs.key}'` })
+			return JSON.stringify(runnable, null, 2)
+		}
+	},
 	{
 		def: getBackendRunnablesToolDef,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
@@ -265,7 +349,15 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 	{
 		def: setBackendRunnableToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setBackendRunnableSchema.parse(args)
+			// Convert null to undefined for optional fields (AI models sometimes send null instead of omitting fields)
+			const cleanedArgs = {
+				...args,
+				staticInputs: args.staticInputs === null ? undefined : args.staticInputs,
+				inlineScript: args.inlineScript === null ? undefined : args.inlineScript,
+				path: args.path === null ? undefined : args.path
+			}
+
+			const parsedArgs = setBackendRunnableSchema.parse(cleanedArgs)
 			toolCallbacks.setToolStatus(toolId, { content: `Setting backend runnable '${parsedArgs.key}'...` })
 
 			const runnable: BackendRunnable = {
@@ -336,17 +428,27 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ## Available Tools
 
 ### File Management
-- \`get_files()\`: Get both frontend files and backend runnables
-- \`get_frontend_files()\`: Get all frontend files
+- \`get_files()\`: Get both frontend files and backend runnables (use for small apps or full overview)
+- \`list_frontend_files()\`: List all frontend file paths without content (efficient for large apps)
+- \`get_frontend_file(path)\`: Get content of a specific frontend file
+- \`get_frontend_files()\`: Get all frontend files with content (use list + get for large apps)
 - \`set_frontend_file(path, content)\`: Create or update a frontend file
 - \`delete_frontend_file(path)\`: Delete a frontend file
-- \`get_backend_runnables()\`: Get all backend runnables
+- \`list_backend_runnables()\`: List all backend runnable keys and names (efficient for large apps)
+- \`get_backend_runnable(key)\`: Get full configuration of a specific backend runnable
+- \`get_backend_runnables()\`: Get all backend runnables (use list + get for large apps)
 - \`set_backend_runnable(key, name, type, ...)\`: Create or update a backend runnable
 - \`delete_backend_runnable(key)\`: Delete a backend runnable
 
 ### Discovery
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
+
+### Best Practices
+For large apps with many files or runnables:
+1. Use \`list_frontend_files()\` or \`list_backend_runnables()\` first to get an overview
+2. Then use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to inspect specific items
+3. This approach is more efficient and avoids overwhelming the context with too much content
 
 ## Backend Runnable Configuration
 
