@@ -26,4 +26,9 @@
 	on:skipAll={skipAll}
 	on:reload
 />
-<TroubleshootFlowTutorial bind:this={troubleshootFlowTutorial} on:error on:skipAll={skipAll} on:reload />
+<TroubleshootFlowTutorial 
+	bind:this={troubleshootFlowTutorial} 
+	on:error 
+	on:skipAll={skipAll} 
+	on:reload 
+/>

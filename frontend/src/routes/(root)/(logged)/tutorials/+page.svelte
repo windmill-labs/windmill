@@ -3,7 +3,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Tab } from '$lib/components/common'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
 	import TutorialProgressBar from '$lib/components/tutorials/TutorialProgressBar.svelte'
 	import { tutorialsToDo } from '$lib/stores'
@@ -18,27 +17,19 @@
 	import { Button } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
+	import { userStore } from '$lib/stores'
 
 	let tab: TabId = $state('quickstart')
-
-	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
-
-	// Tutorial index mapping
-	const TUTORIAL_INDEXES = {
-		'workspace-onboarding': 1,
-		'flow-live-tutorial': 2,
-		'troubleshoot-flow': 3
-	} as const
 
 	// Get current tab configuration
 	const currentTabConfig = $derived(TUTORIALS_CONFIG[tab])
 
-	// Create tutorial index mapping for current tab
+	// Create tutorial index mapping for current tab (only tutorials with index defined)
 	const currentTabTutorialIndexes = $derived(
 		Object.fromEntries(
 			currentTabConfig.tutorials
-				.filter((tutorial) => tutorial.id in TUTORIAL_INDEXES)
-				.map((tutorial) => [tutorial.id, TUTORIAL_INDEXES[tutorial.id as keyof typeof TUTORIAL_INDEXES]])
+				.filter((tutorial) => tutorial.index !== undefined)
+				.map((tutorial) => [tutorial.id, tutorial.index!])
 		)
 	)
 
@@ -48,8 +39,24 @@
 		getTutorialProgressCompleted(currentTabTutorialIndexes, $tutorialsToDo)
 	)
 
-	// Tutorials are ready to use directly from config
-	const tutorials = $derived(currentTabConfig.tutorials)
+	// Filter and sort tutorials based on props
+	const tutorials = $derived(
+		currentTabConfig.tutorials
+			.filter((tutorial) => {
+				if (tutorial.disabled) return false
+				if (!tutorial.requiredRole) return true
+				const user = $userStore
+				if (!user) return false
+
+				// Check role flags directly
+				const { requiredRole } = tutorial
+				if (requiredRole === 'admin') return user.is_admin || user.is_super_admin
+				if (requiredRole === 'operator') return user.operator || user.is_admin || user.is_super_admin
+				if (requiredRole === 'developer') return !user.operator || user.is_admin || user.is_super_admin
+				return true
+			})
+			.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+	)
 
 	// Sync tutorial progress on mount and when navigating to this page
 	onMount(() => {
@@ -83,9 +90,9 @@
 
 	// Check if a tutorial is completed
 	function isTutorialCompleted(tutorialId: string): boolean {
-		const index = TUTORIAL_INDEXES[tutorialId as keyof typeof TUTORIAL_INDEXES]
-		if (index === undefined) return false
-		return !$tutorialsToDo.includes(index)
+		const tutorial = currentTabConfig.tutorials.find((t) => t.id === tutorialId)
+		if (!tutorial || tutorial.index === undefined) return false
+		return !$tutorialsToDo.includes(tutorial.index)
 	}
 </script>
 
@@ -131,6 +138,8 @@
 						description={tutorial.description}
 						onclick={tutorial.onClick}
 						isCompleted={isTutorialCompleted(tutorial.id)}
+						disabled={tutorial.disabled}
+						comingSoon={tutorial.comingSoon}
 					/>
 				{/each}
 			</div>
@@ -143,5 +152,3 @@
 		</div>
 	{/if}
 </CenteredPage>
-
-<WorkspaceTutorials bind:this={workspaceTutorials} />

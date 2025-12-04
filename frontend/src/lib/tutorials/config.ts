@@ -8,6 +8,11 @@ export interface TutorialConfig {
 	title: string
 	description: string
 	onClick: () => void
+	index?: number // Bitmask index in the database (for progress tracking)
+	disabled?: boolean
+	comingSoon?: boolean
+	requiredRole?: 'admin' | 'developer' | 'operator'
+	order?: number
 }
 
 export interface TabConfig {
@@ -30,7 +35,11 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				description: 'Discover the basics of Windmill with a quick tour of the workspace.',
 				onClick: () => {
 					window.location.href = `${base}/?tutorial=workspace-onboarding`
-				}
+				},
+				index: 1,
+				disabled: false,
+				comingSoon: false,
+				order: 1
 			},
 			{
 				id: 'flow-live-tutorial',
@@ -39,7 +48,11 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				description: 'Learn how to build workflows in Windmill with our interactive tutorial.',
 				onClick: () => {
 					window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial&nodraft=true`
-				}
+				},
+				index: 2,
+				disabled: false,
+				comingSoon: false,
+				order: 2
 			},
 			{
 				id: 'troubleshoot-flow',
@@ -48,7 +61,11 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				description: 'Learn how to monitor and debug your script and flow executions.',
 				onClick: () => {
 					window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow&nodraft=true`
-				}
+				},
+				index: 3,
+				disabled: false,
+				comingSoon: false,
+				order: 3
 			}
 		]
 	},
