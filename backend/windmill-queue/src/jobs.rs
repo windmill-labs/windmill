@@ -3044,7 +3044,7 @@ pub async fn concurrency_key(
         .await
         .map(|x| {
             if x.is_none() {
-                tracing::info!("No concurrency key found for job {id}, defaulting to empty string");
+                tracing::info!("No concurrency key found for job {id}");
             }
             return x;
         })
