@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.lock, s.lock_error_logs, dm.job_id\n         FROM script s\n         LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id\n         WHERE s.hash = $1 AND s.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "lock_error_logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "513ed713afdbafb587026d1536c47a9bbaa6967e36777454746b8817d68219a5"
+}
