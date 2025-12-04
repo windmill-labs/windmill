@@ -18,7 +18,7 @@
 		resetTutorialsByIndexes
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
-	import { RefreshCw, CheckCheck } from 'lucide-svelte'
+	import { RefreshCw, CheckCheck, CheckCircle2, Circle } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 
@@ -116,6 +116,48 @@
 		await resetTutorialsByIndexes(currentTabIndexes)
 		await syncTutorialsTodos()
 	}
+
+	// Calculate progress for each tab
+	function getTabProgress(tabId: TabId) {
+		const tabConfig = TUTORIALS_CONFIG[tabId]
+		const user = $userStore
+		
+		// Get all tutorial indexes for this tab (filtered by role)
+		const indexes: number[] = []
+		for (const tutorial of tabConfig.tutorials) {
+			if (tutorial.disabled || tutorial.index === undefined) continue
+			if (tutorial.requiredRole && user) {
+				const { requiredRole } = tutorial
+				if (requiredRole === 'admin' && !user.is_admin && !user.is_super_admin) continue
+				if (requiredRole === 'operator' && !user.operator && !user.is_admin && !user.is_super_admin) continue
+				if (requiredRole === 'developer' && user.operator && !user.is_admin && !user.is_super_admin) continue
+			}
+			indexes.push(tutorial.index)
+		}
+		
+		const total = indexes.length
+		const completed = indexes.filter((index) => !$tutorialsToDo.includes(index)).length
+		
+		return { total, completed }
+	}
+
+	// Get badge info for a tab
+	function getTabBadge(tabId: TabId) {
+		const { total, completed } = getTabProgress(tabId)
+		
+		if (total === 0) return { type: 'none' as const }
+		if (completed === 0) {
+			// Circle icon if not started
+			return { type: 'dot' as const }
+		}
+		if (completed === total) {
+			// CheckCircle2 icon if completed
+			return { type: 'check' as const }
+		}
+		// (1/3) format if started
+		return { type: 'progress' as const, text: `(${completed}/${total})` }
+	}
+
 </script>
 
 <CenteredPage>
@@ -153,7 +195,20 @@
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
 			{#each Object.entries(TUTORIALS_CONFIG) as [tabId, config]}
-				<Tab value={tabId} label={config.label} icon={config.icon} />
+				{@const badge = getTabBadge(tabId as TabId)}
+				{#if badge.type === 'progress'}
+					<Tab value={tabId} label={config.label}>
+						{#snippet extra()}
+							<span class="text-xs text-secondary ml-1.5 flex-shrink-0">{badge.text}</span>
+						{/snippet}
+					</Tab>
+				{:else if badge.type === 'check'}
+					<Tab value={tabId} label={config.label} icon={CheckCircle2} />
+				{:else if badge.type === 'dot'}
+					<Tab value={tabId} label={config.label} icon={Circle} />
+				{:else}
+					<Tab value={tabId} label={config.label} />
+				{/if}
 			{/each}
 		</Tabs>
 	</div>
