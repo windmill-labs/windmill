@@ -236,11 +236,6 @@
 								<MultiSelect
 									items={safeSelectItems(availableTags)}
 									bind:value={newAlertForm.tags_to_monitor}
-									onCreateItem={(tag) => {
-										if (!newAlertForm.tags_to_monitor.includes(tag)) {
-											newAlertForm.tags_to_monitor = [...newAlertForm.tags_to_monitor, tag]
-										}
-									}}
 									createText="Press Enter to add custom tag"
 									placeholder="Select or create tags..."
 									error={!!formErrors.tags_to_monitor}
