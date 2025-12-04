@@ -186,6 +186,7 @@
 	}}
 	data-popover
 	on:m-click={handleClick}
+	on:click
 >
 	<slot name="trigger" {isOpen} />
 </button>

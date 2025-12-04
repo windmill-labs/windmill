@@ -15,7 +15,7 @@
 	let { token, mcpUrl, title, onClose }: Props = $props()
 
 	const displayTitle = $derived(
-		title || (mcpUrl ? 'MCP URL Generated Successfully' : 'Token Created Successfully')
+		title || (mcpUrl ? 'MCP URL generated Successfully' : 'Token created successfully')
 	)
 
 	const info = $derived(

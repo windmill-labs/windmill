@@ -5,6 +5,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	interface Props {
 		aiId?: string | undefined
@@ -61,7 +62,7 @@
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}</span
 			>
-			{#if eeOnly}
+			{#if eeOnly && !$enterpriseLicense}
 				<EEOnly />
 			{/if}
 		</div>

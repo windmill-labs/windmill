@@ -127,7 +127,11 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<span {onclick} {onkeydown} class="inline-flex justify-center items-center {wrapperClass}">
+<span
+	{onclick}
+	{onkeydown}
+	class="inline-flex justify-center items-center whitespace-nowrap {wrapperClass}"
+>
 	<svelte:element
 		this={href ? 'a' : clickable ? 'button' : 'span'}
 		{href}

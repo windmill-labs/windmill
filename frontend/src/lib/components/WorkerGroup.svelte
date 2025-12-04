@@ -309,7 +309,7 @@
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
 		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
-		eeOnly={!hasEnterpriseFeatures}
+		eeOnly
 	>
 		{#if !hasEnterpriseFeatures}
 			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
