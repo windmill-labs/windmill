@@ -1,5 +1,5 @@
 import type { ComponentType } from 'svelte'
-import { BookOpen, Users, Workflow, GraduationCap, Wrench, PlayCircle, Link2 } from 'lucide-svelte'
+import { BookOpen, Workflow, GraduationCap, Wrench, PlayCircle, Link2, PenTool } from 'lucide-svelte'
 import { base } from '$lib/base'
 
 export interface TutorialConfig {
@@ -21,7 +21,7 @@ export interface TabConfig {
 	tutorials: TutorialConfig[]
 }
 
-export type TabId = 'quickstart' | 'team'
+export type TabId = 'quickstart' | 'app_editor'
 
 /**
  * Get tutorial index from config by tutorial ID.
@@ -78,8 +78,14 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				disabled: false,
 				comingSoon: false,
 				order: 3
-			},
-			{
+			}
+		]
+	},
+	app_editor: {
+		label: 'App Editor',
+		icon: PenTool,
+		tutorials: [
+            {
 				id: 'backgroundrunnables',
 				icon: PlayCircle,
 				title: 'Background runnables',
@@ -105,12 +111,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				comingSoon: false,
 				order: 5
 			}
-		]
-	},
-	team: {
-		label: 'Team Collaboration',
-		icon: Users,
-		tutorials: []
+        ]
 	}
 } as const
 
