@@ -119,6 +119,29 @@
 		customEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
 	}
 
+	// Clean up priority_tags when worker_tags changes
+	$effect(() => {
+		// This effect ensures priority_tags only contains tags that exist in worker_tags
+		if (nconfig.worker_tags && nconfig.priority_tags) {
+			const validTags = new Set(nconfig.worker_tags)
+			const currentPriorityKeys = Object.keys(nconfig.priority_tags)
+
+			// Check if any priority tags are no longer valid
+			const hasInvalidTags = currentPriorityKeys.some((tag) => !validTags.has(tag))
+
+			if (hasInvalidTags) {
+				// Filter out invalid tags
+				const filteredPriorityTags: Record<string, number> = {}
+				for (const [tag, priority] of Object.entries(nconfig.priority_tags)) {
+					if (validTags.has(tag)) {
+						filteredPriorityTags[tag] = priority
+					}
+				}
+				nconfig.priority_tags = filteredPriorityTags
+			}
+		}
+	})
+
 	let customEnvVars: {
 		key: string
 		type: 'static' | 'dynamic'
@@ -405,13 +428,6 @@
 				{/snippet}
 				{#if nconfig?.worker_tags != undefined}
 					<TagsToListenTo
-						on:dirty={() => {}}
-						on:deletePriorityTag={(e) => {
-							const tag = e.detail
-							if (nconfig.priority_tags) {
-								delete nconfig.priority_tags[tag]
-							}
-						}}
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
 						disabled={!canEditConfig}

@@ -105,6 +105,10 @@
 		filterText = ''
 		value = []
 	}
+
+	export function getFilteredInputText() {
+		return filterText
+	}
 </script>
 
 <div
