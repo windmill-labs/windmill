@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
 	import { defaultTags, nativeTags } from './worker_group'
 	import { safeSelectItems } from './select/utils.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
@@ -14,14 +13,12 @@
 		customTags: string[] | undefined
 		disabled?: boolean
 		class?: string
-		onCreateItem?: (value: string) => void
 	}
 	let {
 		worker_tags = $bindable([]),
 		customTags = $bindable([]),
 		disabled: _disabled = $bindable(false),
-		class: clazz = '',
-		onCreateItem
+		class: clazz = ''
 	}: Props = $props()
 
 	let disabled = $derived(_disabled || !($superadmin || $devopsRole))
@@ -29,16 +26,6 @@
 	let multiSelect = $state<MultiSelect<{ label?: string; value: any }> | undefined>(undefined)
 
 	const searchText = $derived(multiSelect?.getFilteredInputText())
-
-	async function handleCreateItem(tag: string) {
-		if (onCreateItem) {
-			onCreateItem(tag)
-			return
-		}
-
-		// Default implementation: create a custom tag
-		await createCustomTag(tag)
-	}
 
 	async function createCustomTag(tag: string) {
 		try {
@@ -83,6 +70,6 @@
 	{disabled}
 	class={twMerge(disabled ? 'border-0' : '', clazz)}
 	allowClear={!disabled}
-	onCreateItem={handleCreateItem}
+	onCreateItem={createCustomTag}
 	createText={searchText ? `Create custom tag: ${searchText}` : 'Create custom tag'}
 />
