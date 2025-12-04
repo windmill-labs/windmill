@@ -23,6 +23,18 @@ export interface TabConfig {
 
 export type TabId = 'quickstart' | 'team'
 
+/**
+ * Get tutorial index from config by tutorial ID.
+ * Throws an error if the tutorial or its index is not found.
+ */
+export function getTutorialIndex(id: string): number {
+	for (const tab of Object.values(TUTORIALS_CONFIG)) {
+		const tutorial = tab.tutorials.find((t) => t.id === id)
+		if (tutorial?.index !== undefined) return tutorial.index
+	}
+	throw new Error(`Tutorial index not found for id: ${id}. Make sure the tutorial has an index defined in config.`)
+}
+
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
