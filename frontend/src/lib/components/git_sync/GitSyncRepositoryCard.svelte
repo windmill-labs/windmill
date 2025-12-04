@@ -235,13 +235,7 @@
 	{/if}
 	{#if !confirmingDelete}
 		<div transition:fade|local={{ duration: 100 }}>
-			<Button
-				size="xs"
-				variant="default"
-				onclick={initiateDelete}
-				startIcon={{ icon: Trash }}
-				destructive
-			>
+			<Button size="xs" onclick={initiateDelete} startIcon={{ icon: Trash }} destructive>
 				Delete
 			</Button>
 		</div>
@@ -279,12 +273,7 @@
 				/>
 			</div>
 			{#if !emptyString(repo.git_repo_resource_path)}
-				<Button
-					disabled={emptyString(repo.script_path)}
-					variant="accent"
-					onclick={runGitSyncTestJob}
-					size="xs"
-				>
+				<Button disabled={emptyString(repo.script_path)} onclick={runGitSyncTestJob} size="xs">
 					Test connection
 				</Button>
 			{/if}
@@ -396,7 +385,7 @@
 								<div class="flex gap-2">
 									<Button
 										size="xs"
-										variant="default"
+										variant="accent"
 										onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
 										startIcon={{ icon: Download }}
 									>
@@ -404,7 +393,7 @@
 									</Button>
 									<Button
 										size="xs"
-										variant="default"
+										variant="accent"
 										onclick={() => idx !== null && gitSyncContext.showPushModal(idx)}
 										startIcon={{ icon: Upload }}
 									>
