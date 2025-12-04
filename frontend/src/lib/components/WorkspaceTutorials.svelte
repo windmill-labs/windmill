@@ -15,12 +15,12 @@
 		skipAllTodos()
 	}
 
-	// Get index from config
-	const workspaceOnboardingIndex = getTutorialIndex('workspace-onboarding')
 </script>
 
 <WorkspaceOnboardingTutorial
 	bind:this={workspaceOnboardingTutorial}
-	index={workspaceOnboardingIndex}
+	index={getTutorialIndex('workspace-onboarding')}
 	on:skipAll={skipAll}
+	on:error
+	on:reload
 />

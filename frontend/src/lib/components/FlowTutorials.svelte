@@ -4,8 +4,7 @@
 	import TroubleshootFlowTutorial from './tutorials/TroubleshootFlowTutorial.svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
-	let flowBuilderLiveTutorial: FlowBuilderLiveTutorial | undefined =
-		$state(undefined)
+	let flowBuilderLiveTutorial: FlowBuilderLiveTutorial | undefined = $state(undefined)
 	let troubleshootFlowTutorial: TroubleshootFlowTutorial | undefined = $state(undefined)
 
 	export function runTutorialById(id: string) {
@@ -20,21 +19,18 @@
 		skipAllTodos()
 	}
 
-	// Get indexes from config
-	const flowLiveTutorialIndex = getTutorialIndex('flow-live-tutorial')
-	const troubleshootFlowTutorialIndex = getTutorialIndex('troubleshoot-flow')
 </script>
 
 <FlowBuilderLiveTutorial
 	bind:this={flowBuilderLiveTutorial}
-	index={flowLiveTutorialIndex}
+	index={getTutorialIndex('flow-live-tutorial')}
 	on:error
 	on:skipAll={skipAll}
 	on:reload
 />
 <TroubleshootFlowTutorial 
 	bind:this={troubleshootFlowTutorial}
-	index={troubleshootFlowTutorialIndex}
+	index={getTutorialIndex('troubleshoot-flow')}
 	on:error 
 	on:skipAll={skipAll} 
 	on:reload 
