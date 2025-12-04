@@ -242,7 +242,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                     workspace_id = $2 AND 
                     path = $3 AND 
                     server_id = $4 AND 
-                    enabled IS TRUE
+                    (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE) 
                 RETURNING 1
             "#,
             Self::TABLE_NAME
@@ -387,7 +387,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                     UPDATE 
                         {} 
                     SET 
-                        enabled = FALSE, 
+                        mode = 'disabled'::TRIGGER_MODE, 
                         error = $1, 
                         server_id = NULL, 
                         last_server_ping = NULL 
@@ -651,7 +651,7 @@ async fn listen_to_unlistened_events<T: Copy + Listener>(
                             last_server_ping = now(),
                             error = 'Connecting...'
                         WHERE 
-                            enabled IS TRUE 
+                            (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE) 
                             AND workspace_id = $2 
                             AND path = $3 
                             AND (last_server_ping IS NULL 
