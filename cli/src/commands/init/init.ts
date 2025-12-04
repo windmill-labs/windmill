@@ -262,15 +262,13 @@ async function initAction(opts: InitOptions) {
       await Deno.writeTextFile(
         "CLAUDE.md",
         `
-                        # Claude
+You are a helpful assistant that can help with Windmill scripts and flows creation.
 
-                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+## Script Guidance
+${scriptGuidanceContent}
 
-                        ## Script Guidance
-                        ${scriptGuidanceContent}
-
-                        ## Flow Guidance
-                        ${flowGuidanceContent}
+## Flow Guidance
+${flowGuidanceContent}
                     `
       );
       log.info(colors.green("Created CLAUDE.md"));
