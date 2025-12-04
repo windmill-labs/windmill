@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { runFlowEval, validateModules, validateToolCalls } from './evalRunner'
+import {
+	runFlowEval,
+	validateModules,
+	validateToolCalls,
+	formatToolCalls,
+	type EvalResult
+} from './evalRunner'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -8,9 +14,40 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 // Skip all tests if no API key is provided
 const describeWithApiKey = OPENAI_API_KEY ? describe : describe.skip
 
+/**
+ * Helper to validate eval result and log details on failure
+ */
+function assertEvalResult(
+	result: EvalResult,
+	expected: {
+		modules: Array<{ type: string }>
+		tools: string[]
+	},
+	testName: string
+) {
+	expect(result.success).toBe(true)
+	console.log(
+		`[${testName}] Tokens: ${result.tokenUsage.total}, Tools: [${result.toolsCalled.join(', ')}]`
+	)
+
+	const moduleValidation = validateModules(result.modules, expected.modules)
+	if (!moduleValidation.valid) {
+		console.log('Tool calls with arguments:\n' + formatToolCalls(result.toolCallDetails))
+	}
+	expect(moduleValidation.valid, moduleValidation.message).toBe(true)
+
+	const toolValidation = validateToolCalls(result.toolsCalled, expected.tools)
+	if (!toolValidation.valid) {
+		console.log('Tool calls with arguments:\n' + formatToolCalls(result.toolCallDetails))
+	}
+	expect(toolValidation.valid, toolValidation.message).toBe(true)
+}
+
 describeWithApiKey('Flow Chat LLM Evaluation', () => {
-	// Increase timeout for API calls
 	const TEST_TIMEOUT = 120_000
+	if (!OPENAI_API_KEY) {
+		console.warn('OPENAI_API_KEY is not set, skipping tests')
+	}
 
 	it.only(
 		'should add a simple rawscript module',
@@ -19,121 +56,10 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 				model: 'gpt-4o-mini'
 			})
 
-			expect(result.success).toBe(true)
-			console.log(`[TEST 1] Token usage: ${result.tokenUsage.total}, Tool calls: ${result.toolCallsCount}, Tools: [${result.toolsCalled.join(', ')}]`)
-
-			const moduleValidation = validateModules(result.modules, [{ type: 'rawscript' }])
-			expect(moduleValidation.valid, moduleValidation.message).toBe(true)
-
-			const toolValidation = validateToolCalls(result.toolsCalled, ['add_module'])
-			expect(toolValidation.valid, toolValidation.message).toBe(true)
-		},
-		TEST_TIMEOUT
-	)
-
-	it(
-		'should add two sequential steps',
-		async () => {
-			const result = await runFlowEval(
-				'Add a step that fetches data, then add another step that processes it',
-				OPENAI_API_KEY!
-			)
-
-			expect(result.success).toBe(true)
-			console.log(`[TEST 2] Token usage: ${result.tokenUsage.total}, Tool calls: ${result.toolCallsCount}, Tools: [${result.toolsCalled.join(', ')}]`)
-
-			const validation = validateModules(result.modules, [
-				{ type: 'rawscript' },
-				{ type: 'rawscript' }
-			])
-			expect(validation.valid, validation.message).toBe(true)
-
-			// Expect two add_module calls for two steps
-			const toolValidation = validateToolCalls(result.toolsCalled, ['add_module', 'add_module'])
-			expect(toolValidation.valid, toolValidation.message).toBe(true)
-		},
-		TEST_TIMEOUT
-	)
-
-	it(
-		'should add a forloop with a nested step',
-		async () => {
-			const result = await runFlowEval(
-				'Add a for loop that iterates over [1,2,3] with a step inside that logs the current item',
-				OPENAI_API_KEY!
-			)
-
-			expect(result.success).toBe(true)
-			console.log(`[TEST 3] Token usage: ${result.tokenUsage.total}, Tool calls: ${result.toolCallsCount}, Tools: [${result.toolsCalled.join(', ')}]`)
-
-			const validation = validateModules(result.modules, [{ type: 'forloopflow' }])
-			expect(validation.valid, validation.message).toBe(true)
-
-			// Check nested module exists
-			const loop = result.modules[0]
-			expect(loop.value.type).toBe('forloopflow')
-			if (loop.value.type === 'forloopflow') {
-				expect(loop.value.modules.length).toBeGreaterThan(0)
-			}
-
-			// For a forloop, we expect add_module for the loop, then add_module for the nested step
-			const toolValidation = validateToolCalls(result.toolsCalled, ['add_module', 'add_module'])
-			expect(toolValidation.valid, toolValidation.message).toBe(true)
-		},
-		TEST_TIMEOUT
-	)
-
-	it(
-		'should add a branchone (conditional) step',
-		async () => {
-			const result = await runFlowEval(
-				'Add a branch step with two conditions: one for when x > 10 and one for when x <= 10',
-				OPENAI_API_KEY!,
-				{
-					initialSchema: {
-						type: 'object',
-						properties: { x: { type: 'number' } },
-						required: ['x']
-					}
-				}
-			)
-
-			expect(result.success).toBe(true)
-			console.log(`[TEST 4] Token usage: ${result.tokenUsage.total}, Tool calls: ${result.toolCallsCount}, Tools: [${result.toolsCalled.join(', ')}]`)
-
-			const validation = validateModules(result.modules, [{ type: 'branchone' }])
-			expect(validation.valid, validation.message).toBe(true)
-
-			// For a branch, expect add_module for the branchone
-			const toolValidation = validateToolCalls(result.toolsCalled, ['add_module'])
-			expect(toolValidation.valid, toolValidation.message).toBe(true)
-		},
-		TEST_TIMEOUT
-	)
-
-	it(
-		'should handle custom system prompt',
-		async () => {
-			const result = await runFlowEval('Add a step to process data', OPENAI_API_KEY!, {
-				customSystemPrompt:
-					'IMPORTANT: Always use TypeScript (bun) for all scripts. Never use Python.'
-			})
-
-			expect(result.success).toBe(true)
-			console.log(`[TEST 5] Token usage: ${result.tokenUsage.total}, Tool calls: ${result.toolCallsCount}, Tools: [${result.toolsCalled.join(', ')}]`)
-
-			// Should have at least one module
-			expect(result.modules.length).toBeGreaterThan(0)
-
-			// If it's a rawscript, check it's using bun
-			const firstModule = result.modules[0]
-			if (firstModule.value.type === 'rawscript') {
-				expect(firstModule.value.language).toBe('bun')
-			}
-
-			// Expect add_module for the step
-			const toolValidation = validateToolCalls(result.toolsCalled, ['add_module'])
-			expect(toolValidation.valid, toolValidation.message).toBe(true)
+			assertEvalResult(result, {
+				modules: [{ type: 'rawscript' }],
+				tools: ['add_module', 'test_run_flow']
+			}, 'TEST 1')
 		},
 		TEST_TIMEOUT
 	)

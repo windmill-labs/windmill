@@ -5,6 +5,11 @@ import { createEvalHelpers } from './evalHelpers'
 import type { FlowModule } from '$lib/gen'
 import type { ToolCallbacks } from '../../../shared'
 
+export interface ToolCallDetail {
+	name: string
+	arguments: Record<string, any>
+}
+
 export interface EvalResult {
 	success: boolean
 	modules: FlowModule[]
@@ -16,6 +21,7 @@ export interface EvalResult {
 	}
 	toolCallsCount: number
 	toolsCalled: string[]
+	toolCallDetails: ToolCallDetail[]
 	iterations: number
 }
 
@@ -52,6 +58,7 @@ export async function runFlowEval(
 	const totalTokens = { prompt: 0, completion: 0, total: 0 }
 	let toolCallsCount = 0
 	const toolsCalled: string[] = []
+	const toolCallDetails: ToolCallDetail[] = []
 	let iterations = 0
 	const maxIterations = options?.maxIterations ?? 20
 
@@ -122,6 +129,7 @@ export async function runFlowEval(
 
 			try {
 				const args = JSON.parse(toolCall.function.arguments)
+				toolCallDetails.push({ name: toolCall.function.name, arguments: args })
 				const result = await tool.fn({
 					args,
 					workspace: 'test-workspace',
@@ -151,6 +159,7 @@ export async function runFlowEval(
 			tokenUsage: totalTokens,
 			toolCallsCount,
 			toolsCalled,
+			toolCallDetails,
 			iterations
 		}
 	} catch (err) {
@@ -161,6 +170,7 @@ export async function runFlowEval(
 			tokenUsage: totalTokens,
 			toolCallsCount,
 			toolsCalled,
+			toolCallDetails,
 			iterations
 		}
 	}
@@ -197,7 +207,7 @@ export function validateModules(
  */
 export function validateToolCalls(
 	actual: string[],
-	expected: string[]
+	expected: string[],
 ): { valid: boolean; message: string } {
 	if (actual.length !== expected.length) {
 		return {
@@ -216,4 +226,13 @@ export function validateToolCalls(
 	}
 
 	return { valid: true, message: 'All tool calls match expected' }
+}
+
+/**
+ * Formats tool call details for logging/debugging.
+ */
+export function formatToolCalls(details: ToolCallDetail[]): string {
+	return details
+		.map((d, i) => `${i + 1}. ${d.name}(${JSON.stringify(d.arguments, null, 2)})`)
+		.join('\n')
 }

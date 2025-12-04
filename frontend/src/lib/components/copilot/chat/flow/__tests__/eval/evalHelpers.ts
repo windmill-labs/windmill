@@ -11,11 +11,16 @@ export function createEvalHelpers(initialModules: FlowModule[] = [], initialSche
 	let flow: ExtendedOpenFlow = {
 		value: { modules: structuredClone(initialModules) },
 		summary: '',
-		schema: initialSchema ?? {}
+		schema: initialSchema ?? {
+			$schema: "https://json-schema.org/draft/2020-12/schema",
+			properties: {},
+			required: [],
+			type: "object"
+		}
 	}
 
 	const helpers: FlowAIChatHelpers = {
-		getFlowAndSelectedId: () => ({ flow, selectedId: 'Input' }),
+		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
 
 		getModules: (id?: string) => {
 			if (!id) return flow.value.modules
