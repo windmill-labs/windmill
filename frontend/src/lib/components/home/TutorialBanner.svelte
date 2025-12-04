@@ -3,8 +3,9 @@
 	import { GraduationCap, X } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { goto } from '$app/navigation'
-	import { sendUserToast } from '$lib/toast'
+	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { skipAllTodos, syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { onMount } from 'svelte'
 
 	const DISMISSED_KEY = 'tutorial_banner_dismissed'
@@ -15,15 +16,31 @@
 		isDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 	})
 
+	async function handleSkipAllTutorials() {
+		await skipAllTodos()
+		await syncTutorialsTodos()
+		storeLocalSetting(DISMISSED_KEY, 'true')
+		isDismissed = true
+	}
+
 	function dismissBanner() {
 		storeLocalSetting(DISMISSED_KEY, 'true')
 		isDismissed = true
+		
+		const actions: ToastAction[] = [
+			{
+				label: 'Skip tutorials',
+				callback: handleSkipAllTutorials,
+				buttonType: 'default'
+			}
+		]
+		
 		sendUserToast(
 			'You can still access tutorials from the Tutorials page in the main menu or in the Help submenu.',
 			false,
-			[],
+			actions,
 			undefined,
-			5000
+			8000
 		)
 	}
 
