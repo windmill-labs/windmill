@@ -780,12 +780,12 @@ async fn hash_args(
             };
 
             #[cfg(feature = "parquet")]
-            let arg_value = etag.as_deref().unwrap_or(arg_value.get());
+            if let Some(etag) = etag {
+                hasher.update(etag.as_bytes());
+                continue;
+            }
 
-            #[cfg(not(feature = "parquet"))]
-            let arg_value = arg_value.get();
-
-            hasher.update(arg_value);
+            hasher.update(arg_value.get().as_bytes());
         }
     }
 }
