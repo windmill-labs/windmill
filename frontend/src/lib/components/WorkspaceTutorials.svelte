@@ -5,16 +5,26 @@
 
 	let workspaceOnboardingTutorial: WorkspaceOnboardingTutorial | undefined = $state(undefined)
 
+	// Map tutorial IDs to their component instances
+	const tutorialInstances = new Map<string, { runTutorial: () => void } | undefined>()
+
+	// Update map when instance changes
+	$effect(() => {
+		tutorialInstances.set('workspace-onboarding', workspaceOnboardingTutorial)
+	})
+
 	export function runTutorialById(id: string) {
-		if (id === 'workspace-onboarding') {
-			workspaceOnboardingTutorial?.runTutorial()
+		const instance = tutorialInstances.get(id)
+		if (instance) {
+			instance.runTutorial()
+		} else {
+			console.warn(`Tutorial instance not found for id: ${id}`)
 		}
 	}
 
 	function skipAll() {
 		skipAllTodos()
 	}
-
 </script>
 
 <WorkspaceOnboardingTutorial

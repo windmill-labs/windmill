@@ -7,18 +7,27 @@
 	let flowBuilderLiveTutorial: FlowBuilderLiveTutorial | undefined = $state(undefined)
 	let troubleshootFlowTutorial: TroubleshootFlowTutorial | undefined = $state(undefined)
 
+	// Map tutorial IDs to their component instances
+	const tutorialInstances = new Map<string, { runTutorial: () => void } | undefined>()
+
+	// Update map when instances change
+	$effect(() => {
+		tutorialInstances.set('flow-live-tutorial', flowBuilderLiveTutorial)
+		tutorialInstances.set('troubleshoot-flow', troubleshootFlowTutorial)
+	})
+
 	export function runTutorialById(id: string) {
-		if (id === 'flow-live-tutorial') {
-			flowBuilderLiveTutorial?.runTutorial()
-		} else if (id === 'troubleshoot-flow') {
-			troubleshootFlowTutorial?.runTutorial()
+		const instance = tutorialInstances.get(id)
+		if (instance) {
+			instance.runTutorial()
+		} else {
+			console.warn(`Tutorial instance not found for id: ${id}`)
 		}
 	}
 
 	function skipAll() {
 		skipAllTodos()
 	}
-
 </script>
 
 <FlowBuilderLiveTutorial
