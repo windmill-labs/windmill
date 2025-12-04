@@ -8,8 +8,16 @@
 	import { superadmin, devopsRole } from '$lib/stores'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
-	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import Badge from './common/badge/Badge.svelte'
+
+	interface Props {
+		variant?: 'popover' | 'drawer'
+	}
+
+	let { variant = 'popover' }: Props = $props()
 
 	let newTag: string = $state('')
 	let customTags: string[] | undefined = $state(undefined)
@@ -58,16 +66,48 @@
 	})
 
 	loadCustomTags()
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && newTag.trim() !== '' && tagEditor) {
+			e.stopPropagation()
+			e.preventDefault()
+			saveCustomTag(newTag)
+		}
+	}
+
+	async function saveCustomTag(tag: string, restoreCustomTags: boolean = false) {
+		try {
+			await SettingService.setGlobal({
+				key: CUSTOM_TAGS_SETTING,
+				requestBody: { value: [...(customTags ?? []), tag.trim().replaceAll(' ', '_')] }
+			})
+			dispatch('refresh')
+			loadCustomTags()
+			sendUserToast(restoreCustomTags ? 'Tag restored' : 'Tag added')
+			if (!restoreCustomTags) {
+				newTag = ''
+			}
+		} catch (err) {
+			sendUserToast(`Could not ${restoreCustomTags ? 'restore' : 'save'} custom tag: ${err}`, true)
+		}
+	}
 </script>
 
-<div class="flex flex-col w-72 p-4 gap-2">
+<svelte:window onkeydown={onKeyDown} />
+
+<div
+	class="flex flex-col gap-2"
+	class:w-72={variant === 'popover'}
+	class:p-4={variant === 'popover'}
+>
 	{#if customTags == undefined}
 		<Loader2 class="animate-spin" />
 	{:else}
-		<div class="flex flex-col gap-y-1">
+		<div class="flex flex-row flex-wrap gap-y-1 gap-x-2">
 			{#each customTags as customTag}
-				<div class="flex gap-0.5 items-center"
-					><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
+				<Badge color="blue">
+					{customTag}
+
 					{#if tagEditor}
 						<button
 							class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
@@ -80,7 +120,14 @@
 									})
 									dispatch('refresh')
 									loadCustomTags()
-									sendUserToast('Tag removed')
+									sendUserToast('Tag removed', false, [
+										{
+											label: 'Undo',
+											callback: () => {
+												saveCustomTag(customTag, true)
+											}
+										}
+									])
 								})
 							)}
 						>
@@ -88,12 +135,26 @@
 						</button>
 					{/if}
 					<NoWorkerWithTagWarning tag={customTag} />
-				</div>
+				</Badge>
 			{/each}
 		</div>
-		<input type="text" bind:value={newTag} />
+
+		<div class={twMerge('w-full flex gap-2', variant === 'popover' ? 'flex-col ' : 'flex-row ')}>
+			<TextInput bind:value={newTag} />
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				onClick={() => saveCustomTag(newTag)}
+				disabled={newTag.trim() == '' || !tagEditor}
+				wrapperClasses="min-w-24"
+			>
+				Add custom tag {#if !tagEditor}
+					<span class="text-2xs text-primary">superadmin or devops only</span>
+				{/if}
+			</Button>
+		</div>
 		{#if extractedCustomTag}
-			<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
+			<div class="text-2xs text-primary p-2 bg-surface-secondary rounded">
 				<div class="font-medium mb-1">Workspace specific tag</div>
 				<div>
 					<b>Tag:</b>
@@ -140,55 +201,40 @@
 			{/if}
 		{/if}
 
-		<Button
-			variant="accent"
-			size="sm"
-			on:click={async () => {
-				await SettingService.setGlobal({
-					key: CUSTOM_TAGS_SETTING,
-					requestBody: {
-						value: [...(customTags ?? []), newTag.trim().replaceAll(' ', '_')]
-					}
-				})
-				dispatch('refresh')
-				loadCustomTags()
-				sendUserToast('Tag added')
-			}}
-			disabled={newTag.trim() == '' || !tagEditor}
-		>
-			Add {#if !tagEditor}
-				<span class="text-2xs text-primary">superadmin or devops only</span>
+		<span class="text-2xs text-secondary leading-relaxed">
+			{#if variant !== 'drawer'}
+				Configure <a
+					href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+					target="_blank"
+					class="inline-flex gap-1 items-baseline"
+					>worker groups <ExternalLink size={12} />
+				</a>
+				to listen to tags.
+				<br />
 			{/if}
-		</Button>
-		<span class="text-sm text-primary"
-			>Configure <a href="{base}/workers" target="_blank" class="inline-flex gap-1 items-baseline"
-				>worker groups <ExternalLink size={12} /></a
-			> to listen to tags</span
-		>
-		<span class="text-2xs text-primary"
-			>For tags specific to some workspaces, use <pre class="inline">tag(workspace1+workspace2)</pre
-			></span
-		>
-		<span class="text-2xs text-primary"
-			>To exclude 'workspace1' and 'workspace2' from a tag, use <pre class="inline"
-				>tag(^workspace1^workspace2)</pre
-			></span
-		>
-		<span class="text-2xs text-primary"
-			>For <a
+
+			For tags specific to some workspaces, use
+			<pre class="inline text-emphasis">tag(workspace1+workspace2)</pre>
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			To exclude 'workspace1' and 'workspace2' from a tag, use
+			<pre class="inline text-emphasis">tag(^workspace1^workspace2)</pre>
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			For
+			<a
 				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
-				target="_blank">dynamic tags</a
+				target="_blank">dynamic tags <ExternalLink size={12} class="inline-block" /></a
 			>
-			based on the workspace, use <pre class="inline">$workspace</pre>, e.g:
-			<pre class="inline">tag-$workspace</pre></span
-		>
-		<span class="text-2xs text-primary"
-			>For <a
+			based on the workspace, use <pre class="inline text-emphasis">$workspace</pre>, e.g:
+			<pre class="inline text-emphasis">tag-$workspace</pre><br />
+			{#if variant !== 'drawer'}<br />{/if}
+
+			For
+			<a
 				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
-				target="_blank">dynamic tags</a
+				target="_blank">dynamic tags <ExternalLink size={12} class="inline-block" /></a
 			>
-			based on args input, use <pre class="inline">$args[a.b.c]</pre> where
-			<pre class="inline">a.b.c</pre> is the path to the value in the args object</span
-		>
+			based on args input, use <pre class="inline text-emphasis">$args[a.b.c]</pre> where
+			<pre class="inline">a.b.c</pre> is the path to the value in the args object.
+		</span>
 	{/if}
 </div>

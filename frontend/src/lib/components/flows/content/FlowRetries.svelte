@@ -4,7 +4,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle } from 'lucide-svelte'
 	import { untrack, getContext } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -15,6 +14,7 @@
 	import { getStepPropPicker } from '../previousResults'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { validateRetryConfig } from '$lib/utils'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
@@ -270,10 +270,8 @@
 					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
 						{#if !$enterpriseLicense}
-							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-								<AlertTriangle size={16} />
-								EE only
-							</div>{/if}
+							<EEOnly />
+						{/if}
 						<input
 							disabled={!$enterpriseLicense}
 							type="range"

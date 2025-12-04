@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputSizeClasses } from '../text_input/TextInput.svelte'
 
@@ -33,5 +33,5 @@
 	}}
 >
 	<div class={twMerge('truncate whitespace-no-wrap grow text-xs')}>{content}</div>
-	<Clipboard size={12} class="flex-shrink-0" />
+	<Copy size={12} class="flex-shrink-0" />
 </div>

@@ -28,7 +28,7 @@
 		Calendar,
 		Share,
 		Archive,
-		Clipboard,
+		Copy,
 		Eye,
 		HistoryIcon
 	} from 'lucide-svelte'
@@ -211,7 +211,7 @@
 					},
 					{
 						displayName: 'Copy path',
-						icon: Clipboard,
+						icon: Copy,
 						action: () => {
 							copyToClipboard(path)
 						}

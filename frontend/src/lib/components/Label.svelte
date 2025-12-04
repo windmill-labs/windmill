@@ -2,6 +2,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { enterpriseLicense } from '$lib/stores'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -12,6 +14,7 @@
 		class?: string | undefined
 		for?: string | undefined
 		tooltip?: string | undefined
+		eeOnly?: boolean
 		header?: import('svelte').Snippet
 		error?: import('svelte').Snippet
 		action?: import('svelte').Snippet
@@ -27,6 +30,7 @@
 		class: clazz = undefined,
 		for: forAttr = undefined,
 		tooltip = undefined,
+		eeOnly = false,
 		header,
 		error,
 		action,
@@ -49,6 +53,11 @@
 						<Tooltip>{tooltip}</Tooltip>
 					{/if}
 				</span>
+				{#if eeOnly}
+					{#if !$enterpriseLicense}
+						<EEOnly />
+					{/if}
+				{/if}
 				{@render header?.()}
 			</div>
 		{/if}

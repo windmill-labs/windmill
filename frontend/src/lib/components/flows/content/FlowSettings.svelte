@@ -20,12 +20,12 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
 	import DebounceLimit from '../DebounceLimit.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -386,12 +386,7 @@
 						bind:errorHandlerMuted={flowStore.val.ws_error_handler_muted}
 					/>
 					{#if !$enterpriseLicense}
-						<span
-							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-						>
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</span>
+						<EEOnly />
 					{/if}
 				</div>
 
@@ -520,12 +515,7 @@
 							}}
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
-							<span
-								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-							>
-								<AlertTriangle size={16} />
-								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-							</span>
+							<EEOnly />
 						{/if}
 					{/snippet}
 				</Toggle>

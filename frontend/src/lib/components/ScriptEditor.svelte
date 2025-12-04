@@ -23,7 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
-		Clipboard,
+		Copy,
 		CornerDownLeft,
 		ExternalLink,
 		Github,
@@ -556,7 +556,7 @@
 
 		<Button
 			color="light"
-			startIcon={{ icon: Clipboard }}
+			startIcon={{ icon: Copy }}
 			iconOnly
 			on:click={() => copyToClipboard(collabUrl())}
 		/>

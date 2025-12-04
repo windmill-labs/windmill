@@ -7,7 +7,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Button } from '../../common'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import { yaml } from 'svelte-highlight/languages'
 	import YAML from 'yaml'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -45,7 +45,7 @@
 								)}
 							variant="accent"
 							size="sm"
-							startIcon={{ icon: Clipboard }}
+							startIcon={{ icon: Copy }}
 							btnClasses="absolute top-2 right-2 w-min z-20"
 							iconOnly
 						/>

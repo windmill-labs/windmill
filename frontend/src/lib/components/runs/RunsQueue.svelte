@@ -79,11 +79,14 @@
 		{#snippet tooltip()}
 			Jobs waiting for a worker being available to be executed
 		{/snippet}
-		<div
+		<button
 			class={queue_count && ($queue_count ?? 0) > 0
 				? 'bg-yellow-500 text-white rounded-full min-w-6 h-6 flex center-center'
-				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
+				: ''}
+			onclick={() => onJobsWaiting?.()}
 		>
+			{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}
+		</button>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
 			<Button variant="subtle" unifiedSize="md" on:click={() => onJobsWaiting?.()}>
 				{#if success == 'waiting'}

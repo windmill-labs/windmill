@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -62,10 +63,7 @@
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
-						<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap ml-8">
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</div>
+						<EEOnly />
 					{/if}
 				{/if}
 			</h3>

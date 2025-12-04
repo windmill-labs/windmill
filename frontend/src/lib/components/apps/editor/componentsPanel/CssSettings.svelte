@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { AlertTriangle, GitBranch } from 'lucide-svelte'
+	import { GitBranch } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -13,6 +13,7 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 	const { app, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = $state(undefined)
@@ -50,10 +51,7 @@
 						{#if $enterpriseLicense === undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row items-center text-yellow-500 text-xs">
-									<div class="flex items-center whitespace-nowrap">
-										<AlertTriangle size={16} />
-										EE only
-									</div>
+									<EEOnly />
 									<Tooltip light>
 										App CSS editor is an exclusive feature of the Enterprise Edition. You can
 										experiment with this feature in the editor, but please note that the changes

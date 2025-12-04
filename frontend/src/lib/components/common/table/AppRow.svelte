@@ -23,7 +23,7 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard
+		Copy
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -218,7 +218,7 @@
 					},
 					{
 						displayName: 'Copy path',
-						icon: Clipboard,
+						icon: Copy,
 						action: () => {
 							copyToClipboard(path)
 						}

@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
+	import { Tooltip } from './meltComponents'
 
 	interface Props {
 		aiId?: string
@@ -53,6 +54,13 @@
 					{item.displayName}
 				</p>
 				{@render item.extra?.()}
+				{#if item.tooltip}
+					<Tooltip>
+						{#snippet text()}
+							{item.tooltip}
+						{/snippet}
+					</Tooltip>
+				{/if}
 			</MenuItem>
 		{/each}
 	</div>
