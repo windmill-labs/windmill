@@ -12,7 +12,7 @@
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
-		Bot,
+		HardHat,
 		Boxes,
 		Calendar,
 		DollarSign,
@@ -382,7 +382,7 @@
 		{
 			label: 'Workers',
 			href: `${base}/workers`,
-			icon: Bot,
+			icon: HardHat,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-workers',
 			aiDescription: 'Button to navigate to workers'

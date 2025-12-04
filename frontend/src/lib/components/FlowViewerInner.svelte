@@ -5,7 +5,7 @@
 	import { Tab, Tabs, Button } from './common'
 	import { copyToClipboard } from '../utils'
 
-	import { ArrowDown, Clipboard } from 'lucide-svelte'
+	import { ArrowDown, Copy } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
@@ -80,7 +80,7 @@
 					color="light"
 					variant="border"
 					size="xs"
-					startIcon={{ icon: Clipboard }}
+					startIcon={{ icon: Copy }}
 					btnClasses="absolute top-2 right-2 w-min z-20"
 					iconOnly
 				/>
