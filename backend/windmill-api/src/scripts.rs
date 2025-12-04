@@ -1037,11 +1037,12 @@ async fn create_script_internal<'c>(
 
         // Store the job_id in deployment_metadata for this script deployment
         sqlx::query!(
-            "INSERT INTO deployment_metadata (workspace_id, script_hash, job_id)
-             VALUES ($1, $2, $3)
+            "INSERT INTO deployment_metadata (workspace_id, path, script_hash, job_id)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
              DO UPDATE SET job_id = EXCLUDED.job_id",
             w_id,
+            ns.path,
             hash.0,
             job_id
         )

@@ -694,11 +694,11 @@
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
 							{#if deploymentJobId}
-								(<a
+								<a
 									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
 									class="underline"
 									target="_blank">view job</a
-								>)
+								>
 							{/if}
 						</Badge>
 					{/if}
