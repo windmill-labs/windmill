@@ -126,9 +126,9 @@
 		}
 	}
 
-	// Cleanup function to safely remove widget and cancel requests
+	// Cleanup function to safely remove widget and cancel inline requests
 	function cleanupWidget(reason?: string) {
-		aiChatManager.cancel(reason ?? 'aiChatInlineWidget destroyed')
+		aiChatManager.cancelInlineRequest(reason ?? 'aiChatInlineWidget destroyed')
 		if (widget) {
 			try {
 				widget.dispose()

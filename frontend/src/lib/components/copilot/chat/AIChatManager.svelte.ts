@@ -74,6 +74,7 @@ class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
+	inlineAbortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	readonly isOpen = $derived(chatState.size > 0)
@@ -490,7 +491,8 @@ class AIChatManager {
 		if (!instructions.trim()) {
 			throw new Error('Instructions are required')
 		}
-		this.abortController = new AbortController()
+		// Use a separate abort controller for inline requests to avoid interfering with main chat
+		this.inlineAbortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
 		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
 		const startLine = selection.startLineNumber
@@ -519,7 +521,7 @@ class AIChatManager {
 
 			const params = {
 				messages,
-				abortController: this.abortController,
+				abortController: this.inlineAbortController,
 				callbacks: {
 					onNewToken: (token: string) => {
 						reply += token
@@ -562,7 +564,7 @@ class AIChatManager {
 			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
 		} catch (error) {
 			// if abort controller is aborted, don't throw an error
-			if (this.abortController?.signal.aborted) {
+			if (this.inlineAbortController?.signal.aborted) {
 				return
 			}
 			console.error('Unexpected error in sendInlineRequest:', error)
@@ -773,6 +775,12 @@ class AIChatManager {
 		const cancelReason = reason ?? 'user_cancelled'
 		console.log('cancelling request:', { reason: cancelReason, abortController: this.abortController })
 		this.abortController?.abort(cancelReason)
+	}
+
+	cancelInlineRequest = (reason?: string) => {
+		const cancelReason = reason ?? 'inline_cancelled'
+		console.log('cancelling inline request:', { reason: cancelReason, inlineAbortController: this.inlineAbortController })
+		this.inlineAbortController?.abort(cancelReason)
 	}
 
 	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
