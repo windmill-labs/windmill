@@ -76,7 +76,7 @@ lazy_static::lazy_static! {
 }
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
-const HARD_MAX_AGENT_ITERATIONS: usize = 100;
+const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
 pub async fn handle_ai_agent_job(
     // connection

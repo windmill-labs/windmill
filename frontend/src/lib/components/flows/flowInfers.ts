@@ -69,7 +69,7 @@ export const AI_AGENT_SCHEMA = {
 		max_iterations: {
 			type: 'number',
 			description:
-				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-100.',
+				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-1000.',
 			default: 10
 		}
 	},
