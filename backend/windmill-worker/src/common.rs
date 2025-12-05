@@ -780,6 +780,8 @@ async fn hash_args(
                 None => None,
             };
 
+            println!("=======ignore_s3_path: {}", ignore_s3_path);
+
             #[cfg(feature = "parquet")]
             if let Some(etag) = etag {
                 hasher.update(etag.as_bytes());
