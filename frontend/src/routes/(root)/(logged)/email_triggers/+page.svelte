@@ -402,7 +402,7 @@
 											...(canWrite && mode !== 'suspended'
 												? [
 														{
-															displayName: 'Enable suspended mode',
+															displayName: 'Suspend job execution',
 															icon: Pause,
 															action: () => {
 																onToggleMode(path, 'suspended')

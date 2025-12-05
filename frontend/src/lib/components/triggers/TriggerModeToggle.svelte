@@ -85,7 +85,7 @@
 				disabled={!canWrite}
 				items={[
 					{
-						displayName: 'Enable suspended mode',
+						displayName: 'Suspend job execution',
 						icon: Pause,
 						action: () => {
 							triggerMode = 'suspended'
