@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO websocket_trigger (\n                workspace_id,\n                path,\n                url,\n                script_path,\n                is_flow,\n                mode,\n                filters,\n                initial_messages,\n                url_runnable_args,\n                edited_by,\n                can_return_message,\n                can_return_error_result,\n                email,\n                edited_at,\n                error_handler_path,\n                error_handler_args,\n                retry\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "JsonbArray",
+        "JsonbArray",
+        "Jsonb",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e99c958628d83e3fea054eaa182b1301e0b04c7eb9801d9de13b37bd908d902f"
+}

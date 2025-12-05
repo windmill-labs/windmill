@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) as count\n                FROM v2_job_queue\n                WHERE scheduled_for < to_timestamp($1::bigint / 1000.0)\n                AND running = false\n                AND suspend_until IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "68b21b67e0d7977cf34a4e360a0fdeb62c81b1ef19d4283debeb252f398a7543"
+}

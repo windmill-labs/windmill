@@ -212,14 +212,14 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 
 export async function getTriggerValue(kind: TriggerKind, path: string, workspace: string) {
 	if (kind === 'sqs') {
-		const { enabled, script_path, is_flow, queue_url, aws_resource_path, message_attributes } =
+		const { mode, script_path, is_flow, queue_url, aws_resource_path, message_attributes } =
 			await SqsTriggerService.getSqsTrigger({
 				workspace: workspace!,
 				path: path
 			})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			queue_url,
@@ -227,14 +227,14 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			message_attributes
 		}
 	} else if (kind === 'kafka') {
-		const { enabled, script_path, is_flow, kafka_resource_path, topics, group_id } =
+		const { mode, script_path, is_flow, kafka_resource_path, topics, group_id } =
 			await KafkaTriggerService.getKafkaTrigger({
 				workspace: workspace!,
 				path: path
 			})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			kafka_resource_path,
@@ -243,7 +243,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		}
 	} else if (kind === 'mqtt') {
 		const {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			mqtt_resource_path,
@@ -258,7 +258,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			mqtt_resource_path,
@@ -270,7 +270,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		}
 	} else if (kind === 'nats') {
 		const {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			nats_resource_path,
@@ -284,7 +284,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			nats_resource_path,
@@ -295,7 +295,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		}
 	} else if (kind === 'postgres') {
 		const {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			postgres_resource_path,
@@ -307,7 +307,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			postgres_resource_path,
@@ -315,21 +315,22 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			publication_name
 		}
 	} else if (kind === 'gcp') {
-		const { enabled, script_path, is_flow, gcp_resource_path } =
-			await GcpTriggerService.getGcpTrigger({
+		const { mode, script_path, is_flow, gcp_resource_path } = await GcpTriggerService.getGcpTrigger(
+			{
 				workspace: workspace!,
 				path: path
-			})
+			}
+		)
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			gcp_resource_path
 		}
 	} else if (kind === 'websockets') {
 		const {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			url,
@@ -343,7 +344,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		})
 
 		return {
-			enabled,
+			mode,
 			script_path,
 			is_flow,
 			url,

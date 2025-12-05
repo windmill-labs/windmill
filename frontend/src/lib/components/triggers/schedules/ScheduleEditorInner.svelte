@@ -617,6 +617,7 @@
 				requestBody: { enabled: nEnabled }
 			})
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+			onUpdate?.(initialPath)
 		}
 	}
 
@@ -634,15 +635,16 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
+			disableSuspendedMode
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}

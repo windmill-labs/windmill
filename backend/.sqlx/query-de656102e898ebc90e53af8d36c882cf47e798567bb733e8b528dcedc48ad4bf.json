@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    script_path, \n                    is_flow, \n                    workspace_id, \n                    mode as \"mode: _\",\n                    edited_by, \n                    email, \n                    path, \n                    error_handler_path as \"error_handler_path: _\", \n                    error_handler_args as \"error_handler_args: _\", \n                    retry as \"retry: _\" \n                FROM email_trigger \n                WHERE local_part = $1 \n                    AND workspaced_local_part = FALSE\n                    AND (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "mode: _",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "error_handler_path: _",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "error_handler_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "retry: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "de656102e898ebc90e53af8d36c882cf47e798567bb733e8b528dcedc48ad4bf"
+}

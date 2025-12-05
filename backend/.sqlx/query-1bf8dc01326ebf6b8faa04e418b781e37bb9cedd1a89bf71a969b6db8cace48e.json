@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO nats_trigger (\n                workspace_id,\n                path,\n                nats_resource_path,\n                subjects,\n                stream_name,\n                consumer_name,\n                use_jetstream,\n                script_path,\n                is_flow,\n                mode,\n                edited_by,\n                email,\n                edited_at,\n                error_handler_path,\n                error_handler_args,\n                retry\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1bf8dc01326ebf6b8faa04e418b781e37bb9cedd1a89bf71a969b6db8cace48e"
+}

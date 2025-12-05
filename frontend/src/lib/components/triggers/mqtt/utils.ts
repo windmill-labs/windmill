@@ -13,7 +13,7 @@ export async function saveMqttTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditMqttTrigger = {
@@ -25,8 +25,8 @@ export async function saveMqttTriggerFromCfg(
 		subscribe_topics: cfg.subscribe_topics,
 		path: cfg.path,
 		script_path: cfg.script_path,
-		enabled: cfg.enabled,
 		is_flow: cfg.is_flow,
+		mode: cfg.mode,
 		...errorHandlerAndRetries
 	}
 	try {
@@ -40,7 +40,7 @@ export async function saveMqttTriggerFromCfg(
 		} else {
 			await MqttTriggerService.createMqttTrigger({
 				workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`MQTT trigger ${cfg.path} created`)
 		}
