@@ -4281,6 +4281,7 @@ pub fn init_worker_internal_server_inline_utils(
                 timeout: None,
                 flow_step_id: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 priority: None,
                 preprocessed: None,
                 script_entrypoint_override: None,
