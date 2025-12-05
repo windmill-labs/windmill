@@ -37,6 +37,7 @@
 		Plus,
 		RotateCw,
 		Save,
+		Settings,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
@@ -746,7 +747,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
 				(path) => ({ path })
 			)}
-	/>
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_lfs"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
 {/if}
 
 {#if showDataTablePicker}
@@ -775,7 +789,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
 				(path) => ({ path })
 			)}
-	/>
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_data_tables"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
 {/if}
 
 {#if showDatabasePicker}
