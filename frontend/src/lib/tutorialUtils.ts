@@ -1,8 +1,25 @@
 import { get } from 'svelte/store'
 import { tutorialsToDo, skippedAll } from './stores'
 import { UserService } from './gen'
+import { TUTORIALS_CONFIG } from './tutorials/config'
 
-const MAX_TUTORIAL_ID = 7
+/**
+ * Get the maximum tutorial index from the config.
+ * This ensures we don't hardcode the max ID and it automatically updates when tutorials are added.
+ */
+function getMaxTutorialId(): number {
+	let maxId = 0
+	for (const tab of Object.values(TUTORIALS_CONFIG)) {
+		for (const tutorial of tab.tutorials) {
+			if (tutorial.index !== undefined && tutorial.index > maxId) {
+				maxId = tutorial.index
+			}
+		}
+	}
+	return maxId
+}
+
+const MAX_TUTORIAL_ID = getMaxTutorialId()
 
 /**
  * Helper function to calculate tutorial progress for a given set of tutorial indexes.
