@@ -2729,7 +2729,6 @@ pub async fn handle_queued_job(
             let cached_result_maybe = get_cached_resource_value_if_valid(
                 db,
                 &client,
-                &job.id,
                 &job.workspace_id,
                 &cached_res_path,
             )

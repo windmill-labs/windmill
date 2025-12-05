@@ -188,6 +188,8 @@ pub struct QueuedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
@@ -261,6 +263,7 @@ impl Default for QueuedJob {
             timeout: None,
             flow_step_id: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             preprocessed: None,
         }
@@ -348,6 +351,7 @@ pub enum JobPayload {
         hash: ScriptHash,
         path: String,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
@@ -368,6 +372,7 @@ pub enum JobPayload {
         path: String,
         language: ScriptLang,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         dedicated_worker: Option<bool>,
         concurrency_settings: ConcurrencySettings,
     },
@@ -450,6 +455,7 @@ pub enum JobPayload {
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         skip_handler: Option<SkipHandler>,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         priority: Option<i16>,
         tag_override: Option<String>,
         trigger_path: Option<String>,
@@ -586,6 +592,7 @@ pub struct RawCode {
     pub language: ScriptLang,
     pub lock: Option<String>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettingsWithCustom,
@@ -693,6 +700,7 @@ pub async fn script_path_to_payload<'e>(
             debounce_key,
             debounce_delay_s,
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -718,6 +726,7 @@ pub async fn script_path_to_payload<'e>(
                 hash: ScriptHash(hash),
                 path: script_path.to_owned(),
                 cache_ttl,
+                cache_ignore_s3_path,
                 language,
                 dedicated_worker,
                 priority,
