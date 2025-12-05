@@ -25,11 +25,29 @@
 	import { userStore } from '$lib/stores'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { hasRoleAccess, hasRoleAccessForPreview, type Role } from '$lib/tutorials/roleUtils'
+	import { hasRoleAccess, hasRoleAccessForPreview, getUserEffectiveRole, type Role } from '$lib/tutorials/roleUtils'
 
-	// Role override for admins to preview what other roles see
-	// Only used when user is admin - defaults to 'admin' (their actual role)
-	let roleOverride: Role = $state('admin')
+	// Get user's effective role (derived from userStore)
+	const userEffectiveRole = $derived.by(() => {
+		return getUserEffectiveRole($userStore) ?? 'admin'
+	})
+	
+	// State for the role selector (only used when user is admin)
+	// Defaults to user's actual role
+	let selectedPreviewRole: Role = $state('admin')
+	
+	// Initialize selectedPreviewRole to user's role when admin, reset when not admin
+	$effect(() => {
+		const user = $userStore
+		if (user?.is_admin) {
+			// Initialize to user's actual role if not already set to a valid role
+			// This ensures it's always set to the user's role when they're admin
+			selectedPreviewRole = userEffectiveRole
+		} else {
+			// Reset to 'admin' as default (though this shouldn't matter for non-admins)
+			selectedPreviewRole = 'admin'
+		}
+	})
 
 	// Debug: Log user role for troubleshooting
 	$effect(() => {
@@ -38,8 +56,8 @@
 			console.log('Tutorials page - User role:', {
 				is_admin: user.is_admin,
 				operator: user.operator,
-				effectiveRole: user.is_admin ? 'admin' : user.operator ? 'operator' : 'developer',
-				roleOverride: user.is_admin ? roleOverride : 'N/A (not admin)'
+				effectiveRole: userEffectiveRole,
+				selectedPreviewRole: selectedPreviewRole
 			})
 		}
 	})
@@ -50,9 +68,9 @@
 	 */
 	function checkAccess(roles?: Role[]): boolean {
 		const user = $userStore
-		// Use preview function if admin has selected a role override
-		if (user?.is_admin && roleOverride !== 'admin') {
-			return hasRoleAccessForPreview(roleOverride, roles)
+		// Use preview function if admin has selected a different role to preview
+		if (user?.is_admin && selectedPreviewRole !== userEffectiveRole) {
+			return hasRoleAccessForPreview(selectedPreviewRole, roles)
 		}
 		return hasRoleAccess(user, roles)
 	}
@@ -268,15 +286,15 @@
 				<div class="flex items-center gap-2">
 					<span class="text-xs text-secondary">View as an</span>
 					<ToggleButtonGroup
-						bind:selected={roleOverride}
+						bind:selected={selectedPreviewRole}
 						onSelected={(v) => {
-							roleOverride = (v || 'admin') as typeof roleOverride
+							selectedPreviewRole = (v || userEffectiveRole) as Role
 						}}
 						noWFull
 					>
 						{#snippet children({ item })}
 							<ToggleButton
-								value="admin"
+								value={userEffectiveRole}
 								label="Admin (me)"
 								icon={Shield}
 								size="sm"
