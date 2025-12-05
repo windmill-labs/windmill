@@ -5378,9 +5378,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.1.6"
+version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30f4148e3c9b7dbe0cc7e842ad5a61b28f9025f201d78149383e778a08bc9215"
+checksum = "a2152dbcb980c05735e2a651d96011320a949eb31a0c8b38b72645ce97dec676"
 dependencies = [
  "crc32fast",
  "libz-sys",
