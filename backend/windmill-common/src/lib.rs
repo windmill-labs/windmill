@@ -829,9 +829,9 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
             path
         FROM
             script
-            LEFT JOIN runnable_settings_references  srefs  ON script.hash = srefs.referencer_id AND srefs.referencer_kind = 'script'
-            LEFT JOIN runnable_concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
-            LEFT JOIN runnable_debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+            LEFT JOIN runnable_settings_references  srefs  ON script.hash = srefs.runnable_id AND srefs.runnable_kind = 'script'
+            LEFT JOIN concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
         WHERE script.hash = $1 AND script.workspace_id = $2 
         "#,
     )
@@ -1037,6 +1037,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
     Ok(version)
 }
 
+// TODO:
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
     w_id: &str,

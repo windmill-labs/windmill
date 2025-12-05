@@ -32,6 +32,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::runnable_settings::RunnableSettings;
 use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
 use windmill_common::HUB_BASE_URL;
@@ -1210,10 +1211,8 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
 
-    let deployment_status = DeploymentStatus {
-        lock_error_logs: status.lock_error_logs,
-        job_id: status.job_id,
-    };
+    let deployment_status =
+        DeploymentStatus { lock_error_logs: status.lock_error_logs, job_id: status.job_id };
 
     tx.commit().await?;
     Ok(Json(deployment_status))
@@ -1601,7 +1600,9 @@ mod tests {
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
-        runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
+        runnable_settings::{
+            ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
+        },
         scripts,
     };
 

@@ -889,9 +889,18 @@ macro_rules! get_job_query {
         get_job_query!(
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, timeout, flow_step_id, cache_ttl,\
+            COALESCE(cs.concurrent_limit, v2_job.concurrent_limit) AS concurrent_limit,
+            COALESCE(cs.concurrency_time_window_s, v2_job.concurrency_time_window_s) AS concurrency_time_window_s,
+            ds.debounce_key, ds.debounce_delay_s, ds.max_total_debouncing_time, ds.max_total_debounces_amount, ds.debounce_args_to_accumulate,
             script_entrypoint_override",
-            "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
+            "
+            LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
+            LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+            LEFT JOIN v2_jobs_settings_references srefs ON v2_job_queue.id = srefs.job_id
+            LEFT JOIN concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+            ",
         )
     };
     (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
@@ -933,7 +942,7 @@ macro_rules! get_job_query {
             FROM {table}
             INNER JOIN v2_job ON v2_job.id = {table}.id \
             {additional_joins} \
-            LEFT JOIN job_logs ON {table}.id = job_id \
+            LEFT JOIN job_logs ON {table}.id = job_logs.job_id \
             WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
             table = $table,
             additional_fields = $additional_fields,
@@ -3363,6 +3372,8 @@ pub struct UnifiedJob {
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
     pub worker: Option<String>,
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -3541,6 +3552,7 @@ impl<'a> From<UnifiedJob> for Job {
                     cache_ttl: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
+                    debouncing_settings: uj.debouncing_settings,
                 },
             )),
             t => panic!("job type {} not valid", t),

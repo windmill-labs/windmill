@@ -190,6 +190,10 @@ pub struct QueuedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub debouncing_settings: Option<DebouncingSettings>,
 }
 
 impl QueuedJob {
@@ -262,6 +266,7 @@ impl Default for QueuedJob {
             cache_ttl: None,
             priority: None,
             preprocessed: None,
+            debouncing_settings: Default::default(),
         }
     }
 }

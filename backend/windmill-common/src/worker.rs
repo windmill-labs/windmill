@@ -436,7 +436,10 @@ fn format_pull_query(peek: String) -> String {
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
-            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
+            j.tag, j.flow_innermost_root_job, j.root_job,
+            COALESCE(cs.concurrent_limit, j.concurrent_limit) AS concurrent_limit,
+            COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s) AS concurrency_time_window_s,
+            ds.debounce_key, ds.debounce_delay_s, ds.max_total_debouncing_time, ds.max_total_debounces_amount, ds.debounce_args_to_accumulate,
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
@@ -445,6 +448,9 @@ fn format_pull_query(peek: String) -> String {
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
             LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            LEFT JOIN v2_jobs_settings_references srefs ON j.id = srefs.job_id
+            LEFT JOIN concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
             ",
         peek
     );

@@ -43,6 +43,7 @@ use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDep
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    runnable_settings::{self, ConcurrencySettings, DebouncingSettings},
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::{paginate_without_limits, WarnAfterExt},
@@ -845,6 +846,25 @@ async fn create_script_internal<'c>(
         ns.debounce_delay_s,
     )
     .execute(&mut *tx)
+    .await?;
+
+    runnable_settings::insert_runnable_settings(
+        (
+            ConcurrencySettings {
+                concurrency_key: ns.concurrency_key,
+                concurrent_limit: ns.concurrent_limit,
+                concurrency_time_window_s: ns.concurrency_time_window_s,
+            },
+            DebouncingSettings {
+                debounce_key: ns.debounce_key,
+                debounce_delay_s: ns.debounce_delay_s,
+                ..Default::default()
+            },
+        ),
+        hash.0,
+        runnable_settings::RunnableKind::Script,
+        &db,
+    )
     .await?;
 
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
