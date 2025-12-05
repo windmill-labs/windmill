@@ -1048,7 +1048,7 @@
 					{#snippet content()}
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Metadata">
 										{#snippet action()}
 											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
@@ -1216,7 +1216,7 @@
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
 											<Tooltip
