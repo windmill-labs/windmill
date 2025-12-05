@@ -13,11 +13,14 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
-use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
+    DucklakeCatalogResourceType,
+};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
-use crate::agent_workers::get_ducklake_from_agent_http;
+use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -38,6 +41,7 @@ pub async fn do_duckdb(
     #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> Result<Box<RawValue>> {
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy =
@@ -105,41 +109,48 @@ pub async fn do_duckdb(
 
         let query_block_list = parse_sql_blocks(&query);
 
-        // Replace windmill resource ATTACH statements with the real instructions
+        // Replace custom ATTACH statements with the real instructions
         let query_block_list = {
             let mut v = vec![];
             for query_block in query_block_list.iter() {
                 let query_block = remove_comments(&query_block);
-                match parse_attach_db_resource(query_block) {
-                    Some(parsed) => {
-                        v.extend(
-                            transform_attach_db_resource_query(
-                                &parsed,
-                                &job.id,
-                                client,
-                                &mut hidden_passwords,
-                            )
-                            .await?,
-                        );
-                        if parsed.db_type == "bigquery" {
-                            bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
-                                job.id,
-                                parsed.resource_path,
-                            )?);
-                        }
+                if let Some(parsed) = parse_attach_db_resource(query_block) {
+                    v.extend(
+                        transform_attach_db_resource_query(
+                            &parsed,
+                            &job.id,
+                            client,
+                            &mut hidden_passwords,
+                        )
+                        .await?,
+                    );
+                    if parsed.db_type == "bigquery" {
+                        bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
+                            job.id,
+                            parsed.resource_path,
+                        )?);
                     }
-                    None => match transform_attach_ducklake(
-                        &query_block,
-                        conn,
-                        &mut hidden_passwords,
-                        &job.workspace_id,
-                    )
-                    .await?
-                    {
-                        Some(ducklake_query) => v.extend(ducklake_query),
-                        None => v.push(query_block.to_string()),
-                    },
-                };
+                } else if let Some(ducklake_query) = transform_attach_ducklake(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                )
+                .await?
+                {
+                    v.extend(ducklake_query);
+                } else if let Some(datatable_query) = transform_attach_datatable(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                )
+                .await?
+                {
+                    v.extend(datatable_query);
+                } else {
+                    v.push(query_block.to_string());
+                }
             }
             v
         };
@@ -182,19 +193,23 @@ pub async fn do_duckdb(
         Ok(result)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await;
+    let result = if run_inline {
+        result_f.await
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await
+    };
 
     match result {
         Ok(result) => Ok(result),
@@ -492,18 +507,28 @@ async fn transform_attach_db_resource_query(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    db_resource_to_attach_statements(db_resource, parsed.name, parsed.db_type, parsed.extra_args)
+        .await
+}
+
+async fn db_resource_to_attach_statements(
+    db_resource: Value,
+    ident_name: &str,
+    db_type: &str,
+    extra_args: Option<&str>,
+) -> Result<Vec<String>> {
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        format_attach_db_conn_str(db_resource, parsed.db_type)?,
-        parsed.name,
-        parsed.db_type,
-        parsed.extra_args.unwrap_or("")
+        format_attach_db_conn_str(db_resource, db_type)?,
+        ident_name,
+        db_type,
+        extra_args.unwrap_or("")
     )
     .to_string();
 
     Ok(vec![
-        get_attach_db_install_str(parsed.db_type)?.to_string(),
-        format!("LOAD {};", parsed.db_type),
+        get_attach_db_install_str(db_type)?.to_string(),
+        format!("LOAD {};", db_type),
         attach_str,
     ])
 }
@@ -569,6 +594,38 @@ async fn transform_attach_ducklake(
     ]))
 }
 
+async fn transform_attach_datatable(
+    query: &str,
+    conn: &Connection,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    w_id: &str,
+) -> Result<Option<Vec<String>>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
+    }
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
+    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
+    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+    let db_resource = match conn {
+        Connection::Http(client) => {
+            get_datatable_resource_from_agent_http(client, name, w_id).await?
+        }
+        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+    };
+    let db_type = "postgres";
+
+    if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+
+    Ok(Some(
+        db_resource_to_attach_statements(db_resource, alias_name, db_type, None).await?,
+    ))
+}
+
 async fn transform_s3_uris(query: &str) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
@@ -608,7 +665,9 @@ pub struct UseBigQueryCredentialsFile {
 impl UseBigQueryCredentialsFile {
     fn new(job_id: Uuid, bigquery_resource: &str) -> Result<Self> {
         let path = format!("/tmp/service-account-credentials-{}.json", job_id);
-        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        unsafe {
+            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        }
         std::fs::write(&path, bigquery_resource)
             .map_err(|e| Error::ExecutionErr(format!("Failed to write BigQuery creds: {e}")))?;
         Ok(Self { path })
@@ -616,7 +675,9 @@ impl UseBigQueryCredentialsFile {
 }
 impl Drop for UseBigQueryCredentialsFile {
     fn drop(&mut self) {
-        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        unsafe {
+            env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        }
         if matches!(std::fs::exists(&self.path), Ok(true)) {
             let _ = std::fs::remove_file(&self.path);
         }

@@ -2874,13 +2874,15 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     in_test_worker(
         db,
         async move {
-            let job = RunJob::from(JobPayload::Code(RawCode {
-                language: ScriptLang::Python3,
-                content: WORKFLOW_AS_CODE.into(),
-                ..RawCode::default()
-            }))
-            .arg("n", json!(3))
-            .run_until_complete(db, false, port)
+            let job = Box::pin(
+                RunJob::from(JobPayload::Code(RawCode {
+                    language: ScriptLang::Python3,
+                    content: WORKFLOW_AS_CODE.into(),
+                    ..RawCode::default()
+                }))
+                .arg("n", json!(3))
+                .run_until_complete(db, false, port),
+            )
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
