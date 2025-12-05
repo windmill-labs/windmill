@@ -168,8 +168,8 @@
 		await syncTutorialsTodos()
 	}
 
-	// Reset a single tutorial
-	async function resetSingleTutorial(tutorialId: string) {
+	// Update a single tutorial's completion status
+	async function updateSingleTutorial(tutorialId: string, completed: boolean) {
 		const tutorial = currentTabConfig.tutorials.find((t) => t.id === tutorialId)
 		if (!tutorial || tutorial.index === undefined) {
 			console.warn(`Tutorial not found or has no index: ${tutorialId}`)
@@ -177,26 +177,14 @@
 		}
 
 		try {
-			await resetTutorialByIndex(tutorial.index)
+			if (completed) {
+				await completeTutorialByIndex(tutorial.index)
+			} else {
+				await resetTutorialByIndex(tutorial.index)
+			}
 			await syncTutorialsTodos()
 		} catch (error) {
-			console.error('Error resetting tutorial:', error)
-		}
-	}
-
-	// Mark a single tutorial as completed
-	async function completeSingleTutorial(tutorialId: string) {
-		const tutorial = currentTabConfig.tutorials.find((t) => t.id === tutorialId)
-		if (!tutorial || tutorial.index === undefined) {
-			console.warn(`Tutorial not found or has no index: ${tutorialId}`)
-			return
-		}
-
-		try {
-			await completeTutorialByIndex(tutorial.index)
-			await syncTutorialsTodos()
-		} catch (error) {
-			console.error('Error completing tutorial:', error)
+			console.error(`Error ${completed ? 'completing' : 'resetting'} tutorial:`, error)
 		}
 	}
 
@@ -391,8 +379,8 @@
 							isCompleted={isTutorialCompleted(tutorial.id)}
 							disabled={tutorial.active === false}
 							comingSoon={tutorial.comingSoon}
-							onReset={() => resetSingleTutorial(tutorial.id)}
-							onComplete={() => completeSingleTutorial(tutorial.id)}
+							onReset={() => updateSingleTutorial(tutorial.id, false)}
+							onComplete={() => updateSingleTutorial(tutorial.id, true)}
 						/>
 					{/each}
 				</div>
