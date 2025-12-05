@@ -38,9 +38,9 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, JobTriggerKind,
-    EMAIL_ERROR_HANDLER_USER_EMAIL,
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
 };
 use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
@@ -1983,6 +1983,9 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2199,6 +2202,7 @@ impl MiniPulledJob {
             },
             visible_to_owner: job.visible_to_owner.clone(),
             permissioned_as_end_user_email: None,
+            debouncing_settings: job.debouncing_settings.clone(),
         }
     }
     pub fn is_flow(&self) -> bool {
@@ -2368,28 +2372,31 @@ pub async fn get_mini_pulled_job<'c>(
 ) -> windmill_common::error::Result<Option<MiniPulledJob>> {
     let job = sqlx::query_as!(
         MiniPulledJob,
-        "SELECT 
+        r#"SELECT 
         v2_job_queue.workspace_id,
         v2_job_queue.id,
-        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+        v2_job.args as "args: sqlx::types::Json<HashMap<String, Box<RawValue>>>",
         v2_job.parent_job,
         v2_job.created_by,
         v2_job_queue.started_at,
         scheduled_for,
         runnable_path,
-        kind as \"kind: JobKind\",
-        runnable_id as \"runnable_id: ScriptHash\",
+        kind as "kind: JobKind",
+        runnable_id as "runnable_id: ScriptHash",
         canceled_reason,
         canceled_by,
         permissioned_as,
         permissioned_as_email,
-        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+        flow_status as "flow_status: sqlx::types::Json<Box<RawValue>>",
         v2_job.tag,
-        script_lang as \"script_lang: ScriptLang\",
+        script_lang as "script_lang: ScriptLang",
         same_worker,
         pre_run_error,
-        concurrent_limit,
-        concurrency_time_window_s,
+        -- for backwards compat we assume that v2_job might still be used for storage
+        COALESCE(cs.concurrent_limit, v2_job.concurrent_limit) AS concurrent_limit,
+        COALESCE(cs.concurrency_time_window_s, v2_job.concurrency_time_window_s) AS concurrency_time_window_s,
+        -- Fetch the rest from other tables
+        ROW(ds.debounce_key, ds.debounce_delay_s, ds.max_total_debouncing_time, ds.max_total_debounces_amount, ds.debounce_args_to_accumulate) AS "debouncing_settings!: DebouncingSettings",
         flow_innermost_root_job,
         root_job,
         timeout,
@@ -2399,11 +2406,16 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: JobTriggerKind\",
+        trigger_kind as "trigger_kind: JobTriggerKind",
         visible_to_owner,
         NULL as permissioned_as_end_user_email
-        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
-        job_id,
+        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+            LEFT JOIN v2_jobs_settings_references srefs ON v2_job_queue.id = srefs.job_id
+            LEFT JOIN concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+         WHERE v2_job_queue.id = $1"#,
+         job_id,
     )
     .fetch_optional(e)
     .await?;
@@ -4061,12 +4073,7 @@ pub async fn push<'c, 'd>(
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
-        concurrency_settings:
-            ConcurrencySettings {
-                mut concurrency_key,
-                mut concurrent_limit,
-                concurrency_time_window_s, //
-            },
+        mut concurrency_settings,
         debouncing_settings,
     } = match job_payload {
         JobPayload::ScriptHash {
@@ -4521,7 +4528,7 @@ pub async fn push<'c, 'd>(
 
                 concurrency_settings.concurrent_limit = None;
                 // TODO: May be re-enable?
-                debouncing_settings.delay_s = None;
+                debouncing_settings.debounce_delay_s = None;
 
                 preprocessed = Some(false);
             }
@@ -4660,9 +4667,23 @@ pub async fn push<'c, 'd>(
             && !*WMDEBUG_NO_DJOB_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
-        concurrent_limit = Some(1);
+        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_settings.concurrent_limit = Some(1);
     }
+
+    let (
+        (debouncing_settings_hash, debouncing_settings), // Settings are immutable now
+        (concurrency_settings_hash, concurrency_settings),
+    ) = (
+        (
+            debouncing_settings.get_hash_or_insert(_db.clone()).await?,
+            debouncing_settings,
+        ),
+        (
+            concurrency_settings.get_hash_or_insert(_db.clone()).await?,
+            concurrency_settings,
+        ),
+    );
 
     let final_priority: Option<i16>;
     #[cfg(not(feature = "enterprise"))]
@@ -4986,8 +5007,8 @@ pub async fn push<'c, 'd>(
     if schedule_path.is_none() {
         if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
             &job_id,
-            debouncing_settings.delay_s,
-            debouncing_settings.custom_key,
+            debouncing_settings.debounce_delay_s,
+            debouncing_settings.debounce_key,
             workspace_id,
             runnable_path.clone(),
             &job_kind,
@@ -5001,13 +5022,13 @@ pub async fn push<'c, 'd>(
         }
     }
 
-    if concurrent_limit.is_some() {
+    if concurrency_settings.concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
-            concurrency_key,
+            concurrency_settings.concurrency_key,
             &mut tx,
             job_id,
         )
@@ -5096,17 +5117,50 @@ pub async fn push<'c, 'd>(
 
     sqlx::query!(
         "WITH inserted_job AS (
-            INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-                created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            INSERT INTO v2_job (
+                id, -- 1
+                workspace_id, -- 2
+                raw_code, -- 3
+                raw_lock, -- 4
+                raw_flow, -- 5
+                tag, -- 6
+                parent_job, -- 7
+                created_by, -- 8
+                permissioned_as, -- 9
+                runnable_id, -- 10
+                runnable_path, -- 11
+                args, -- 12
+                kind, -- 13
+                trigger, -- 14
+                script_lang, -- 15
+                same_worker, -- 16
+                pre_run_error, -- 17 
+                permissioned_as_email, -- 18
+                visible_to_owner, -- 19
+                flow_innermost_root_job, -- 20
+                root_job, -- 38
+                concurrent_limit, -- 21
+                concurrency_time_window_s, -- 22
+                timeout, -- 23
+                flow_step_id, -- 24
+                cache_ttl, -- 25
+                priority, -- 26
+                trigger_kind, -- 39
+                script_entrypoint_override, -- 12
+                preprocessed -- 27
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
+        ),
+        _ AS (
+            INSERT INTO v2_jobs_settings_references (
+            job_id,
+            debouncing_settings_hash, 
+            concurrency_settings_hash
+            ) VALUES ($1, $42, $43)
         ),
         inserted_job_perms AS (
             INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
@@ -5136,9 +5190,9 @@ pub async fn push<'c, 'd>(
         email,
         visible_to_owner,
         flow_innermost_root_job,
-        concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
+        concurrency_settings.concurrent_limit,
+        if concurrency_settings.concurrent_limit.is_some() {
+            concurrency_settings.concurrency_time_window_s
         } else {
             None
         },
@@ -5161,10 +5215,14 @@ pub async fn push<'c, 'd>(
         trigger_kind as Option<JobTriggerKind>,
         running,
         end_user_email,
-    )
+        debouncing_settings_hash,
+        concurrency_settings_hash,
+        )
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    // RunnableSettings::insert(RunnableType::Job)
 
     //     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     //     let uuid = sqlx::query_scalar!(

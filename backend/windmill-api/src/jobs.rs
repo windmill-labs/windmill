@@ -35,8 +35,10 @@ use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, DynamicInput,
-    JobTriggerKind, ENTRYPOINT_OVERRIDE,
+    DynamicInput, JobTriggerKind, ENTRYPOINT_OVERRIDE,
+};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -887,9 +889,18 @@ macro_rules! get_job_query {
         get_job_query!(
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, timeout, flow_step_id, cache_ttl,\
+            COALESCE(cs.concurrent_limit, v2_job.concurrent_limit) AS concurrent_limit,
+            COALESCE(cs.concurrency_time_window_s, v2_job.concurrency_time_window_s) AS concurrency_time_window_s,
+            ds.debounce_key, ds.debounce_delay_s, ds.max_total_debouncing_time, ds.max_total_debounces_amount, ds.debounce_args_to_accumulate,
             script_entrypoint_override",
-            "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
+            "
+            LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
+            LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+            LEFT JOIN v2_jobs_settings_references srefs ON v2_job_queue.id = srefs.job_id
+            LEFT JOIN concurrency_settings cs ON srefs.concurrency_settings_hash = cs.hash
+            LEFT JOIN debouncing_settings  ds ON srefs.debouncing_settings_hash = ds.hash
+            ",
         )
     };
     (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
@@ -931,7 +942,7 @@ macro_rules! get_job_query {
             FROM {table}
             INNER JOIN v2_job ON v2_job.id = {table}.id \
             {additional_joins} \
-            LEFT JOIN job_logs ON {table}.id = job_id \
+            LEFT JOIN job_logs ON {table}.id = job_logs.job_id \
             WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
             table = $table,
             additional_fields = $additional_fields,
@@ -3361,6 +3372,8 @@ pub struct UnifiedJob {
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
     pub worker: Option<String>,
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -3401,6 +3414,11 @@ const CJ_FIELDS: &[&str] = &[
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_completed.worker",
+    "null as debounce_key",
+    "null as debounce_delay_s",
+    "null as max_total_debouncing_time",
+    "null as max_total_debounces_amount",
+    "null as debounce_args_to_accumulate",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -3441,6 +3459,11 @@ const QJ_FIELDS: &[&str] = &[
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_queue.worker",
+    "null as debounce_key",
+    "null as debounce_delay_s",
+    "null as max_total_debouncing_time",
+    "null as max_total_debounces_amount",
+    "null as debounce_args_to_accumulate",
 ];
 
 impl UnifiedJob {
@@ -3539,6 +3562,7 @@ impl<'a> From<UnifiedJob> for Job {
                     cache_ttl: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
+                    debouncing_settings: uj.debouncing_settings,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -4586,13 +4610,16 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: raw_lock,
-                concurrency_settings: windmill_common::jobs::ConcurrencySettingsWithCustom {
-                    custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettingsWithCustom {
+                        custom_concurrency_key: windmill_queue::custom_concurrency_key(
+                            &db, &job.id,
+                        )
                         .await
                         .map_err(to_anyhow)?,
-                    concurrent_limit: job.concurrent_limit,
-                    concurrency_time_window_s: job.concurrency_time_window_s,
-                },
+                        concurrent_limit: job.concurrent_limit,
+                        concurrency_time_window_s: job.concurrency_time_window_s,
+                    },
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
                 // TODO(debouncing): enable for this mode
@@ -5409,11 +5436,8 @@ pub async fn run_wait_result_script_by_hash(
     let ScriptHashInfo {
         path,
         tag,
-        concurrency_key,
-        concurrent_limit,
-        concurrency_time_window_s,
-        debounce_key,
-        debounce_delay_s,
+        concurrency_settings,
+        debouncing_settings,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -5457,17 +5481,8 @@ pub async fn run_wait_result_script_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            concurrency_settings: windmill_common::jobs::ConcurrencySettingsWithCustom {
-                custom_concurrency_key: concurrency_key,
-                concurrent_limit: concurrent_limit,
-                concurrency_time_window_s: concurrency_time_window_s,
-            }
-            .into(),
-            debouncing_settings: DebouncingSettings {
-                custom_key: debounce_key,
-                delay_s: debounce_delay_s,
-                ..Default::default() // TODO
-            },
+            concurrency_settings: concurrency_settings.into(),
+            debouncing_settings,
             cache_ttl,
             language,
             dedicated_worker,
@@ -6366,9 +6381,11 @@ async fn add_batch_jobs(
         job_kind,
         language,
         dedicated_worker,
-        custom_concurrency_key,
-        concurrent_limit,
-        concurrent_time_window_s,
+        ConcurrencySettings {
+            concurrency_key: custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+        },
         timeout,
         raw_code,
         raw_lock,
@@ -6381,9 +6398,7 @@ async fn add_batch_jobs(
                     UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
                 let ScriptHashInfo {
                     hash: script_hash,
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
+                    concurrency_settings,
                     language,
                     dedicated_worker,
                     timeout,
@@ -6395,9 +6410,7 @@ async fn add_batch_jobs(
                     JobKind::Script,
                     Some(language),
                     dedicated_worker,
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
+                    concurrency_settings,
                     timeout,
                     None,
                     None,
@@ -6418,9 +6431,7 @@ async fn add_batch_jobs(
                     JobKind::Preview,
                     rawscript.language,
                     None,
-                    None,
-                    None,
-                    None,
+                    ConcurrencySettings::default(),
                     None,
                     Some(rawscript.content),
                     rawscript.lock,
@@ -6465,19 +6476,17 @@ async fn add_batch_jobs(
             add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (
-                None,                                                 // script_hash
-                path,                                                 // script_path
-                job_kind,                                             // job_kind
-                None,                                                 // language
-                None,                                                 // dedicated_worker
-                value.concurrency_settings.concurrency_key.clone(),   // custom_concurrency_key
-                value.concurrency_settings.concurrent_limit.clone(),  // concurrent_limit
-                value.concurrency_settings.concurrency_time_window_s, // concurrency_time_window_s
-                None,                                                 // timeout
-                None,                                                 // raw_code
-                None,                                                 // raw_lock
-                Some(value),                                          // raw_flow
-                Some(flow_status),                                    // flow_status
+                None,                               // script_hash
+                path,                               // script_path
+                job_kind,                           // job_kind
+                None,                               // language
+                None,                               // dedicated_worker
+                value.concurrency_settings.clone(), // custom_concurrency_key
+                None,                               // timeout
+                None,                               // raw_code
+                None,                               // raw_lock
+                Some(value),                        // raw_flow
+                Some(flow_status),                  // flow_status
             )
         }
         "noop" => (
@@ -6486,9 +6495,7 @@ async fn add_batch_jobs(
             JobKind::Noop,
             None,
             None,
-            None,
-            None,
-            None,
+            ConcurrencySettings::default(),
             None,
             None,
             None,
@@ -6543,7 +6550,7 @@ async fn add_batch_jobs(
         username_to_permissioned_as(&authed.username),
         authed.email,
         concurrent_limit,
-        concurrent_time_window_s,
+        concurrency_time_window_s,
         timeout,
         n,
     )
@@ -6923,11 +6930,8 @@ pub async fn run_job_by_hash_inner(
     let ScriptHashInfo {
         path,
         tag,
-        concurrency_key,
-        concurrent_limit,
-        concurrency_time_window_s,
-        debounce_delay_s,
-        debounce_key,
+        concurrency_settings,
+        debouncing_settings,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -6973,16 +6977,8 @@ pub async fn run_job_by_hash_inner(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            concurrency_settings: ConcurrencySettings {
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
-            },
-            debouncing_settings: DebouncingSettings {
-                custom_key: debounce_key,
-                delay_s: debounce_delay_s,
-                ..Default::default()
-            },
+            concurrency_settings,
+            debouncing_settings,
             cache_ttl,
             language,
             dedicated_worker,

@@ -11,8 +11,8 @@
 //! For users writing scripts to access their infrastructure with firewalls requiring incoming
 //! connections to be from whitelisted IP addresses.
 
-use std::time::Duration;
 use crate::utils::configure_client;
+use std::time::Duration;
 
 pub async fn get_ip() -> anyhow::Result<String> {
     tokio::select! {

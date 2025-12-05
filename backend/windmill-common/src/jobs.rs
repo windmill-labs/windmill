@@ -22,6 +22,7 @@ use crate::{
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
@@ -189,6 +190,10 @@ pub struct QueuedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[sqlx(flatten)]
+    pub debouncing_settings: DebouncingSettings,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub debouncing_settings: Option<DebouncingSettings>,
 }
 
 impl QueuedJob {
@@ -261,6 +266,7 @@ impl Default for QueuedJob {
             cache_ttl: None,
             priority: None,
             preprocessed: None,
+            debouncing_settings: Default::default(),
         }
     }
 }
@@ -466,108 +472,6 @@ pub enum JobPayload {
     },
 }
 
-// TODO: Add validation logic.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct DebouncingSettings {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "debounce_key",
-        alias = "custom_debounce_key"
-    )]
-    /// debounce key is usually stored in the db
-    /// including when:
-    ///
-    /// 1. User have created custom debounce key from ui or cli
-    /// 2. User used default one
-    ///
-    /// in either cases this argument serves as reactive way of overwriting debounce key from the backend.
-    /// Default: hash(path + step_id + inputs)
-    pub custom_key: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none", rename = "debounce_delay_s")]
-    /// Debouncing delay will be determined by the first job with the key.
-    /// All subsequent jobs with Some will get debounced.
-    /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
-    pub delay_s: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "max_total_debouncing_time"
-    )]
-    pub max_total_time: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "max_total_debounces_amount"
-    )]
-    pub max_total_amount: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "debounce_args_to_accumulate"
-    )]
-    /// top level arguments to preserve
-    /// For every debounce selected arguments will be saved
-    /// in the end (when job finally starts) arguments will be appended and passed to runnable
-    ///
-    /// NOTE: selected args should be the lists.
-    pub args_to_accumulate: Option<Vec<String>>,
-}
-
-impl DebouncingSettings {
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct ConcurrencySettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, Default)]
-pub struct ConcurrencySettingsWithCustom {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-}
-
-impl From<ConcurrencySettings> for ConcurrencySettingsWithCustom {
-    fn from(
-        ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }: ConcurrencySettings,
-    ) -> Self {
-        ConcurrencySettingsWithCustom {
-            custom_concurrency_key: concurrency_key,
-            concurrency_time_window_s,
-            concurrent_limit,
-        }
-    }
-}
-
-impl From<ConcurrencySettingsWithCustom> for ConcurrencySettings {
-    fn from(
-        ConcurrencySettingsWithCustom {
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-        }: ConcurrencySettingsWithCustom,
-    ) -> Self {
-        ConcurrencySettings {
-            concurrency_key: custom_concurrency_key,
-            concurrency_time_window_s,
-            concurrent_limit,
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SkipHandler {
     pub path: String,
@@ -685,11 +589,8 @@ pub async fn script_path_to_payload<'e>(
         let ScriptHashInfo {
             hash,
             tag,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            concurrency_settings,
+            debouncing_settings,
             cache_ttl,
             language,
             dedicated_worker,
@@ -721,17 +622,8 @@ pub async fn script_path_to_payload<'e>(
                 priority,
                 apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                     && has_preprocessor.unwrap_or(false),
-                concurrency_settings: ConcurrencySettingsWithCustom {
-                    custom_concurrency_key: concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                }
-                .into(),
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
+                concurrency_settings: concurrency_settings.into(),
+                debouncing_settings,
             },
             tag,
             delete_after_use,
