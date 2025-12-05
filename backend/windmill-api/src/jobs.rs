@@ -3414,6 +3414,11 @@ const CJ_FIELDS: &[&str] = &[
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_completed.worker",
+    "null as debounce_key",
+    "null as debounce_delay_s",
+    "null as max_total_debouncing_time",
+    "null as max_total_debounces_amount",
+    "null as debounce_args_to_accumulate",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -3454,6 +3459,11 @@ const QJ_FIELDS: &[&str] = &[
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_queue.worker",
+    "null as debounce_key",
+    "null as debounce_delay_s",
+    "null as max_total_debouncing_time",
+    "null as max_total_debounces_amount",
+    "null as debounce_args_to_accumulate",
 ];
 
 impl UnifiedJob {
