@@ -166,7 +166,7 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
@@ -216,6 +216,9 @@ async fn create_folder(
     )
     .execute(&mut *tx)
     .await {
+        drop(tx);
+        let mut tx = user_db.begin(&authed).await?;
+
         let exists_for_user = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2 AND $3 = ANY(owners))",
             ng.name,
