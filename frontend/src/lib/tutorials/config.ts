@@ -11,7 +11,7 @@ export interface TutorialConfig {
 	index?: number // Bitmask index in the database (for progress tracking)
 	active?: boolean // Whether this tutorial is active and should be displayed (default: true)
 	comingSoon?: boolean
-	role?: 'admin' | 'developer' | 'operator' // Role required to access this tutorial
+	roles?: ('admin' | 'developer' | 'operator')[] // Roles that can access this tutorial (if not specified, available to everyone)
 	order?: number
 }
 
@@ -60,7 +60,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
-				role: 'operator',
+				roles: ['operator', 'developer', 'admin'],
 				order: 1
 			},
 			{
@@ -74,7 +74,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 2,
 				active: true,
 				comingSoon: false,
-				role: 'developer',
+				roles: ['developer', 'admin'],
 				order: 2
 			},
 			{
@@ -88,7 +88,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 3,
 				active: true,
 				comingSoon: false,
-				role: 'developer',
+				roles: ['developer', 'admin'],
 				order: 3
 			}
 		]
@@ -110,7 +110,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 4,
 				active: true,
 				comingSoon: false,
-				role: 'developer',
+				roles: ['developer', 'admin'],
 				order: 4
 			},
 			{
@@ -124,7 +124,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 5,
 				active: true,
 				comingSoon: false,
-				role: 'developer',
+				roles: ['developer', 'admin'],
 				order: 5
 			}
         ]

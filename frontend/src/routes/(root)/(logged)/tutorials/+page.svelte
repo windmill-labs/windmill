@@ -21,6 +21,27 @@
 	import { RefreshCw, CheckCheck, CheckCircle2, Circle } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
+	import type { UserExt } from '$lib/stores'
+
+	/**
+	 * Check if a user has access based on a roles array.
+	 */
+	function hasRoleAccess(
+		user: UserExt | null | undefined,
+		roles?: ('admin' | 'developer' | 'operator')[]
+	): boolean {
+		// No roles specified = available to everyone
+		if (!roles || roles.length === 0) return true
+		if (!user) return false
+
+		// Check if user has any of the required roles
+		return roles.some((role) => {
+			if (role === 'admin') return user.is_admin
+			if (role === 'operator') return user.operator || user.is_admin
+			if (role === 'developer') return !user.operator || user.is_admin
+			return false
+		})
+	}
 
 	// Get active tabs only (filtered by active and roles)
 	const activeTabs = $derived.by(() => {
@@ -28,22 +49,8 @@
 		return Object.entries(TUTORIALS_CONFIG).filter(([, config]) => {
 			// Filter by active
 			if (config.active === false) return false
-			
-			// Filter by roles if specified
-			if (config.roles && config.roles.length > 0) {
-				if (!user) return false
-				
-				// Check if user has any of the required roles
-				return config.roles.some((role) => {
-					if (role === 'admin') return user.is_admin
-					if (role === 'operator') return user.operator || user.is_admin
-					if (role === 'developer') return !user.operator || user.is_admin
-					return false
-				})
-			}
-			
-			// No roles specified = available to everyone
-			return true
+			// Filter by roles
+			return hasRoleAccess(user, config.roles)
 		}) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
 	})
 
@@ -68,17 +75,7 @@
 	const visibleTutorials = $derived(
 		currentTabConfig.tutorials.filter((tutorial) => {
 			if (tutorial.active === false) return false
-			if (!tutorial.role) return true
-			const user = $userStore
-			if (!user) return false
-
-			// Check role flags directly (only is_admin and operator are stored in DB)
-			// Developer is the default role (when both is_admin and operator are false)
-			const { role } = tutorial
-			if (role === 'admin') return user.is_admin
-			if (role === 'operator') return user.operator || user.is_admin
-			if (role === 'developer') return !user.operator || user.is_admin
-			return true
+			return hasRoleAccess($userStore, tutorial.roles)
 		})
 	)
 
@@ -167,12 +164,7 @@
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
 			if (tutorial.active === false || tutorial.index === undefined) continue
-			if (tutorial.role && user) {
-				const { role } = tutorial
-				if (role === 'admin' && !user.is_admin) continue
-				if (role === 'operator' && !user.operator && !user.is_admin) continue
-				if (role === 'developer' && user.operator && !user.is_admin) continue
-			}
+			if (!hasRoleAccess(user, tutorial.roles)) continue
 			indexes.push(tutorial.index)
 		}
 		
