@@ -68,7 +68,7 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
@@ -115,6 +115,10 @@
 		timeout = setTimeout(() => {
 			updateEditPanelSize(editPanelSize)
 		}, 100)
+	})
+
+	$effect(() => {
+		chatInputEnabled = Boolean(flowStore.val.value?.chat_input_enabled)
 	})
 
 	const getDropdownItems = () => {
@@ -398,7 +402,7 @@
 	}
 
 	function handleToggleChatMode() {
-		if (!chatInputEnabled) {
+		if (!flowStore.val.value?.chat_input_enabled) {
 			// Check if there are existing inputs
 			if (hasOtherInputs()) {
 				showChatModeWarning = true
@@ -499,7 +503,10 @@
 	title="Enable Chat Mode?"
 	confirmationText="Continue"
 	onConfirmed={enableChatMode}
-	onCanceled={() => (showChatModeWarning = false)}
+	onCanceled={() => {
+		showChatModeWarning = false
+		chatInputEnabled = false
+	}}
 >
 	<p class="text-sm text-secondary">
 		Enabling Chat Mode will replace all existing flow inputs with a single
@@ -516,9 +523,8 @@
 		{#if !disabled}
 			<Toggle
 				size="sm"
-				checked={chatInputEnabled}
-				on:click={(e) => {
-					e.preventDefault()
+				bind:checked={chatInputEnabled}
+				on:change={(e) => {
 					handleToggleChatMode()
 				}}
 				options={{
