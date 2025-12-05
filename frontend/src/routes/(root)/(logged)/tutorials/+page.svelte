@@ -49,18 +49,6 @@
 		}
 	})
 
-	// Debug: Log user role for troubleshooting
-	$effect(() => {
-		const user = $userStore
-		if (user) {
-			console.log('Tutorials page - User role:', {
-				is_admin: user.is_admin,
-				operator: user.operator,
-				effectiveRole: userEffectiveRole,
-				selectedPreviewRole: selectedPreviewRole
-			})
-		}
-	})
 
 	/**
 	 * Check if the current user (or preview role) has access to a roles array.
