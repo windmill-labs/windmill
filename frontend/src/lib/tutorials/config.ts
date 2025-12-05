@@ -43,7 +43,7 @@ export function getTutorialIndex(id: string): number {
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
-		roles: ['admin', 'developer', 'operator'],
+		roles: ['admin', 'developer'],
 		progressBar: true,
 		active: true,
 		tutorials: [
@@ -58,7 +58,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
-				roles: ['operator','developer', 'admin'],
+				roles: ['developer', 'admin'],
 				order: 1
 			},
 			{

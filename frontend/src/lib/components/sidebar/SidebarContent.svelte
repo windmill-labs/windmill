@@ -11,7 +11,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
-	import { syncTutorialsTodos, shouldHideTutorialsFromMainMenu } from '$lib/tutorialUtils'
+	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,

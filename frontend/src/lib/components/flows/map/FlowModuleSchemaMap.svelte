@@ -102,8 +102,6 @@
 		flowHasChanged
 	}: Props = $props()
 
-	let flowTutorials: FlowTutorials | undefined = $state(undefined)
-
 	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -659,5 +657,5 @@
 </div>
 
 {#if !disableTutorials}
-	<FlowTutorials bind:this={flowTutorials} on:reload />
+	<FlowTutorials on:reload />
 {/if}

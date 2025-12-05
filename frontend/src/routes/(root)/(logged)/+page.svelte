@@ -20,8 +20,7 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard,
-		GraduationCap
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -43,25 +42,26 @@
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab =
+	let tab: Tab = $state(
 		window.location.hash == '#workspace' || window.location.hash == '#hub'
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
+	)
 
-	let subtab: 'flow' | 'script' | 'app' = 'script'
+	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = ''
+	let filter: string = $state('')
 
-	let flowViewer: Drawer
-	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined
+	let flowViewer: Drawer = $state()
+	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
 
-	let appViewer: Drawer
-	let appViewerApp: { app?: any & { id?: number } } | undefined
+	let appViewer: Drawer = $state()
+	let appViewerApp: { app?: any & { id?: number } } | undefined = $state(undefined)
 
-	let codeViewer: Drawer
-	let codeViewerContent: string = ''
-	let codeViewerLanguage: Script['language'] = 'deno'
-	let codeViewerObj: HubItem | undefined = undefined
+	let codeViewer: Drawer = $state()
+	let codeViewerContent: string = $state('')
+	let codeViewerLanguage: Script['language'] = $state('deno')
+	let codeViewerObj: HubItem | undefined = $state(undefined)
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 

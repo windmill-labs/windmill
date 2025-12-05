@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { skipAllTodos } from '$lib/tutorialUtils'
 	import TroubleshootFlowTutorial from './tutorials/TroubleshootFlowTutorial.svelte'
+	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	let troubleshootFlowTutorial: TroubleshootFlowTutorial | undefined = $state(undefined)
 
@@ -15,4 +16,10 @@
 	}
 </script>
 
-<TroubleshootFlowTutorial bind:this={troubleshootFlowTutorial} on:error on:skipAll={skipAll} on:reload />
+<TroubleshootFlowTutorial
+	bind:this={troubleshootFlowTutorial}
+	index={getTutorialIndex('troubleshoot-flow')}
+	on:error
+	on:skipAll={skipAll}
+	on:reload
+/>

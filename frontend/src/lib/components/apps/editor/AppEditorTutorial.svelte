@@ -65,8 +65,8 @@
 <AppTutorials
 	bind:this={appTutorials}
 	on:reload
-	on:error={({ detail }) => {
-		targetTutorial = detail.detail
+	on:error={(event: CustomEvent<{ detail: string }>) => {
+		targetTutorial = event.detail.detail
 	}}
 />
 
