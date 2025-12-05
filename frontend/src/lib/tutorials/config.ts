@@ -9,7 +9,7 @@ export interface TutorialConfig {
 	description: string
 	onClick: () => void
 	index?: number // Bitmask index in the database (for progress tracking)
-	disabled?: boolean
+	active?: boolean // Whether this tutorial is active and should be displayed (default: true)
 	comingSoon?: boolean
 	requiredRole?: 'admin' | 'developer' | 'operator'
 	order?: number
@@ -19,6 +19,7 @@ export interface TabConfig {
 	label: string
 	tutorials: TutorialConfig[]
 	progressBar?: boolean // Whether to display the progress bar for this tab (default: true)
+	active?: boolean // Whether this tab category is active and should be displayed (default: true)
 }
 
 export type TabId = 'quickstart' | 'app_editor' 
@@ -39,6 +40,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
 		progressBar: true,
+		active: true,
 		tutorials: [
 			{
 				id: 'workspace-onboarding',
@@ -49,7 +51,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 					window.location.href = `${base}/?tutorial=workspace-onboarding`
 				},
 				index: 1,
-				disabled: false,
+				active: true,
 				comingSoon: false,
 				order: 1
 			},
@@ -62,7 +64,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 					window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial&nodraft=true`
 				},
 				index: 2,
-				disabled: false,
+				active: true,
 				comingSoon: false,
 				order: 2
 			},
@@ -75,7 +77,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 					window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow&nodraft=true`
 				},
 				index: 3,
-				disabled: false,
+				active: true,
 				comingSoon: false,
 				order: 3
 			}
@@ -84,6 +86,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	app_editor: {
 		label: 'App Editor',
 		progressBar: false,
+		active: true,
 		tutorials: [
             {
 				id: 'backgroundrunnables',
@@ -94,7 +97,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 					window.location.href = `${base}/apps/add?tutorial=backgroundrunnables&nodraft=true`
 				},
 				index: 4,
-				disabled: false,
+				active: true,
 				comingSoon: false,
 				order: 4
 			},
@@ -107,7 +110,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 					window.location.href = `${base}/apps/add?tutorial=connection&nodraft=true`
 				},
 				index: 5,
-				disabled: false,
+				active: true,
 				comingSoon: false,
 				order: 5
 			}

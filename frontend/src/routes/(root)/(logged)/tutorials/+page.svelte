@@ -22,7 +22,33 @@
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 
-	let tab: TabId = $state('quickstart')
+	// Get active tabs only
+	const activeTabs = $derived(
+		Object.entries(TUTORIALS_CONFIG).filter(
+			([, config]) => config.active !== false
+		) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
+	)
+
+	// Initialize tab to first active tab, or 'quickstart' if it's active
+	const initialTab: TabId = (() => {
+		if (TUTORIALS_CONFIG.quickstart?.active !== false) {
+			return 'quickstart'
+		}
+		return activeTabs[0]?.[0] || 'quickstart'
+	})()
+
+	let tab: TabId = $state(initialTab)
+
+	// Ensure current tab is active, otherwise switch to first active tab
+	$effect(() => {
+		const currentConfig = TUTORIALS_CONFIG[tab]
+		if (currentConfig?.active === false) {
+			const firstActiveTab = activeTabs[0]?.[0]
+			if (firstActiveTab) {
+				tab = firstActiveTab
+			}
+		}
+	})
 
 	// Get current tab configuration
 	const currentTabConfig = $derived(TUTORIALS_CONFIG[tab])
@@ -46,7 +72,7 @@
 	const tutorials = $derived(
 		currentTabConfig.tutorials
 			.filter((tutorial) => {
-				if (tutorial.disabled) return false
+				if (tutorial.active === false) return false
 				if (!tutorial.requiredRole) return true
 				const user = $userStore
 				if (!user) return false
@@ -125,7 +151,7 @@
 		// Get all tutorial indexes for this tab (filtered by role)
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
-			if (tutorial.disabled || tutorial.index === undefined) continue
+			if (tutorial.active === false || tutorial.index === undefined) continue
 			if (tutorial.requiredRole && user) {
 				const { requiredRole } = tutorial
 				if (requiredRole === 'admin' && !user.is_admin && !user.is_super_admin) continue
@@ -194,7 +220,7 @@
 
 	<div class="flex justify-between pt-4">
 		<Tabs class="w-full" bind:selected={tab}>
-			{#each Object.entries(TUTORIALS_CONFIG) as [tabId, config]}
+			{#each activeTabs as [tabId, config]}
 				{@const badge = getTabBadge(tabId as TabId)}
 				{#if badge.type === 'progress'}
 					<Tab value={tabId} label={config.label}>
@@ -259,7 +285,7 @@
 						description={tutorial.description}
 						onclick={tutorial.onClick}
 						isCompleted={isTutorialCompleted(tutorial.id)}
-						disabled={tutorial.disabled}
+						disabled={tutorial.active === false}
 						comingSoon={tutorial.comingSoon}
 					/>
 				{/each}
