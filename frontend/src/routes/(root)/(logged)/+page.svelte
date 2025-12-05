@@ -52,13 +52,13 @@
 
 	let filter: string = $state('')
 
-	let flowViewer: Drawer = $state()
+	let flowViewer: Drawer | undefined = $state(undefined)
 	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
 
-	let appViewer: Drawer = $state()
+	let appViewer: Drawer | undefined = $state(undefined)
 	let appViewerApp: { app?: any & { id?: number } } | undefined = $state(undefined)
 
-	let codeViewer: Drawer = $state()
+	let codeViewer: Drawer | undefined = $state(undefined)
 	let codeViewerContent: string = $state('')
 	let codeViewerLanguage: Script['language'] = $state('deno')
 	let codeViewerObj: HubItem | undefined = $state(undefined)
@@ -74,7 +74,7 @@
 			codeViewerObj = obj
 		})
 
-		codeViewer.openDrawer?.()
+		codeViewer?.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
@@ -83,7 +83,7 @@
 			delete hub['comments']
 			flowViewerFlow = hub
 		})
-		flowViewer.openDrawer?.()
+		flowViewer?.openDrawer?.()
 	}
 
 	async function viewApp(obj: { app_id: number }): Promise<void> {
@@ -92,7 +92,7 @@
 			delete hub['comments']
 			appViewerApp = hub
 		})
-		appViewer.openDrawer?.()
+		appViewer?.openDrawer?.()
 	}
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
