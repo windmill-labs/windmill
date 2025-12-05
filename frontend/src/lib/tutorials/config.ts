@@ -1,6 +1,7 @@
 import type { ComponentType } from 'svelte'
 import { Workflow, GraduationCap, Wrench, PlayCircle, Link2 } from 'lucide-svelte'
 import { base } from '$lib/base'
+import type { Role } from './roleUtils'
 
 export interface TutorialConfig {
 	id: string
@@ -11,14 +12,14 @@ export interface TutorialConfig {
 	index?: number // Bitmask index in the database (for progress tracking)
 	active?: boolean // Whether this tutorial is active and should be displayed (default: true)
 	comingSoon?: boolean
-	roles?: ('admin' | 'developer' | 'operator')[] // Roles that can access this tutorial (if not specified, available to everyone)
+	roles?: Role[] // Roles that can access this tutorial (if not specified, available to everyone)
 	order?: number
 }
 
 export interface TabConfig {
 	label: string
 	tutorials: TutorialConfig[]
-	roles?: ('admin' | 'developer' | 'operator')[] // Roles that can access this tab category (if not specified, available to everyone)
+	roles?: Role[] // Roles that can access this tab category (if not specified, available to everyone)
 	progressBar?: boolean // Whether to display the progress bar for this tab (default: true)
 	active?: boolean // Whether this tab category is active and should be displayed (default: true)
 }
@@ -37,15 +38,12 @@ export function getTutorialIndex(id: string): number {
 	throw new Error(`Tutorial index not found for id: ${id}. Make sure the tutorial has an index defined in config.`)
 }
 
-// Available roles
-    // 'developer': Developer role (can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f).
-    // 'operator': Operator role (can execute and view scripts/flows/apps from your workspace, and only those that he has visibility on).
-    // 'admin': Admin role (has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace).
+// Available roles : developer, admin, operator
 
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
-		roles: ['developer', 'admin'],
+		roles: ['admin', 'developer', 'operator'],
 		progressBar: true,
 		active: true,
 		tutorials: [
@@ -60,7 +58,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
-				roles: ['developer', 'admin'],
+				roles: ['operator','developer', 'admin'],
 				order: 1
 			},
 			{
@@ -88,7 +86,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 3,
 				active: true,
 				comingSoon: false,
-				roles: ['developer', 'admin'],
+				roles: ['admin','developer'],
 				order: 3
 			}
 		]

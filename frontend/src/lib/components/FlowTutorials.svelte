@@ -40,7 +40,7 @@
 <TroubleshootFlowTutorial 
 	bind:this={troubleshootFlowTutorial}
 	index={getTutorialIndex('troubleshoot-flow')}
-	on:error 
-	on:skipAll={skipAll} 
-	on:reload 
+	on:error
+	on:skipAll={skipAll}
+	on:reload
 />

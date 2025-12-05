@@ -23,33 +23,13 @@
 	import { RefreshCw, CheckCheck, CheckCircle2, Circle, Shield, Code, UserCog } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
-	import type { UserExt } from '$lib/stores'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { hasRoleAccess, hasRoleAccessForPreview, type Role } from '$lib/tutorials/roleUtils'
 
 	// Role override for admins to preview what other roles see
 	// Only used when user is admin - defaults to 'admin' (their actual role)
-	let roleOverride: 'admin' | 'developer' | 'operator' = $state('admin')
-
-	/**
-	 * Check if a user has access based on a roles array.
-	 */
-	function hasRoleAccess(
-		user: UserExt | null | undefined,
-		roles?: ('admin' | 'developer' | 'operator')[]
-	): boolean {
-		// No roles specified = available to everyone
-		if (!roles || roles.length === 0) return true
-		if (!user) return false
-
-		// Check if user has any of the required roles
-		return roles.some((role) => {
-			if (role === 'admin') return user.is_admin
-			if (role === 'operator') return user.operator || user.is_admin
-			if (role === 'developer') return !user.operator || user.is_admin
-			return false
-		})
-	}
+	let roleOverride: Role = $state('admin')
 
 	// Debug: Log user role for troubleshooting
 	$effect(() => {
@@ -65,36 +45,25 @@
 	})
 
 	/**
-	 * Check if a preview role has access based on a roles array.
-	 * Used by admins to preview what other roles can see.
+	 * Check if the current user (or preview role) has access to a roles array.
+	 * Handles both normal access and admin preview mode.
 	 */
-	function hasRoleAccessForPreview(
-		previewRole: 'admin' | 'developer' | 'operator',
-		roles?: ('admin' | 'developer' | 'operator')[]
-	): boolean {
-		// No roles specified = available to everyone
-		if (!roles || roles.length === 0) return true
-
-		// Check if preview role has any of the required roles
-		return roles.some((role) => {
-			if (role === 'admin') return previewRole === 'admin'
-			if (role === 'operator') return previewRole === 'operator' || previewRole === 'admin'
-			if (role === 'developer') return previewRole === 'developer' || previewRole === 'admin'
-			return false
-		})
+	function checkAccess(roles?: Role[]): boolean {
+		const user = $userStore
+		// Use preview function if admin has selected a role override
+		if (user?.is_admin && roleOverride !== 'admin') {
+			return hasRoleAccessForPreview(roleOverride, roles)
+		}
+		return hasRoleAccess(user, roles)
 	}
 
 	// Get active tabs only (filtered by active and roles)
 	const activeTabs = $derived.by(() => {
-		const user = $userStore
 		return Object.entries(TUTORIALS_CONFIG).filter(([, config]) => {
 			// Filter by active
 			if (config.active === false) return false
-			// Filter by roles - use preview function if admin has selected a role override
-			if (user?.is_admin && roleOverride !== 'admin') {
-				return hasRoleAccessForPreview(roleOverride, config.roles)
-			}
-			return hasRoleAccess(user, config.roles)
+			// Filter by roles
+			return checkAccess(config.roles)
 		}) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
 	})
 
@@ -119,11 +88,7 @@
 	const visibleTutorials = $derived(
 		currentTabConfig.tutorials.filter((tutorial) => {
 			if (tutorial.active === false) return false
-			// Use preview function if admin has selected a role override
-			if ($userStore?.is_admin && roleOverride !== 'admin') {
-				return hasRoleAccessForPreview(roleOverride, tutorial.roles)
-			}
-			return hasRoleAccess($userStore, tutorial.roles)
+			return checkAccess(tutorial.roles)
 		})
 	)
 
@@ -238,18 +203,12 @@
 	// Calculate progress for each tab
 	function getTabProgress(tabId: TabId) {
 		const tabConfig = TUTORIALS_CONFIG[tabId]
-		const user = $userStore
 		
 		// Get all tutorial indexes for this tab (filtered by role)
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
 			if (tutorial.active === false || tutorial.index === undefined) continue
-			// Use preview function if admin has selected a role override
-			if (user?.is_admin && roleOverride !== 'admin') {
-				if (!hasRoleAccessForPreview(roleOverride, tutorial.roles)) continue
-			} else {
-				if (!hasRoleAccess(user, tutorial.roles)) continue
-			}
+			if (!checkAccess(tutorial.roles)) continue
 			indexes.push(tutorial.index)
 		}
 		
