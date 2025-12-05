@@ -59,8 +59,6 @@
 <button
 	onclick={disabled || comingSoon ? undefined : onclick}
 	disabled={disabled || comingSoon}
-	onmouseenter={() => (isHovered = true)}
-	onmouseleave={() => (isHovered = false)}
 	class="group relative flex items-center gap-4 w-full px-4 py-3 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b border-b border-light transition-colors text-left last:border-b-0 {disabled || comingSoon
 		? 'opacity-50 cursor-not-allowed'
 		: 'hover:bg-surface-hover'}"
@@ -84,7 +82,12 @@
 	</div>
 
 	<!-- Status -->
-	<div class="flex items-center gap-1.5 flex-shrink-0">
+	<div
+		role="status"
+		class="flex items-center gap-1.5 flex-shrink-0"
+		onmouseenter={() => (isHovered = true)}
+		onmouseleave={() => (isHovered = false)}
+	>
 		{#if actionButton()}
 			{@const button = actionButton()!}
 			{@const ActionIcon = button.icon}
