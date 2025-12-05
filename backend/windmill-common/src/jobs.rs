@@ -186,6 +186,8 @@ pub struct QueuedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
@@ -259,6 +261,7 @@ impl Default for QueuedJob {
             timeout: None,
             flow_step_id: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             preprocessed: None,
         }

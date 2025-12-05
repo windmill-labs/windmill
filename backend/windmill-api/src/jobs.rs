@@ -887,7 +887,7 @@ macro_rules! get_job_query {
         get_job_query!(
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, \
             script_entrypoint_override",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
@@ -3537,6 +3537,7 @@ impl<'a> From<UnifiedJob> for Job {
                     timeout: None,
                     flow_step_id: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                 },

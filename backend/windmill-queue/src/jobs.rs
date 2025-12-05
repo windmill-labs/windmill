@@ -1976,6 +1976,7 @@ pub struct MiniPulledJob {
     pub timeout: Option<i32>,
     pub flow_step_id: Option<String>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub priority: Option<i16>,
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
@@ -2188,6 +2189,7 @@ impl MiniPulledJob {
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
+            cache_ignore_s3_path: job.cache_ignore_s3_path.clone(),
             priority: job.priority.clone(),
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
@@ -2395,6 +2397,7 @@ pub async fn get_mini_pulled_job<'c>(
         timeout,
         flow_step_id,
         cache_ttl,
+        cache_ignore_s3_path,
         v2_job_queue.priority,
         preprocessed,
         script_entrypoint_override,
@@ -2432,6 +2435,7 @@ pub struct QueuedJobV2 {
     pub concurrent_limit: Option<i32>,
     pub tag: String,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub worker: Option<String>,
     pub memory_peak: Option<i32>,
@@ -2451,7 +2455,7 @@ pub async fn get_queued_job_v2<'c>(
     let job = sqlx::query_as!(
         QueuedJobV2,
         "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
-        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, r.ping as last_ping, worker, memory_peak, running
+        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1",
         job_id,
@@ -5668,6 +5672,7 @@ pub async fn get_same_worker_job(
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
+                    v2_job.cache_ignore_s3_path,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,
