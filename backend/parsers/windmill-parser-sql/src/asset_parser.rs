@@ -1,151 +1,148 @@
+use sqlparser::{
+    ast::{Expr, Ident, ObjectName, TableFactor, Value, ValueWithSpan, Visit, Visitor},
+    dialect::GenericDialect,
+    parser::Parser,
+};
 use windmill_parser::asset_parser::{
-    merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    detect_sql_access_type, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
+    ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while},
-    character::complete::{char, multispace0},
-    combinator::opt,
-    sequence::preceded,
-    IResult, Parser,
-};
+pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
+    let statements = Parser::parse_sql(&GenericDialect, input)?;
 
-pub fn parse_assets<'a>(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<&str>>> {
-    let mut assets = Vec::new();
-    let mut remaining = input;
+    let mut collector = AssetCollector::new();
+    for statement in statements {
+        statement.visit(&mut collector);
+    }
 
-    while !remaining.trim().is_empty() {
-        if let Ok((rest, _)) = parse_comment(remaining) {
-            remaining = rest; // skip comment
-        }
-        if let Ok((rest, res)) = parse_asset(remaining) {
-            assets.push(res);
-            remaining = rest;
-        } else {
-            remaining = &remaining[1..]; // skip 1 char and continue
+    Ok(merge_assets(collector.assets))
+}
+
+/// Visitor that collects S3 asset literals from SQL statements
+struct AssetCollector {
+    assets: Vec<ParseAssetsResult<String>>,
+    // e.g set to true when we are inside a SELECT ... FROM ... statement
+    current_access_type_stack: Vec<AssetUsageAccessType>,
+}
+
+impl AssetCollector {
+    fn new() -> Self {
+        Self { assets: Vec::new(), current_access_type_stack: Vec::with_capacity(8) }
+    }
+
+    fn handle_string_literal(&mut self, s: &str) {
+        // Check if the string matches our asset syntax patterns
+        if let Some((kind, path)) = parse_asset_syntax(s) {
+            if kind == AssetKind::S3Object {
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: path.to_string(),
+                    access_type: self.current_access_type_stack.last().copied(),
+                });
+            }
         }
     }
 
-    Ok(merge_assets(assets))
+    fn handle_obj_name_pre(&mut self, name: &ObjectName) {
+        if let Some(fname) = get_trivial_obj_name(name) {
+            if is_read_fn(fname) {
+                self.current_access_type_stack.push(R);
+            }
+        }
+    }
+    fn handle_obj_name_post(&mut self, name: &ObjectName) {
+        if self.current_access_type_stack.is_empty() {
+            return;
+        }
+        if let Some(fname) = get_trivial_obj_name(name) {
+            if is_read_fn(fname) {
+                self.current_access_type_stack.pop();
+            }
+        }
+    }
 }
 
-fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
-    alt((
-        parse_s3_object_read.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::S3Object,
-            access_type: Some(R),
-        }),
-        parse_s3_object_write.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::S3Object,
-            access_type: Some(W),
-        }),
-        // Parse ambiguous access_types at the end if we could not find precisely read or copy
-        parse_s3_object_lit.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::S3Object,
-            access_type: None,
-        }),
-        parse_resource_lit.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::Resource,
-            access_type: None,
-        }),
-        parse_ducklake_lit.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::Ducklake,
-            access_type: None,
-        }),
-        parse_datatable_lit.map(|path| ParseAssetsResult {
-            path,
-            kind: AssetKind::DataTable,
-            access_type: None,
-        }),
-    ))
-    .parse(input)
+impl Visitor for AssetCollector {
+    type Break = ();
+
+    fn pre_visit_table_factor(
+        &mut self,
+        table_factor: &TableFactor,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        match table_factor {
+            TableFactor::Table { name, .. } => self.handle_obj_name_pre(name),
+            _ => {}
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_table_factor(
+        &mut self,
+        table_factor: &TableFactor,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        match table_factor {
+            TableFactor::Table { name, .. } => self.handle_obj_name_post(name),
+            _ => {}
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &Expr) -> std::ops::ControlFlow<Self::Break> {
+        match expr {
+            Expr::Value(ValueWithSpan { value: Value::SingleQuotedString(s), .. }) => {
+                self.handle_string_literal(s)
+            }
+            Expr::Value(ValueWithSpan { value: Value::DoubleQuotedString(s), .. }) => {
+                self.handle_string_literal(s);
+            }
+            Expr::Function(func) => self.handle_obj_name_pre(&func.name),
+            _ => {}
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_expr(&mut self, expr: &Expr) -> std::ops::ControlFlow<Self::Break> {
+        match expr {
+            Expr::Function(func) => self.handle_obj_name_post(&func.name),
+            _ => {}
+        }
+        std::ops::ControlFlow::Continue(())
+    }
 }
 
-/// Any expression that reads an s3 asset
-fn parse_s3_object_read(input: &str) -> IResult<&str, &str> {
-    alt((parse_s3_object_read_fn, parse_s3_object_select_from)).parse(input)
+fn is_read_fn(fname: &str) -> bool {
+    fname.eq_ignore_ascii_case("read_parquet")
+        || fname.eq_ignore_ascii_case("read_csv")
+        || fname.eq_ignore_ascii_case("read_json")
 }
 
-/// Any expression that writes to an s3 asset
-fn parse_s3_object_write(input: &str) -> IResult<&str, &str> {
-    // COPY (...) TO 's3://...'
-    let (input, _) = (tag_no_case("TO"), multispace0).parse(input)?;
-    let (input, path) = parse_s3_object_lit(input)?;
-    Ok((input, path))
+fn get_trivial_obj_name(name: &sqlparser::ast::ObjectName) -> Option<&str> {
+    if name.0.len() != 1 {
+        return None;
+    }
+    name.0
+        .first()
+        .and_then(|ident| ident.as_ident().map(|id| id.value.as_str()))
 }
 
-/// read_parquet('s3://...')
-fn parse_s3_object_read_fn(input: &str) -> IResult<&str, &str> {
-    let (input, _) = alt((
-        tag_no_case("read_parquet"),
-        tag_no_case("read_csv"),
-        tag_no_case("read_json"),
-    ))
-    .parse(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, _) = char('(')(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, path) = parse_s3_object_lit(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, _) = char(')')(input)?;
-    Ok((input, path))
+fn get_str_lit_from_obj_name(name: &ObjectName) -> Option<&str> {
+    if name.0.len() != 1 {
+        return None;
+    }
+    match &name.0.first()? {
+        Ident { value, .. } => Some(value.as_str()),
+    }
 }
 
-/// SELECT ... FROM 's3://...'
-fn parse_s3_object_select_from(input: &str) -> IResult<&str, &str> {
-    let (input, _) = tag_no_case("FROM").parse(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, path) = parse_s3_object_lit(input)?;
-    Ok((input, path))
-}
-/// 's3://...'
-fn parse_s3_object_lit(input: &str) -> IResult<&str, &str> {
-    let (input, _) = quote(input)?;
-    let (input, _) = tag("s3://").parse(input)?;
-    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
-    let (input, _) = quote(input)?;
-    Ok((input, path))
-}
-
-fn quote(input: &str) -> IResult<&str, char> {
-    alt((char('\''), char('\"'))).parse(input)
-}
-
-fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
-    let (input, _) = quote(input)?;
-    let (input, _) = alt((tag("$res:"), tag("res://"))).parse(input)?;
-    let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
-    let (input, _) = quote(input)?;
-    Ok((input, path))
-}
-
-fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
-    let (input, _) = quote(input)?;
-    let (input, _) = tag("ducklake").parse(input)?;
-    let (input, path) =
-        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
-    let (input, _) = quote(input)?;
-    Ok((input, path.unwrap_or("main")))
-}
-
-fn parse_datatable_lit(input: &str) -> IResult<&str, &str> {
-    let (input, _) = quote(input)?;
-    let (input, _) = tag("datatable").parse(input)?;
-    let (input, path) =
-        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
-    let (input, _) = quote(input)?;
-    Ok((input, path.unwrap_or("main")))
-}
-
-fn parse_comment(input: &str) -> IResult<&str, &str> {
-    let (input, _) = tag("--").parse(input)?;
-    let (input, comment) = take_while(|c| c != '\n')(input)?;
-    Ok((input, comment))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_parse_assets() {
+        let input = "SELECT * FROM read_parquet('s3:///READ.parquet'); SELECT * FROM f('s3:///UNKONWN.parquet');";
+        let s = parse_assets(input);
+        assert_eq!("", format!("{:?}", s));
+    }
 }
