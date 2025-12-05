@@ -17,6 +17,7 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
+	import type { LintResult } from '../copilot/chat/app/core'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -176,17 +177,40 @@
 	})
 
 	$effect(() => {
+		function lint(): LintResult {
+			return {
+				errors: {
+					frontend: {},
+					backend: {}
+				},
+				warnings: {
+					frontend: {},
+					backend: {}
+				},
+				errorCount: 0,
+				warningCount: 0
+			}
+		}
 		return aiChatManager.setAppHelpers({
+			lint,
 			listFrontendFiles: () => {
-				return Object.keys($state.snapshot(files ?? {}))
+				return [...Object.keys(files ?? {}), '/wmill.d.ts']
 			},
 			getFrontendFile: (path) => {
-				return $state.snapshot(files ?? {})[path]
+				if (path === '/wmill.d.ts') {
+					return genWmillTs(runnables)
+				}
+				return $state.snapshot((files ?? {})[path])
 			},
 			getFrontendFiles: () => {
-				return $state.snapshot(files ?? {})
+				const frontendFiles = {
+					...$state.snapshot(files ?? {}),
+					'/wmill.d.ts': genWmillTs(runnables)
+				}
+				console.log('result', frontendFiles)
+				return frontendFiles
 			},
-			setFrontendFile: (path, content) => {
+			setFrontendFile: (path, content): LintResult => {
 				console.log('setting frontend file', path, content)
 				if (!files) {
 					files = {}
@@ -194,6 +218,7 @@
 				files[path] = content
 				setFilesInIframe(files)
 				console.log('files after setting', files)
+				return lint()
 			},
 			deleteFrontendFile: (path) => {
 				if (!files) {
@@ -221,7 +246,7 @@
 				})
 				return backendRunnables
 			},
-			setBackendRunnable: (key, runnable) => {
+			setBackendRunnable: (key, runnable): LintResult => {
 				if (runnable.type === 'inline' && runnable.inlineScript) {
 					runnables[key] = {
 						name: runnable.name,
@@ -257,6 +282,7 @@
 					}
 				}
 				populateRunnables()
+				return lint()
 			},
 			deleteBackendRunnable: (key) => {
 				delete runnables[key]

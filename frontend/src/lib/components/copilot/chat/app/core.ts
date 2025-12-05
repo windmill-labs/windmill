@@ -31,21 +31,45 @@ export interface AppFiles {
 	backend: Record<string, BackendRunnable>
 }
 
+// Lint result types
+export interface LintMessages {
+	/** Error/warning messages from frontend files */
+	frontend: Record<string, string[]>
+	/** Error/warning messages from backend runnables */
+	backend: Record<string, string[]>
+}
+
+export interface LintResult {
+	/** Total count of errors across all files */
+	errorCount: number
+	/** Total count of warnings across all files */
+	warningCount: number
+	/** Error messages grouped by source type */
+	errors: LintMessages
+	/** Warning messages grouped by source type */
+	warnings: LintMessages
+}
+
 export interface AppAIChatHelpers {
 	// Frontend file operations
 	listFrontendFiles: () => string[]
 	getFrontendFile: (path: string) => string | undefined
 	getFrontendFiles: () => Record<string, string>
-	setFrontendFile: (path: string, content: string) => void
+	/** Sets a frontend file and returns lint results */
+	setFrontendFile: (path: string, content: string) => LintResult
 	deleteFrontendFile: (path: string) => void
 	// Backend runnable operations
 	listBackendRunnables: () => { key: string; name: string }[]
 	getBackendRunnable: (key: string) => BackendRunnable | undefined
 	getBackendRunnables: () => Record<string, BackendRunnable>
-	setBackendRunnable: (key: string, runnable: BackendRunnable) => void
+	/** Sets a backend runnable and returns lint results */
+	setBackendRunnable: (key: string, runnable: BackendRunnable) => LintResult
 	deleteBackendRunnable: (key: string) => void
 	// Combined view
 	getFiles: () => AppFiles
+	// Linting
+	/** Lint all frontend files and backend runnables, returns errors and warnings */
+	lint: () => LintResult
 }
 
 // ============= Frontend File Tools =============
@@ -74,13 +98,15 @@ const getFrontendFilesToolDef = createToolDef(
 )
 
 const setFrontendFileSchema = z.object({
-	path: z.string().describe('The path of the frontend file to create or update (e.g., /index.tsx, /styles.css)'),
+	path: z
+		.string()
+		.describe('The path of the frontend file to create or update (e.g., /index.tsx, /styles.css)'),
 	content: z.string().describe('The content of the file')
 })
 const setFrontendFileToolDef = createToolDef(
 	setFrontendFileSchema,
 	'set_frontend_file',
-	'Create or update a frontend file in the raw app'
+	'Create or update a frontend file in the raw app. Returns lint diagnostics (errors and warnings).'
 )
 
 const deleteFrontendFileSchema = z.object({
@@ -119,21 +145,43 @@ const getBackendRunnablesToolDef = createToolDef(
 
 const inlineScriptSchema = z.object({
 	language: z.enum(['bun', 'python3']).describe('The language of the inline script'),
-	content: z.string().describe('The content of the inline script. Must have a main function as entrypoint.')
+	content: z
+		.string()
+		.describe('The content of the inline script. Must have a main function as entrypoint.')
 })
 
 const setBackendRunnableSchema = z.object({
-	key: z.string().describe('The unique key/identifier for the backend runnable (used to call it from frontend as backend.<key>())'),
+	key: z
+		.string()
+		.describe(
+			'The unique key/identifier for the backend runnable (used to call it from frontend as backend.<key>())'
+		),
 	name: z.string().describe('A short summary/description of what the runnable does'),
-	type: z.enum(['script', 'flow', 'hubscript', 'inline']).describe('The type of runnable: "inline" for custom code, "script" for workspace script, "flow" for workspace flow, "hubscript" for hub script'),
-	staticInputs: z.record(z.any()).optional().describe('Static inputs that are not overridable by the frontend caller. Useful for workspace/hub scripts to pre-fill certain arguments.'),
-	inlineScript: inlineScriptSchema.optional().describe('Required when type is "inline". Contains the language and content of the script.'),
-	path: z.string().optional().describe('Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.')
+	type: z
+		.enum(['script', 'flow', 'hubscript', 'inline'])
+		.describe(
+			'The type of runnable: "inline" for custom code, "script" for workspace script, "flow" for workspace flow, "hubscript" for hub script'
+		),
+	staticInputs: z
+		.record(z.any())
+		.optional()
+		.describe(
+			'Static inputs that are not overridable by the frontend caller. Useful for workspace/hub scripts to pre-fill certain arguments.'
+		),
+	inlineScript: inlineScriptSchema
+		.optional()
+		.describe('Required when type is "inline". Contains the language and content of the script.'),
+	path: z
+		.string()
+		.optional()
+		.describe(
+			'Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.'
+		)
 })
 const setBackendRunnableToolDef = createToolDef(
 	setBackendRunnableSchema,
 	'set_backend_runnable',
-	'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows.'
+	'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows. Returns lint diagnostics (errors and warnings).'
 )
 
 const deleteBackendRunnableSchema = z.object({
@@ -143,6 +191,15 @@ const deleteBackendRunnableToolDef = createToolDef(
 	deleteBackendRunnableSchema,
 	'delete_backend_runnable',
 	'Delete a backend runnable from the raw app'
+)
+
+// ============= Lint Tool =============
+
+const lintSchema = z.object({})
+const lintToolDef = createToolDef(
+	lintSchema,
+	'lint',
+	'Lint all frontend files and backend runnables. Returns errors and warnings grouped by frontend/backend. Use this to check for issues after making changes.'
 )
 
 // ============= Combined Files Tool =============
@@ -158,7 +215,12 @@ const getFilesToolDef = createToolDef(
 
 const listWorkspaceRunnablesSchema = z.object({
 	query: z.string().describe('The search query to find workspace scripts and flows'),
-	type: z.enum(['all', 'scripts', 'flows']).optional().describe('Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".')
+	type: z
+		.enum(['all', 'scripts', 'flows'])
+		.optional()
+		.describe(
+			'Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".'
+		)
 })
 const listWorkspaceRunnablesToolDef = createToolDef(
 	listWorkspaceRunnablesSchema,
@@ -199,11 +261,13 @@ class WorkspaceRunnablesSearch {
 			scripts.map((s) => (emptyString(s.summary) ? s.path : s.summary + ' (' + s.path + ')')),
 			query.trim()
 		)
-		return results[2]?.map((id) => ({
-			type: 'script' as const,
-			path: scripts[id].path,
-			summary: scripts[id].summary
-		})) ?? []
+		return (
+			results[2]?.map((id) => ({
+				type: 'script' as const,
+				path: scripts[id].path,
+				summary: scripts[id].summary
+			})) ?? []
+		)
 	}
 
 	async searchFlows(query: string, workspace: string) {
@@ -215,21 +279,23 @@ class WorkspaceRunnablesSearch {
 			flows.map((f) => (emptyString(f.summary) ? f.path : f.summary + ' (' + f.path + ')')),
 			query.trim()
 		)
-		return results[2]?.map((id) => ({
-			type: 'flow' as const,
-			path: flows[id].path,
-			summary: flows[id].summary
-		})) ?? []
+		return (
+			results[2]?.map((id) => ({
+				type: 'flow' as const,
+				path: flows[id].path,
+				summary: flows[id].summary
+			})) ?? []
+		)
 	}
 
 	async search(query: string, workspace: string, type: 'all' | 'scripts' | 'flows' = 'all') {
 		const results: { type: 'script' | 'flow'; path: string; summary: string }[] = []
 
 		if (type === 'all' || type === 'scripts') {
-			results.push(...await this.searchScripts(query, workspace))
+			results.push(...(await this.searchScripts(query, workspace)))
 		}
 		if (type === 'all' || type === 'flows') {
-			results.push(...await this.searchFlows(query, workspace))
+			results.push(...(await this.searchFlows(query, workspace)))
 		}
 
 		return results
@@ -237,6 +303,62 @@ class WorkspaceRunnablesSearch {
 }
 
 const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
+
+// ============= Lint Result Formatting =============
+
+function formatLintMessages(messages: Record<string, string[]>): string {
+	let result = ''
+	for (const [path, msgs] of Object.entries(messages)) {
+		if (msgs.length > 0) {
+			result += `\n**${path}**\n`
+			for (const msg of msgs) {
+				result += `- ${msg}\n`
+			}
+		}
+	}
+	return result
+}
+
+function formatLintResultResponse(message: string, lintResult: LintResult): string {
+	let response = message
+	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
+
+	if (hasIssues) {
+		response += '\n\n## Lint Diagnostics\n'
+
+		if (lintResult.errorCount > 0) {
+			response += `\n❌ **${lintResult.errorCount} error(s)** found that must be fixed.\n`
+
+			const frontendErrors = formatLintMessages(lintResult.errors.frontend)
+			if (frontendErrors) {
+				response += `\n### Frontend Errors\n${frontendErrors}`
+			}
+
+			const backendErrors = formatLintMessages(lintResult.errors.backend)
+			if (backendErrors) {
+				response += `\n### Backend Errors\n${backendErrors}`
+			}
+		}
+
+		if (lintResult.warningCount > 0) {
+			response += `\n⚠️ **${lintResult.warningCount} warning(s)** found.\n`
+
+			const frontendWarnings = formatLintMessages(lintResult.warnings.frontend)
+			if (frontendWarnings) {
+				response += `\n### Frontend Warnings\n${frontendWarnings}`
+			}
+
+			const backendWarnings = formatLintMessages(lintResult.warnings.backend)
+			if (backendWarnings) {
+				response += `\n### Backend Warnings\n${backendWarnings}`
+			}
+		}
+	} else {
+		response += '\n\n✅ No lint issues found.'
+	}
+
+	return response
+}
 
 // ============= Tools Array =============
 
@@ -249,7 +371,9 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 			const files = helpers.getFiles()
 			const frontendCount = Object.keys(files.frontend).length
 			const backendCount = Object.keys(files.backend).length
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables`
+			})
 			return JSON.stringify(files, null, 2)
 		}
 	},
@@ -267,14 +391,18 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		def: getFrontendFileToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getFrontendFileSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Getting frontend file '${parsedArgs.path}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Getting frontend file '${parsedArgs.path}'...`
+			})
 			const content = helpers.getFrontendFile(parsedArgs.path)
 			if (content === undefined) {
 				const errorMsg = `Frontend file '${parsedArgs.path}' not found`
 				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
 				return errorMsg
 			}
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved frontend file '${parsedArgs.path}'` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieved frontend file '${parsedArgs.path}'`
+			})
 			return content
 		}
 	},
@@ -292,10 +420,15 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		def: setFrontendFileToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setFrontendFileSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Setting frontend file '${parsedArgs.path}'...` })
-			helpers.setFrontendFile(parsedArgs.path, parsedArgs.content)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Setting frontend file '${parsedArgs.path}'...`
+			})
+			const lintResult = helpers.setFrontendFile(parsedArgs.path, parsedArgs.content)
 			toolCallbacks.setToolStatus(toolId, { content: `Frontend file '${parsedArgs.path}' updated` })
-			return `Frontend file '${parsedArgs.path}' has been set successfully`
+			return formatLintResultResponse(
+				`Frontend file '${parsedArgs.path}' has been set successfully.`,
+				lintResult
+			)
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting frontend file...' })
@@ -305,7 +438,9 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		def: deleteFrontendFileToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = deleteFrontendFileSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Deleting frontend file '${parsedArgs.path}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Deleting frontend file '${parsedArgs.path}'...`
+			})
 			helpers.deleteFrontendFile(parsedArgs.path)
 			toolCallbacks.setToolStatus(toolId, { content: `Frontend file '${parsedArgs.path}' deleted` })
 			return `Frontend file '${parsedArgs.path}' has been deleted successfully`
@@ -325,14 +460,18 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		def: getBackendRunnableToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getBackendRunnableSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Getting backend runnable '${parsedArgs.key}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Getting backend runnable '${parsedArgs.key}'...`
+			})
 			const runnable = helpers.getBackendRunnable(parsedArgs.key)
 			if (runnable === undefined) {
 				const errorMsg = `Backend runnable '${parsedArgs.key}' not found`
 				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
 				return errorMsg
 			}
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved backend runnable '${parsedArgs.key}'` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieved backend runnable '${parsedArgs.key}'`
+			})
 			return JSON.stringify(runnable, null, 2)
 		}
 	},
@@ -358,7 +497,9 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 			}
 
 			const parsedArgs = setBackendRunnableSchema.parse(cleanedArgs)
-			toolCallbacks.setToolStatus(toolId, { content: `Setting backend runnable '${parsedArgs.key}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Setting backend runnable '${parsedArgs.key}'...`
+			})
 
 			const runnable: BackendRunnable = {
 				name: parsedArgs.name,
@@ -368,9 +509,14 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 				...(parsedArgs.path && { path: parsedArgs.path })
 			}
 
-			helpers.setBackendRunnable(parsedArgs.key, runnable)
-			toolCallbacks.setToolStatus(toolId, { content: `Backend runnable '${parsedArgs.key}' updated` })
-			return `Backend runnable '${parsedArgs.key}' has been set successfully`
+			const lintResult = helpers.setBackendRunnable(parsedArgs.key, runnable)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Backend runnable '${parsedArgs.key}' updated`
+			})
+			return formatLintResultResponse(
+				`Backend runnable '${parsedArgs.key}' has been set successfully.`,
+				lintResult
+			)
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting backend runnable...' })
@@ -380,10 +526,30 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		def: deleteBackendRunnableToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = deleteBackendRunnableSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Deleting backend runnable '${parsedArgs.key}'...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Deleting backend runnable '${parsedArgs.key}'...`
+			})
 			helpers.deleteBackendRunnable(parsedArgs.key)
-			toolCallbacks.setToolStatus(toolId, { content: `Backend runnable '${parsedArgs.key}' deleted` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Backend runnable '${parsedArgs.key}' deleted`
+			})
 			return `Backend runnable '${parsedArgs.key}' has been deleted successfully`
+		}
+	},
+	// Lint tool
+	{
+		def: lintToolDef,
+		fn: async ({ helpers, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Linting app...' })
+			const lintResult = helpers.lint()
+			const status =
+				lintResult.errorCount > 0
+					? `Found ${lintResult.errorCount} error(s)`
+					: lintResult.warningCount > 0
+						? `Found ${lintResult.warningCount} warning(s)`
+						: 'No issues found'
+			toolCallbacks.setToolStatus(toolId, { content: status })
+			return formatLintResultResponse('Lint completed.', lintResult)
 		}
 	},
 	// Search tools
@@ -392,11 +558,15 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsedArgs = listWorkspaceRunnablesSchema.parse(args)
 			const type = parsedArgs.type ?? 'all'
-			toolCallbacks.setToolStatus(toolId, { content: `Searching workspace ${type} for "${parsedArgs.query}"...` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Searching workspace ${type} for "${parsedArgs.query}"...`
+			})
 
 			const results = await workspaceRunnablesSearch.search(parsedArgs.query, workspace, type)
 
-			toolCallbacks.setToolStatus(toolId, { content: `Found ${results.length} workspace runnables matching "${parsedArgs.query}"` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Found ${results.length} workspace runnables matching "${parsedArgs.query}"`
+			})
 			return JSON.stringify(results, null, 2)
 		}
 	},
@@ -432,13 +602,16 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`list_frontend_files()\`: List all frontend file paths without content (efficient for large apps)
 - \`get_frontend_file(path)\`: Get content of a specific frontend file
 - \`get_frontend_files()\`: Get all frontend files with content (use list + get for large apps)
-- \`set_frontend_file(path, content)\`: Create or update a frontend file
+- \`set_frontend_file(path, content)\`: Create or update a frontend file. Returns lint diagnostics.
 - \`delete_frontend_file(path)\`: Delete a frontend file
 - \`list_backend_runnables()\`: List all backend runnable keys and names (efficient for large apps)
 - \`get_backend_runnable(key)\`: Get full configuration of a specific backend runnable
 - \`get_backend_runnables()\`: Get all backend runnables (use list + get for large apps)
-- \`set_backend_runnable(key, name, type, ...)\`: Create or update a backend runnable
+- \`set_backend_runnable(key, name, type, ...)\`: Create or update a backend runnable. Returns lint diagnostics.
 - \`delete_backend_runnable(key)\`: Delete a backend runnable
+
+### Linting
+- \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
 
 ### Discovery
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
@@ -501,10 +674,28 @@ When creating a backend runnable with \`set_backend_runnable\`:
 ## Instructions
 
 Follow the user instructions carefully. When creating a new app:
-1. First use \`get_files\` to see the current state
-2. Create frontend files using \`set_frontend_file\`
-3. Create backend runnables using \`set_backend_runnable\`
-4. Use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse
+1. First use \`get_files\` to see the current state (includes wmill.d.ts showing how to call backend functions)
+2. Create frontend files using \`set_frontend_file\`. This returns lint diagnostics.
+3. Create backend runnables using \`set_backend_runnable\`. This returns lint diagnostics.
+4. Use \`lint()\` to check for errors at any time
+5. Use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse
+6. Always fix any lint errors before finishing
+
+Windmill expects all backend runnable calls to use an object parameter structure. For example for:
+\`\`\`typescript
+export async function main({ arg1: string, arg2: string }) {
+  return await backend.myFunction({ arg1 })
+}
+\`\`\`
+
+You would call it like this:
+\`\`\`typescript
+await backend.myFunction({ arg1: 'value1', arg2: 'value2' })
+\`\`\`
+If the runnable has no parameters, you can call it without an object:
+\`\`\`typescript
+await backend.myFunction()
+\`\`\`
 
 Explain what you're doing as you work. Show file contents before setting them when making significant changes.
 `
