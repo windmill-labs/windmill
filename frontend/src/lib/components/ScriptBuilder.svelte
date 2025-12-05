@@ -523,6 +523,7 @@
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
 					cache_ttl: script.cache_ttl,
+					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
@@ -666,6 +667,7 @@
 						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						debounce_delay_s: script.debounce_delay_s,
 						cache_ttl: script.cache_ttl,
+						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
@@ -1305,27 +1307,28 @@
 										<div class="flex gap-2 shrink flex-col">
 											<Toggle
 												size="sm"
-												checked={Boolean(script.cache_ttl)}
-												on:change={() => {
-													if (script.cache_ttl && script.cache_ttl != undefined) {
-														script.cache_ttl = undefined
-													} else {
-														script.cache_ttl = 300
-													}
-												}}
-												options={{
-													right: 'Cache the results for each possible inputs'
-												}}
+												bind:checked={
+													() => !!script.cache_ttl, (v) => (script.cache_ttl = v ? 300 : undefined)
+												}
+												options={{ right: 'Cache the results for each possible inputs' }}
 											/>
-											{#if Boolean(script.cache_ttl)}
-												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
-													How long to the keep cache valid
-												</span>
-												{#if script.cache_ttl}
+											{#if script.cache_ttl}
+												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
+												<div class="-mt-5">
 													<SecondsInput bind:seconds={script.cache_ttl} />
-												{:else}
-													<SecondsInput disabled />
-												{/if}
+												</div>
+												<Toggle
+													size="2xs"
+													bind:checked={
+														() => script.cache_ignore_s3_path,
+														(v) => (script.cache_ignore_s3_path = v || undefined)
+													}
+													options={{
+														right: 'Ignore S3 Object paths for caching purposes',
+														rightTooltip:
+															'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+													}}
+												/>
 											{/if}
 										</div>
 									</Section>

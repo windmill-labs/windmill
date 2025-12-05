@@ -392,6 +392,7 @@ async fn execute_windmill_tool(
                     language,
                     concurrency_settings: concurrency_settings.into(),
                     cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
+                    cache_ignore_s3_path: tool_module.cache_ignore_s3_path.clone(),
                     dedicated_worker: None,
                     path,
                 },

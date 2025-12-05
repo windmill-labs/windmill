@@ -55,6 +55,7 @@ mod job_payload {
                 concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
                 debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
@@ -84,6 +85,7 @@ mod job_payload {
                 hash: ScriptHash(123413),
                 path: "f/system/hello_with_preprocessor".to_string(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
@@ -163,6 +165,7 @@ mod job_payload {
                 language: ScriptLang::Deno,
                 concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })
@@ -181,6 +184,7 @@ mod job_payload {
                 language: ScriptLang::Deno,
                 concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })

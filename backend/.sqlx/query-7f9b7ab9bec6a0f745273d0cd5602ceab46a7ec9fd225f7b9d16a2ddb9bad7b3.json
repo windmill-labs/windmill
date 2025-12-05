@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script\n             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)\n             ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -45,6 +45,11 @@
       },
       {
         "ordinal": 8,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -80,19 +85,14 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "priority",
         "type_info": "Int2"
-      },
-      {
-        "ordinal": 11,
-        "name": "delete_after_use",
-        "type_info": "Bool"
       },
       {
         "ordinal": 12,
@@ -101,29 +101,20 @@
       },
       {
         "ordinal": 13,
-        "name": "has_preprocessor",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 14,
         "name": "on_behalf_of_email",
         "type_info": "Text"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "created_by",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 16,
-        "name": "path",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Text"
+        "Text",
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -135,16 +126,14 @@
       true,
       true,
       true,
-      false,
-      true,
-      true,
-      true,
-      true,
-      true,
       true,
       false,
+      true,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "f06ab5e0369b35694fa02c3aac685bd547a1d271eb7401df57fe1774de3211bf"
+  "hash": "7f9b7ab9bec6a0f745273d0cd5602ceab46a7ec9fd225f7b9d16a2ddb9bad7b3"
 }

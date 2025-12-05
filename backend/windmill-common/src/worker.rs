@@ -411,7 +411,7 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
-                canceled_by, canceled_reason, worker
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
@@ -437,7 +437,7 @@ fn format_pull_query(peek: String) -> String {
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email

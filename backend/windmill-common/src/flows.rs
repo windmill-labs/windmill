@@ -181,6 +181,8 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub early_return: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow level
@@ -442,6 +444,8 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
     #[serde(
         default,
         deserialize_with = "raw_value_to_input_transform::<_, i32>",
@@ -1144,6 +1148,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             sleep: None,
             suspend: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             timeout: None,
             priority: None,
             delete_after_use: None,

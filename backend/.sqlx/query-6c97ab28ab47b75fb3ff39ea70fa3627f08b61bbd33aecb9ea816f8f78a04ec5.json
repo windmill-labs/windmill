@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT \n        v2_job_queue.workspace_id,\n        v2_job_queue.id,\n        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n        v2_job.parent_job,\n        v2_job.created_by,\n        v2_job_queue.started_at,\n        scheduled_for,\n        runnable_path,\n        kind as \"kind: JobKind\",\n        runnable_id as \"runnable_id: ScriptHash\",\n        canceled_reason,\n        canceled_by,\n        permissioned_as,\n        permissioned_as_email,\n        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n        v2_job.tag,\n        script_lang as \"script_lang: ScriptLang\",\n        same_worker,\n        pre_run_error,\n        concurrent_limit,\n        concurrency_time_window_s,\n        flow_innermost_root_job,\n        root_job,\n        timeout,\n        flow_step_id,\n        cache_ttl,\n        v2_job_queue.priority,\n        preprocessed,\n        script_entrypoint_override,\n        trigger,\n        trigger_kind as \"trigger_kind: JobTriggerKind\",\n        visible_to_owner,\n        NULL as permissioned_as_end_user_email\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
+  "query": "SELECT \n        v2_job_queue.workspace_id,\n        v2_job_queue.id,\n        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n        v2_job.parent_job,\n        v2_job.created_by,\n        v2_job_queue.started_at,\n        scheduled_for,\n        runnable_path,\n        kind as \"kind: JobKind\",\n        runnable_id as \"runnable_id: ScriptHash\",\n        canceled_reason,\n        canceled_by,\n        permissioned_as,\n        permissioned_as_email,\n        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n        v2_job.tag,\n        script_lang as \"script_lang: ScriptLang\",\n        same_worker,\n        pre_run_error,\n        concurrent_limit,\n        concurrency_time_window_s,\n        flow_innermost_root_job,\n        root_job,\n        timeout,\n        flow_step_id,\n        cache_ttl,\n        cache_ignore_s3_path,\n        v2_job_queue.priority,\n        preprocessed,\n        script_entrypoint_override,\n        trigger,\n        trigger_kind as \"trigger_kind: JobTriggerKind\",\n        visible_to_owner,\n        NULL as permissioned_as_end_user_email\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
   "describe": {
     "columns": [
       {
@@ -193,26 +193,31 @@
       },
       {
         "ordinal": 26,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 27,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 27,
+        "ordinal": 28,
         "name": "preprocessed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 28,
+        "ordinal": 29,
         "name": "script_entrypoint_override",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 29,
+        "ordinal": 30,
         "name": "trigger",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 30,
+        "ordinal": 31,
         "name": "trigger_kind: JobTriggerKind",
         "type_info": {
           "Custom": {
@@ -238,12 +243,12 @@
         }
       },
       {
-        "ordinal": 31,
+        "ordinal": 32,
         "name": "visible_to_owner",
         "type_info": "Bool"
       },
       {
-        "ordinal": 32,
+        "ordinal": 33,
         "name": "permissioned_as_end_user_email",
         "type_info": "Text"
       }
@@ -285,9 +290,10 @@
       true,
       true,
       true,
+      true,
       false,
       null
     ]
   },
-  "hash": "3162ec92bb32af47a71cc41172cc740b5dea1304ce4dfdb4d3d0efa4266f38c5"
+  "hash": "6c97ab28ab47b75fb3ff39ea70fa3627f08b61bbd33aecb9ea816f8f78a04ec5"
 }
