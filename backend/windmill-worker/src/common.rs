@@ -752,6 +752,7 @@ async fn hash_args(
     v: &Option<Json<HashMap<String, Box<RawValue>>>>,
     hasher: &mut sha2::Sha256,
     #[allow(unused)] job_id: &Uuid,
+    #[allow(unused)] ignore_s3_path: bool,
 ) {
     if let Some(Json(hm)) = v {
         for k in hm.keys().sorted() {
@@ -782,9 +783,10 @@ async fn hash_args(
             #[cfg(feature = "parquet")]
             if let Some(etag) = etag {
                 hasher.update(etag.as_bytes());
-                continue;
+                if ignore_s3_path {
+                    continue;
+                }
             }
-
             hasher.update(arg_value.get().as_bytes());
         }
     }
@@ -817,6 +819,7 @@ pub async fn cached_result_path(
         &job.args,
         &mut hasher,
         &job.id,
+        job.cache_ignore_s3_path.unwrap_or(false),
     )
     .await;
     format!("g/results/{:064x}", hasher.finalize())
