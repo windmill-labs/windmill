@@ -73,15 +73,16 @@
 		currentTabConfig.tutorials
 			.filter((tutorial) => {
 				if (tutorial.active === false) return false
-				if (!tutorial.requiredRole) return true
+				if (!tutorial.role) return true
 				const user = $userStore
 				if (!user) return false
 
-				// Check role flags directly
-				const { requiredRole } = tutorial
-				if (requiredRole === 'admin') return user.is_admin || user.is_super_admin
-				if (requiredRole === 'operator') return user.operator || user.is_admin || user.is_super_admin
-				if (requiredRole === 'developer') return !user.operator || user.is_admin || user.is_super_admin
+				// Check role flags directly (only is_admin and operator are stored in DB)
+				// Developer is the default role (when both is_admin and operator are false)
+				const { role } = tutorial
+				if (role === 'admin') return user.is_admin
+				if (role === 'operator') return user.operator || user.is_admin
+				if (role === 'developer') return !user.operator || user.is_admin
 				return true
 			})
 			.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
@@ -152,11 +153,11 @@
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
 			if (tutorial.active === false || tutorial.index === undefined) continue
-			if (tutorial.requiredRole && user) {
-				const { requiredRole } = tutorial
-				if (requiredRole === 'admin' && !user.is_admin && !user.is_super_admin) continue
-				if (requiredRole === 'operator' && !user.operator && !user.is_admin && !user.is_super_admin) continue
-				if (requiredRole === 'developer' && user.operator && !user.is_admin && !user.is_super_admin) continue
+			if (tutorial.role && user) {
+				const { role } = tutorial
+				if (role === 'admin' && !user.is_admin) continue
+				if (role === 'operator' && !user.operator && !user.is_admin) continue
+				if (role === 'developer' && user.operator && !user.is_admin) continue
 			}
 			indexes.push(tutorial.index)
 		}

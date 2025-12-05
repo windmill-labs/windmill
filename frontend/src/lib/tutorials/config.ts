@@ -11,7 +11,7 @@ export interface TutorialConfig {
 	index?: number // Bitmask index in the database (for progress tracking)
 	active?: boolean // Whether this tutorial is active and should be displayed (default: true)
 	comingSoon?: boolean
-	requiredRole?: 'admin' | 'developer' | 'operator'
+	role?: 'admin' | 'developer' | 'operator' // Role required to access this tutorial
 	order?: number
 }
 
@@ -36,6 +36,11 @@ export function getTutorialIndex(id: string): number {
 	throw new Error(`Tutorial index not found for id: ${id}. Make sure the tutorial has an index defined in config.`)
 }
 
+// Available roles
+    // 'developer': Developer role (can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f).
+    // 'operator': Operator role (can execute and view scripts/flows/apps from your workspace, and only those that he has visibility on).
+    // 'admin': Admin role (has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace).
+
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
@@ -53,6 +58,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
+				role: 'developer',
 				order: 1
 			},
 			{
@@ -66,6 +72,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 2,
 				active: true,
 				comingSoon: false,
+				role: 'developer',
 				order: 2
 			},
 			{
@@ -79,6 +86,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 3,
 				active: true,
 				comingSoon: false,
+				role: 'developer',
 				order: 3
 			}
 		]
@@ -99,6 +107,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 4,
 				active: true,
 				comingSoon: false,
+				role: 'developer',
 				order: 4
 			},
 			{
@@ -112,6 +121,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 5,
 				active: true,
 				comingSoon: false,
+				role: 'developer',
 				order: 5
 			}
         ]
