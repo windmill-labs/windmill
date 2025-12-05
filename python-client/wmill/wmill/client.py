@@ -276,6 +276,21 @@ class Windmill:
             cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
+    def run_inline_script_preview(
+        self,
+        content: str,
+        language: str,
+        args: dict = None,
+    ) -> Any:
+        """Run a script on the current worker without creating a job"""
+        endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        body = {
+            "content": content,
+            "language": language,
+            "args": args or {},
+        }
+        return self.post(endpoint, json=body).text
+
     def wait_job(
         self,
         job_id,
@@ -1000,6 +1015,13 @@ class Windmill:
             },
         )
 
+    def datatable(self, name: str = "main"):
+        return DataTableClient(self, name)
+
+    def ducklake(self, name: str = "main"):
+        return DucklakeClient(self, name)
+
+
 
 def init_global_client(f):
     @functools.wraps(f)
@@ -1527,6 +1549,18 @@ def run_script_by_hash(
         timeout=timeout,
     )
 
+@init_global_client
+def run_inline_script_preview(
+    content: str,
+    language: str,
+    args: dict = None,
+) -> Any:
+    """Run a script on the current worker without creating a job"""
+    return _client.run_inline_script_preview(
+        content=content,
+        language=language,
+        args=args,
+    )
 
 @init_global_client
 def username_to_email(username: str) -> str:
@@ -1537,6 +1571,14 @@ def username_to_email(username: str) -> str:
     """
     return _client.username_to_email(username)
 
+
+@init_global_client
+def datatable(name: str = "main") -> DataTableClient:
+    return _client.datatable(name)
+
+@init_global_client
+def ducklake(name: str = "main") -> DucklakeClient:
+    return _client.ducklake(name)
 
 def task(*args, **kwargs):
     from inspect import signature
@@ -1635,3 +1677,78 @@ def stream_result(stream) -> None:
     """
     for text in stream:
         append_to_result_stream(text)
+
+class DataTableClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def query(self, sql: str, *args):
+        args_dict = {}
+        args_def = ""
+        for i, arg in enumerate(args):
+            args_dict[f"arg{i+1}"] = arg
+            args_def += f"-- ${i+1} arg{i+1}\n"
+        sql = args_def + sql
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="postgresql",
+                args={"database": f"datatable://{self.name}", **args_dict},
+            )
+        )
+
+class DucklakeClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def query(self, sql: str, **kwargs):
+        args_dict = {}
+        args_def = ""
+        for key, value in kwargs.items():
+            args_dict[key] = value
+            args_def += f"-- ${key} ({infer_sql_type(value)})\n"
+        attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
+        sql = args_def + attach + sql
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="duckdb",
+                args=args_dict,
+            )
+        )
+
+class SqlQuery:
+    def __init__(self, sql: str, fetch_fn):
+        self.sql = sql
+        self.fetch_fn = fetch_fn
+    def fetch(self, result_collection: str | None = None):
+        sql = self.sql
+        if result_collection is not None:
+            sql = f'-- result_collection={result_collection}\n{sql}'
+        return self.fetch_fn(sql)
+    def fetch_one(self):
+        return self.fetch(result_collection="last_statement_first_row")
+
+def infer_sql_type(value) -> str:
+    """
+    DuckDB executor requires explicit argument types at declaration
+    These types exist in both DuckDB and Postgres
+    Check that the types exist if you plan to extend this function for other SQL engines.
+    """
+    if isinstance(value, bool):
+        # Check bool before int since bool is a subclass of int in Python
+        return "BOOLEAN"
+    elif isinstance(value, int):
+        return "BIGINT"
+    elif isinstance(value, float):
+        return "DOUBLE PRECISION"
+    elif value is None:
+        return "TEXT"
+    elif isinstance(value, str):
+        return "TEXT"
+    elif isinstance(value, dict) or isinstance(value, list):
+        return "JSON"
+    else:
+        return "TEXT"

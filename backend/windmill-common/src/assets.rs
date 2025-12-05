@@ -12,6 +12,7 @@ pub enum AssetKind {
     // Avoid unnexpected crashes when deserializing old assets
     Variable, // Deprecated
     Ducklake,
+    DataTable,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]

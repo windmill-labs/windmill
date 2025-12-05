@@ -16,6 +16,7 @@ pub enum AssetKind {
     S3Object,
     Resource,
     Ducklake,
+    DataTable,
 }
 
 #[derive(Serialize)]
@@ -66,7 +67,42 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
         Some((AssetKind::Resource, &s[5..]))
     } else if s.starts_with("ducklake://") {
         Some((AssetKind::Ducklake, &s[11..]))
+    } else if s.starts_with("datatable://") {
+        Some((AssetKind::DataTable, &s[11..]))
     } else {
         None
+    }
+}
+
+pub fn detect_sql_access_type(sql: &str) -> Option<AssetUsageAccessType> {
+    let first_kw = sql
+        .trim()
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Check for write operations
+    let has_write = first_kw.starts_with("insert")
+        || first_kw.starts_with("update")
+        || first_kw.starts_with("delete")
+        || first_kw.starts_with("drop")
+        || first_kw.starts_with("create")
+        || first_kw.starts_with("alter")
+        || first_kw.starts_with("truncate")
+        || first_kw.starts_with("merge");
+
+    // Check for read operations
+    let has_read = first_kw.starts_with("select")
+        || first_kw.starts_with("with")  // CTEs, usually for reads
+        || first_kw.starts_with("show")
+        || first_kw.starts_with("describe")
+        || first_kw.starts_with("explain");
+
+    match (has_read, has_write) {
+        (true, true) => Some(RW),
+        (true, false) => Some(R),
+        (false, true) => Some(W),
+        (false, false) => None, // Unknown - couldn't determine
     }
 }

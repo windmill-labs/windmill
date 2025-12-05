@@ -2,6 +2,11 @@ import { createRawSnippet, type ComponentProps } from 'svelte'
 import type ConfirmationModal from './ConfirmationModal.svelte'
 import { sendUserToast } from '$lib/toast'
 
+export type ConfirmationModalHandle = {
+	props: ComponentProps<ConfirmationModal>
+	ask: (props: Params) => Promise<boolean>
+}
+
 /**
  * This allows asking for confirmation while maintaining a linear imperative flow,
  * and avoiding unnecessary states and callback hopping
@@ -18,10 +23,7 @@ import { sendUserToast } from '$lib/toast'
  *  // ...
  *  <ConfirmationModal {...confirmationModal.props} />
  */
-export function createAsyncConfirmationModal(): {
-	props: ComponentProps<ConfirmationModal>
-	ask: (props: Params) => Promise<boolean>
-} {
+export function createAsyncConfirmationModal(): ConfirmationModalHandle {
 	// Create a new instance of ConfirmationModal with the provided props
 	const o: ReturnType<typeof createAsyncConfirmationModal> = $state({
 		props: {

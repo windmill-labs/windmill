@@ -2,7 +2,7 @@
 
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import type { StateStore } from './utils'
+import { type StateStore } from './utils'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -39,6 +39,9 @@ export type UsePromiseOptions = {
 	clearValueOnRefresh?: boolean
 }
 
+/**
+ * @deprecated Use `resource` from `runed` instead
+ */
 export function usePromise<T>(
 	createPromise: () => Promise<T>,
 	{ loadInit = true, clearValueOnRefresh = true }: UsePromiseOptions = {}

@@ -64,4 +64,18 @@ pub async fn get_ducklake_from_agent_http(
         .await
 }
 
+#[allow(dead_code)]
+pub async fn get_datatable_resource_from_agent_http(
+    client: &HttpClient,
+    name: &str,
+    w_id: &str,
+) -> anyhow::Result<serde_json::Value> {
+    client
+        .get(&format!(
+            "/api/w/{}/agent_workers/get_datatable_resource/{}",
+            w_id, &name
+        ))
+        .await
+}
+
 pub const UPDATE_PING_URL: &str = "/api/agent_workers/update_ping";

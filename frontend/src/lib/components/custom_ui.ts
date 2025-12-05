@@ -77,6 +77,7 @@ export type EditorBarUi = {
 	s3object?: boolean
 	database?: boolean
 	ducklake?: boolean
+	dataTable?: boolean
 }
 
 export type EditableSchemaFormUi = {

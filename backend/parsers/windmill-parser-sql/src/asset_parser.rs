@@ -59,6 +59,11 @@ fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
             kind: AssetKind::Ducklake,
             access_type: None,
         }),
+        parse_datatable_lit.map(|path| ParseAssetsResult {
+            path,
+            kind: AssetKind::DataTable,
+            access_type: None,
+        }),
     ))
     .parse(input)
 }
@@ -129,6 +134,16 @@ fn parse_ducklake_lit(input: &str) -> IResult<&str, &str> {
     let (input, _) = quote(input)?;
     Ok((input, path.unwrap_or("main")))
 }
+
+fn parse_datatable_lit(input: &str) -> IResult<&str, &str> {
+    let (input, _) = quote(input)?;
+    let (input, _) = tag("datatable").parse(input)?;
+    let (input, path) =
+        opt(preceded(tag("://"), take_while(|c| c != '\'' && c != '"'))).parse(input)?;
+    let (input, _) = quote(input)?;
+    Ok((input, path.unwrap_or("main")))
+}
+
 fn parse_comment(input: &str) -> IResult<&str, &str> {
     let (input, _) = tag("--").parse(input)?;
     let (input, comment) = take_while(|c| c != '\n')(input)?;

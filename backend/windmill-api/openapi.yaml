@@ -847,28 +847,37 @@ paths:
               schema:
                 type: boolean
 
-  /settings/get_ducklake_instance_catalog_db_status:
+  /settings/list_custom_instance_pg_databases:
     post:
-      summary: Returns the set-up statuses of ducklake instance catalog dbs
-      operationId: getDucklakeInstanceCatalogDbStatus
+      summary: Returns the set-up statuses of custom instance pg databases
+      operationId: listCustomInstanceDbs
       tags:
         - setting
       responses:
         "200":
-          description: Statuses of all ducklake instance catalog dbs
+          description: Statuses of all custom instance dbs
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                  $ref: "#/components/schemas/CustomInstanceDb"
 
-  /settings/setup_ducklake_catalog_db/{name}:
+  /settings/setup_custom_instance_pg_database/{name}:
     post:
-      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: setupDucklakeCatalogDb
+      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the custom_instance_user
+      operationId: setupCustomInstanceDb
       tags:
         - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
       parameters:
         - in: path
           name: name
@@ -882,7 +891,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                $ref: "#/components/schemas/CustomInstanceDb"
 
   /settings/global/{key}:
     get:
@@ -2093,6 +2102,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   deploy_ui:
@@ -2828,6 +2839,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/list_datatables:
+    get:
+      summary: list Datatables
+      operationId: listDataTables
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -2848,6 +2877,32 @@ paths:
                 settings:
                   $ref: "#/components/schemas/DucklakeSettings"
 
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_datatable_config:
+    post:
+      summary: edit datatable settings
+      operationId: editDataTableConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: DataTable settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  $ref: "#/components/schemas/DataTableSettings"
       responses:
         "200":
           description: status
@@ -8300,6 +8355,29 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/run_inline/preview:
+    post:
+      summary: run script preview without starting a new job
+      operationId: runScriptPreviewInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewInline"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs/run_wait_result/preview:
     post:
@@ -17508,6 +17586,18 @@ components:
       required:
         - args
 
+    PreviewInline:
+      type: object
+      properties:
+        content:
+          type: string
+          description: The code to run
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+      required: [content, args, language]
+
     WorkflowTask:
       type: object
       properties:
@@ -18795,7 +18885,7 @@ components:
         - SKIP
         - FAIL
 
-    DucklakeInstanceCatalogDbStatusLogs:
+    CustomInstanceDbLogs:
       type: object
       properties:
         super_admin:
@@ -18806,20 +18896,25 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         created_database:
           $ref: "#/components/schemas/LoggedWizardStatus"
-          description: Created database status log
         db_connect:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
 
-    DucklakeInstanceCatalogDbStatus:
+    CustomInstanceDbTag:
+      type: string
+      enum:
+        - ducklake
+        - datatable
+
+    CustomInstanceDb:
       type: object
       required:
         - logs
         - success
       properties:
         logs:
-          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+          $ref: "#/components/schemas/CustomInstanceDbLogs"
         success:
           type: boolean
           description: Whether the operation completed successfully
@@ -18829,6 +18924,8 @@ components:
           nullable: true
           description: Error message if the operation failed
           example: "Connection timeout"
+        tag:
+          $ref: "#/components/schemas/CustomInstanceDbTag"
 
     NewSqsTrigger:
       type: object
@@ -20137,6 +20234,29 @@ components:
                 required:
                   - path
 
+    DataTableSettings:
+      type: object
+      required: [datatables]
+      properties:
+        datatables:
+          type: object
+          additionalProperties:
+            type: object
+            required: [database]
+            properties:
+              database:
+                type: object
+                properties:
+                  resource_type:
+                    type: string
+                    enum:
+                      - postgresql
+                      - instance
+                  resource_path:
+                    type: string
+                required:
+                  - resource_type
+
     DynamicInputData:
       type: object
       properties:
@@ -20777,6 +20897,7 @@ components:
         - s3object
         - resource
         - ducklake
+        - datatable
     Asset:
       type: object
       properties:
