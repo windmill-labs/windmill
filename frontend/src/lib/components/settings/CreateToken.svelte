@@ -96,17 +96,9 @@
 			.filter((p) => p.length > 0)
 	}
 
-	// Clear pattern inputs when switching away from custom scope
+	// Clear pattern inputs when MCP mode is disabled OR when not in custom scope
 	$effect(() => {
-		if (newMcpScope !== 'custom') {
-			customScriptPatterns = ''
-			customFlowPatterns = ''
-		}
-	})
-
-	// Clear all custom scope state when MCP mode is disabled
-	$effect(() => {
-		if (!mcpCreationMode) {
+		if (!mcpCreationMode || newMcpScope !== 'custom') {
 			customScriptPatterns = ''
 			customFlowPatterns = ''
 		}
