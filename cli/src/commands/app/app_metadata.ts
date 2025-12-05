@@ -20,7 +20,6 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
-import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
@@ -434,33 +433,30 @@ async function updateAppInlineScripts(
       return inlineScript;
     }
 
-    // Skip frontend scripts - they don't need locks
-    if (language === "frontend") {
-      return inlineScript;
-    }
-
     // Get the name from the parent object (following extractInlineScriptsForApps pattern)
     // For normal apps, the name is stored in the component's "name" property
     const scriptName = context.parentObject?.["name"] || "unnamed";
     const scriptPath = `${remotePath}/${context.path.join("/")}`;
 
-    log.info(
-      colors.gray(
-        `Generating lock for inline script "${scriptName}" at ${context.path.join(
-          "."
-        )} (${language})`
-      )
-    );
-
     try {
-      const lock = await generateInlineScriptLock(
-        workspace,
-        content,
-        language,
-        scriptPath,
-        rawDeps
-      );
+      let lock: string | undefined;
+      if (language !== "frontend") {
+        log.info(
+          colors.gray(
+            `Generating lock for inline script "${scriptName}" at ${context.path.join(
+              "."
+            )} (${language})`
+          )
+        );
 
+        lock = await generateInlineScriptLock(
+          workspace,
+          content,
+          language,
+          scriptPath,
+          rawDeps
+        );
+      }
       // Determine file extension for this language (following extractInlineScriptsForApps pattern)
       const [basePathO, ext] = pathAssigner.assignPath(scriptName, language);
       const basePath = basePathO.replaceAll(SEP, "/");
@@ -489,7 +485,7 @@ async function updateAppInlineScripts(
       return {
         ...inlineScript,
         content: inlineContentRef,
-        lock: inlineLockRef,
+        ...(lock ? { lock: inlineLockRef } : {}),
       };
     } catch (error: any) {
       log.error(

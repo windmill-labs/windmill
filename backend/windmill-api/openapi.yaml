@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.589.1
+  version: 1.589.3
   title: Windmill API
 
   contact:
@@ -6005,6 +6005,9 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
@@ -6891,6 +6894,9 @@ paths:
                 properties:
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
