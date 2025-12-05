@@ -58,19 +58,6 @@
 		return { user, usePreview, previewRole: selectedPreviewRole }
 	})
 
-	/**
-	 * Check if the current user (or preview role) has access to a roles array.
-	 * Handles both normal access and admin preview mode.
-	 */
-	function checkAccess(roles?: Role[]): boolean {
-		const context = accessCheckContext
-		// Use preview function if admin has selected a different role to preview
-		if (context.usePreview) {
-			return hasRoleAccessForPreview(context.previewRole, roles)
-		}
-		return hasRoleAccess(context.user, roles)
-	}
-
 	// Get active tabs only (filtered by active and roles)
 	// Optimized: $derived.by() automatically memoizes - only recalculates when dependencies change
 	const activeTabs = $derived.by(() => {
@@ -227,12 +214,18 @@
 	// Calculate progress for each tab
 	function getTabProgress(tabId: TabId) {
 		const tabConfig = TUTORIALS_CONFIG[tabId]
+		const context = accessCheckContext
 		
 		// Get all tutorial indexes for this tab (filtered by role)
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
 			if (tutorial.active === false || tutorial.index === undefined) continue
-			if (!checkAccess(tutorial.roles)) continue
+			// Use context directly to check access
+			if (context.usePreview) {
+				if (!hasRoleAccessForPreview(context.previewRole, tutorial.roles)) continue
+			} else {
+				if (!hasRoleAccess(context.user, tutorial.roles)) continue
+			}
 			indexes.push(tutorial.index)
 		}
 		
