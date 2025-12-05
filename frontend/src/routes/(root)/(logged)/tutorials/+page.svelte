@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Tab } from '$lib/components/common'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
 	import TutorialProgressBar from '$lib/components/tutorials/TutorialProgressBar.svelte'
@@ -20,10 +20,16 @@
 		completeTutorialByIndex
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
-	import { RefreshCw, CheckCheck, CheckCircle2, Circle } from 'lucide-svelte'
+	import { RefreshCw, CheckCheck, CheckCircle2, Circle, Shield, Code, UserCog } from 'lucide-svelte'
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 	import type { UserExt } from '$lib/stores'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+
+	// Role override for admins to preview what other roles see
+	// Only used when user is admin - defaults to 'admin' (their actual role)
+	let roleOverride: 'admin' | 'developer' | 'operator' = $state('admin')
 
 	/**
 	 * Check if a user has access based on a roles array.
@@ -45,13 +51,49 @@
 		})
 	}
 
+	// Debug: Log user role for troubleshooting
+	$effect(() => {
+		const user = $userStore
+		if (user) {
+			console.log('Tutorials page - User role:', {
+				is_admin: user.is_admin,
+				operator: user.operator,
+				effectiveRole: user.is_admin ? 'admin' : user.operator ? 'operator' : 'developer',
+				roleOverride: user.is_admin ? roleOverride : 'N/A (not admin)'
+			})
+		}
+	})
+
+	/**
+	 * Check if a preview role has access based on a roles array.
+	 * Used by admins to preview what other roles can see.
+	 */
+	function hasRoleAccessForPreview(
+		previewRole: 'admin' | 'developer' | 'operator',
+		roles?: ('admin' | 'developer' | 'operator')[]
+	): boolean {
+		// No roles specified = available to everyone
+		if (!roles || roles.length === 0) return true
+
+		// Check if preview role has any of the required roles
+		return roles.some((role) => {
+			if (role === 'admin') return previewRole === 'admin'
+			if (role === 'operator') return previewRole === 'operator' || previewRole === 'admin'
+			if (role === 'developer') return previewRole === 'developer' || previewRole === 'admin'
+			return false
+		})
+	}
+
 	// Get active tabs only (filtered by active and roles)
 	const activeTabs = $derived.by(() => {
 		const user = $userStore
 		return Object.entries(TUTORIALS_CONFIG).filter(([, config]) => {
 			// Filter by active
 			if (config.active === false) return false
-			// Filter by roles
+			// Filter by roles - use preview function if admin has selected a role override
+			if (user?.is_admin && roleOverride !== 'admin') {
+				return hasRoleAccessForPreview(roleOverride, config.roles)
+			}
 			return hasRoleAccess(user, config.roles)
 		}) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
 	})
@@ -77,6 +119,10 @@
 	const visibleTutorials = $derived(
 		currentTabConfig.tutorials.filter((tutorial) => {
 			if (tutorial.active === false) return false
+			// Use preview function if admin has selected a role override
+			if ($userStore?.is_admin && roleOverride !== 'admin') {
+				return hasRoleAccessForPreview(roleOverride, tutorial.roles)
+			}
 			return hasRoleAccess($userStore, tutorial.roles)
 		})
 	)
@@ -198,7 +244,12 @@
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
 			if (tutorial.active === false || tutorial.index === undefined) continue
-			if (!hasRoleAccess(user, tutorial.roles)) continue
+			// Use preview function if admin has selected a role override
+			if (user?.is_admin && roleOverride !== 'admin') {
+				if (!hasRoleAccessForPreview(roleOverride, tutorial.roles)) continue
+			} else {
+				if (!hasRoleAccess(user, tutorial.roles)) continue
+			}
 			indexes.push(tutorial.index)
 		}
 		
@@ -228,38 +279,88 @@
 </script>
 
 <CenteredPage>
-	<PageHeader
-		title="Tutorials"
-		tooltip="Learn how to use Windmill with our interactive tutorials"
-		documentationLink="https://www.windmill.dev/docs/intro"
-	>
-		{#if activeTabs.length > 0}
-			<div class="flex gap-2">
-				<Button
-					size="xs"
-					variant="default"
-					startIcon={{ icon: CheckCheck }}
-					onclick={async () => {
-						await skipAllTodos()
-						await syncTutorialsTodos()
-					}}
+	<div class="flex flex-col gap-4 pb-2 my-4 mr-2">
+		<div class="flex flex-row flex-wrap justify-between items-start">
+			<span class="flex items-center gap-2">
+				<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight"
+					>Tutorials</h1
 				>
-					Mark all as completed
-				</Button>
-				<Button
-					size="xs"
-					variant="default"
-					startIcon={{ icon: RefreshCw }}
-					onclick={async () => {
-						await resetAllTodos()
-						await syncTutorialsTodos()
-					}}
-				>
-					Reset all
-				</Button>
+				<Tooltip documentationLink="https://www.windmill.dev/docs/intro">
+					Learn how to use Windmill with our interactive tutorials
+				</Tooltip>
+			</span>
+			{#if activeTabs.length > 0}
+				<div class="flex items-start gap-2 pt-1">
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: CheckCheck }}
+						onclick={async () => {
+							await skipAllTodos()
+							await syncTutorialsTodos()
+						}}
+					>
+						Mark all as completed
+					</Button>
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: RefreshCw }}
+						onclick={async () => {
+							await resetAllTodos()
+							await syncTutorialsTodos()
+						}}
+					>
+						Reset all
+					</Button>
+				</div>
+			{/if}
+		</div>
+		{#if $userStore?.is_admin}
+			<div class="flex flex-col gap-1">
+				<div class="flex items-center gap-2">
+					<span class="text-xs text-secondary">View as an</span>
+					<ToggleButtonGroup
+						bind:selected={roleOverride}
+						onSelected={(v) => {
+							roleOverride = (v || 'admin') as typeof roleOverride
+						}}
+						noWFull
+					>
+						{#snippet children({ item })}
+							<ToggleButton
+								value="admin"
+								label="Admin (me)"
+								icon={Shield}
+								size="sm"
+								{item}
+								tooltip="View tutorials as yourself (admin)"
+							/>
+							<ToggleButton
+								value="developer"
+								label="Developer"
+								icon={Code}
+								size="sm"
+								{item}
+								tooltip="Preview tutorials visible to developers"
+							/>
+							<ToggleButton
+								value="operator"
+								label="Operator"
+								icon={UserCog}
+								size="sm"
+								{item}
+								tooltip="Preview tutorials visible to operators"
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+				<span class="text-3xs text-secondary">
+					This allows you to see which tutorials your team members can access
+				</span>
 			</div>
 		{/if}
-	</PageHeader>
+	</div>
 
 	{#if activeTabs.length > 0}
 		<div class="flex justify-between pt-4">
