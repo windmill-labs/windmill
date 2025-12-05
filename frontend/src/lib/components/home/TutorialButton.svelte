@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CheckCircle2, Circle, RefreshCw } from 'lucide-svelte'
+	import { CheckCircle2, Circle, RefreshCw, CheckCheck } from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
 
 	interface Props {
@@ -11,6 +11,7 @@
 		disabled?: boolean
 		comingSoon?: boolean
 		onReset?: () => void
+		onComplete?: () => void
 	}
 
 	let {
@@ -21,10 +22,38 @@
 		isCompleted = false,
 		disabled = false,
 		comingSoon = false,
-		onReset
+		onReset,
+		onComplete
 	}: Props = $props()
 
 	let isHovered = $state(false)
+
+	// Determine which action button to show
+	const actionButton = $derived(() => {
+		if (isCompleted && isHovered && onReset) {
+			return {
+				icon: RefreshCw,
+				label: 'Reset',
+				onClick: onReset
+			}
+		}
+		if (!isCompleted && isHovered && onComplete) {
+			return {
+				icon: CheckCheck,
+				label: 'Mark as completed',
+				onClick: onComplete
+			}
+		}
+		return null
+	})
+
+	function handleAction(e: MouseEvent | KeyboardEvent) {
+		const button = actionButton()
+		if (!button) return
+		e.stopPropagation()
+		e.preventDefault()
+		button.onClick()
+	}
 </script>
 
 <button
@@ -56,26 +85,22 @@
 
 	<!-- Status -->
 	<div class="flex items-center gap-1.5 flex-shrink-0">
-		{#if isCompleted && isHovered && onReset}
+		{#if actionButton()}
+			{@const button = actionButton()!}
+			{@const ActionIcon = button.icon}
 			<div
 				role="button"
 				tabindex="0"
-				onclick={(e) => {
-					e.stopPropagation()
-					e.preventDefault()
-					onReset()
-				}}
+				onclick={handleAction}
 				onkeydown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
-						e.stopPropagation()
-						e.preventDefault()
-						onReset()
+						handleAction(e)
 					}
 				}}
 				class="flex items-center gap-1.5 px-2 py-1 text-xs font-normal text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors cursor-pointer"
 			>
-				<RefreshCw size={14} class="flex-shrink-0" />
-				Reset
+				<ActionIcon size={14} class="flex-shrink-0" />
+				{button.label}
 			</div>
 		{:else}
 			<span
@@ -87,7 +112,7 @@
 			</span>
 			{#if isCompleted}
 				<CheckCircle2 size={14} class="text-green-500 flex-shrink-0" />
-			{:else if !isCompleted}
+			{:else}
 				<Circle size={14} class="text-blue-300 flex-shrink-0" />
 			{/if}
 		{/if}

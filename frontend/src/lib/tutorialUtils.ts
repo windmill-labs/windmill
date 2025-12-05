@@ -117,32 +117,54 @@ export async function resetTutorialsByIndexes(tutorialIndexes: number[]) {
 }
 
 /**
+ * Update a single tutorial's completion status by index
+ */
+async function updateTutorialStatusByIndex(tutorialIndex: number, completed: boolean) {
+	const currentTodos = get(tutorialsToDo)
+	const isInTodos = currentTodos.includes(tutorialIndex)
+	
+	// Only update if the status needs to change
+	// isInTodos = true means NOT completed, isInTodos = false means completed
+	// So if completed === !isInTodos, we're already in the desired state
+	if (completed === !isInTodos) {
+		return // Already in the desired state
+	}
+	
+	// Update todos list
+	const aft = completed
+		? currentTodos.filter((x) => x !== tutorialIndex)
+		: [...currentTodos, tutorialIndex]
+	tutorialsToDo.set(aft)
+	skippedAll.set(false)
+	
+	// Get current progress bits
+	const currentResponse = await UserService.getTutorialProgress()
+	let bits: number = currentResponse.progress ?? 0
+	
+	// Update bit for this tutorial index
+	const mask = 1 << tutorialIndex
+	bits = completed ? bits | mask : bits & ~mask
+	
+	await UserService.updateTutorialProgress({
+		requestBody: {
+			progress: bits,
+			skipped_all: false
+		}
+	})
+}
+
+/**
  * Reset (mark as incomplete) a single tutorial by index
  */
 export async function resetTutorialByIndex(tutorialIndex: number) {
-	const currentTodos = get(tutorialsToDo)
-	
-	// Add the tutorial index back to todos if not already present
-	if (!currentTodos.includes(tutorialIndex)) {
-		const aft = [...currentTodos, tutorialIndex]
-		tutorialsToDo.set(aft)
-		skippedAll.set(false)
-		
-		// Get current progress bits
-		const currentResponse = await UserService.getTutorialProgress()
-		let bits: number = currentResponse.progress ?? 0
-		
-		// Clear bit for this tutorial index
-		const mask = 1 << tutorialIndex
-		bits = bits & ~mask
-		
-		await UserService.updateTutorialProgress({ 
-			requestBody: { 
-				progress: bits, 
-				skipped_all: false 
-			} 
-		})
-	}
+	await updateTutorialStatusByIndex(tutorialIndex, false)
+}
+
+/**
+ * Mark a single tutorial as completed by index
+ */
+export async function completeTutorialByIndex(tutorialIndex: number) {
+	await updateTutorialStatusByIndex(tutorialIndex, true)
 }
 
 export async function syncTutorialsTodos() {
