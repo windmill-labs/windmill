@@ -95,6 +95,8 @@
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
+	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
+	import { MarkerSeverity } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -126,6 +128,8 @@
 		class?: string | undefined
 		moduleId?: string
 		enablePreprocessorSnippet?: boolean
+		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
+		rawAppRunnableKey?: string | undefined
 	}
 
 	let {
@@ -153,7 +157,8 @@
 		key = undefined,
 		class: clazz = undefined,
 		moduleId = undefined,
-		enablePreprocessorSnippet = false
+		enablePreprocessorSnippet = false,
+		rawAppRunnableKey = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1324,6 +1329,29 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
+		// Raw app lint collection: listen for marker changes and report to store
+		let markerChangeDisposable: IDisposable | undefined = undefined
+		if (rawAppRunnableKey && model) {
+			markerChangeDisposable = meditor.onDidChangeMarkers((uris) => {
+				if (!model || !rawAppRunnableKey) return
+				const modelUri = model.uri.toString()
+				if (uris.some((u) => u.toString() === modelUri)) {
+					const markers = meditor.getModelMarkers({ resource: model.uri })
+					const lintErrors: MonacoLintError[] = markers
+						.filter((m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+						.map((m) => ({
+							message: m.message,
+							severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
+							startLineNumber: m.startLineNumber,
+							startColumn: m.startColumn,
+							endLineNumber: m.endLineNumber,
+							endColumn: m.endColumn
+						}))
+					rawAppLintStore.setDiagnostics(rawAppRunnableKey, lintErrors)
+				}
+			})
+		}
+
 		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
@@ -1443,6 +1471,9 @@
 				closeWebsockets()
 				vimDisposable?.dispose()
 				closeAIInlineWidget()
+				markerChangeDisposable?.dispose()
+				// Note: We don't clear lint diagnostics on dispose - they persist across runnable switches
+				// Diagnostics are only updated when Monaco reports new markers for this runnable
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()

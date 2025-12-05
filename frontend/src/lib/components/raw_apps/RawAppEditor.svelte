@@ -18,6 +18,7 @@
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
 	import type { LintResult } from '../copilot/chat/app/core'
+	import { rawAppLintStore } from './lintStore'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -174,21 +175,47 @@
 	onMount(() => {
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.APP)
+		rawAppLintStore.enable()
+
+		return () => {
+			rawAppLintStore.disable()
+		}
 	})
 
 	$effect(() => {
 		function lint(): LintResult {
+			const snapshot = rawAppLintStore.getSnapshot()
+
+			// Convert MonacoLintError[] to string[] for each runnable
+			const backendErrors: Record<string, string[]> = {}
+			const backendWarnings: Record<string, string[]> = {}
+
+			for (const [key, errors] of Object.entries(snapshot.errors)) {
+				backendErrors[key] = errors.map((e) => `Line ${e.startLineNumber}: ${e.message}`)
+			}
+
+			for (const [key, warnings] of Object.entries(snapshot.warnings)) {
+				backendWarnings[key] = warnings.map((w) => `Line ${w.startLineNumber}: ${w.message}`)
+			}
+
+			// Count total errors and warnings
+			const errorCount = Object.values(snapshot.errors).reduce((acc, arr) => acc + arr.length, 0)
+			const warningCount = Object.values(snapshot.warnings).reduce(
+				(acc, arr) => acc + arr.length,
+				0
+			)
+
 			return {
 				errors: {
 					frontend: {},
-					backend: {}
+					backend: backendErrors
 				},
 				warnings: {
 					frontend: {},
-					backend: {}
+					backend: backendWarnings
 				},
-				errorCount: 0,
-				warningCount: 0
+				errorCount,
+				warningCount
 			}
 		}
 		return aiChatManager.setAppHelpers({
@@ -246,7 +273,7 @@
 				})
 				return backendRunnables
 			},
-			setBackendRunnable: (key, runnable): LintResult => {
+			setBackendRunnable: async (key, runnable): Promise<LintResult> => {
 				if (runnable.type === 'inline' && runnable.inlineScript) {
 					runnables[key] = {
 						name: runnable.name,
@@ -282,10 +309,18 @@
 					}
 				}
 				populateRunnables()
+
+				// Switch UI to show this runnable so Monaco can analyze it
+				selectedRunnable = key
+
+				// Wait 2 seconds for Monaco to analyze the code
+				await new Promise((resolve) => setTimeout(resolve, 2000))
+
 				return lint()
 			},
 			deleteBackendRunnable: (key) => {
 				delete runnables[key]
+				rawAppLintStore.clearDiagnostics(key)
 				populateRunnables()
 			},
 			getFiles: () => {

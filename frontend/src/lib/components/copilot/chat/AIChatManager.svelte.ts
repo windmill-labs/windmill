@@ -466,7 +466,8 @@ class AIChatManager {
 						messages,
 						addedMessages,
 						tools,
-						helpers
+						helpers,
+						isAnthropic ? abortController : undefined
 					)
 					if (!continueCompletion) {
 						break
@@ -475,6 +476,8 @@ class AIChatManager {
 			}
 			return addedMessages
 		} catch (err) {
+			console.log('chatRequest error', err)
+			console.error('chatRequest error', err)
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err
@@ -659,10 +662,7 @@ class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.APP:
-					userMessage = prepareAppUserMessage(
-						oldInstructions,
-						this.appAiChatHelpers?.getFiles()
-					)
+					userMessage = prepareAppUserMessage(oldInstructions, this.appAiChatHelpers?.getFiles())
 					break
 			}
 
@@ -750,7 +750,7 @@ class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(addedMessages ?? [])]
-
+			console.log('displayMessages', this.displayMessages)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -765,12 +765,14 @@ class AIChatManager {
 		}
 	}
 
-	cancel = () => {
+	cancel = (reason?: string) => {
 		if (this.confirmationCallback) {
 			this.confirmationCallback(false)
 			this.confirmationCallback = undefined
 		}
-		this.abortController?.abort()
+		const cancelReason = reason ?? 'user_cancelled'
+		console.log('cancelling request:', { reason: cancelReason, abortController: this.abortController })
+		this.abortController?.abort(cancelReason)
 	}
 
 	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
@@ -824,7 +826,12 @@ class AIChatManager {
 	}
 
 	saveAndClear = async () => {
-		this.cancel()
+		console.log('saveAndClear called', {
+			hasAbortController: !!this.abortController,
+			isLoading: this.loading,
+			stack: new Error().stack
+		})
+		this.cancel('saveAndClear')
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []
 		this.messages = []

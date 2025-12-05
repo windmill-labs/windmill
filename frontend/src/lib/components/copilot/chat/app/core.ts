@@ -62,8 +62,8 @@ export interface AppAIChatHelpers {
 	listBackendRunnables: () => { key: string; name: string }[]
 	getBackendRunnable: (key: string) => BackendRunnable | undefined
 	getBackendRunnables: () => Record<string, BackendRunnable>
-	/** Sets a backend runnable and returns lint results */
-	setBackendRunnable: (key: string, runnable: BackendRunnable) => LintResult
+	/** Sets a backend runnable, switches UI to it, waits for Monaco to analyze, and returns lint results */
+	setBackendRunnable: (key: string, runnable: BackendRunnable) => Promise<LintResult>
 	deleteBackendRunnable: (key: string) => void
 	// Combined view
 	getFiles: () => AppFiles
@@ -509,9 +509,12 @@ export const appTools: Tool<AppAIChatHelpers>[] = [
 				...(parsedArgs.path && { path: parsedArgs.path })
 			}
 
-			const lintResult = helpers.setBackendRunnable(parsedArgs.key, runnable)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Backend runnable '${parsedArgs.key}' updated`
+				content: `Backend runnable '${parsedArgs.key}' updated, waiting for analysis...`
+			})
+			const lintResult = await helpers.setBackendRunnable(parsedArgs.key, runnable)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Backend runnable '${parsedArgs.key}' analyzed`
 			})
 			return formatLintResultResponse(
 				`Backend runnable '${parsedArgs.key}' has been set successfully.`,

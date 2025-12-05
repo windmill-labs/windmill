@@ -127,8 +127,8 @@
 	}
 
 	// Cleanup function to safely remove widget and cancel requests
-	function cleanupWidget() {
-		aiChatManager.cancel()
+	function cleanupWidget(reason?: string) {
+		aiChatManager.cancel(reason ?? 'aiChatInlineWidget destroyed')
 		if (widget) {
 			try {
 				widget.dispose()
@@ -153,12 +153,12 @@
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			cleanupWidget()
+			cleanupWidget('aiChatInlineWidget hidden')
 		}
 	})
 
 	onDestroy(() => {
-		cleanupWidget()
+		cleanupWidget('aiChatInlineWidget destroyed')
 	})
 
 	export function focusInput() {

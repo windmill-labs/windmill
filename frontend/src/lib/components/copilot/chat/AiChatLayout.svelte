@@ -40,7 +40,7 @@
 	historyManager.init()
 
 	onDestroy(() => {
-		aiChatManager.cancel()
+		aiChatManager.cancel('aiChatLayout destroyed')
 		historyManager.close()
 	})
 </script>
