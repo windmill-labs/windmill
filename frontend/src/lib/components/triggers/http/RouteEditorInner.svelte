@@ -263,7 +263,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false

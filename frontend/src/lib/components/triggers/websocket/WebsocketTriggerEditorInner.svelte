@@ -207,7 +207,7 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -237,7 +237,6 @@
 	function getSaveCfg() {
 		return {
 			script_path,
-			initialScriptPath,
 			is_flow,
 			path,
 			url,

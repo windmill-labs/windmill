@@ -163,7 +163,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)

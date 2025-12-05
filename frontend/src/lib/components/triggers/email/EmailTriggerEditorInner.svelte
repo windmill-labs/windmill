@@ -158,7 +158,7 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false

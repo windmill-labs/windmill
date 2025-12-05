@@ -309,10 +309,17 @@
 					)
 				: undefined
 
+			const triggerRetry = structuredClone($state.snapshot(runnableConfig.retry))
+			if ((triggerRetry?.constant?.attempts ?? 0) > 0) {
+				delete triggerRetry?.exponential
+			} else if ((triggerRetry?.exponential?.attempts ?? 0) > 0) {
+				delete triggerRetry?.constant
+			}
+
 			return (
-				!deepEqual(retry, runnableConfig.retry) ||
+				!deepEqual(retry, triggerRetry) ||
 				!deepEqual(errorHandlerPath, runnableConfig.errorHandlerPath) ||
-				!deepEqual(errorHandlerExtraArgs, triggerErrorHandlerArgs)
+				!deepEqual(errorHandlerExtraArgs ?? {}, triggerErrorHandlerArgs ?? {})
 			)
 		} else {
 			return runnableConfig.retry !== undefined || runnableConfig.errorHandlerPath !== undefined

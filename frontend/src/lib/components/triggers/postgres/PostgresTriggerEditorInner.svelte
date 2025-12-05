@@ -159,7 +159,12 @@
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
-		pathError !== '' || emptyString(script_path) || drawerLoading || !can_write || !isValid
+		pathError !== '' ||
+			emptyString(script_path) ||
+			drawerLoading ||
+			!can_write ||
+			!isValid ||
+			!hasChanged
 	)
 
 	async function createPublication() {
@@ -286,7 +291,7 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -297,7 +302,6 @@
 	function getSaveCfg(): Record<string, any> {
 		const cfg = {
 			script_path: script_path,
-			initialScriptPath: initialScriptPath,
 			is_flow: is_flow,
 			path: path,
 			postgres_resource_path: postgres_resource_path,

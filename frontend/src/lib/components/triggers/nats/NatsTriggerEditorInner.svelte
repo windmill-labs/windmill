@@ -77,7 +77,7 @@
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 	let natsResourcePath = $state('')
 	let initialConfig: Record<string, any> | undefined = undefined
-	let originalConfig: Record<string, any> | undefined = undefined
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let natsCfg: {
 		subjects: string[]
 		use_jetstream: boolean
@@ -173,7 +173,7 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

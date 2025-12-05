@@ -617,6 +617,7 @@
 				requestBody: { enabled: nEnabled }
 			})
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+			onUpdate?.(initialPath)
 		}
 	}
 
@@ -634,7 +635,7 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			mode={enabled ? 'enabled' : 'suspended'}
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}

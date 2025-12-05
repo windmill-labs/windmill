@@ -175,7 +175,7 @@
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = nDefaultValues?.mode ?? 'enabled'
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

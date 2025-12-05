@@ -185,7 +185,7 @@
 			activateV5Options.session_expiry_interval = Boolean(
 				defaultValues?.v5_config?.session_expiry_interval
 			)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
