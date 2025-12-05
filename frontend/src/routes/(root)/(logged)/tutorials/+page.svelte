@@ -50,26 +50,40 @@
 	})
 
 
+	// Memoize access check dependencies to avoid unnecessary recalculations
+	// This derived value only recalculates when userStore or selectedPreviewRole changes
+	const accessCheckContext = $derived.by(() => {
+		const user = $userStore
+		const usePreview = user?.is_admin && selectedPreviewRole !== userEffectiveRole
+		return { user, usePreview, previewRole: selectedPreviewRole }
+	})
+
 	/**
 	 * Check if the current user (or preview role) has access to a roles array.
 	 * Handles both normal access and admin preview mode.
 	 */
 	function checkAccess(roles?: Role[]): boolean {
-		const user = $userStore
+		const context = accessCheckContext
 		// Use preview function if admin has selected a different role to preview
-		if (user?.is_admin && selectedPreviewRole !== userEffectiveRole) {
-			return hasRoleAccessForPreview(selectedPreviewRole, roles)
+		if (context.usePreview) {
+			return hasRoleAccessForPreview(context.previewRole, roles)
 		}
-		return hasRoleAccess(user, roles)
+		return hasRoleAccess(context.user, roles)
 	}
 
 	// Get active tabs only (filtered by active and roles)
+	// Optimized: $derived.by() automatically memoizes - only recalculates when dependencies change
 	const activeTabs = $derived.by(() => {
+		// Access context to establish reactive dependency
+		const context = accessCheckContext
 		return (Object.entries(TUTORIALS_CONFIG) as [TabId, TabConfig][]).filter(([, config]) => {
 			// Filter by active
 			if (config.active === false) return false
-			// Filter by roles
-			return checkAccess(config.roles)
+			// Filter by roles (context is captured in closure)
+			if (context.usePreview) {
+				return hasRoleAccessForPreview(context.previewRole, config.roles)
+			}
+			return hasRoleAccess(context.user, config.roles)
 		})
 	})
 
@@ -91,21 +105,29 @@
 	const currentTabConfig = $derived(TUTORIALS_CONFIG[tab])
 
 	// Filter tutorials by role and active status (same logic as displayed tutorials)
-	const visibleTutorials = $derived(
-		currentTabConfig.tutorials.filter((tutorial) => {
+	// Optimized: $derived.by() automatically memoizes - only recalculates when tab or accessCheckContext changes
+	const visibleTutorials = $derived.by(() => {
+		// Access context to establish reactive dependency
+		const context = accessCheckContext
+		return currentTabConfig.tutorials.filter((tutorial) => {
 			if (tutorial.active === false) return false
-			return checkAccess(tutorial.roles)
+			// Use context directly to avoid function call overhead
+			if (context.usePreview) {
+				return hasRoleAccessForPreview(context.previewRole, tutorial.roles)
+			}
+			return hasRoleAccess(context.user, tutorial.roles)
 		})
-	)
+	})
 
 	// Create tutorial index mapping for current tab (only visible tutorials with index defined)
-	const currentTabTutorialIndexes = $derived(
-		Object.fromEntries(
+	// Optimized: only recalculates when visibleTutorials changes
+	const currentTabTutorialIndexes = $derived.by(() => {
+		return Object.fromEntries(
 			visibleTutorials
 				.filter((tutorial) => tutorial.index !== undefined)
 				.map((tutorial) => [tutorial.id, tutorial.index!])
 		)
-	)
+	})
 
 	// Calculate progress for current tab (only counting visible tutorials)
 	const totalTutorials = $derived(getTutorialProgressTotal(currentTabTutorialIndexes))
