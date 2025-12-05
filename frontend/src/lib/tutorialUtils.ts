@@ -116,6 +116,35 @@ export async function resetTutorialsByIndexes(tutorialIndexes: number[]) {
 	})
 }
 
+/**
+ * Reset (mark as incomplete) a single tutorial by index
+ */
+export async function resetTutorialByIndex(tutorialIndex: number) {
+	const currentTodos = get(tutorialsToDo)
+	
+	// Add the tutorial index back to todos if not already present
+	if (!currentTodos.includes(tutorialIndex)) {
+		const aft = [...currentTodos, tutorialIndex]
+		tutorialsToDo.set(aft)
+		skippedAll.set(false)
+		
+		// Get current progress bits
+		const currentResponse = await UserService.getTutorialProgress()
+		let bits: number = currentResponse.progress ?? 0
+		
+		// Clear bit for this tutorial index
+		const mask = 1 << tutorialIndex
+		bits = bits & ~mask
+		
+		await UserService.updateTutorialProgress({ 
+			requestBody: { 
+				progress: bits, 
+				skipped_all: false 
+			} 
+		})
+	}
+}
+
 export async function syncTutorialsTodos() {
 	const response = await UserService.getTutorialProgress()
 	const bits: number = response.progress!

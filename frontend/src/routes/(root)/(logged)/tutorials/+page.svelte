@@ -15,7 +15,8 @@
 		getTutorialProgressCompleted,
 		skipAllTodos,
 		skipTutorialsByIndexes,
-		resetTutorialsByIndexes
+		resetTutorialsByIndexes,
+		resetTutorialByIndex
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
 	import { RefreshCw, CheckCheck, CheckCircle2, Circle } from 'lucide-svelte'
@@ -152,6 +153,15 @@
 	async function resetCurrentTabTutorials() {
 		if (currentTabIndexes.length === 0) return
 		await resetTutorialsByIndexes(currentTabIndexes)
+		await syncTutorialsTodos()
+	}
+
+	// Reset a single tutorial
+	async function resetSingleTutorial(tutorialId: string) {
+		const tutorial = currentTabConfig.tutorials.find((t) => t.id === tutorialId)
+		if (!tutorial || tutorial.index === undefined) return
+
+		await resetTutorialByIndex(tutorial.index)
 		await syncTutorialsTodos()
 	}
 
@@ -297,6 +307,7 @@
 							isCompleted={isTutorialCompleted(tutorial.id)}
 							disabled={tutorial.active === false}
 							comingSoon={tutorial.comingSoon}
+							onReset={() => resetSingleTutorial(tutorial.id)}
 						/>
 					{/each}
 				</div>
