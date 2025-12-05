@@ -21,7 +21,7 @@
 	} from '$lib/tutorialUtils'
 	import { Button } from '$lib/components/common'
 	import { RefreshCw, CheckCheck, CheckCircle2, Circle, Shield, Code, UserCog } from 'lucide-svelte'
-	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
+	import { TUTORIALS_CONFIG, type TabId, type TabConfig } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -77,12 +77,12 @@
 
 	// Get active tabs only (filtered by active and roles)
 	const activeTabs = $derived.by(() => {
-		return Object.entries(TUTORIALS_CONFIG).filter(([, config]) => {
+		return (Object.entries(TUTORIALS_CONFIG) as [TabId, TabConfig][]).filter(([, config]) => {
 			// Filter by active
 			if (config.active === false) return false
 			// Filter by roles
 			return checkAccess(config.roles)
-		}) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
+		})
 	})
 
 	// Initialize tab to first active tab (already filtered by role and active status)
