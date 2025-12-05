@@ -4469,6 +4469,7 @@ pub async fn push<'c, 'd>(
                 debouncing_settings: debouncing_settings.clone(),
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
+                cache_ignore_s3_path: None,
                 same_worker: false,
                 early_return: None,
                 skip_expr: None,

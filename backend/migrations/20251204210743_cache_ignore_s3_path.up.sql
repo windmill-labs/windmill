@@ -1,0 +1,2 @@
+ALTER TABLE script
+ADD COLUMN cache_ignore_s3_path BOOLEAN DEFAULT NULL;
