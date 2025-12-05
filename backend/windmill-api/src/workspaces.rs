@@ -1216,7 +1216,7 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    // Check that non-superadmins are not abusing Instance catalogs
+    // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
         let old_ducklakes = sqlx::query_scalar!(
             r#"
@@ -1240,7 +1240,7 @@ async fn edit_ducklake_config(
                     || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
                 {
                     return Err(Error::BadRequest(
-                        "Only superadmins can create or modify ducklakes with Instance catalogs"
+                        "Only superadmins can create or modify ducklakes with Instance databases"
                             .to_string(),
                     ));
                 }
@@ -1288,7 +1288,7 @@ async fn edit_datatable_config(
     )
     .await?;
 
-    // Check that non-superadmins are not abusing Instance catalogs
+    // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
         let old_datatables = sqlx::query_scalar!(
             r#"
@@ -1312,7 +1312,7 @@ async fn edit_datatable_config(
                     || old_dt.unwrap().database.resource_path != dt.database.resource_path
                 {
                     return Err(Error::BadRequest(
-                        "Only superadmins can create or modify data tables with Instance catalogs"
+                        "Only superadmins can create or modify data tables with Instance databases"
                             .to_string(),
                     ));
                 }

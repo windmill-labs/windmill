@@ -138,7 +138,7 @@
 				)
 			) {
 				let confirm = await confirmationModal.ask({
-					title: 'Some instance catalogs are not setup',
+					title: 'Some instance databases are not setup',
 					children: 'Are you sure you want to save without setting them up ?',
 					confirmationText: 'Save anyway'
 				})
@@ -192,8 +192,8 @@
 
 {#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'instance')}
 	<div transition:slide={{ duration: 200 }} class="mb-4">
-		<Alert title="Instance catalogs use the Windmill database" type="info">
-			Using an instance catalog is the fastest way to get started with Ducklake. They are public to
+		<Alert title="Instance databases use the Windmill database" type="info">
+			Using an instance database is the fastest way to get started with Ducklake. They are public to
 			the instance and can be re-used in other workspaces' Ducklake settings.
 		</Alert>
 	</div>
