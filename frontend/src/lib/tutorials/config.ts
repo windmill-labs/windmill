@@ -18,6 +18,7 @@ export interface TutorialConfig {
 export interface TabConfig {
 	label: string
 	tutorials: TutorialConfig[]
+	roles?: ('admin' | 'developer' | 'operator')[] // Roles that can access this tab category (if not specified, available to everyone)
 	progressBar?: boolean // Whether to display the progress bar for this tab (default: true)
 	active?: boolean // Whether this tab category is active and should be displayed (default: true)
 }
@@ -44,6 +45,7 @@ export function getTutorialIndex(id: string): number {
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
+		roles: ['developer', 'operator', 'admin'],
 		progressBar: true,
 		active: true,
 		tutorials: [
@@ -58,7 +60,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
-				role: 'developer',
+				role: 'operator',
 				order: 1
 			},
 			{
@@ -93,6 +95,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	},
 	app_editor: {
 		label: 'App Editor',
+		roles: ['developer', 'admin'],
 		progressBar: false,
 		active: true,
 		tutorials: [

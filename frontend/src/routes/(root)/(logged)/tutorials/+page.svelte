@@ -22,29 +22,40 @@
 	import { TUTORIALS_CONFIG, type TabId } from '$lib/tutorials/config'
 	import { userStore } from '$lib/stores'
 
-	// Get active tabs only
-	const activeTabs = $derived(
-		Object.entries(TUTORIALS_CONFIG).filter(
-			([, config]) => config.active !== false
-		) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
-	)
+	// Get active tabs only (filtered by active and roles)
+	const activeTabs = $derived.by(() => {
+		const user = $userStore
+		return Object.entries(TUTORIALS_CONFIG).filter(([, config]) => {
+			// Filter by active
+			if (config.active === false) return false
+			
+			// Filter by roles if specified
+			if (config.roles && config.roles.length > 0) {
+				if (!user) return false
+				
+				// Check if user has any of the required roles
+				return config.roles.some((role) => {
+					if (role === 'admin') return user.is_admin
+					if (role === 'operator') return user.operator || user.is_admin
+					if (role === 'developer') return !user.operator || user.is_admin
+					return false
+				})
+			}
+			
+			// No roles specified = available to everyone
+			return true
+		}) as [TabId, typeof TUTORIALS_CONFIG[TabId]][]
+	})
 
-	// Initialize tab to first active tab, or 'quickstart' if it's active
-	const initialTab: TabId = (() => {
-		if (TUTORIALS_CONFIG.quickstart?.active !== false) {
-			return 'quickstart'
-		}
-		return activeTabs[0]?.[0] || 'quickstart'
-	})()
+	// Initialize tab to first active tab (already filtered by role and active status)
+	let tab: TabId = $state('quickstart')
 
-	let tab: TabId = $state(initialTab)
-
-	// Ensure current tab is active, otherwise switch to first active tab
+	// Set initial tab and ensure current tab is active and accessible
 	$effect(() => {
-		const currentConfig = TUTORIALS_CONFIG[tab]
-		if (currentConfig?.active === false) {
-			const firstActiveTab = activeTabs[0]?.[0]
-			if (firstActiveTab) {
+		const firstActiveTab = activeTabs[0]?.[0]
+		if (firstActiveTab) {
+			// If current tab is not in active tabs, switch to first active tab
+			if (!activeTabs.some(([tabId]) => tabId === tab)) {
 				tab = firstActiveTab
 			}
 		}
@@ -53,39 +64,42 @@
 	// Get current tab configuration
 	const currentTabConfig = $derived(TUTORIALS_CONFIG[tab])
 
-	// Create tutorial index mapping for current tab (only tutorials with index defined)
+	// Filter tutorials by role and active status (same logic as displayed tutorials)
+	const visibleTutorials = $derived(
+		currentTabConfig.tutorials.filter((tutorial) => {
+			if (tutorial.active === false) return false
+			if (!tutorial.role) return true
+			const user = $userStore
+			if (!user) return false
+
+			// Check role flags directly (only is_admin and operator are stored in DB)
+			// Developer is the default role (when both is_admin and operator are false)
+			const { role } = tutorial
+			if (role === 'admin') return user.is_admin
+			if (role === 'operator') return user.operator || user.is_admin
+			if (role === 'developer') return !user.operator || user.is_admin
+			return true
+		})
+	)
+
+	// Create tutorial index mapping for current tab (only visible tutorials with index defined)
 	const currentTabTutorialIndexes = $derived(
 		Object.fromEntries(
-			currentTabConfig.tutorials
+			visibleTutorials
 				.filter((tutorial) => tutorial.index !== undefined)
 				.map((tutorial) => [tutorial.id, tutorial.index!])
 		)
 	)
 
-	// Calculate progress for current tab
+	// Calculate progress for current tab (only counting visible tutorials)
 	const totalTutorials = $derived(getTutorialProgressTotal(currentTabTutorialIndexes))
 	const completedTutorials = $derived(
 		getTutorialProgressCompleted(currentTabTutorialIndexes, $tutorialsToDo)
 	)
 
-	// Filter and sort tutorials based on props
+	// Sort visible tutorials by order
 	const tutorials = $derived(
-		currentTabConfig.tutorials
-			.filter((tutorial) => {
-				if (tutorial.active === false) return false
-				if (!tutorial.role) return true
-				const user = $userStore
-				if (!user) return false
-
-				// Check role flags directly (only is_admin and operator are stored in DB)
-				// Developer is the default role (when both is_admin and operator are false)
-				const { role } = tutorial
-				if (role === 'admin') return user.is_admin
-				if (role === 'operator') return user.operator || user.is_admin
-				if (role === 'developer') return !user.operator || user.is_admin
-				return true
-			})
-			.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+		visibleTutorials.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
 	)
 
 	// Sync tutorial progress on mount and when navigating to this page
