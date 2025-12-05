@@ -185,15 +185,23 @@
 	// Skip all tutorials in current tab
 	async function skipCurrentTabTutorials() {
 		if (currentTabIndexes.length === 0) return
-		await skipTutorialsByIndexes(currentTabIndexes)
-		await syncTutorialsTodos()
+		try {
+			await skipTutorialsByIndexes(currentTabIndexes)
+			await syncTutorialsTodos()
+		} catch (error) {
+			console.error('Error marking tutorials as completed:', error)
+		}
 	}
 
 	// Reset all tutorials in current tab
 	async function resetCurrentTabTutorials() {
 		if (currentTabIndexes.length === 0) return
-		await resetTutorialsByIndexes(currentTabIndexes)
-		await syncTutorialsTodos()
+		try {
+			await resetTutorialsByIndexes(currentTabIndexes)
+			await syncTutorialsTodos()
+		} catch (error) {
+			console.error('Error resetting tutorials:', error)
+		}
 	}
 
 	// Update a single tutorial's completion status
