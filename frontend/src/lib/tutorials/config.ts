@@ -110,7 +110,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 4,
 				active: true,
 				comingSoon: false,
-				roles: ['developer', 'admin'],
+				roles: ['admin'],
 				order: 4
 			},
 			{
