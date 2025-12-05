@@ -199,109 +199,119 @@
 		tooltip="Learn how to use Windmill with our interactive tutorials"
 		documentationLink="https://www.windmill.dev/docs/intro"
 	>
-		<div class="flex gap-2">
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: CheckCheck }}
-				onclick={async () => {
-					await skipAllTodos()
-					await syncTutorialsTodos()
-				}}
-			>
-				Mark all as completed
-			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: RefreshCw }}
-				onclick={async () => {
-					await resetAllTodos()
-					await syncTutorialsTodos()
-				}}
-			>
-				Reset all
-			</Button>
-		</div>
+		{#if activeTabs.length > 0}
+			<div class="flex gap-2">
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: CheckCheck }}
+					onclick={async () => {
+						await skipAllTodos()
+						await syncTutorialsTodos()
+					}}
+				>
+					Mark all as completed
+				</Button>
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: RefreshCw }}
+					onclick={async () => {
+						await resetAllTodos()
+						await syncTutorialsTodos()
+					}}
+				>
+					Reset all
+				</Button>
+			</div>
+		{/if}
 	</PageHeader>
 
-	<div class="flex justify-between pt-4">
-		<Tabs class="w-full" bind:selected={tab}>
-			{#each activeTabs as [tabId, config]}
-				{@const badge = getTabBadge(tabId as TabId)}
-				{#if badge.type === 'progress'}
-					<Tab value={tabId} label={config.label}>
-						{#snippet extra()}
-							<span class="text-xs text-secondary ml-1.5 flex-shrink-0">{badge.text}</span>
-						{/snippet}
-					</Tab>
-				{:else if badge.type === 'check'}
-					<Tab value={tabId} label={config.label}>
-						{#snippet extra()}
-							<CheckCircle2 size={14} class="ml-1.5 flex-shrink-0" />
-						{/snippet}
-					</Tab>
-				{:else if badge.type === 'dot'}
-					<Tab value={tabId} label={config.label}>
-						{#snippet extra()}
-							<Circle size={14} class="ml-1.5 flex-shrink-0" />
-						{/snippet}
-					</Tab>
-				{:else}
-					<Tab value={tabId} label={config.label} />
-				{/if}
-			{/each}
-		</Tabs>
-	</div>
+	{#if activeTabs.length > 0}
+		<div class="flex justify-between pt-4">
+			<Tabs class="w-full" bind:selected={tab}>
+				{#each activeTabs as [tabId, config]}
+					{@const badge = getTabBadge(tabId as TabId)}
+					{#if badge.type === 'progress'}
+						<Tab value={tabId} label={config.label}>
+							{#snippet extra()}
+								<span class="text-xs text-secondary ml-1.5 flex-shrink-0">{badge.text}</span>
+							{/snippet}
+						</Tab>
+					{:else if badge.type === 'check'}
+						<Tab value={tabId} label={config.label}>
+							{#snippet extra()}
+								<CheckCircle2 size={14} class="ml-1.5 flex-shrink-0" />
+							{/snippet}
+						</Tab>
+					{:else if badge.type === 'dot'}
+						<Tab value={tabId} label={config.label}>
+							{#snippet extra()}
+								<Circle size={14} class="ml-1.5 flex-shrink-0" />
+							{/snippet}
+						</Tab>
+					{:else}
+						<Tab value={tabId} label={config.label} />
+					{/if}
+				{/each}
+			</Tabs>
+		</div>
 
-	{#if currentTabConfig && currentTabConfig.tutorials.length > 0}
-		<div class="pt-8">
-			<div class="flex items-start gap-4 mb-6">
-				{#if currentTabConfig.progressBar !== false}
-					<TutorialProgressBar
-						completed={completedTutorials}
-						total={totalTutorials}
-						label="tutorials"
-					/>
-				{/if}
-				<div class="flex gap-2 flex-shrink-0 pt-1">
-					<Button
-						size="xs"
-						variant="default"
-						startIcon={{ icon: CheckCheck }}
-						onclick={skipCurrentTabTutorials}
-					>
-						Mark as completed
-					</Button>
-					<Button
-						size="xs"
-						variant="default"
-						startIcon={{ icon: RefreshCw }}
-						onclick={resetCurrentTabTutorials}
-					>
-						Reset
-					</Button>
+		{#if tutorials.length > 0}
+			<div class="pt-8">
+				<div class="flex items-start gap-4 mb-6">
+					{#if currentTabConfig.progressBar !== false}
+						<TutorialProgressBar
+							completed={completedTutorials}
+							total={totalTutorials}
+							label="tutorials"
+						/>
+					{/if}
+					<div class="flex gap-2 flex-shrink-0 pt-1">
+						<Button
+							size="xs"
+							variant="default"
+							startIcon={{ icon: CheckCheck }}
+							onclick={skipCurrentTabTutorials}
+						>
+							Mark as completed
+						</Button>
+						<Button
+							size="xs"
+							variant="default"
+							startIcon={{ icon: RefreshCw }}
+							onclick={resetCurrentTabTutorials}
+						>
+							Reset
+						</Button>
+					</div>
+				</div>
+
+				<div class="border rounded-md bg-surface-tertiary">
+					{#each tutorials as tutorial}
+						<TutorialButton
+							icon={tutorial.icon}
+							title={tutorial.title}
+							description={tutorial.description}
+							onclick={tutorial.onClick}
+							isCompleted={isTutorialCompleted(tutorial.id)}
+							disabled={tutorial.active === false}
+							comingSoon={tutorial.comingSoon}
+						/>
+					{/each}
 				</div>
 			</div>
-
-			<div class="border rounded-md bg-surface-tertiary">
-				{#each tutorials as tutorial}
-					<TutorialButton
-						icon={tutorial.icon}
-						title={tutorial.title}
-						description={tutorial.description}
-						onclick={tutorial.onClick}
-						isCompleted={isTutorialCompleted(tutorial.id)}
-						disabled={tutorial.active === false}
-						comingSoon={tutorial.comingSoon}
-					/>
-				{/each}
+		{:else if currentTabConfig}
+			<div class="pt-8">
+				<div class="text-center text-secondary text-sm py-8">
+					No tutorials available for this section yet.
+				</div>
 			</div>
-		</div>
-	{:else if currentTabConfig}
+		{/if}
+	{:else}
 		<div class="pt-8">
 			<div class="text-center text-secondary text-sm py-8">
-				No tutorials available for this section yet.
+				No tutorials available for now. Coming soon.
 			</div>
 		</div>
 	{/if}

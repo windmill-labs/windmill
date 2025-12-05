@@ -23,7 +23,7 @@ export interface TabConfig {
 	active?: boolean // Whether this tab category is active and should be displayed (default: true)
 }
 
-export type TabId = 'quickstart' | 'app_editor' 
+export type TabId = 'quickstart' | 'app_editor'
 
 /**
  * Get tutorial index from config by tutorial ID.
@@ -45,7 +45,7 @@ export function getTutorialIndex(id: string): number {
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
-		roles: ['developer', 'operator', 'admin'],
+		roles: ['developer', 'admin'],
 		progressBar: true,
 		active: true,
 		tutorials: [
@@ -60,7 +60,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 1,
 				active: true,
 				comingSoon: false,
-				roles: ['operator', 'developer', 'admin'],
+				roles: ['developer', 'admin'],
 				order: 1
 			},
 			{
@@ -110,7 +110,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 4,
 				active: true,
 				comingSoon: false,
-				roles: ['admin'],
+				roles: ['developer','admin'],
 				order: 4
 			},
 			{
