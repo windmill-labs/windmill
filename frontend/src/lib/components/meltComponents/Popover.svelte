@@ -39,6 +39,12 @@
 	export let disableFocusTrap: boolean = false
 	export let escapeBehavior: EscapeBehaviorType = 'close'
 	export let enableFlyTransition: boolean = false
+	export let onKeyDown: (e: KeyboardEvent) => void = () => {}
+	export let onClose: () => void = () => {}
+	/**
+	 * If provided, the popover will only open if the click is on the element with the given id.
+	 */
+	export let targetId: string | undefined = undefined
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
@@ -52,6 +58,7 @@
 
 	// Cleanup timers on component destruction
 	import { onDestroy } from 'svelte'
+	import type { MeltEventHandler } from '@melt-ui/svelte/internal/types'
 	onDestroy(clearTimers)
 
 	const {
@@ -67,6 +74,9 @@
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
+				if (!next) {
+					onClose()
+				}
 			}
 			if (closeOnOtherPopoverOpen) {
 				if (next) {
@@ -135,7 +145,21 @@
 		() => openOnHover && close(),
 		debounceDelay
 	)
+
+	const handleClick: MeltEventHandler<PointerEvent> = (event) => {
+		if (targetId) {
+			const target = event.detail.originalEvent.target as Element
+			const targetElement = target.closest(`#${targetId}`)
+			if (!targetElement) {
+				event.preventDefault()
+				event.stopPropagation()
+				return
+			}
+		}
+	}
 </script>
+
+<svelte:window onkeydown={(e) => isOpen && onKeyDown(e)} />
 
 <button
 	class={$$props.class}
@@ -161,6 +185,7 @@
 		}
 	}}
 	data-popover
+	on:m-click={handleClick}
 	on:click
 >
 	<slot name="trigger" {isOpen} />

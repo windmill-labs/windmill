@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.589.3](https://github.com/windmill-labs/windmill/compare/v1.589.2...v1.589.3) (2025-12-05)
+
+
+### Bug Fixes
+
+* **app:** fix appdatetimeinput in lists ([409c342](https://github.com/windmill-labs/windmill/commit/409c342ffd4499c5ab67b3b5acca8977753ded00))
+* **cli:** properly handle frontend scripts for app generate-locks ([af70eed](https://github.com/windmill-labs/windmill/commit/af70eed58d9b38f48891e14632660e3aa10ee35e))
+* linked secret in resources must be of type string ([9746030](https://github.com/windmill-labs/windmill/commit/97460304e9ed54b9a04e055b884e2fb997c5ab2c))
+
+## [1.589.2](https://github.com/windmill-labs/windmill/compare/v1.589.1...v1.589.2) (2025-12-05)
+
+
+### Bug Fixes
+
+* enable back gcp triggers in CLI ([#7299](https://github.com/windmill-labs/windmill/issues/7299)) ([3757cbc](https://github.com/windmill-labs/windmill/commit/3757cbce87a2d32539efdac7493af2efec22cb7e))
+* **flow:** fix chat mode modal + toggle ([#7296](https://github.com/windmill-labs/windmill/issues/7296)) ([f0ff6f4](https://github.com/windmill-labs/windmill/commit/f0ff6f405dcffa9b70d1a14334c647c29fbf1ed4))
+* **frontend:** fix saved/past inputs loading when in json mode on the flow detail page ([#7300](https://github.com/windmill-labs/windmill/issues/7300)) ([c3044a5](https://github.com/windmill-labs/windmill/commit/c3044a5a9be709807719201cde5eeeb0e70d7133))
+* **frontend:** update workers page ui ([#7264](https://github.com/windmill-labs/windmill/issues/7264)) ([0594257](https://github.com/windmill-labs/windmill/commit/0594257a25d1a64e620daf4ea0b106f47424ef87))
+* show related job when deployment is in progress ([#7294](https://github.com/windmill-labs/windmill/issues/7294)) ([e9f1306](https://github.com/windmill-labs/windmill/commit/e9f13065bfedd9af84da58b161349f8e79e72b2a))
+
 ## [1.589.1](https://github.com/windmill-labs/windmill/compare/v1.589.0...v1.589.1) (2025-12-03)
 
 

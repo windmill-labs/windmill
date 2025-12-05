@@ -18,7 +18,10 @@ import {
   removeType,
   TRIGGER_TYPES,
 } from "../../types.ts";
-import { fromBranchSpecificPath, isBranchSpecificFile } from "../../core/specific_items.ts";
+import {
+  fromBranchSpecificPath,
+  isBranchSpecificFile,
+} from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
@@ -32,7 +35,7 @@ type Trigger = {
   mqtt: MqttTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
-  email: EmailTrigger
+  email: EmailTrigger;
 };
 
 type TriggerFile<K extends TriggerType> = Omit<
@@ -95,9 +98,7 @@ async function updateTrigger<K extends TriggerType>(
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
     sqs: wmill.updateSqsTrigger,
-    gcp: async (args) => {
-      throw new Error("GCP triggers are not supported yet");
-    },
+    gcp: wmill.updateGcpTrigger,
     email: wmill.updateEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -124,9 +125,7 @@ async function createTrigger<K extends TriggerType>(
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
     sqs: wmill.createSqsTrigger,
-    gcp: async (args) => {
-      throw new Error("GCP triggers are not supported yet");
-    },
+    gcp: wmill.createGcpTrigger,
     email: wmill.createEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];

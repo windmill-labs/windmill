@@ -8,7 +8,7 @@
 </script>
 
 <div
-	class="shadow-lg max-w-sm break-words py-2 px-3 rounded-md text-xs font-normal text-primary bg-surface-secondary whitespace-normal text-left dark:border"
+	class="shadow-lg max-w-sm break-words py-2 px-3 rounded-md text-xs font-normal text-primary bg-surface-secondary whitespace-normal text-left dark:border max-h-64 overflow-y-auto"
 >
 	{#if markdownTooltip}
 		<div class="prose-sm">
