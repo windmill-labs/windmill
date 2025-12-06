@@ -562,20 +562,30 @@ async fn list_users_as_super_admin(
 #[derive(Serialize, Deserialize)]
 struct Progress {
     progress: u64,
+    skipped_all: bool,
 }
 async fn get_tutorial_progress(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Progress> {
-    let res = sqlx::query_scalar!(
-        "SELECT progress::bigint FROM tutorial_progress WHERE email = $1",
+    let row = sqlx::query!(
+        "SELECT progress::bigint as progress, skipped_all FROM tutorial_progress WHERE email = $1",
         authed.email
     )
     .fetch_optional(&db)
-    .await?
-    .flatten()
-    .unwrap_or_default() as u64;
-    Ok(Json(Progress { progress: res }))
+    .await?;
+    
+    if let Some(row) = row {
+        Ok(Json(Progress {
+            progress: row.progress.unwrap_or_default() as u64,
+            skipped_all: row.skipped_all,
+        }))
+    } else {
+        Ok(Json(Progress {
+            progress: 0,
+            skipped_all: false,
+        }))
+    }
 }
 
 async fn update_tutorial_progress(
@@ -583,10 +593,11 @@ async fn update_tutorial_progress(
     Extension(db): Extension<DB>,
     Json(progress): Json<Progress>,
 ) -> Result<String> {
-    sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
+    sqlx::query!(
+        "INSERT INTO tutorial_progress (email, progress, skipped_all) VALUES ($2, $1::bigint::bit(64), $3) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress, skipped_all = EXCLUDED.skipped_all",
         progress.progress as i64,
-        authed.email
+        authed.email,
+        progress.skipped_all
     )
     .execute(&db)
     .await?;

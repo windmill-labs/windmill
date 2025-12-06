@@ -428,7 +428,12 @@
 	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
 
 	export function triggerTutorial() {
-		appEditorHeader?.toggleTutorial()
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial) {
+			appEditorHeader?.runTutorialById(tutorial)
+		}
 	}
 
 	let box: HTMLElement | undefined = $state(undefined)
