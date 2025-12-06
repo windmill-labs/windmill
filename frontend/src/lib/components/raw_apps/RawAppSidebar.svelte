@@ -349,4 +349,6 @@
 </PanelSection>
 
 <RawAppModules {modules} />
+
+<div class="py-10"></div>
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />

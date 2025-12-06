@@ -16,6 +16,7 @@ import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
+import lintCommand from "./lint.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 
 export interface AppFile {
@@ -62,15 +63,7 @@ export function replaceInlineScripts(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "runType") {
-        if (addType) {
-          if (isVersionsGeq1585()) {
-            rec["type"] = "path";
-          } else {
-            rec["type"] = "runnableByPath";
-          }
-        }
-      } else if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && typeof v == "object") {
         if (addType) {
           if (isVersionsGeq1585()) {
             rec["type"] = "inline";
@@ -230,6 +223,7 @@ const command = new Command()
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
   .command("dev", devCommand)
+  .command("lint", lintCommand)
   .command(
     "generate-locks",
     "re-generate the lockfiles for app runnables inline scripts that have changed"

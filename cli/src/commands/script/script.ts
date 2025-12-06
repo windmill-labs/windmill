@@ -66,6 +66,17 @@ export interface ScriptFile {
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
 }
 
+/**
+ * Checks if a path is inside a raw app backend folder.
+ * Matches patterns like: .../myApp.raw_app/backend/...
+ */
+export function isRawAppBackendPath(filePath: string): boolean {
+  // Normalize path separators for consistent matching
+  const normalizedPath = filePath.replaceAll(SEP, "/");
+  // Check if path contains pattern: *.raw_app/backend/
+  return /\.raw_app\/backend\//.test(normalizedPath);
+}
+
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
@@ -199,6 +210,7 @@ export async function handleFile(
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
+    !isRawAppBackendPath(path) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {

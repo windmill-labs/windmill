@@ -14,7 +14,11 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import { isRunnableByName } from '../apps/inputType'
+	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
+	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { onMount } from 'svelte'
+	import type { LintResult } from '../copilot/chat/app/core'
+	import { rawAppLintStore } from './lintStore'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -89,6 +93,57 @@
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
 
+	// Helper function to convert internal Runnable to BackendRunnable format
+	function convertToBackendRunnable(key: string, runnable: Runnable): any | undefined {
+		if (!runnable) return undefined
+
+		const backendRunnable: any = {
+			name: runnable.name ?? key
+		}
+
+		if (isRunnableByName(runnable)) {
+			backendRunnable.type = 'inline'
+			if (runnable.inlineScript) {
+				// Map frontend language to backend API language
+				let language = runnable.inlineScript.language
+				// Backend API only supports 'bun' and 'python3' for inline scripts
+				// Map TypeScript variants to 'bun'
+				if (language === 'nativets' || language === 'deno') {
+					language = 'bun'
+				}
+				backendRunnable.inlineScript = {
+					language: language as 'bun' | 'python3',
+					content: runnable.inlineScript.content ?? ''
+				}
+			}
+		} else if (isRunnableByPath(runnable)) {
+			// Determine type based on runType
+			if (runnable.runType === 'flow') {
+				backendRunnable.type = 'flow'
+			} else if (runnable.runType === 'hubscript') {
+				backendRunnable.type = 'hubscript'
+			} else {
+				backendRunnable.type = 'script'
+			}
+			backendRunnable.path = runnable.path
+		}
+
+		// Extract static inputs from fields
+		if (runnable.fields) {
+			const staticInputs: Record<string, any> = {}
+			Object.entries(runnable.fields).forEach(([fieldKey, field]) => {
+				if (field.type === 'static') {
+					staticInputs[fieldKey] = field.value
+				}
+			})
+			if (Object.keys(staticInputs).length > 0) {
+				backendRunnable.staticInputs = staticInputs
+			}
+		}
+
+		return backendRunnable
+	}
+
 	let iframeLoaded = $state(false) // @hmr:keep
 
 	function populateFiles() {
@@ -117,6 +172,188 @@
 		)
 	}
 
+	onMount(() => {
+		aiChatManager.saveAndClear()
+		aiChatManager.changeMode(AIMode.APP)
+		rawAppLintStore.enable()
+
+		return () => {
+			rawAppLintStore.disable()
+		}
+	})
+
+	$effect(() => {
+		function lint(): LintResult {
+			const snapshot = rawAppLintStore.getSnapshot()
+
+			// Convert MonacoLintError[] to string[] for each runnable
+			const backendErrors: Record<string, string[]> = {}
+			const backendWarnings: Record<string, string[]> = {}
+
+			for (const [key, errors] of Object.entries(snapshot.errors)) {
+				backendErrors[key] = errors.map((e) => `Line ${e.startLineNumber}: ${e.message}`)
+			}
+
+			for (const [key, warnings] of Object.entries(snapshot.warnings)) {
+				backendWarnings[key] = warnings.map((w) => `Line ${w.startLineNumber}: ${w.message}`)
+			}
+
+			// Count total errors and warnings
+			const errorCount = Object.values(snapshot.errors).reduce((acc, arr) => acc + arr.length, 0)
+			const warningCount = Object.values(snapshot.warnings).reduce(
+				(acc, arr) => acc + arr.length,
+				0
+			)
+
+			return {
+				errors: {
+					frontend: {},
+					backend: backendErrors
+				},
+				warnings: {
+					frontend: {},
+					backend: backendWarnings
+				},
+				errorCount,
+				warningCount
+			}
+		}
+		return aiChatManager.setAppHelpers({
+			lint,
+			listFrontendFiles: () => {
+				return [...Object.keys(files ?? {}), '/wmill.d.ts']
+			},
+			getFrontendFile: (path) => {
+				if (path === '/wmill.d.ts') {
+					return genWmillTs(runnables)
+				}
+				return $state.snapshot((files ?? {})[path])
+			},
+			getFrontendFiles: () => {
+				const frontendFiles = {
+					...$state.snapshot(files ?? {}),
+					'/wmill.d.ts': genWmillTs(runnables)
+				}
+				console.log('result', frontendFiles)
+				return frontendFiles
+			},
+			setFrontendFile: (path, content): LintResult => {
+				console.log('setting frontend file', path, content)
+				if (!files) {
+					files = {}
+				}
+				files[path] = content
+				setFilesInIframe(files)
+				selectedDocument = path
+				handleSelectFile(path)
+				console.log('files after setting', files)
+				return lint()
+			},
+			deleteFrontendFile: (path) => {
+				if (!files) {
+					files = {}
+				}
+				delete files[path]
+				setFilesInIframe(files)
+			},
+			listBackendRunnables: () => {
+				return Object.entries(runnables).map(([key, runnable]) => ({
+					key,
+					name: runnable?.name ?? key
+				}))
+			},
+			getBackendRunnable: (key) => {
+				return convertToBackendRunnable(key, runnables[key])
+			},
+			getBackendRunnables: () => {
+				const backendRunnables: Record<string, any> = {}
+				Object.entries(runnables).forEach(([key, runnable]) => {
+					const converted = convertToBackendRunnable(key, runnable)
+					if (converted) {
+						backendRunnables[key] = converted
+					}
+				})
+				return backendRunnables
+			},
+			setBackendRunnable: async (key, runnable): Promise<LintResult> => {
+				if (runnable.type === 'inline' && runnable.inlineScript) {
+					runnables[key] = {
+						name: runnable.name,
+						type: 'inline',
+						inlineScript: {
+							content: runnable.inlineScript.content,
+							language: runnable.inlineScript.language
+						},
+						fields: runnable.staticInputs
+							? Object.fromEntries(
+									Object.entries(runnable.staticInputs).map(([k, v]) => [
+										k,
+										{ type: 'static', value: v, fieldType: 'object' }
+									])
+								)
+							: {}
+					}
+				} else if (runnable.path) {
+					runnables[key] = {
+						name: runnable.name,
+						type: 'path',
+						runType: runnable.type as 'script' | 'flow' | 'hubscript',
+						path: runnable.path,
+						fields: runnable.staticInputs
+							? Object.fromEntries(
+									Object.entries(runnable.staticInputs).map(([k, v]) => [
+										k,
+										{ type: 'static', value: v, fieldType: 'object' }
+									])
+								)
+							: {},
+						schema: {}
+					}
+				}
+				populateRunnables()
+
+				// Switch UI to show this runnable so Monaco can analyze it
+				selectedRunnable = key
+
+				// Wait 2 seconds for Monaco to analyze the code
+				await new Promise((resolve) => setTimeout(resolve, 1000))
+
+				return lint()
+			},
+			deleteBackendRunnable: (key) => {
+				delete runnables[key]
+				rawAppLintStore.clearDiagnostics(key)
+				populateRunnables()
+			},
+			getFiles: () => {
+				return {
+					frontend: $state.snapshot(files ?? {}),
+					backend: aiChatManager.appAiChatHelpers?.getBackendRunnables() ?? {}
+				}
+			},
+			getSelectedContext: () => {
+				if (selectedRunnable) {
+					console.log('selectedRunnable', selectedRunnable)
+					return {
+						type: 'backend',
+						content: selectedRunnable ?? ''
+					}
+				}
+				if (selectedDocument) {
+					console.log('selectedDocument', selectedDocument)
+					return {
+						type: 'frontend',
+						content: selectedDocument ?? ''
+					}
+				}
+				console.log('no selection')
+				return {
+					type: 'none',
+					content: ''
+				}
+			}
+		})
+	})
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
 

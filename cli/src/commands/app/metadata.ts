@@ -13,9 +13,8 @@ export type Runnable =
       fields?: Record<string, any>;
     }
   | {
-      type: "runnableByPath" | "path";
+      type: "path";
+      runType: "script" | "hubscript" | "flow";
       path: string;
-      runType?: "script" | "flow" | "hubscript";
       fields?: Record<string, any>;
-      schema?: any;
     };

@@ -4,14 +4,13 @@
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { metadataCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import autosize from '$lib/autosize'
 	import type { FlowValue } from '$lib/gen'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import {
@@ -106,26 +105,44 @@ Generate a tool name for the script below:
 		}
 	}
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let content: string | undefined
-	export let code: string | undefined = undefined
-	export let flow: FlowValue | undefined = undefined
-	export let promptConfigName: keyof typeof promptConfigs
-	export let generateOnAppear: boolean = false
-	export let elementType: 'input' | 'textarea' = 'input'
-	export let elementProps: Record<string, any> = {}
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		content: string | undefined
+		code?: string | undefined
+		flow?: FlowValue | undefined
+		promptConfigName: keyof typeof promptConfigs
+		generateOnAppear?: boolean
+		elementType?: 'input' | 'textarea'
+		elementProps?: Record<string, any>
+		class?: string
+		onChange?: (content: string) => void
+	}
 
-	let el: HTMLElement | undefined
-	let generatedContent = ''
-	let active = false
-	let loading = false
-	let abortController = new AbortController()
-	let manualDisabled = false
-	let width = 0
-	let genHeight = 0
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		content = $bindable(),
+		code = undefined,
+		flow = undefined,
+		promptConfigName,
+		generateOnAppear = false,
+		elementType = 'input',
+		elementProps = {},
+		class: clazz = '',
+		onChange = undefined
+	}: Props = $props()
 
-	let focused = false
+	let el: HTMLElement | undefined = $state()
+	let generatedContent = $state('')
+	let active = $state(false)
+	let loading = $state(false)
+	let abortController = $state(new AbortController())
+	let manualDisabled = $state(false)
+	let width = $state(0)
+	let genHeight = $state(0)
+
+	let focused = $state(false)
 	let config: PromptConfig = promptConfigs[promptConfigName]
 
 	async function generateContent(automatic = false) {
@@ -181,44 +198,51 @@ Generate a tool name for the script below:
 		generateContent(true)
 	}
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	$effect(() => {
+		content && onChange?.(content)
+	})
 
-	$: content && dispatchIfMounted('change', { content })
+	$effect(() => {
+		active =
+			$copilotInfo.enabled &&
+			$metadataCompletionEnabled &&
+			!content &&
+			(loading || focused || !!generatedContent) &&
+			!manualDisabled &&
+			((config.placeholderName === 'code' && !!code) ||
+				(config.placeholderName === 'flow' &&
+					!!flow &&
+					Array.isArray(flow.modules) &&
+					flow.modules.length > 0))
+	})
 
-	$: active =
-		$copilotInfo.enabled &&
-		$metadataCompletionEnabled &&
-		!content &&
-		(loading || focused || !!generatedContent) &&
-		!manualDisabled &&
-		((config.placeholderName === 'code' && !!code) ||
-			(config.placeholderName === 'flow' &&
-				!!flow &&
-				Array.isArray(flow.modules) &&
-				flow.modules.length > 0))
+	$effect(() => {
+		focused && (manualDisabled = false)
+	})
 
-	$: focused && (manualDisabled = false)
+	$effect(() => {
+		if (content) {
+			abortController.abort()
+			generatedContent = ''
+		} else {
+			manualDisabled = false
+		}
+	})
 
-	$: if (content) {
-		abortController.abort()
-		generatedContent = ''
-	} else {
-		manualDisabled = false
-	}
-
-	$: if (elementType === 'textarea' && el !== undefined && !content) {
-		el.style.height = Math.max(genHeight + 34, 58) + 'px'
-	}
+	$effect(() => {
+		if (elementType === 'textarea' && el !== undefined && !content) {
+			el.style.height = Math.max(genHeight + 34, 58) + 'px'
+		}
+	})
 
 	onDestroy(() => {
 		abortController.abort()
 	})
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={twMerge('relative', $$props.class)}
+	class={twMerge('relative', clazz)}
 	bind:clientWidth={width}
 	use:triggerableByAI={{
 		id: aiId,
@@ -226,11 +250,11 @@ Generate a tool name for the script below:
 		callback: (value) => {
 			if (value) {
 				content = value
-				dispatchIfMounted('change', { content })
+				onChange?.(content)
 			}
 		}
 	}}
-	on:keydown={(event) => {
+	onkeydown={(event) => {
 		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
 			return
 		}
@@ -310,8 +334,8 @@ Generate a tool name for the script below:
 				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
 				class="{inputBaseClass} {inputSizeClasses.md} {inputBorderClass()} w-full"
-				on:focus={() => (focused = true)}
-				on:blur={() => (focused = false)}
+				onfocus={() => (focused = true)}
+				onblur={() => (focused = false)}
 			></textarea>
 		</div>
 	{:else}
@@ -327,8 +351,8 @@ Generate a tool name for the script below:
 				}),
 				'w-full'
 			)}
-			on:focus={() => (focused = true)}
-			on:blur={() => (focused = false)}
+			onfocus={() => (focused = true)}
+			onblur={() => (focused = false)}
 		/>
 		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
 			<p class="text-3xs text-red-400 leading-tight mt-0.5">

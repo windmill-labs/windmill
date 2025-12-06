@@ -849,7 +849,8 @@ export async function parseOpenAICompletion(
 	messages: ChatCompletionMessageParam[],
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
-	helpers: any
+	helpers: any,
+	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	const streamingTools: Record<number, boolean> = {} // Track which tools should stream

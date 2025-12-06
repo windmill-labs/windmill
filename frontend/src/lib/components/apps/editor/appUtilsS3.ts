@@ -1,4 +1,3 @@
-import { defaultIfEmptyString } from '$lib/utils'
 import type { AppInput, EvalInputV2 } from '../inputType'
 import type { App, RichConfigurations } from '../types'
 import { collectOneOfFields } from './appUtilsCore'
@@ -9,6 +8,10 @@ function filenameExprToRegex(template: string) {
 		.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // escape regex special characters
 	const regexPattern = escapedTemplate.replaceAll('<file_name>', '[^/]+') // replace filename placeholder with regex pattern
 	return `^${regexPattern}$`
+}
+
+function defaultIfEmptyString(str: string | undefined, dflt: string): string {
+	return str === undefined || str === null || str === '' ? dflt : str!
 }
 
 function staticToRegex(str: string) {

@@ -206,16 +206,21 @@ export async function createBundle(
   const wmillPlugin = {
     name: "wmill-virtual",
     setup(build: any) {
-
-
-      // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
-      build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
-        log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
-        return {
-          path: args.path,
-          namespace: "wmill-virtual",
-        };
-      });
+      // Intercept imports of wmill with various path formats:
+      // - wmill, wmill.ts (bare import)
+      // - /wmill, /wmill.ts (absolute)
+      // - ./wmill, ./wmill.ts (same directory)
+      // - ../wmill, ../../wmill, etc. (parent directories)
+      build.onResolve(
+        { filter: /^(\.\.\/)+wmill(\.ts)?$|^(\.\/|\/)?wmill(\.ts)?$/ },
+        (args: any) => {
+          log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
+          return {
+            path: args.path,
+            namespace: "wmill-virtual",
+          };
+        }
+      );
 
       // Provide the virtual module content
       build.onLoad({ filter: /.*/, namespace: "wmill-virtual" }, (args: any) => {

@@ -68,6 +68,15 @@ export function scriptLangToEditorLang(
 	}
 }
 
+export function extToScriptLang(lang: string): 'bun' | 'python3' | undefined {
+	switch (lang) {
+		case 'ts':
+			return 'bun'
+		case 'py':
+			return 'python3'
+	}
+	return undefined
+}
 export type ScriptSchedule = {
 	summary: string | undefined
 	args: Record<string, any>

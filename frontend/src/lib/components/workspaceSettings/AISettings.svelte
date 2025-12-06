@@ -153,6 +153,20 @@
 	</div>
 </div>
 
+<div class="flex flex-row-reverse gap-2 pb-4">
+	<Button
+		variant="accent"
+		size="xl"
+		wrapperClasses="self-start"
+		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(Object.keys(aiProviders).length > 0 && !defaultModel)}
+		on:click={editCopilotConfig}
+	>
+		Save
+	</Button>
+</div>
+
 <div class="flex flex-col gap-8">
 	<div class="flex flex-col gap-2">
 		<p class="font-semibold text-xs text-emphasis">AI Providers</p>
@@ -325,15 +339,4 @@
 	{#if Object.keys(aiProviders).length > 0}
 		<CustomAIPrompts bind:customPrompts title="Custom system prompts" />
 	{/if}
-
-	<Button
-		variant="accent"
-		wrapperClasses="self-start"
-		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)}
-		on:click={editCopilotConfig}
-	>
-		Save
-	</Button>
 </div>

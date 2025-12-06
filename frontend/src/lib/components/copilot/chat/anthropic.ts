@@ -57,7 +57,8 @@ export async function parseAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
-	helpers: any
+	helpers: any,
+	abortController?: AbortController
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
@@ -154,9 +155,33 @@ export async function parseAnthropicCompletion(
 		currentStreamingTool = undefined
 	})
 
+	// Handle abort
+	completion.on('abort', (e: any) => {
+		// Check the AbortController's signal for the reason
+		const abortReason = abortController?.signal.reason
+		console.warn('Anthropic stream aborted:', {
+			name: e?.name,
+			message: e?.message,
+			abortReason,
+			wasAbortedByUser: abortReason === 'user_cancelled',
+			signalAborted: abortController?.signal.aborted,
+			cause: e?.cause,
+			stack: e?.stack
+		})
+		error = e
+	})
+
 	// Handle errors
 	completion.on('error', (e: any) => {
-		console.error('Anthropic stream error:', e)
+		console.error('Anthropic stream error:', {
+			name: e?.name,
+			message: e?.message,
+			status: e?.status,
+			headers: e?.headers,
+			error: e?.error,
+			cause: e?.cause,
+			stack: e?.stack
+		})
 		error = e
 	})
 
