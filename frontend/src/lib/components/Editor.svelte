@@ -358,6 +358,25 @@
 				editor.pushUndoStop()
 			}
 		}
+		// Update lint diagnostics after code change
+		updateRawAppLintDiagnostics()
+	}
+
+	/** Collect Monaco markers and update the raw app lint store */
+	function updateRawAppLintDiagnostics(): void {
+		if (!rawAppRunnableKey || !model) return
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const lintErrors: MonacoLintError[] = markers
+			.filter((m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+			.map((m) => ({
+				message: m.message,
+				severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
+				startLineNumber: m.startLineNumber,
+				startColumn: m.startColumn,
+				endLineNumber: m.endLineNumber,
+				endColumn: m.endColumn
+			}))
+		rawAppLintStore.setDiagnostics(rawAppRunnableKey, lintErrors)
 	}
 
 	function updateCode() {
@@ -1343,22 +1362,11 @@
 				if (!model || !rawAppRunnableKey) return
 				const modelUri = model.uri.toString()
 				if (uris.some((u) => u.toString() === modelUri)) {
-					const markers = meditor.getModelMarkers({ resource: model.uri })
-					const lintErrors: MonacoLintError[] = markers
-						.filter(
-							(m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning
-						)
-						.map((m) => ({
-							message: m.message,
-							severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
-							startLineNumber: m.startLineNumber,
-							startColumn: m.startColumn,
-							endLineNumber: m.endLineNumber,
-							endColumn: m.endColumn
-						}))
-					rawAppLintStore.setDiagnostics(rawAppRunnableKey, lintErrors)
+					updateRawAppLintDiagnostics()
 				}
 			})
+			// Initial lint diagnostics collection
+			updateRawAppLintDiagnostics()
 		}
 
 		let ataModel: number | undefined = undefined

@@ -244,6 +244,8 @@
 				}
 				files[path] = content
 				setFilesInIframe(files)
+				selectedDocument = path
+				handleSelectFile(path)
 				console.log('files after setting', files)
 				return lint()
 			},
@@ -314,7 +316,7 @@
 				selectedRunnable = key
 
 				// Wait 2 seconds for Monaco to analyze the code
-				await new Promise((resolve) => setTimeout(resolve, 2000))
+				await new Promise((resolve) => setTimeout(resolve, 1000))
 
 				return lint()
 			},
@@ -327,6 +329,27 @@
 				return {
 					frontend: $state.snapshot(files ?? {}),
 					backend: aiChatManager.appAiChatHelpers?.getBackendRunnables() ?? {}
+				}
+			},
+			getSelectedContext: () => {
+				if (selectedRunnable) {
+					console.log('selectedRunnable', selectedRunnable)
+					return {
+						type: 'backend',
+						content: selectedRunnable ?? ''
+					}
+				}
+				if (selectedDocument) {
+					console.log('selectedDocument', selectedDocument)
+					return {
+						type: 'frontend',
+						content: selectedDocument ?? ''
+					}
+				}
+				console.log('no selection')
+				return {
+					type: 'none',
+					content: ''
 				}
 			}
 		})

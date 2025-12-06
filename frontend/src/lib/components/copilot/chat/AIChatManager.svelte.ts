@@ -7,7 +7,7 @@ import {
 	type FlowAIChatHelpers
 } from './flow/core'
 import {
-	appTools,
+	getAppTools,
 	prepareAppSystemMessage,
 	prepareAppUserMessage,
 	type AppAIChatHelpers
@@ -269,7 +269,7 @@ class AIChatManager {
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
-			this.tools = [...appTools]
+			this.tools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
 	}
@@ -664,7 +664,11 @@ class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.APP:
-					userMessage = prepareAppUserMessage(oldInstructions, this.appAiChatHelpers?.getFiles())
+					userMessage = prepareAppUserMessage(
+						oldInstructions,
+						this.appAiChatHelpers?.getFiles(),
+						this.appAiChatHelpers?.getSelectedContext()
+					)
 					break
 			}
 
@@ -752,7 +756,6 @@ class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(addedMessages ?? [])]
-			console.log('displayMessages', this.displayMessages)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -773,13 +776,19 @@ class AIChatManager {
 			this.confirmationCallback = undefined
 		}
 		const cancelReason = reason ?? 'user_cancelled'
-		console.log('cancelling request:', { reason: cancelReason, abortController: this.abortController })
+		console.log('cancelling request:', {
+			reason: cancelReason,
+			abortController: this.abortController
+		})
 		this.abortController?.abort(cancelReason)
 	}
 
 	cancelInlineRequest = (reason?: string) => {
 		const cancelReason = reason ?? 'inline_cancelled'
-		console.log('cancelling inline request:', { reason: cancelReason, inlineAbortController: this.inlineAbortController })
+		console.log('cancelling inline request:', {
+			reason: cancelReason,
+			inlineAbortController: this.inlineAbortController
+		})
 		this.inlineAbortController?.abort(cancelReason)
 	}
 

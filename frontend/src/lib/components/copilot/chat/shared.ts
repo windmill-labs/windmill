@@ -412,7 +412,6 @@ export function createToolDef(
 	description: string
 ): ChatCompletionFunctionTool {
 	// console.log('creating tool def for', name, zodSchema)
-	console.log('zodSchema', zodSchema)
 	let parameters = z.toJSONSchema(zodSchema)
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []

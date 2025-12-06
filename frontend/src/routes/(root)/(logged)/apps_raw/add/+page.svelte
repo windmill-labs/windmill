@@ -12,7 +12,7 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
-	import { react18Template, react19Template, svelte5Template, vueTemplate } from './templates'
+	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -136,12 +136,12 @@
 			name: 'Svelte 5',
 			icon: 'svelte',
 			files: svelte5Template
-		},
-		{
-			name: 'Vue 3',
-			icon: 'vue',
-			files: vueTemplate
 		}
+		// {
+		// 	name: 'Vue 3',
+		// 	icon: 'vue',
+		// 	files: vueTemplate
+		// }
 	]
 	let templatePicker = $state(nodraft != null)
 	let reloadCounter = $state(0)
@@ -158,6 +158,12 @@
 							reloadCounter += 1
 						}
 						templatePicker = false
+						// Remove nodraft from URL when a template is selected
+						const url = new URL(window.location.href)
+						if (url.searchParams.has('nodraft')) {
+							url.searchParams.delete('nodraft')
+							window.history.replaceState({}, '', url.toString())
+						}
 					}}
 					class="w-24 h-24 flex justify-between py-5 flex-col {t.selected
 						? 'bg-surface-selected'
