@@ -85,7 +85,8 @@ const config = {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
-			'@codingame/monaco-vscode-standalone-languages'
+			'@codingame/monaco-vscode-standalone-languages',
+			'vscode'
 		]
 	},
 	worker: {
