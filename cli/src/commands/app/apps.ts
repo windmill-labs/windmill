@@ -63,15 +63,7 @@ export function replaceInlineScripts(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "runType") {
-        if (addType) {
-          if (isVersionsGeq1585()) {
-            rec["type"] = "path";
-          } else {
-            rec["type"] = "runnableByPath";
-          }
-        }
-      } else if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && typeof v == "object") {
         if (addType) {
           if (isVersionsGeq1585()) {
             rec["type"] = "inline";

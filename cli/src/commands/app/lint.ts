@@ -5,6 +5,8 @@ import process from "node:process";
 import { Command, colors, log, yamlParseFile } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { createBundle } from "./bundle.ts";
+import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { loadRunnablesFromBackend } from "./raw_apps.ts";
 
 interface LintOptions extends GlobalOptions {
   fix?: boolean;
@@ -33,19 +35,57 @@ function validateRawAppYaml(appData: any): {
     errors.push("Field 'summary' must be a string");
   }
 
-  if (!appData.runnables) {
-    errors.push("Missing required field: 'runnables'");
-  } else if (
-    typeof appData.runnables !== "object" ||
-    Array.isArray(appData.runnables)
-  ) {
-    errors.push("Field 'runnables' must be an object");
-  }
+  // Note: 'runnables' is no longer required in raw_app.yaml
+  // Runnables can be stored in separate files in the backend folder
 
-  // Check optional but recommended fields
-  // if (!appData.custom_path) {
-  //   warnings.push("No 'custom_path' specified - app path may not be what you expect");
-  // }
+  return { errors, warnings };
+}
+
+/**
+ * Validates that runnables exist either in backend/*.yaml files or in raw_app.yaml
+ */
+async function validateRunnables(
+  appDir: string,
+  appData: any
+): Promise<{ errors: string[]; warnings: string[] }> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const backendPath = path.join(appDir, APP_BACKEND_FOLDER);
+
+  // Load runnables from separate files (new format)
+  const runnablesFromBackend = await loadRunnablesFromBackend(backendPath);
+  const hasBackendRunnables = Object.keys(runnablesFromBackend).length > 0;
+
+  // Check for runnables in raw_app.yaml (old format)
+  const hasYamlRunnables =
+    appData.runnables &&
+    typeof appData.runnables === "object" &&
+    !Array.isArray(appData.runnables) &&
+    Object.keys(appData.runnables).length > 0;
+
+  if (!hasBackendRunnables && !hasYamlRunnables) {
+    errors.push(
+      "No runnables found. Expected either:\n" +
+        "  - Runnable YAML files in the 'backend/' folder (e.g., backend/myRunnable.yaml)\n" +
+        "  - Or a 'runnables' field in raw_app.yaml (legacy format)"
+    );
+  } else if (hasBackendRunnables) {
+    log.info(
+      colors.gray(
+        `  Found ${Object.keys(runnablesFromBackend).length} runnable(s) in backend folder`
+      )
+    );
+  } else if (hasYamlRunnables) {
+    log.info(
+      colors.gray(
+        `  Found ${Object.keys(appData.runnables).length} runnable(s) in raw_app.yaml (legacy format)`
+      )
+    );
+    warnings.push(
+      "Using legacy format with runnables in raw_app.yaml. Consider migrating to separate files in backend/"
+    );
+  }
 
   return { errors, warnings };
 }
@@ -122,6 +162,18 @@ async function lintRawApp(
   }
 
   log.info(colors.green("✅ raw_app.yaml structure is valid"));
+
+  // Validate runnables (either in backend folder or in raw_app.yaml)
+  log.info(colors.blue("📋 Validating runnables..."));
+  const runnablesValidation = await validateRunnables(appDir, appData);
+  errors.push(...runnablesValidation.errors);
+  warnings.push(...runnablesValidation.warnings);
+
+  if (errors.length > 0) {
+    return { valid: false, errors, warnings };
+  }
+
+  log.info(colors.green("✅ Runnables are valid"));
 
   // Validate build
   const buildValidation = await validateBuild(appDir);
