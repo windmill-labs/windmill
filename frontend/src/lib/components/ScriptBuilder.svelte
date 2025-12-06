@@ -1067,13 +1067,11 @@
 												<MetadataGen
 													aiId="create-script-summary-input"
 													aiDescription="Summary / Title of the new script"
-													label="Summary"
 													bind:content={script.summary}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => onSummaryChange(script.summary)}
+													onChange={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1103,7 +1101,6 @@
 											<Label label="Description">
 												<MetadataGen
 													bind:content={script.description}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="description"
 													elementType="textarea"

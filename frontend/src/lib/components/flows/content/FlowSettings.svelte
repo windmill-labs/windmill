@@ -86,7 +86,7 @@
 						bind:content={flowStore.val.summary}
 						promptConfigName="flowSummary"
 						flow={flowStore.val.value}
-						on:change={() => {
+						onChange={() => {
 							if ($initialPathStore == '' && flowStore.val.summary?.length > 0 && !dirtyPath) {
 								path?.setName(
 									flowStore.val.summary

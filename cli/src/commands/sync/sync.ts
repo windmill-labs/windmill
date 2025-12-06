@@ -70,6 +70,7 @@ import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
+  newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
@@ -284,10 +285,6 @@ function extractFields(fields: Record<string, any>) {
         fields[k] = undefined;
       }
     }
-    // if (k == 'runType') {
-    //   fields["type"] = undefined
-    //   fields["schema"] = undefined
-    // }
   });
 }
 
@@ -311,11 +308,7 @@ export function extractInlineScriptsForApps(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "runType") {
-        rec["type"] = undefined;
-        rec["schema"] = undefined;
-        return [];
-      } else if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
@@ -509,13 +502,14 @@ function ZipFSElement(
             rawApp.policy = undefined;
             let inlineScripts;
             const value = rawApp?.["value"];
+            const runnables = value?.["runnables"] ?? {};
             // console.log("FOOB", value?.["runnables"])
-            extractFieldsForRawApps(value?.["runnables"]);
+            extractFieldsForRawApps(runnables);
             try {
               inlineScripts = extractInlineScriptsForApps(
                 undefined,
                 value,
-                newPathAssigner(defaultTs),
+                newRawAppPathAssigner(defaultTs),
                 (key, val_) => key
               );
             } catch (error) {
@@ -549,6 +543,7 @@ function ZipFSElement(
               throw error;
             }
 
+            // Yield inline script content and lock files
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -561,11 +556,57 @@ function ZipFSElement(
               };
             }
 
-            const runnables = value?.["runnables"];
-            if (runnables) {
-              rawApp.runnables = runnables;
-              delete rawApp?.["value"];
+            // Yield each runnable as a separate YAML file in the backend folder
+            // For inline scripts, simplify the YAML - inlineScript is not needed since
+            // content/lock/language can be derived from sibling files
+            for (const [runnableId, runnable] of Object.entries(runnables)) {
+              const runnableObj = runnable as Record<string, any>;
+              let simplifiedRunnable: Record<string, any>;
+
+              if (runnableObj.inlineScript) {
+                // For inline scripts, remove inlineScript and just keep type: 'inline'
+                // plus any other metadata (name, fields, etc.)
+                simplifiedRunnable = { type: "inline" };
+
+                // Copy over any other fields that aren't inlineScript or type
+                for (const [key, value] of Object.entries(runnableObj)) {
+                  if (key !== "inlineScript" && key !== "type") {
+                    simplifiedRunnable[key] = value;
+                  }
+                }
+              } else if (runnableObj.type === "path" && runnableObj.runType) {
+                // For path-based runnables, convert from API format to file format
+                // { type: "path", runType: "script" } -> { type: "script" }
+                // Also remove schema field
+                const { type: _type, runType, schema: _schema, ...rest } =
+                  runnableObj;
+                simplifiedRunnable = {
+                  type: runType,
+                  ...rest,
+                };
+              } else {
+                // For other runnables, keep as-is
+                simplifiedRunnable = runnableObj;
+              }
+
+              yield {
+                isDirectory: false,
+                path: path.join(
+                  finalPath,
+                  APP_BACKEND_FOLDER,
+                  `${runnableId}.yaml`
+                ),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return yamlStringify(simplifiedRunnable, yamlOptions);
+                },
+              };
             }
+
+            // Remove runnables and value from raw_app.yaml - they are now in separate files
+            delete rawApp?.["value"];
+            // Don't include runnables in raw_app.yaml anymore
 
             yield {
               isDirectory: false,

@@ -181,6 +181,7 @@
 				fixedOverflowWidgets={true}
 				cmdEnterAction={() => onRun()}
 				bind:websocketAlive
+				rawAppRunnableKey={id}
 				on:change={async (e) => {
 					if (inlineScript) {
 						if (inlineScript.lock != undefined) {
