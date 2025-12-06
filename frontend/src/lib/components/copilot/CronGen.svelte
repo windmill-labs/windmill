@@ -15,7 +15,7 @@
 		cronVersion: string
 	}
 
-	let { schedule = $bindable(), cronVersion }: Props = $props()
+	let { schedule = $bindable(), cronVersion = $bindable('v2') }: Props = $props()
 
 	let instructions = $state('')
 	let instructionsField: HTMLInputElement | undefined = $state(undefined)
