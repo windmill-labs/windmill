@@ -25,6 +25,7 @@ export function formatAsset(asset: Asset): string {
 		case 'datatable':
 			return `datatable://${asset.path}`
 	}
+	return 'unknown'
 }
 
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
