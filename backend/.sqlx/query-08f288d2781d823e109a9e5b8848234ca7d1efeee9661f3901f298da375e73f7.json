@@ -167,6 +167,11 @@
         "ordinal": 32,
         "name": "slack_oauth_client_secret",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 33,
+        "name": "datatable",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -203,6 +208,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true,

@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export const EDITOR_BAR_WIDTH_THRESHOLD = 1300
+	export const EDITOR_BAR_WIDTH_THRESHOLD = 1420
 </script>
 
 <script lang="ts">
@@ -37,6 +37,7 @@
 		Plus,
 		RotateCw,
 		Save,
+		Settings,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
@@ -115,6 +116,7 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
+	let dataTablePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
 	let gitRepoPickerOpen = $state(false)
 
@@ -189,7 +191,14 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
-	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDucklakePicker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
+	let showDataTablePicker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showGitRepoPicker = $derived(lang === 'ansible')
 
@@ -716,17 +725,84 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	<ItemPicker
 		bind:this={ducklakePicker}
 		pickCallback={async (_, name) => {
-			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
-			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`dl = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				}
+				editor?.insertAtCursor(`let sql = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			}
 		}}
-		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
+		tooltip="Attach a Ducklake to your scripts. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
 			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
 				(path) => ({ path })
 			)}
-	/>
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_lfs"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
+{/if}
+
+{#if showDataTablePicker}
+	<ItemPicker
+		bind:this={dataTablePicker}
+		pickCallback={async (_, name) => {
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'datatable' : `datatable://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`db = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				}
+				editor?.insertAtCursor(`let sql = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+			}
+		}}
+		tooltip="Attach a datatable to your script."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/data_tables"
+		itemName="data table"
+		loadItems={async () =>
+			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_data_tables"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
 {/if}
 
 {#if showDatabasePicker}
@@ -899,6 +975,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: DucklakeIcon }}
 					{iconOnly}
 					>+Ducklake
+				</Button>
+			{/if}
+
+			{#if showDataTablePicker && customUi?.dataTable != false}
+				<Button
+					aiId="editor-bar-use-datatable"
+					aiDescription="Use DataTable"
+					title="Use DataTable"
+					variant="subtle"
+					on:click={() => dataTablePicker?.openDrawer()}
+					unifiedSize="sm"
+					startIcon={{ icon: DatabaseIcon }}
+					{iconOnly}
+					>+Data table
 				</Button>
 			{/if}
 

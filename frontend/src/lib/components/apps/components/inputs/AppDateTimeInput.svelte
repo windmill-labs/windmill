@@ -105,6 +105,11 @@
 		;[resolvedConfig.defaultValue]
 		untrack(() => handleDefault(resolvedConfig.defaultValue))
 	})
+	function setIterValue(value: string | undefined) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
+	}
 	$effect.pre(() => {
 		if (value) {
 			const r = formatDate(value, resolvedConfig.outputFormat)
@@ -141,16 +146,14 @@
 					outputs?.validity.set(false)
 				}
 			}
-			if (iterContext && listInputs) {
-				listInputs.set(id, value)
-			}
+			untrack(() => setIterValue(value))
 		} else {
 			outputs?.result.set(undefined)
-			if (iterContext && listInputs) {
-				listInputs.set(id, undefined)
-			}
+			untrack(() => setIterValue(undefined))
 		}
-		fireOnChange()
+		untrack(() => {
+			fireOnChange()
+		})
 	})
 </script>
 

@@ -40,7 +40,13 @@
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
+	import {
+		type Preview,
+		ResourceService,
+		type ScriptLang,
+		UserService,
+		WorkspaceService
+	} from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -97,6 +103,7 @@
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
+	import { resource, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -1338,7 +1345,9 @@
 				if (uris.some((u) => u.toString() === modelUri)) {
 					const markers = meditor.getModelMarkers({ resource: model.uri })
 					const lintErrors: MonacoLintError[] = markers
-						.filter((m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+						.filter(
+							(m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning
+						)
 						.map((m) => ({
 							message: m.message,
 							severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
@@ -1488,6 +1497,42 @@
 		ata?.(deps)
 	}
 
+	let customTsTypesData = resource([() => lang], async () => {
+		if (lang !== 'typescript') return undefined
+		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		return { datatables, ducklakes }
+	})
+	function setTypescriptCustomTypes() {
+		if (!customTsTypesData.current) return
+		if (lang !== 'typescript') return
+
+		const ducklakeNames = customTsTypesData.current.ducklakes
+		const datatableNames = customTsTypesData.current.datatables
+
+		const ducklakeNameType = ducklakeNames.length
+			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const datatableNameType = datatableNames.length
+			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const isDucklakeOptional = ducklakeNames.includes('main')
+		const isDataTableOptional = datatableNames.includes('main')
+
+		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
+			`export {};
+			declare module 'windmill-client' {
+				import { type SqlTemplateFunction } from 'windmill-client';
+				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
+			}`,
+			'file:///custom_wmill_types.d.ts'
+		)
+		return () => {
+			disposeTs.dispose()
+		}
+	}
+
 	async function setTypescriptRTNamespace() {
 		if (
 			scriptLang &&
@@ -1514,6 +1559,7 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
+
 		if (
 			lang === 'typescript' &&
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
@@ -1794,6 +1840,8 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+
+	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

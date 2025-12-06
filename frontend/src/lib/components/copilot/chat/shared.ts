@@ -8,7 +8,6 @@ import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } fro
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
@@ -412,15 +411,11 @@ export function createToolDef(
 	name: string,
 	description: string
 ): ChatCompletionFunctionTool {
-	const schema = zodToJsonSchema(zodSchema, {
-		name,
-		target: 'openAi'
-	})
-	let parameters = schema.definitions![name] as FunctionParameters
-	parameters = {
-		...parameters,
-		required: parameters.required ?? []
-	}
+	// console.log('creating tool def for', name, zodSchema)
+	console.log('zodSchema', zodSchema)
+	let parameters = z.toJSONSchema(zodSchema)
+	delete parameters.$schema
+	if (!parameters.required) parameters.required = []
 
 	return {
 		type: 'function',
