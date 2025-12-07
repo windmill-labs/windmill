@@ -233,11 +233,10 @@
 				popover: {
 					title: 'Select the output',
 					description: "Let's select the result of the text input component.",
-					onNextClick: () => {
-						setTimeout(async () => {
-							clickButtonBySelector('.component-output-viewer-a li button[title="result"]')
-							driver.moveNext()
-						})
+					onNextClick: async () => {
+						clickButtonBySelector('.component-output-viewer-a li button[title="result"]')
+						await wait(100)
+						driver.moveNext()
 					}
 				}
 			},
