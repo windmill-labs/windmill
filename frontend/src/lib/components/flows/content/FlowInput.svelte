@@ -55,9 +55,16 @@
 		disabled: boolean
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
+	let {
+		noEditor,
+		disabled,
+		onTestFlow,
+		previewOpen,
+		flowModuleSchemaMap = undefined
+	}: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -67,6 +74,12 @@
 		fakeInitialPath,
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+
+	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
+	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
@@ -447,19 +460,22 @@
 					value: {
 						type: 'aiagent',
 						tools: [],
-						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
-							if (key === 'user_message') {
-								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-							} else if (key === 'messages_context_length') {
-								accu[key] = { type: 'static', value: 10 }
-							} else {
-								accu[key] = {
-									type: 'static',
-									value: undefined
+						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
+							(accu, key) => {
+								if (key === 'user_message') {
+									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+								} else if (key === 'messages_context_length') {
+									accu[key] = { type: 'static', value: 10 }
+								} else {
+									accu[key] = {
+										type: 'static',
+										value: undefined
+									}
 								}
-							}
-							return accu
-						}, {})
+								return accu
+							},
+							{} as AiAgent['input_transforms']
+						)
 					}
 				}
 			]
@@ -806,7 +822,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.val.schema} />
+			<FlowInputViewer schema={effectiveSchema} />
 		</div>
 	{/if}
 </FlowCard>

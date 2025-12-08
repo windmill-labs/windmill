@@ -1,78 +1,39 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, untrack } from 'svelte'
-	import type { FlowCopilotContext } from '../../flow'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
-	import { dfs as dfsApply } from '$lib/components/flows/dfs'
-	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow } from '$lib/gen'
-	import { getIndexInNestedModules, getNestedModules } from './utils'
-	import type { AIModuleAction, FlowAIChatHelpers } from './core'
-	import {
-		insertNewFailureModule,
-		insertNewPreprocessorModule
-	} from '$lib/components/flows/flowStateUtils.svelte'
+	import type { InputTransform, OpenFlow } from '$lib/gen'
+	import type { FlowAIChatHelpers } from './core'
+	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
+	import { getSubModules } from '$lib/components/flows/flowExplorer'
+	import { SPECIAL_MODULE_IDS } from '../shared'
+	import type { FlowCopilotContext } from '../../flow'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
+		onTestFlow
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
-	let affectedModules: Record<
-		string,
-		{
-			action: AIModuleAction
-		}
-	> = $state({})
-	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
-	let previewFlow = $derived.by(() => {
-		const flow = $state.snapshot(flowStore).val
-		if (Object.values(affectedModules).some((m) => m.action === 'removed')) {
-			dfsApply(flow.value.modules, (m, modules) => {
-				const action = affectedModules[m.id]?.action
-				if (action === 'removed') {
-					modules.splice(modules.indexOf(m), 1)
-				}
-			})
-		}
-		return flow
-	})
-
-	function setModuleStatus(id: string, action: AIModuleAction) {
-		const existingAction: AIModuleAction | undefined = affectedModules[id]?.action
-
-		if (existingAction === 'added' && action === 'modified') {
-			// means it was added but then edited => keep the action as added
-			action = 'added'
-		} else if (existingAction === 'added' && action === 'removed') {
-			delete affectedModules[id]
-			deleteStep(id)
-			return
-		} else if (existingAction === 'removed' && action === 'added') {
-			action = 'modified'
-		}
-		affectedModules[id] = {
-			action
-		}
-	}
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
 
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
-		if (id === 'preprocessor') {
+		if (id === SPECIAL_MODULE_IDS.PREPROCESSOR) {
 			return flow.value.preprocessor_module
-		} else if (id === 'failure') {
+		} else if (id === SPECIAL_MODULE_IDS.FAILURE) {
 			return flow.value.failure_module
 		} else {
 			return dfs(id, flow, false)[0]
@@ -88,353 +49,6 @@
 				selectedId: selectedId
 			}
 		},
-		// flow apply/reject
-		getPreviewFlow: () => {
-			return $state.snapshot(previewFlow)
-		},
-		hasDiff: () => {
-			return Object.keys(affectedModules).length > 0
-		},
-		acceptAllModuleActions() {
-			for (const id of Object.keys(affectedModules)) {
-				this.acceptModuleAction(id)
-			}
-		},
-		rejectAllModuleActions() {
-			// Do it in reverse to revert nested modules first then parents
-			const ids = Object.keys(affectedModules)
-			for (let i = ids.length - 1; i >= 0; i--) {
-				this.revertModuleAction(ids[i])
-			}
-			affectedModules = {}
-		},
-		setLastSnapshot: (snapshot) => {
-			lastSnapshot = snapshot
-		},
-		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
-			affectedModules = {}
-			if (snapshot) {
-				flowStore.val = snapshot
-				refreshStateStore(flowStore)
-
-				if ($currentEditor) {
-					const module = getModule($currentEditor.stepId, snapshot)
-					if (module) {
-						if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
-							$currentEditor.editor.setCode(module.value.content)
-						} else if ($currentEditor.type === 'iterator' && module.value.type === 'forloopflow') {
-							$currentEditor.editor.setCode(
-								module.value.iterator.type === 'javascript' ? module.value.iterator.expr : ''
-							)
-						}
-					}
-				}
-			}
-		},
-		showModuleDiff(id: string) {
-			if (!lastSnapshot) {
-				return
-			}
-			const moduleLastSnapshot = id === 'Input' ? lastSnapshot.schema : getModule(id, lastSnapshot)
-			const currentModule = id === 'Input' ? flowStore.val.schema : getModule(id)
-
-			if (moduleLastSnapshot && currentModule) {
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'simple',
-					title: `Diff for ${id}`,
-					original: moduleLastSnapshot,
-					current: currentModule,
-					button: {
-						text: 'Accept',
-						onClick: () => {
-							diffDrawer?.closeDrawer()
-							this.acceptModuleAction(id)
-						}
-					}
-				})
-			}
-		},
-		getModuleAction: (id: string) => {
-			return affectedModules[id]?.action
-		},
-		revertModuleAction: (id: string) => {
-			{
-				const action = affectedModules[id]?.action
-				if (action && lastSnapshot) {
-					if (id === 'Input') {
-						flowStore.val.schema = lastSnapshot.schema
-					} else if (action === 'added') {
-						deleteStep(id)
-					} else if (action === 'modified') {
-						const oldModule = getModule(id, lastSnapshot)
-						if (!oldModule) {
-							throw new Error('Module not found')
-						}
-						const newModule = getModule(id)
-						if (!newModule) {
-							throw new Error('Module not found')
-						}
-
-						// Apply the old code to the editor and hide diff editor if the reverted module is a rawscript
-						if (
-							newModule.value.type === 'rawscript' &&
-							$currentEditor?.type === 'script' &&
-							$currentEditor.stepId === id
-						) {
-							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
-							if (aiChatEditorHandler) {
-								aiChatEditorHandler.revertAll({ disableReviewCallback: true })
-								$currentEditor.hideDiffMode()
-							}
-						}
-
-						Object.keys(newModule).forEach((k) => delete newModule[k])
-						Object.assign(newModule, $state.snapshot(oldModule))
-					}
-
-					refreshStateStore(flowStore)
-					delete affectedModules[id]
-				}
-			}
-		},
-		acceptModuleAction: (id: string) => {
-			if (affectedModules[id]?.action === 'removed') {
-				deleteStep(id)
-			}
-
-			if (
-				affectedModules[id]?.action === 'modified' &&
-				$currentEditor &&
-				$currentEditor.type === 'script' &&
-				$currentEditor.stepId === id
-			) {
-				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
-				if (aiChatEditorHandler) {
-					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
-				}
-			}
-			delete affectedModules[id]
-		},
-		// ai chat tools
-		setCode: async (id, code) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type === 'rawscript') {
-				module.value.content = code
-				const { input_transforms, schema } = await loadSchemaFromModule(module)
-				module.value.input_transforms = input_transforms
-				refreshStateStore(flowStore)
-
-				if (flowStateStore.val[id]) {
-					flowStateStore.val[id].schema = schema
-				} else {
-					flowStateStore.val[id] = {
-						schema
-					}
-				}
-			} else {
-				throw new Error('Module is not a rawscript or script')
-			}
-			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
-				$currentEditor.editor.setCode(code)
-			}
-			setModuleStatus(id, 'modified')
-		},
-		insertStep: async (location, step) => {
-			const { index, modules } =
-				location.type === 'start'
-					? {
-							index: -1,
-							modules: flowStore.val.value.modules
-						}
-					: location.type === 'start_inside_forloop'
-						? {
-								index: -1,
-								modules: getNestedModules(flowStore.val, location.inside)
-							}
-						: location.type === 'start_inside_branch'
-							? {
-									index: -1,
-									modules: getNestedModules(flowStore.val, location.inside, location.branchIndex)
-								}
-							: location.type === 'after'
-								? getIndexInNestedModules(flowStore.val, location.afterId)
-								: {
-										index: -1,
-										modules: flowStore.val.value.modules
-									}
-
-			const indexToInsertAt = index + 1
-
-			let newModules: FlowModule[] | AgentTool[] | undefined = undefined
-			switch (step.type) {
-				case 'rawscript': {
-					const inlineScript = {
-						language: step.language,
-						kind: 'script' as const,
-						subkind: 'flow' as const,
-						summary: step.summary
-					}
-					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)
-					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, inlineScript)
-					} else {
-						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-							modules,
-							indexToInsertAt,
-							'script',
-							undefined,
-							undefined,
-							inlineScript
-						)
-					}
-					break
-				}
-				case 'script': {
-					const wsScript = {
-						path: step.path,
-						summary: '',
-						hash: undefined
-					}
-					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, undefined, wsScript)
-					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, undefined, wsScript)
-					} else {
-						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-							modules,
-							indexToInsertAt,
-							'script',
-							wsScript
-						)
-					}
-					break
-				}
-				case 'forloop':
-				case 'branchall':
-				case 'branchone': {
-					if (location.type === 'preprocessor' || location.type === 'failure') {
-						throw new Error('Cannot insert a non-script module for preprocessing or error handling')
-					}
-					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-						modules,
-						indexToInsertAt,
-						step.type
-					)
-					break
-				}
-				default: {
-					throw new Error('Unknown step type')
-				}
-			}
-
-			if (location.type === 'preprocessor' || location.type === 'failure') {
-				refreshStateStore(flowStore)
-
-				setModuleStatus(location.type, 'added')
-
-				return location.type
-			} else {
-				const newModule = newModules?.[indexToInsertAt]
-
-				if (!newModule) {
-					throw new Error('Failed to insert module')
-				}
-
-				if (['branchone', 'branchall'].includes(step.type)) {
-					await flowModuleSchemaMap?.addBranch(newModule.id)
-				}
-
-				refreshStateStore(flowStore)
-
-				setModuleStatus(newModule.id, 'added')
-
-				return newModule.id
-			}
-		},
-		removeStep: (id) => {
-			setModuleStatus(id, 'removed')
-		},
-		getStepInputs: async (id) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			const inputs =
-				module.value.type === 'script' || module.value.type === 'rawscript'
-					? module.value.input_transforms
-					: {}
-
-			return inputs
-		},
-		setStepInputs: async (id, inputs) => {
-			if (id === 'preprocessor') {
-				throw new Error('Cannot set inputs for preprocessor')
-			}
-
-			const regex = /\[\[(.+?)\]\]\s*\n([\s\S]*?)(?=\n\[\[|$)/g
-
-			const parsedInputs = Array.from(inputs.matchAll(regex)).map((match) => ({
-				input: match[1],
-				value: match[2].trim()
-			}))
-
-			if (id === selectedId) {
-				exprsToSet?.set({})
-				const argsToUpdate = {}
-				for (const { input, value } of parsedInputs) {
-					argsToUpdate[input] = {
-						type: 'javascript',
-						expr: value
-					}
-				}
-				exprsToSet?.set(argsToUpdate)
-			} else {
-				const module = getModule(id)
-				if (!module) {
-					throw new Error('Module not found')
-				}
-
-				if (module.value.type !== 'script' && module.value.type !== 'rawscript') {
-					throw new Error('Module is not a script or rawscript')
-				}
-
-				for (const { input, value } of parsedInputs) {
-					module.value.input_transforms[input] = {
-						type: 'javascript',
-						expr: value
-					}
-				}
-				refreshStateStore(flowStore)
-			}
-
-			setModuleStatus(id, 'modified')
-		},
-		getFlowInputsSchema: async () => {
-			return flowStore.val.schema ?? {}
-		},
-		setFlowInputsSchema: async (newInputs) => {
-			flowStore.val.schema = newInputs
-			setModuleStatus('Input', 'modified')
-		},
-		selectStep: (id) => {
-			selectionManager.selectId(id)
-		},
-		getStepCode: (id) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type === 'rawscript') {
-				return module.value.content
-			} else {
-				throw new Error('Module is not a rawscript')
-			}
-		},
 		getModules: (id?: string) => {
 			if (id) {
 				const module = getModule(id)
@@ -447,167 +61,215 @@
 			}
 			return flowStore.val.value.modules
 		},
-		setBranchPredicate: async (id, branchIndex, expression) => {
+		setSnapshot: (snapshot: ExtendedOpenFlow) => {
+			diffManager?.setBeforeFlow(snapshot)
+		},
+		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
+			if (!diffManager) return
+
+			// Pass snapshot to diffManager - use message's snapshot or fall back to beforeFlow
+			diffManager.revertToSnapshot(flowStore, snapshot)
+
+			// Update current editor if needed
+			const targetSnapshot = snapshot ?? diffManager.beforeFlow
+			if ($currentEditor && targetSnapshot) {
+				const module = getModule($currentEditor.stepId, targetSnapshot)
+				if (module) {
+					if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
+						$currentEditor.editor.setCode(module.value.content)
+					} else if ($currentEditor.type === 'iterator' && module.value.type === 'forloopflow') {
+						$currentEditor.editor.setCode(
+							module.value.iterator.type === 'javascript' ? module.value.iterator.expr : ''
+						)
+					}
+				}
+			}
+		},
+
+		// ai chat tools
+		setCode: async (id: string, code: string) => {
 			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
-			if (module.value.type !== 'branchone') {
-				throw new Error('Module is not a branchall or branchone')
-			}
-			const branch = module.value.branches[branchIndex]
-			if (!branch) {
-				throw new Error('Branch not found')
-			}
-			branch.expr = expression
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		addBranch: async (id) => {
-			flowModuleSchemaMap?.addBranch(id)
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		removeBranch: async (id, branchIndex) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'branchall' && module.value.type !== 'branchone') {
-				throw new Error('Module is not a branchall or branchone')
-			}
-
-			// for branch one, we set index + 1 because the removeBranch function assumes the index is shifted by 1 because of the default branch
-			flowModuleSchemaMap?.removeBranch(
-				module.id,
-				module.value.type === 'branchone' ? branchIndex + 1 : branchIndex
-			)
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		setForLoopIteratorExpression: async (id, expression) => {
-			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
-				$currentEditor.editor.setCode(expression)
-			} else {
-				const module = getModule(id)
-				if (!module) {
-					throw new Error('Module not found')
+			if (module.value.type === 'rawscript') {
+				// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
+				if (!diffManager?.beforeFlow) {
+					const snapshot = $state.snapshot(flowStore).val
+					diffManager?.setBeforeFlow(snapshot)
+					diffManager?.setEditMode(true)
 				}
-				if (module.value.type !== 'forloopflow') {
-					throw new Error('Module is not a forloopflow')
-				}
-				module.value.iterator = { type: 'javascript', expr: expression }
+
+				// 2. Apply the code change
+				module.value.content = code
+				const { input_transforms, schema } = await loadSchemaFromModule(module)
+				module.value.input_transforms = input_transforms
 				refreshStateStore(flowStore)
-			}
 
-			setModuleStatus(id, 'modified')
-		},
-		setForLoopOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'forloopflow') {
-				throw new Error('Module is not a forloopflow')
-			}
-
-			// Apply skip_failures if provided
-			if (typeof opts.skip_failures === 'boolean') {
-				module.value.skip_failures = opts.skip_failures
-			}
-
-			// Apply parallel if provided
-			if (typeof opts.parallel === 'boolean') {
-				module.value.parallel = opts.parallel
-			}
-
-			// Handle parallelism
-			if (opts.parallel === false) {
-				// If parallel is disabled, clear parallelism
-				module.value.parallelism = undefined
-			} else if (opts.parallelism !== undefined) {
-				if (opts.parallelism === null) {
-					// Explicitly clear parallelism
-					module.value.parallelism = undefined
-				} else if (module.value.parallel || opts.parallel === true) {
-					// Only set parallelism if parallel is enabled
-					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
-					module.value.parallelism = {
-						type: 'static',
-						value: n
-					}
+				// Update exprsToSet if this module is currently selected
+				if (id === selectedId && exprsToSet) {
+					exprsToSet.set(input_transforms)
 				}
-			}
 
-			refreshStateStore(flowStore)
-			setModuleStatus(id, 'modified')
-		},
-		setModuleControlOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-
-			// Handle stop_after_if
-			if (typeof opts.stop_after_if === 'boolean') {
-				if (opts.stop_after_if === false) {
-					module.stop_after_if = undefined
+				if (flowStateStore.val[id]) {
+					flowStateStore.val[id].schema = schema
 				} else {
-					module.stop_after_if = {
-						expr: opts.stop_after_if_expr ?? '',
-						skip_if_stopped: opts.stop_after_if
+					flowStateStore.val[id] = {
+						schema
 					}
 				}
-			}
 
-			// Handle skip_if
-			if (typeof opts.skip_if === 'boolean') {
-				if (opts.skip_if === false) {
-					module.skip_if = undefined
-				} else {
-					module.skip_if = {
-						expr: opts.skip_if_expr ?? ''
+				// 3. Manually add to moduleActions, preserving existing action types
+				// Note: currentFlow is auto-synced by FlowGraphV2's effect after refreshStateStore
+				const currentAction = diffManager?.moduleActions[id]
+				if (!currentAction) {
+					diffManager?.setModuleActions({
+						...diffManager?.moduleActions,
+						[id]: { action: 'modified', pending: true }
+					})
+				}
+				// If already tracked (e.g., 'added' from setFlowJson), keep that status
+			} else {
+				throw new Error('Module is not a rawscript or script')
+			}
+			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
+				$currentEditor.editor.setCode(code)
+			}
+		},
+		getFlowInputsSchema: async () => {
+			return flowStore.val.schema ?? {}
+		},
+
+		updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => {
+			if (id === selectedId && exprsToSet) {
+				exprsToSet.set(inputTransforms)
+			}
+		},
+
+		// accept/reject operations (via flowDiffManager)
+		acceptAllModuleActions: () => {
+			diffManager?.acceptAll(flowStore)
+		},
+		rejectAllModuleActions: () => {
+			diffManager?.rejectAll(flowStore)
+		},
+		hasPendingChanges: () => {
+			return diffManager?.hasPendingChanges ?? false
+		},
+
+		selectStep: (id) => {
+			selectionManager.selectId(id)
+		},
+
+		testFlow: async (args, conversationId) => {
+			// Set preview args if provided
+			if (args) {
+				previewArgs.val = args
+			}
+			// Call the UI test function which opens preview panel
+			return await onTestFlow?.(conversationId)
+		},
+
+		setFlowJson: async (json: string) => {
+			try {
+				// Parse JSON to JavaScript object
+				const parsed = JSON.parse(json)
+
+				// Validate that it has the expected structure
+				if (!parsed.modules || !Array.isArray(parsed.modules)) {
+					throw new Error('JSON must contain a "modules" array')
+				}
+
+				// Restore inline script references back to full content
+				const restoredModules = restoreInlineScriptReferences(parsed.modules)
+
+				// Also restore preprocessor and failure modules if they have references
+				let restoredPreprocessor = parsed.preprocessor_module
+				if (
+					restoredPreprocessor?.value?.type === 'rawscript' &&
+					restoredPreprocessor.value.content
+				) {
+					const match = restoredPreprocessor.value.content.match(/^inline_script\.(.+)$/)
+					if (match) {
+						// Wrap in array to reuse the restoration function
+						const restored = restoreInlineScriptReferences([restoredPreprocessor])
+						restoredPreprocessor = restored[0]
 					}
 				}
-			}
 
-			refreshStateStore(flowStore)
-			setModuleStatus(id, 'modified')
+				let restoredFailure = parsed.failure_module
+				if (restoredFailure?.value?.type === 'rawscript' && restoredFailure.value.content) {
+					const match = restoredFailure.value.content.match(/^inline_script\.(.+)$/)
+					if (match) {
+						const restored = restoreInlineScriptReferences([restoredFailure])
+						restoredFailure = restored[0]
+					}
+				}
+
+				// Take snapshot of current flowStore BEFORE making changes
+				if (!diffManager?.hasPendingChanges) {
+					const snapshot = $state.snapshot(flowStore).val
+					diffManager?.setBeforeFlow(snapshot)
+				}
+
+				// Directly modify flowStore (immediate effect)
+				flowStore.val.value.modules = restoredModules
+
+				if (parsed.preprocessor_module !== undefined) {
+					flowStore.val.value.preprocessor_module = restoredPreprocessor || undefined
+				}
+
+				if (parsed.failure_module !== undefined) {
+					flowStore.val.value.failure_module = restoredFailure || undefined
+				}
+
+				// Update schema if provided
+				if (parsed.schema !== undefined) {
+					flowStore.val.schema = parsed.schema
+				}
+
+				diffManager?.setEditMode(true)
+
+				// Refresh the state store to update UI
+				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
+				refreshStateStore(flowStore)
+			} catch (error) {
+				console.error('setFlowJson error:', error)
+				throw new Error(
+					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
+				)
+			}
 		}
 	}
-
-	function deleteStep(id: string) {
-		flowModuleSchemaMap?.selectNextId(id)
-		if (id === 'preprocessor') {
-			flowStore.val.value.preprocessor_module = undefined
-		} else if (id === 'failure') {
-			flowStore.val.value.failure_module = undefined
-		} else {
-			const { modules } = getIndexInNestedModules(flowStore.val, id)
-			flowModuleSchemaMap?.removeAtId(modules, id)
-		}
-
-		refreshStateStore(flowStore)
-	}
-
-	const allModuleIds = $derived(dfsApply(flowStore.val.value.modules, (m) => m.id))
 
 	$effect(() => {
-		// remove any affected modules that are no longer in the flow
-		const untrackedAffectedModules = untrack(() => affectedModules)
-		for (const id of Object.keys(untrackedAffectedModules)) {
-			if (!allModuleIds.includes(id)) {
-				delete affectedModules[id]
+		if (
+			$currentEditor?.type === 'script' &&
+			selectedId &&
+			diffManager?.moduleActions[selectedId]?.pending &&
+			$currentEditor.editor.getAiChatEditorHandler()
+		) {
+			const moduleLastSnapshot = getModule(selectedId, diffManager.beforeFlow)
+			const content =
+				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
+			if (content.length > 0) {
+				untrack(() =>
+					$currentEditor.editor.reviewAppliedCode(content, {
+						onFinishedReview: () => {
+							diffManager?.acceptModule(selectedId, flowStore)
+							$currentEditor.hideDiffMode()
+						}
+					})
+				)
 			}
 		}
 	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
-		return cleanup
+		return () => {
+			cleanup()
+		}
 	})
 
 	$effect(() => {
@@ -617,39 +279,15 @@
 			flowStateStore.val,
 			$currentEditor
 		)
-		return cleanup
+		return () => {
+			cleanup()
+		}
 	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
-		return cleanup
-	})
-
-	// Automatically show revert review when selecting a rawscript module with pending changes
-	$effect(() => {
-		if (
-			$currentEditor?.type === 'script' &&
-			selectedId &&
-			affectedModules[selectedId] &&
-			$currentEditor.editor.getAiChatEditorHandler()
-		) {
-			const moduleLastSnapshot = getModule(selectedId, lastSnapshot)
-			const content =
-				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
-			if (content.length > 0) {
-				untrack(() =>
-					$currentEditor.editor.reviewAppliedCode(content, {
-						onFinishedReview: () => {
-							flowHelpers.acceptModuleAction(selectedId)
-							$currentEditor.hideDiffMode()
-						}
-					})
-				)
-			}
+		return () => {
+			cleanup()
 		}
 	})
-
-	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 </script>
-
-<DiffDrawer bind:this={diffDrawer} />
