@@ -150,6 +150,10 @@
 		}
 		return map
 	})
+
+	export function unsavedChanges(): { savedValue: any; modifiedValue: any } {
+		return { savedValue: dataTableSettings, modifiedValue: tempSettings }
+	}
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -282,7 +286,7 @@
 	</tbody>
 </DataTable>
 
-<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave}>Save</Button>
+<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave} variant="accent">Save</Button>
 
 <ConfirmationModal {...confirmationModal.props} />
 <DBManagerDrawer bind:this={dbManagerDrawer} />
