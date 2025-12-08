@@ -28,6 +28,8 @@ struct AssetCollector {
     current_access_type_stack: Vec<AssetUsageAccessType>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
     var_identifiers: HashMap<String, (AssetKind, String)>,
+    // e.g USE dl;
+    currently_used_asset: Option<(AssetKind, String)>,
 }
 
 impl AssetCollector {
@@ -36,14 +38,30 @@ impl AssetCollector {
             assets: Vec::new(),
             current_access_type_stack: Vec::with_capacity(8),
             var_identifiers: HashMap::new(),
+            currently_used_asset: None,
         }
     }
 
-    // Detect when we do a.b and a is associated with an asset in var_identifiers
+    // Detect when we do 'a.b' and 'a' is associated with an asset in var_identifiers
+    // Or when we access 'b' and we did USE a;
     fn get_associated_asset_from_obj_name(
         &self,
         name: &ObjectName,
     ) -> Option<ParseAssetsResult<String>> {
+        if name.0.len() == 1 {
+            if name.0.first()?.as_ident()?.quote_style.is_some() {
+                return None;
+            }
+            if let Some((kind, path)) = &self.currently_used_asset {
+                return Some(ParseAssetsResult {
+                    kind: *kind,
+                    access_type: self.current_access_type_stack.last().copied(),
+                    path: path.clone(),
+                });
+            }
+        }
+
+        // Check if the first part of the name (the a in a.b) is associated with an asset
         if name.0.len() < 2 {
             return None;
         }
@@ -174,7 +192,17 @@ impl Visitor for AssetCollector {
                 }
             }
             sqlparser::ast::Statement::DetachDuckDBDatabase { database_alias, .. } => {
-                self.var_identifiers.remove(&database_alias.value);
+                let asset = self.var_identifiers.remove(&database_alias.value);
+                if self.currently_used_asset == asset {
+                    self.currently_used_asset = None;
+                }
+            }
+            sqlparser::ast::Statement::Use(sqlparser::ast::Use::Object(obj_name)) => {
+                if let Some((kind, path)) = self.var_identifiers.get(&obj_name.to_string()) {
+                    self.currently_used_asset = Some((*kind, path.clone()));
+                } else {
+                    self.currently_used_asset = None;
+                }
             }
             _ => {}
         }
@@ -353,5 +381,25 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_implicit_use_asset() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            INSERT INTO table1 VALUES ('test');
+            USE memory;
+            SELECT * FROM table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl".to_string(),
+                access_type: Some(W)
+            },])
+        );
     }
 }
