@@ -66,6 +66,17 @@ export interface ScriptFile {
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
 }
 
+/**
+ * Checks if a path is inside a raw app backend folder.
+ * Matches patterns like: .../myApp.raw_app/backend/...
+ */
+export function isRawAppBackendPath(filePath: string): boolean {
+  // Normalize path separators for consistent matching
+  const normalizedPath = filePath.replaceAll(SEP, "/");
+  // Check if path contains pattern: *.raw_app/backend/
+  return /\.raw_app\/backend\//.test(normalizedPath);
+}
+
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
@@ -199,6 +210,7 @@ export async function handleFile(
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
+    !isRawAppBackendPath(path) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
@@ -228,7 +240,7 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("npm:esbuild");
+        const esbuild = await import("npm:esbuild@0.24.2");
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -246,11 +258,15 @@ export async function handleFile(
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
-          ...(codebase.banner != null && { banner: codebase.banner }),
+          banner: codebase.banner,
+          // ...(codebase.banner != null && { banner: codebase.banner }),
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
-        outputFiles = out.outputFiles;
+        outputFiles = out.outputFiles ?? [];
+        if (outputFiles.length == 0) {
+          throw new Error(`No output files found for ${path}`);
+        }
         log.info(
           `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
             0

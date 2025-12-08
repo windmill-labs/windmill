@@ -370,6 +370,13 @@ export function clickOutside(
 	}
 }
 
+export function undefinedIfEmpty(obj: any): any {
+	if (Object.keys(obj).length === 0) {
+		return undefined
+	}
+	return obj
+}
+
 export function pointerDownOutside(
 	node: Node,
 	options?: ClickOutsideOptions
@@ -1343,6 +1350,7 @@ export type Item = {
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
+	tooltip?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {

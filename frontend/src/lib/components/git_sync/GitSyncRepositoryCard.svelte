@@ -108,7 +108,7 @@
 	)
 
 	// Determine display description based on variant and mode
-	const targetOrDefaultBranch = $derived(targetBranch ? `'${targetBranch}'` : 'repo\'s default' )
+	const targetOrDefaultBranch = $derived(targetBranch ? `'${targetBranch}'` : "repo's default")
 	const displayDescription = $derived(
 		variant === 'primary-sync' || variant === 'primary-promotion'
 			? mode === 'sync'
@@ -189,7 +189,7 @@
 {#snippet headerActions()}
 	{#if !isLegacy}
 		{#if validation?.hasChanges && validation?.isValid && !repo.isUnsavedConnection}
-			<Button size="xs" onclick={handleSave} startIcon={{ icon: Save }}>
+			<Button size="xs" variant="accent" onclick={handleSave} startIcon={{ icon: Save }}>
 				{repo.legacyImported ? 'Migrate and save' : 'Save changes'}
 			</Button>
 			{#if idx !== null && gitSyncContext.initialRepositories[idx] && !repo.legacyImported}
@@ -361,10 +361,7 @@
 
 			<!-- Configuration -->
 			{#if repo.isUnsavedConnection && !emptyString(repo.git_repo_resource_path) && idx !== null}
-				<DetectionFlow
-					{idx}
-					mode={repoMode}
-				/>
+				<DetectionFlow {idx} mode={repoMode} />
 			{:else}
 				<GitSyncFilterSettings
 					bind:git_repo_resource_path={repo.git_repo_resource_path}
@@ -389,11 +386,7 @@
 					<div class="flex justify-between items-start">
 						<!-- Display mode settings as prominent text -->
 						<div class="flex-1 mr-4">
-							<GitSyncModeDisplay
-								mode={repoMode}
-								{targetBranch}
-								repository={repo}
-							/>
+							<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
 						</div>
 
 						<!-- Manual sync section for existing repos -->

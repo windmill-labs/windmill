@@ -8,22 +8,22 @@ function doRequest(type: string, o: object) {
     })
 }
 
-export const runBg = new Proxy(
+export const backend = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
             return (v: any) => {
-                return doRequest('runBg', { runnable_id, v })
+                return doRequest('backend', { runnable_id, v })
             }
         }
     })
 
-export const runBgAsync = new Proxy(
+export const backendAsync = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
             return (v: any) => {
-                return doRequest('runBgAsync', { runnable_id, v })
+                return doRequest('backendAsync', { runnable_id, v })
             }
         }
     })
@@ -38,8 +38,8 @@ export function getJob(jobId: string) {
 
 
 window.addEventListener('message', (e) => {
-    if (e.data.type == 'runBgRes' || e.data.type == 'runBgAsyncRes') {
-        console.log('Message from parent runBg', e.data)
+    if (e.data.type == 'backendRes' || e.data.type == 'backendAsyncRes') {
+        console.log('Message from parent backend', e.data)
         let job = reqs[e.data.reqId]
         if (job) {
             const result = e.data.result

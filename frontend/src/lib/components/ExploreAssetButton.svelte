@@ -5,6 +5,7 @@
 	): boolean {
 		return (
 			asset.kind === 'ducklake' ||
+			asset.kind === 'datatable' ||
 			asset.kind === 's3object' ||
 			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
 		)
@@ -53,6 +54,7 @@
 	unifiedSize={'md'}
 	variant={buttonVariant}
 	wrapperClasses={className}
+	iconOnly={noText}
 	{btnClasses}
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
@@ -65,12 +67,18 @@
 			s3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'ducklake') {
 			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake: asset.path })
+		} else if (asset.kind === 'datatable') {
+			dbManagerDrawer?.openDrawer({
+				type: 'database',
+				resourceType: 'postgresql',
+				resourcePath: `datatable://${asset.path}`
+			})
 		}
 		onClick?.()
 	}}
 	endIcon={asset.kind === 's3object'
 		? { icon: File }
-		: asset.kind === 'resource'
+		: asset.kind === 'resource' || asset.kind === 'datatable'
 			? { icon: Database }
 			: asset.kind === 'ducklake'
 				? { icon: DucklakeIcon }
@@ -78,9 +86,7 @@
 >
 	{#if asset.kind === 's3object'}
 		<span class:hidden={noText}>Explore</span>
-	{:else if asset.kind === 'resource'}
-		<span class:hidden={noText}>Manage</span>
-	{:else if asset.kind === 'ducklake'}
+	{:else if asset.kind === 'resource' || asset.kind === 'ducklake' || asset.kind === 'datatable'}
 		<span class:hidden={noText}>Manage</span>
 	{/if}
 </Button>

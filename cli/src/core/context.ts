@@ -12,12 +12,14 @@ import {
   allWorkspaces,
   addWorkspace,
 } from "../commands/workspace/workspace.ts";
-import {
-  getLastUsedProfile,
-  setLastUsedProfile
-} from "./branch-profiles.ts";
+import { getLastUsedProfile, setLastUsedProfile } from "./branch-profiles.ts";
 import { readConfigFile } from "./conf.ts";
-import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, getWorkspaceIdForWorkspaceForkFromBranchName, isGitRepository } from "../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  getOriginalBranchForWorkspaceForks,
+  getWorkspaceIdForWorkspaceForkFromBranchName,
+  isGitRepository,
+} from "../utils/git.ts";
 import { WM_FORK_PREFIX } from "../main.ts";
 
 // Helper function to select from multiple matching profiles
@@ -33,11 +35,22 @@ async function selectFromMultipleProfiles(
   }
 
   // Check for last used profile
-  const lastUsedProfileName = await getLastUsedProfile("", baseUrl, workspaceId, configDir);
+  const lastUsedProfileName = await getLastUsedProfile(
+    "",
+    baseUrl,
+    workspaceId,
+    configDir
+  );
   if (lastUsedProfileName) {
-    const lastUsedProfile = profiles.find(p => p.name === lastUsedProfileName);
+    const lastUsedProfile = profiles.find(
+      (p) => p.name === lastUsedProfileName
+    );
     if (lastUsedProfile) {
-      log.info(colors.green(`Using last used profile '${lastUsedProfile.name}' for ${context}`));
+      log.info(
+        colors.green(
+          `Using last used profile '${lastUsedProfile.name}' for ${context}`
+        )
+      );
       return lastUsedProfile;
     }
   }
@@ -45,7 +58,11 @@ async function selectFromMultipleProfiles(
   // No last used or it no longer exists - prompt for selection
   if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
     const selectedProfile = profiles[0];
-    log.info(colors.yellow(`Multiple profiles found for ${context}. Using first available profile: '${selectedProfile.name}'`));
+    log.info(
+      colors.yellow(
+        `Multiple profiles found for ${context}. Using first available profile: '${selectedProfile.name}'`
+      )
+    );
 
     // Save selection for next time
     await setLastUsedProfile(
@@ -59,17 +76,19 @@ async function selectFromMultipleProfiles(
     return selectedProfile;
   }
 
-  log.info(colors.yellow(`\nMultiple workspace profiles found for ${context}:`));
+  log.info(
+    colors.yellow(`\nMultiple workspace profiles found for ${context}:`)
+  );
 
   const selectedName = await Select.prompt({
     message: "Select profile",
-    options: profiles.map(p => ({
+    options: profiles.map((p) => ({
       name: `${p.name} (${p.workspaceId} on ${p.remote})`,
       value: p.name,
     })),
   });
 
-  const selectedProfile = profiles.find(p => p.name === selectedName)!;
+  const selectedProfile = profiles.find((p) => p.name === selectedName)!;
 
   // Save selection for next time
   await setLastUsedProfile(
@@ -81,6 +100,90 @@ async function selectFromMultipleProfiles(
   );
 
   return selectedProfile;
+}
+
+/**
+ * Prompts the user to create a new workspace profile interactively
+ */
+async function createWorkspaceProfileInteractively(
+  normalizedBaseUrl: string,
+  workspaceId: string,
+  currentBranch: string,
+  opts: GlobalOptions,
+  context: { rawBranch: string; isForked: boolean }
+): Promise<Workspace | undefined> {
+  // Log appropriate message based on context
+  if (!context.isForked) {
+    log.info(
+      colors.yellow(
+        `\nNo workspace profile found for branch '${context.rawBranch}'\n` +
+          `(${normalizedBaseUrl}, ${workspaceId})`
+      )
+    );
+  } else {
+    log.info(
+      colors.yellow(
+        `\nNo workspace profile was found for this forked workspace\n` +
+          `(${normalizedBaseUrl}, ${workspaceId})`
+      )
+    );
+  }
+
+  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
+    log.info(
+      "Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first."
+    );
+    return undefined;
+  }
+
+  const shouldCreate = await Confirm.prompt({
+    message: "Would you like to create a new workspace profile?",
+    default: true,
+  });
+
+  if (!shouldCreate) {
+    return undefined;
+  }
+
+  // Prompt for profile details
+  const profileName = await Input.prompt({
+    message: "Profile name",
+    default: workspaceId,
+  });
+
+  const token = await loginInteractive(normalizedBaseUrl);
+  if (!token) {
+    log.error("Failed to obtain token");
+    return undefined;
+  }
+
+  // Create the new profile
+  const newWorkspace: Workspace = {
+    name: profileName,
+    remote: normalizedBaseUrl,
+    workspaceId: workspaceId,
+    token: token,
+  };
+
+  await addWorkspace(newWorkspace, opts);
+
+  // Set as last used for this branch
+  await setLastUsedProfile(
+    currentBranch,
+    normalizedBaseUrl,
+    workspaceId,
+    profileName,
+    opts.configDir
+  );
+
+  log.info(
+    colors.green(
+      `✓ Created profile '${profileName}' for ${workspaceId} on ${normalizedBaseUrl}`
+    )
+  );
+  log.info(colors.green(`✓ Profile '${profileName}' is now active`));
+
+  return newWorkspace;
 }
 
 export type Context = {
@@ -132,8 +235,12 @@ export async function tryResolveBranchWorkspace(
 
   let currentBranch: string;
   const originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawBranch);
-  const workspaceIdIfForked = getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
+  const workspaceIdIfForked =
+    getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
   if (originalBranchIfForked) {
+    log.info(
+      `Using original branch \`${originalBranchIfForked}\` for finding workspace profile from gitBranches section in wmill.yaml`
+    );
     currentBranch = originalBranchIfForked;
   } else {
     currentBranch = rawBranch;
@@ -148,82 +255,37 @@ export async function tryResolveBranchWorkspace(
     return undefined;
   }
 
-  let { baseUrl, workspaceId } = branchConfig;
-  if (workspaceIdIfForked) {
-    workspaceId = workspaceIdIfForked;
-    log.info(`Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `);
-  }
+  log.info(
+    `Using branch configuration for branch \`${currentBranch}\` set in gitBranches`
+  );
+
+  const { baseUrl, workspaceId } = branchConfig;
+
   let normalizedBaseUrl: string;
   try {
     normalizedBaseUrl = new URL(baseUrl).toString();
   } catch (error) {
-    log.error(colors.red(`Invalid baseUrl in branch configuration: ${baseUrl}`));
+    log.error(
+      colors.red(`Invalid baseUrl in branch configuration: ${baseUrl}`)
+    );
     return undefined;
   }
 
   // Find all profiles matching this baseUrl and workspaceId
   const allProfiles = await allWorkspaces(opts.configDir);
   const matchingProfiles = allProfiles.filter(
-    w => w.remote === normalizedBaseUrl && w.workspaceId === workspaceId
+    (w) => w.remote === normalizedBaseUrl && w.workspaceId === workspaceId
   );
 
   if (matchingProfiles.length === 0) {
     // No matching profile exists - prompt to create one
-    if (!originalBranchIfForked) {
-      log.info(colors.yellow(
-        `\nNo workspace profile found for branch '${rawBranch}'\n` +
-        `(${normalizedBaseUrl}, ${workspaceId})`
-      ));
-    } else {
-      log.info(colors.yellow(
-        `\nNo workspace profile was found for this forked workspace\n` +
-        `(${normalizedBaseUrl}, ${workspaceId})`
-      ));
-    }
-
-    if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) {
-      log.info("Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first.");
-      return undefined;
-    }
-
-    const shouldCreate = await Confirm.prompt({
-      message: "Would you like to create a new workspace profile?",
-      default: true,
-    });
-
-    if (!shouldCreate) {
-      return undefined;
-    }
-
-    // Prompt for profile details
-    const profileName = await Input.prompt({
-      message: "Profile name",
-      default: workspaceId,
-    });
-
-    const token = await loginInteractive(normalizedBaseUrl);
-    if (!token) {
-      log.error("Failed to obtain token");
-      return undefined;
-    }
-
-    // Create the new profile
-    const newWorkspace: Workspace = {
-      name: profileName,
-      remote: normalizedBaseUrl,
-      workspaceId: workspaceId,
-      token: token,
-    };
-
-    await addWorkspace(newWorkspace, opts);
-
-    // Set as last used for this branch
-    await setLastUsedProfile(currentBranch, normalizedBaseUrl, workspaceId, profileName, opts.configDir);
-
-    log.info(colors.green(`✓ Created profile '${profileName}' for ${workspaceId} on ${normalizedBaseUrl}`));
-    log.info(colors.green(`✓ Profile '${profileName}' is now active`));
-
-    return newWorkspace;
+    return await createWorkspaceProfileInteractively(
+      normalizedBaseUrl,
+      workspaceId,
+      currentBranch,
+      opts,
+      { rawBranch, isForked: !!originalBranchIfForked }
+    );
   }
 
   // Handle multiple profiles - use special branch-aware logic
@@ -231,7 +293,11 @@ export async function tryResolveBranchWorkspace(
 
   if (matchingProfiles.length === 1) {
     selectedProfile = matchingProfiles[0];
-    log.info(colors.green(`Using workspace profile '${selectedProfile.name}' for branch '${currentBranch}'`));
+    log.info(
+      colors.green(
+        `Using workspace profile '${selectedProfile.name}' for branch '${currentBranch}' with workspace id \`${workspaceId}\``
+      )
+    );
   } else {
     // For multiple profiles, check branch-specific last used first
     const lastUsedName = await getLastUsedProfile(
@@ -242,9 +308,15 @@ export async function tryResolveBranchWorkspace(
     );
 
     if (lastUsedName) {
-      const lastUsedProfile = matchingProfiles.find(p => p.name === lastUsedName);
+      const lastUsedProfile = matchingProfiles.find(
+        (p) => p.name === lastUsedName
+      );
       if (lastUsedProfile) {
-        log.info(colors.green(`Using workspace profile '${lastUsedProfile.name}' for branch '${currentBranch}' (last used)`));
+        log.info(
+          colors.green(
+            `Using workspace profile '${lastUsedProfile.name}' for branch '${currentBranch}' (last used)`
+          )
+        );
         return lastUsedProfile;
       }
     }
@@ -267,7 +339,19 @@ export async function tryResolveBranchWorkspace(
       opts.configDir
     );
 
-    log.info(colors.green(`Using workspace profile '${selectedProfile.name}' for branch '${currentBranch}'`));
+    log.info(
+      colors.green(
+        `Using workspace profile '${selectedProfile.name}' for branch '${currentBranch}'`
+      )
+    );
+  }
+
+  if (workspaceIdIfForked) {
+    selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
+    selectedProfile.workspaceId = workspaceIdIfForked;
+    log.info(
+      `Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `
+    );
   }
 
   return selectedProfile;
@@ -292,14 +376,20 @@ export async function resolveWorkspace(
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         // Try by workspace name first
-        let existingWorkspace = await getWorkspaceByName(opts.workspace, opts.configDir);
+        let existingWorkspace = await getWorkspaceByName(
+          opts.workspace,
+          opts.configDir
+        );
 
         // If not found by name, try to find by workspaceId + remote match
         if (!existingWorkspace) {
-          const { allWorkspaces } = await import("../commands/workspace/workspace.ts");
+          const { allWorkspaces } = await import(
+            "../commands/workspace/workspace.ts"
+          );
           const workspaces = await allWorkspaces(opts.configDir);
           const matchingWorkspaces = workspaces.filter(
-            w => w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
+            (w) =>
+              w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
           );
 
           if (matchingWorkspaces.length >= 1) {
@@ -357,7 +447,9 @@ export async function resolveWorkspace(
     if (!branch || !branch.startsWith(WM_FORK_PREFIX)) {
       return res.value;
     } else {
-      log.info(`Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``);
+      log.info(
+        `Found an active workspace \`${res.value.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
+      );
     }
   }
 
@@ -367,9 +459,13 @@ export async function resolveWorkspace(
     (opts as any).__secret_workspace = branchWorkspace;
     return branchWorkspace;
   } else {
-    const originalBranch = getOriginalBranchForWorkspaceForks(branch)
+    const originalBranch = getOriginalBranchForWorkspaceForks(branch);
     if (originalBranch) {
-      log.error(colors.red.bold(`Failed to resolve workspace profile for workspace fork. This most likely means that the original branch \`${originalBranch}\` where \`${branch}\` is originally forked from, is not setup in the wmill.yaml. You need to update the \`gitBranches\` section for \`${originalBranch}\` to include workspaceId and baseUrl.`))
+      log.error(
+        colors.red.bold(
+          `Failed to resolve workspace profile for workspace fork. This most likely means that the original branch \`${originalBranch}\` where \`${branch}\` is originally forked from, is not setup in the wmill.yaml. You need to update the \`gitBranches\` section for \`${originalBranch}\` to include workspaceId and baseUrl.`
+        )
+      );
       return Deno.exit(-1);
     }
   }
@@ -385,7 +481,6 @@ export async function resolveWorkspace(
   log.info(colors.red.bold("No workspace given and no default set."));
   return Deno.exit(-1);
 }
-
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
   const requestHeaders = new Headers();
@@ -405,7 +500,9 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
   if (!response.ok) {
     // Consume response body even on error to avoid resource leak
     await response.text();
-    throw new Error(`Failed to fetch version: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to fetch version: ${response.status} ${response.statusText}`
+    );
   }
 
   return await response.text();

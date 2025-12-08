@@ -1,0 +1,139 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script\n             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)\n             ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "concurrency_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "concurrency_time_window_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "debounce_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "debounce_delay_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "dedicated_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 12,
+        "name": "timeout",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "7f9b7ab9bec6a0f745273d0cd5602ceab46a7ec9fd225f7b9d16a2ddb9bad7b3"
+}

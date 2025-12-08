@@ -12,7 +12,7 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
-	import { react18Template, react19Template, svelte5Template, vueTemplate } from './templates'
+	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -24,10 +24,10 @@
 		$importStore = undefined
 	}
 
-	const state = nodraft ? undefined : localStorage.getItem('rawapp')
+	const appState = nodraft ? undefined : localStorage.getItem('rawapp')
 
-	let summary = ''
-	let files: Record<string, string> = react19Template
+	let summary = $state('')
+	let files: Record<string, string> = $state(react19Template)
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL($page.url.href)
@@ -35,15 +35,15 @@
 			replaceState(url.toString(), $page.state)
 		}
 	})
-	let policy: Policy = {
+	let policy: Policy = $state({
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username
 			: `u/${$userStore?.username}`,
 		on_behalf_of_email: $userStore?.email,
 		execution_mode: 'publisher'
-	}
+	})
 
-	let runnables: Record<string, Runnable> = {
+	let runnables: Record<string, Runnable> = $state({
 		a: {
 			name: 'a',
 			fields: {},
@@ -67,7 +67,7 @@
 				}
 			}
 		}
-	}
+	})
 	loadApp()
 
 	function extractValue(value: any) {
@@ -104,7 +104,7 @@
 			console.log('App loaded from template id')
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && state) {
+		} else if (!templatePath && appState) {
 			console.log('App loaded from browser stored autosave')
 			sendUserToast('App restored from browser stored autosave', false, [
 				{
@@ -115,7 +115,7 @@
 					}
 				}
 			])
-			let decoded = decodeState(state)
+			let decoded = decodeState(appState)
 			extractValue(decoded)
 		}
 	}
@@ -136,15 +136,15 @@
 			name: 'Svelte 5',
 			icon: 'svelte',
 			files: svelte5Template
-		},
-		{
-			name: 'Vue 3',
-			icon: 'vue',
-			files: vueTemplate
 		}
+		// {
+		// 	name: 'Vue 3',
+		// 	icon: 'vue',
+		// 	files: vueTemplate
+		// }
 	]
-	let templatePicker = nodraft != null
-	let hide = false
+	let templatePicker = $state(nodraft != null)
+	let reloadCounter = $state(0)
 </script>
 
 {#if templatePicker}
@@ -152,14 +152,18 @@
 		<div class="flex flex-wrap gap-4 pb-4">
 			{#each templates as t}
 				<button
-					on:click={() => {
+					onclick={() => {
 						if (t.files) {
-							hide = true
-
 							files = t.files
-							hide = false
+							reloadCounter += 1
 						}
 						templatePicker = false
+						// Remove nodraft from URL when a template is selected
+						const url = new URL(window.location.href)
+						if (url.searchParams.has('nodraft')) {
+							url.searchParams.delete('nodraft')
+							window.history.replaceState({}, '', url.toString())
+						}
 					}}
 					class="w-24 h-24 flex justify-between py-5 flex-col {t.selected
 						? 'bg-surface-selected'
@@ -174,7 +178,7 @@
 		</div>
 	</Modal>
 {/if}
-{#if !hide}
+{#key reloadCounter}
 	<RawAppEditor
 		on:savedNewAppPath={(event) => {
 			goto(`/apps_raw/edit/${event.detail}`)
@@ -186,4 +190,4 @@
 		{summary}
 		newApp
 	/>
-{/if}
+{/key}

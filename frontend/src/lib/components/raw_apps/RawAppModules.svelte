@@ -37,14 +37,14 @@
 </script>
 
 <PanelSection
-	size="md"
+	size="sm"
 	collapsible
 	initiallyCollapsed
 	fullHeight={false}
-	title="Installed modules ({Object.keys(props.modules?.installed ?? {}).length})"
+	title="packages ({Object.keys(props.modules?.installed ?? {}).length})"
 	id="app-editor-frontend-panel-modules"
 >
-	<input type="text" class="w-full max-w-sm" placeholder="Search modules" bind:value={search} />
+	<input type="text" class="w-full max-w-sm" placeholder="Search packages" bind:value={search} />
 	<div class="mt-2 flex flex-col gap-4 w-full">
 		{#each ['direct', 'indirect', 'dev'] as type}
 			{@const typeModules = filteredModules[type]}

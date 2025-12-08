@@ -1,14 +1,9 @@
-import {
-  colors,
-  Command,
-  log,
-  yamlStringify,
-  Confirm,
-} from "../../../deps.ts";
+import { colors, Command, log, yamlStringify, Confirm } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
+import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -61,12 +56,10 @@ async function initAction(opts: InitOptions) {
 
     // Offer to bind workspace profile to current branch
     if (isGitRepository()) {
-      const { getActiveWorkspace } = await import("../workspace/workspace.ts");
-      const activeWorkspace = await getActiveWorkspace(
+      const activeWorkspace = await getActiveWorkspaceOrFallback(
         opts as GlobalOptions
       );
       const currentBranch = getCurrentGitBranch();
-
       if (activeWorkspace && currentBranch) {
         // Determine binding behavior based on flags
         const shouldBind = opts.bindProfile === true;
@@ -74,10 +67,10 @@ async function initAction(opts: InitOptions) {
           opts.bindProfile === undefined &&
           Deno.stdin.isTerminal() &&
           !opts.useDefault;
+
         const shouldSkip =
-          opts.bindProfile === false ||
-          opts.useDefault ||
-          (!Deno.stdin.isTerminal() && opts.bindProfile === undefined);
+          opts.bindProfile != true &&
+          (opts.useDefault || !Deno.stdin.isTerminal());
 
         if (shouldSkip) {
           return;
@@ -86,15 +79,11 @@ async function initAction(opts: InitOptions) {
         // Show workspace info if we're binding or prompting
         if (shouldBind || shouldPrompt) {
           log.info(
-            colors.yellow(
-              `\nCurrent Git branch: ${colors.bold(currentBranch)}`
-            )
+            colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`)
           );
           log.info(
             colors.yellow(
-              `Active workspace profile: ${colors.bold(
-                activeWorkspace.name
-              )}`
+              `Active workspace profile: ${colors.bold(activeWorkspace.name)}`
             )
           );
           log.info(
@@ -123,15 +112,15 @@ async function initAction(opts: InitOptions) {
             currentConfig.gitBranches[currentBranch] = { overrides: {} };
           }
 
+          log.info(
+            `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
+          );
           currentConfig.gitBranches[currentBranch].baseUrl =
             activeWorkspace.remote;
           currentConfig.gitBranches[currentBranch].workspaceId =
             activeWorkspace.workspaceId;
 
-          await Deno.writeTextFile(
-            "wmill.yaml",
-            yamlStringify(currentConfig)
-          );
+          await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
 
           log.info(
             colors.green(
@@ -149,10 +138,10 @@ async function initAction(opts: InitOptions) {
         const { resolveWorkspace } = await import("../../core/context.ts");
 
         // Check if user has workspace configured
-        const { getActiveWorkspace } = await import("../workspace/workspace.ts");
-        const activeWorkspace = await getActiveWorkspace(
-          opts as GlobalOptions
+        const { getActiveWorkspace } = await import(
+          "../workspace/workspace.ts"
         );
+        const activeWorkspace = await getActiveWorkspace(opts as GlobalOptions);
 
         if (!activeWorkspace) {
           log.info("No workspace configured. Using default settings.");
@@ -233,9 +222,7 @@ async function initAction(opts: InitOptions) {
               replace: true, // Auto-replace when using backend settings during init
             });
 
-            log.info(
-              colors.green("Git-sync settings applied from backend")
-            );
+            log.info(colors.green("Git-sync settings applied from backend"));
           }
         }
       } catch (error) {
@@ -266,10 +253,7 @@ async function initAction(opts: InitOptions) {
     }
 
     if (!(await Deno.stat(".cursor/rules/flow.mdc").catch(() => null))) {
-      await Deno.writeTextFile(
-        ".cursor/rules/flow.mdc",
-        flowGuidanceContent
-      );
+      await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
       log.info(colors.green("Created .cursor/rules/flow.mdc"));
     }
 
@@ -278,15 +262,13 @@ async function initAction(opts: InitOptions) {
       await Deno.writeTextFile(
         "CLAUDE.md",
         `
-                        # Claude
+You are a helpful assistant that can help with Windmill scripts and flows creation.
 
-                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+## Script Guidance
+${scriptGuidanceContent}
 
-                        ## Script Guidance
-                        ${scriptGuidanceContent}
-
-                        ## Flow Guidance
-                        ${flowGuidanceContent}
+## Flow Guidance
+${flowGuidanceContent}
                     `
       );
       log.info(colors.green("Created CLAUDE.md"));

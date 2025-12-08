@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
-	import Modal from './common/modal/Modal.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		ChevronRight,
 		ChevronDown,
@@ -28,18 +27,20 @@
 		importedPath,
 		title = 'Dependency Warning',
 		confirmText = 'Proceed Anyway',
-		cancelText = 'Cancel',
 		onConfirm,
 		onCancel,
-		open = true
+		open = true,
+		isUnnamedDefault = false,
+		language = undefined
 	}: {
 		importedPath: string
 		title?: string
 		confirmText?: string
-		cancelText?: string
 		onConfirm: () => void
 		onCancel: () => void
 		open?: boolean
+		isUnnamedDefault?: boolean
+		language?: string
 	} = $props()
 
 	let dependencies: DependencyNode[] = $state([])
@@ -88,7 +89,7 @@
 		}
 	}
 
-	// Load children for a specific dependency  
+	// Load children for a specific dependency
 	async function loadChildren(node: DependencyNode) {
 		if (node.children || node.loading) return
 
@@ -159,10 +160,13 @@
 		return dependencies.reduce((sum, dep) => sum + countNode(dep), 0)
 	}
 
-	// Load dependencies when component mounts
+	// Load dependencies when component mounts (skip for unnamed/default dependencies)
 	$effect(() => {
-		if ($workspaceStore && importedPath) {
+		if ($workspaceStore && importedPath && !isUnnamedDefault) {
 			loadInitialDependencies()
+		} else if (isUnnamedDefault) {
+			// For unnamed dependencies, skip loading - just show warning
+			loading = false
 		}
 	})
 
@@ -175,62 +179,80 @@
 	}
 </script>
 
-<Modal {open} {title} {cancelText} kind="button" on:canceled={handleCancel} class="sm:max-w-2xl">
+<ConfirmationModal
+	{open}
+	{title}
+	confirmationText={confirmText}
+	type={isUnnamedDefault ? 'danger' : undefined}
+	onConfirmed={handleConfirm}
+	onCanceled={handleCancel}
+>
+	{#if loading}
+		<div class="flex items-center gap-2">
+			<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+			<span class="text-sm">Loading dependencies...</span>
+		</div>
+	{:else if isUnnamedDefault}
+		<!-- For unnamed/default dependencies, just show the critical warning -->
+		<div class="space-y-3">
+			<p class="font-bold">This will redeploy ALL existing {language} scripts and flows/apps that have {language} steps without explicit named dependencies!</p>
+			<p>Default (unnamed) dependencies are automatically used by any {language} runnable that doesn't specify a named dependency. Changing this affects your entire workspace.</p>
+			<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border-l-4 border-gray-400 dark:border-gray-600 mt-3">
+				<div class="flex items-center gap-2 mb-2">
+					<Package size={16} class="text-gray-600 dark:text-gray-400" />
+					<span class="font-medium text-gray-800 dark:text-gray-200">
+						Default Workspace Dependencies
+					</span>
+				</div>
+				<div class="font-mono text-sm text-gray-700 dark:text-gray-300 ml-6">
+					{importedPath}
+				</div>
+			</div>
+		</div>
+	{:else}
+		<!-- For named dependencies, show the dependents tree -->
 		<div class="space-y-4">
-			{#if loading}
-				<div class="flex items-center gap-2">
-					<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
-					<span class="text-sm">Loading dependencies...</span>
+			<!-- Header with workspace dependencies info -->
+			<div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 border-l-4 border-yellow-400">
+				<div class="flex items-center gap-2 mb-2">
+					<Package size={16} class="text-yellow-600 dark:text-yellow-400" />
+					<span class="font-medium text-yellow-800 dark:text-yellow-200">Workspace Dependencies</span>
 				</div>
+				<div class="font-mono text-sm text-yellow-700 dark:text-yellow-300 ml-6">
+					{importedPath}
+				</div>
+			</div>
+
+			{#if dependencies.length === 0}
+				<Alert type="info" title="No Dependent Runnables Found">
+					{#snippet children()}
+						<p class="text-sm">No dependent runnables were found for these workspace dependencies, but the action will still proceed.</p>
+					{/snippet}
+				</Alert>
 			{:else}
-				<!-- Header with workspace dependencies info -->
-				<div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 border-l-4 border-yellow-400">
-					<div class="flex items-center gap-2 mb-2">
-						<Package size={16} class="text-yellow-600 dark:text-yellow-400" />
-						<span class="font-medium text-yellow-800 dark:text-yellow-200">Workspace Dependencies</span>
-					</div>
-					<div class="font-mono text-sm text-yellow-700 dark:text-yellow-300 ml-6">
-						{importedPath}
-					</div>
+				<!-- Arrow pointing down -->
+				<div class="flex justify-center">
+					<ArrowRight size={16} class="text-yellow-600 dark:text-yellow-400 transform rotate-90" />
 				</div>
 
-				{#if dependencies.length === 0}
-					<Alert type="info" title="No Dependent Runnables Found">
-						{#snippet children()}
-							<p class="text-sm">No dependent runnables were found for these workspace dependencies, but the action will still proceed.</p>
-						{/snippet}
-					</Alert>
-				{:else}
-					<!-- Arrow pointing down -->
-					<div class="flex justify-center">
-						<ArrowRight size={16} class="text-yellow-600 dark:text-yellow-400 transform rotate-90" />
-					</div>
+				<!-- Summary -->
+				<div class="bg-yellow-50 dark:bg-yellow-900/30 rounded p-3">
+					<p class="text-sm text-yellow-800 dark:text-yellow-200">
+						This action will trigger redeployment of <strong>{getTotalDependentsCount()}</strong>
+						{getTotalDependentsCount() === 1 ? 'dependent runnable' : 'dependent runnables'}:
+					</p>
+				</div>
 
-					<!-- Summary -->
-					<div class="bg-yellow-50 dark:bg-yellow-900/30 rounded p-3">
-						<p class="text-sm text-yellow-800 dark:text-yellow-200">
-							This action will trigger redeployment of <strong>{getTotalDependentsCount()}</strong>
-							{getTotalDependentsCount() === 1 ? 'dependent runnable' : 'dependent runnables'}:
-						</p>
-					</div>
-
-					<!-- Dependency tree -->
-					<div class="space-y-1 max-h-64 overflow-y-auto">
-						{#each dependencies as dependency}
-							{@render DependencyNode({ node: dependency, level: 0 })}
-						{/each}
-					</div>
-				{/if}
-
+				<!-- Dependency tree -->
+				<div class="space-y-1 max-h-64 overflow-y-auto">
+					{#each dependencies as dependency}
+						{@render DependencyNode({ node: dependency, level: 0 })}
+					{/each}
+				</div>
 			{/if}
 		</div>
-
-		<svelte:fragment slot="actions">
-			<Button size="sm" color="warning" on:click={handleConfirm}>
-				{confirmText}
-			</Button>
-		</svelte:fragment>
-</Modal>
+	{/if}
+</ConfirmationModal>
 
 {#snippet DependencyNode({ node, level }: { node: DependencyNode, level: number })}
 	{@const Icon = getIcon(node.kind)}

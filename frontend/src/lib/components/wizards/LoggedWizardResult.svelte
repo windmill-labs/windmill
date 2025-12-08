@@ -50,7 +50,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="flex flex-col bg-surface rounded-md py-1.5 px-3 cursor-pointer"
+			class="flex flex-col bg-surface rounded-md py-1.5 pr-2 cursor-pointer"
 			role=""
 			onclick={() => {
 				if (step.description) {
@@ -60,7 +60,7 @@
 			}}
 		>
 			<div class="flex gap-3">
-				<span class="inline-flex w-10 h-10 shrink-0 justify-center items-center">
+				<span class="inline-flex w-5 h-10 shrink-0 justify-center items-center">
 					{#if step.status == 'SKIP'}
 						<Circle size={20} class="inline text-hint/50" />
 					{:else if step.status == 'FAIL'}

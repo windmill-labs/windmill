@@ -231,7 +231,7 @@ impl From<i64> for ScriptHash {
     }
 }
 
-#[derive(PartialEq, sqlx::Type)]
+#[derive(PartialEq, sqlx::Type, Debug)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
 
@@ -347,7 +347,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
     let is_esm = id.contains(".esm");
     CodebaseInfo { is_tar, is_esm }
 }
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, Debug)]
 pub struct Script {
     pub workspace_id: String,
     pub hash: ScriptHash,
@@ -361,7 +361,8 @@ pub struct Script {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub deleted: bool,
-    pub is_template: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_template: Option<bool>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
@@ -391,6 +392,8 @@ pub struct Script {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -494,6 +497,10 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    // NOTE: concurrency and debounce data is inline,
+    // bc it was this before refactor
+    // and rust seems to hash it differently
+    // for backwards compat we keep them inline
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
@@ -502,6 +509,7 @@ pub struct NewScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
@@ -815,6 +823,62 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub async fn fetch_script_for_update<'a>(
+    hash: ScriptHash,
+    w_id: &str,
+    e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+) -> crate::error::Result<Option<Script>> {
+    sqlx::query_as::<_, Script>(
+        "SELECT
+            workspace_id,
+            hash,
+            path,
+            parent_hashes,
+            summary,
+            description,
+            content,
+            created_by,
+            created_at,
+            archived,
+            schema,
+            deleted,
+            is_template,
+            extra_perms,
+            lock,
+            lock_error_logs,
+            language,
+            kind,
+            tag,
+            draft_only,
+            envs,
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
+            dedicated_worker,
+            ws_error_handler_muted,
+            priority,
+            cache_ttl,
+            cache_ignore_s3_path,
+            timeout,
+            delete_after_use,
+            restart_unless_cancelled,
+            visible_to_runner_only,
+            no_main_func,
+            codebase,
+            has_preprocessor,
+            on_behalf_of_email,
+            assets
+         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+    )
+    .bind(hash.0)
+    .bind(w_id)
+    .fetch_optional(e)
+    .await
+    .map_err(crate::error::Error::from)
+}
+
 pub struct ClonedScript {
     pub old_script: NewScript,
     pub new_hash: i64,
@@ -826,16 +890,7 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
-    // TODO:!
-    let s = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
-    )
-    .bind(base_hash.0)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    let s = if let Some(s) = s {
+    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
@@ -851,7 +906,7 @@ pub async fn clone_script<'c>(
         description: s.description,
         content: s.content,
         schema: s.schema,
-        is_template: Some(s.is_template),
+        is_template: s.is_template,
         // TODO: Make it either None everywhere (particularly when raw reqs are calculated)
         // Or handle this case and conditionally make Some (only with raw reqs)
         lock: None,
@@ -863,6 +918,7 @@ pub async fn clone_script<'c>(
         concurrent_limit: s.concurrent_limit,
         concurrency_time_window_s: s.concurrency_time_window_s,
         cache_ttl: s.cache_ttl,
+        cache_ignore_s3_path: s.cache_ignore_s3_path,
         dedicated_worker: s.dedicated_worker,
         ws_error_handler_muted: s.ws_error_handler_muted,
         priority: s.priority,
@@ -894,14 +950,14 @@ pub async fn clone_script<'c>(
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s

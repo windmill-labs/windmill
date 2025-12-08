@@ -20,12 +20,12 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
 	import DebounceLimit from '../DebounceLimit.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -86,7 +86,7 @@
 						bind:content={flowStore.val.summary}
 						promptConfigName="flowSummary"
 						flow={flowStore.val.value}
-						on:change={() => {
+						onChange={() => {
 							if ($initialPathStore == '' && flowStore.val.summary?.length > 0 && !dirtyPath) {
 								path?.setName(
 									flowStore.val.summary
@@ -212,12 +212,20 @@
 							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
 								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
 								<div class="-mt-5">
-									{#if flowStore.val.value.cache_ttl}
-										<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-									{:else}
-										<SecondsInput disabled />
-									{/if}
+									<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 								</div>
+								<Toggle
+									size="2xs"
+									bind:checked={
+										() => flowStore.val.value.cache_ignore_s3_path,
+										(v) => (flowStore.val.value.cache_ignore_s3_path = v || undefined)
+									}
+									options={{
+										right: 'Ignore S3 Object paths for caching purposes',
+										rightTooltip:
+											'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+									}}
+								/>
 							</div>
 						{/if}
 					</div>
@@ -386,12 +394,7 @@
 						bind:errorHandlerMuted={flowStore.val.ws_error_handler_muted}
 					/>
 					{#if !$enterpriseLicense}
-						<span
-							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-						>
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</span>
+						<EEOnly />
 					{/if}
 				</div>
 
@@ -471,7 +474,6 @@
 				{#if customUi?.settingsTabs?.debouncing != false}
 					<DebounceLimit
 						size="xs"
-						color="nord"
 						fontClass="font-medium"
 						bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
 						bind:debounce_key={flowStore.val.value.debounce_key}
@@ -520,12 +522,7 @@
 							}}
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
-							<span
-								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-							>
-								<AlertTriangle size={16} />
-								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-							</span>
+							<EEOnly />
 						{/if}
 					{/snippet}
 				</Toggle>

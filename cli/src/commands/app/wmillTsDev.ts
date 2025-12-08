@@ -19,8 +19,8 @@ function initWebSocket() {
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        if (data.type === 'runBgRes' || data.type === 'runBgAsyncRes') {
-            console.log('Message from WebSocket runBg', data)
+        if (data.type === 'backendRes' || data.type === 'backendAsyncRes') {
+            console.log('Message from WebSocket backend', data)
             const job = reqs[data.reqId]
             if (job) {
                 const result = data.result
@@ -57,22 +57,22 @@ async function doRequest(type: string, o: object) {
     })
 }
 
-export const runBg = new Proxy(
+export const backend = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
             return (v: any) => {
-                return doRequest('runBg', { runnable_id, v })
+                return doRequest('backend', { runnable_id, v })
             }
         }
     })
 
-export const runBgAsync = new Proxy(
+export const backendAsync = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
             return (v: any) => {
-                return doRequest('runBgAsync', { runnable_id, v })
+                return doRequest('backendAsync', { runnable_id, v })
             }
         }
     })

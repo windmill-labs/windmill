@@ -1,7 +1,6 @@
 import type { ScriptLang } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
-import { capitalize } from '../../sharedUtils'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
 
@@ -68,19 +67,15 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
+export declare const backend: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)};`)
-	.join('\n\n')}
-
-export declare const runBg: {
-${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>;`)
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
 	.join('\n')}
 };
 
-export declare const runBgAsync: {
-${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>;`)
+export declare const backendAsync: {
+${Object.entries(runnables)
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
 	.join('\n')}
 };
 

@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Loader2, AlertTriangle } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -13,6 +13,7 @@
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { base } from '$lib/base'
 	import { isCloudHosted } from '$lib/cloud'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	let {
 		policy,
@@ -216,11 +217,9 @@
 				</Alert>
 				<div class="mb-2"></div>
 			{/if}
+			<!-- svelte-ignore block_empty -->
 			{#if !$enterpriseLicense}
-				<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap mb-2">
-					<AlertTriangle size={16} />
-					EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-				</div>
+				<EEOnly />
 			{/if}
 			<Toggle
 				on:change={({ detail }) => {

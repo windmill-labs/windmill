@@ -7,6 +7,7 @@ import {
   open,
   windmillUtils,
   yamlParseFile,
+  SEP,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -15,8 +16,13 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { WebSocketServer, WebSocket } from "npm:ws@8.18.0";
-import { getDevBuildOptions, ensureNodeModules } from "./bundle.ts";
+import { WebSocketServer, WebSocket } from "npm:ws";
+import {
+  getDevBuildOptions,
+  ensureNodeModules,
+  createFrameworkPlugins,
+  detectFrameworks,
+} from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
@@ -24,7 +30,11 @@ import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
 import { replaceInlineScripts } from "./apps.ts";
 import { Runnable } from "./metadata.ts";
-import { inferRunnableSchemaFromFile } from "./app_metadata.ts";
+import {
+  APP_BACKEND_FOLDER,
+  inferRunnableSchemaFromFile,
+} from "./app_metadata.ts";
+import { loadRunnablesFromBackend } from "./raw_apps.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -83,16 +93,41 @@ interface DevOptions extends GlobalOptions {
 
 async function dev(opts: DevOptions) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
+
+  // Validate that we're in a .raw_app folder
+  const cwd = process.cwd();
+  const currentDirName = path.basename(cwd);
+
+  if (!currentDirName.endsWith(".raw_app")) {
+    log.error(
+      colors.red(
+        `Error: The dev command must be run inside a .raw_app folder.\n` +
+          `Current directory: ${currentDirName}\n` +
+          `Please navigate to a folder ending with '.raw_app' before running this command.`
+      )
+    );
+    Deno.exit(1);
+  }
+
+  // Check for raw_app.yaml
+  const rawAppPath = path.join(cwd, "raw_app.yaml");
+  if (!fs.existsSync(rawAppPath)) {
+    log.error(
+      colors.red(
+        `Error: raw_app.yaml not found in current directory.\n` +
+          `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`
+      )
+    );
+    Deno.exit(1);
+  }
+
   // Resolve workspace and authenticate
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
 
   // Load app path from raw_app.yaml
-  const rawAppPath = path.join(process.cwd(), "raw_app.yaml");
-  const rawApp = fs.existsSync(rawAppPath)
-    ? ((await yamlParseFile(rawAppPath)) as any)
-    : {};
+  const rawApp = (await yamlParseFile(rawAppPath)) as any;
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
   // Dynamically import esbuild only when the dev command is called
@@ -104,8 +139,13 @@ async function dev(opts: DevOptions) {
       port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
     }));
   const host = opts.host ?? DEFAULT_HOST;
-  const entryPoint = opts.entry ?? "index.tsx";
   const shouldOpen = opts.open ?? true;
+
+  // Detect frameworks to determine default entry point
+  const frameworks = detectFrameworks(process.cwd());
+  const defaultEntry =
+    frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+  const entryPoint = opts.entry ?? defaultEntry;
 
   // Verify entry point exists
   if (!fs.existsSync(entryPoint)) {
@@ -118,7 +158,7 @@ async function dev(opts: DevOptions) {
   }
 
   // Ensure node_modules exists
-  const appDir = path.dirname(entryPoint);
+  const appDir = path.dirname(entryPoint) || process.cwd();
   await ensureNodeModules(appDir);
 
   // In-memory cache of inferred schemas (runnableId -> schema)
@@ -144,17 +184,27 @@ async function dev(opts: DevOptions) {
 
   const buildOptions = getDevBuildOptions(entryPoint);
 
+  // Load framework-specific plugins (svelte, vue) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir);
+
   const wmillPlugin = {
     name: "wmill-virtual",
     setup(build: any) {
-      // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
-      build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
-        log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
-        return {
-          path: args.path,
-          namespace: "wmill-virtual",
-        };
-      });
+      // Intercept imports of wmill with various path formats:
+      // - wmill, wmill.ts (bare import)
+      // - /wmill, /wmill.ts (absolute)
+      // - ./wmill, ./wmill.ts (same directory)
+      // - ../wmill, ../../wmill, etc. (parent directories)
+      build.onResolve(
+        { filter: /^(\.\.\/)+wmill(\.ts)?$|^(\.\/|\/)?wmill(\.ts)?$/ },
+        (args: any) => {
+          log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
+          return {
+            path: args.path,
+            namespace: "wmill-virtual",
+          };
+        }
+      );
 
       // Provide the virtual module content
       build.onLoad(
@@ -178,6 +228,7 @@ async function dev(opts: DevOptions) {
   const ctx = await esbuild.context({
     ...buildOptions,
     plugins: [
+      ...frameworkPlugins,
       {
         name: "notify-on-rebuild",
         setup(build: any) {
@@ -208,7 +259,7 @@ async function dev(opts: DevOptions) {
   await ctx.rebuild();
 
   // Watch runnables folder for changes
-  const runnablesPath = path.join(process.cwd(), "runnables");
+  const runnablesPath = path.join(process.cwd(), APP_BACKEND_FOLDER);
   let runnablesWatcher: Deno.FsWatcher | undefined;
 
   if (fs.existsSync(runnablesPath)) {
@@ -218,7 +269,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, number> = {};
+    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -228,7 +279,10 @@ async function dev(opts: DevOptions) {
           // Process each changed path with individual debouncing
           for (const changedPath of event.paths) {
             const relativePath = path.relative(process.cwd(), changedPath);
-            const relativeToRunnables = path.relative(runnablesPath, changedPath);
+            const relativeToRunnables = path.relative(
+              runnablesPath,
+              changedPath
+            );
 
             // Skip non-modify events for schema inference
             if (event.kind !== "modify" && event.kind !== "create") {
@@ -242,7 +296,9 @@ async function dev(opts: DevOptions) {
 
             // Log the change event
             log.info(
-              colors.cyan(`📝 Runnable changed [${event.kind}]: ${relativePath}`)
+              colors.cyan(
+                `📝 Runnable changed [${event.kind}]: ${relativePath}`
+              )
             );
 
             // Debounce schema inference per file (wait for typing to finish)
@@ -254,7 +310,9 @@ async function dev(opts: DevOptions) {
               delete schemaInferenceTimeouts[changedPath];
 
               try {
-                log.info(colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`));
+                log.info(
+                  colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`)
+                );
                 // Infer schema for this runnable (returns schema in memory, doesn't write to file)
                 const result = await inferRunnableSchemaFromFile(
                   process.cwd(),
@@ -265,7 +323,15 @@ async function dev(opts: DevOptions) {
                   // log.info(colors.green(`  Runnable ID: ${result.runnableId}`));
                   // Store inferred schema in memory
                   inferredSchemas[result.runnableId] = result.schema;
-                  log.info(colors.green(`  Inferred Schemas: ${JSON.stringify(inferredSchemas, null, 2)}`));
+                  log.info(
+                    colors.green(
+                      `  Inferred Schemas: ${JSON.stringify(
+                        inferredSchemas,
+                        null,
+                        2
+                      )}`
+                    )
+                  );
                   // Regenerate wmill.d.ts with updated schema from memory
                   await genRunnablesTs(inferredSchemas);
                 }
@@ -407,23 +473,23 @@ async function dev(opts: DevOptions) {
             runnableId,
             args
           );
-          log.info(colors.gray(`[runBg] Job started: ${uuid}`));
+          log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
           const result = await waitForJob(workspaceId, uuid);
           return { uuid, result };
         };
 
         switch (type) {
-          case "runBg": {
+          case "backend": {
             // Run a runnable synchronously and wait for result
-            log.info(colors.blue(`[runBg] Running runnable: ${runnable_id}`));
+            log.info(colors.blue(`[backend] Running runnable: ${runnable_id}`));
             try {
               const { result } = await runAndWaitForResult(runnable_id, v);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
-              log.error(colors.red(`[runBg] Error: ${error.message}`));
+              log.error(colors.red(`[backend] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -431,10 +497,12 @@ async function dev(opts: DevOptions) {
             break;
           }
 
-          case "runBgAsync": {
+          case "backendAsync": {
             // Run a runnable asynchronously and return job ID immediately
             log.info(
-              colors.blue(`[runBgAsync] Running runnable async: ${runnable_id}`)
+              colors.blue(
+                `[backendAsync] Running runnable async: ${runnable_id}`
+              )
             );
             try {
               const runnables = await loadRunnables();
@@ -451,27 +519,27 @@ async function dev(opts: DevOptions) {
                 runnable_id,
                 v
               );
-              log.info(colors.gray(`[runBgAsync] Job started: ${uuid}`));
+              log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
               // Return job ID immediately
-              respond("runBgAsyncRes", uuid, false);
+              respond("backendAsyncRes", uuid, false);
 
               // Wait for result in the background and send it when done
               waitForJob(workspaceId, uuid)
                 .then((result) => {
-                  respond("runBgRes", result, false);
+                  respond("backendRes", result, false);
                 })
                 .catch((error: any) => {
                   respond(
-                    "runBgRes",
+                    "backendRes",
                     { message: error.message, stack: error.stack },
                     true
                   );
                 });
             } catch (error: any) {
-              log.error(colors.red(`[runBgAsync] Error: ${error.message}`));
+              log.error(colors.red(`[backendAsync] Error: ${error.message}`));
               respond(
-                "runBgAsyncRes",
+                "backendAsyncRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -484,11 +552,11 @@ async function dev(opts: DevOptions) {
             log.info(colors.blue(`[waitJob] Waiting for job: ${jobId}`));
             try {
               const result = await waitForJob(workspaceId, jobId);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[waitJob] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -501,11 +569,11 @@ async function dev(opts: DevOptions) {
             log.info(colors.blue(`[getJob] Getting job status: ${jobId}`));
             try {
               const result = await getJobStatus(workspaceId, jobId);
-              respond("runBgRes", result, false);
+              respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[getJob] Error: ${error.message}`));
               respond(
-                "runBgRes",
+                "backendRes",
                 { message: error.message, stack: error.stack },
                 true
               );
@@ -594,9 +662,10 @@ const command = new Command()
   .option("--host <host:string>", "Host to bind the dev server to", {
     default: DEFAULT_HOST,
   })
-  .option("--entry <entry:string>", "Entry point file for the application", {
-    default: "index.tsx",
-  })
+  .option(
+    "--entry <entry:string>",
+    "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)"
+  )
   .option("--no-open", "Don't automatically open the browser")
   .action(dev as any);
 
@@ -604,19 +673,35 @@ export default command;
 
 /**
  * Generates wmill.d.ts with type definitions for runnables.
- * Merges in-memory inferred schemas with runnables from raw_app.yaml.
+ * Loads runnables from separate YAML files in the backend folder (new format)
+ * or falls back to raw_app.yaml (old format).
+ * Merges in-memory inferred schemas with runnables.
  *
  * @param schemaOverrides - In-memory schema overrides (runnableId -> schema)
  */
 async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
   log.info(colors.blue("🔄 Generating wmill.d.ts..."));
-  const rawApp = (await yamlParseFile(
-    path.join(process.cwd(), "raw_app.yaml")
-  )) as any;
-  const runnables = rawApp?.["runnables"] as any;
+
+  const localPath = process.cwd();
+  const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
+
+  // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
+  let runnables = await loadRunnablesFromBackend(backendPath);
+
+  if (Object.keys(runnables).length === 0) {
+    // Fall back to old format
+    try {
+      const rawApp = (await yamlParseFile(
+        path.join(localPath, "raw_app.yaml")
+      )) as any;
+      runnables = rawApp?.["runnables"] ?? {};
+    } catch {
+      runnables = {};
+    }
+  }
 
   // Apply schema overrides from in-memory cache
-  if (runnables && Object.keys(schemaOverrides).length > 0) {
+  if (Object.keys(schemaOverrides).length > 0) {
     for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
       if (runnables[runnableId]?.inlineScript) {
         runnables[runnableId].inlineScript.schema = schema;
@@ -636,12 +721,22 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
-    const rawApp = (await yamlParseFile(
-      path.join(localPath, "raw_app.yaml")
-    )) as any;
-    replaceInlineScripts(rawApp.runnables, path.join(localPath, "runnables/"));
+    const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
-    return rawApp?.runnables ?? {};
+    // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
+    let runnables = await loadRunnablesFromBackend(backendPath);
+
+    if (Object.keys(runnables).length === 0) {
+      // Fall back to old format
+      const rawApp = (await yamlParseFile(
+        path.join(localPath, "raw_app.yaml")
+      )) as any;
+      runnables = rawApp?.runnables ?? {};
+    }
+
+    replaceInlineScripts(runnables, backendPath + SEP, true);
+
+    return runnables;
   } catch (error: any) {
     log.error(colors.red(`Failed to load runnables: ${error.message}`));
     return {};
@@ -675,7 +770,10 @@ async function executeRunnable(
     }
   }
 
-  if ((runnable.type === "inline" || runnable.type === "runnableByName") && runnable.inlineScript) {
+  if (
+    (runnable.type === "inline" || runnable.type === "runnableByName") &&
+    runnable.inlineScript
+  ) {
     const inlineScript = runnable.inlineScript;
     if (inlineScript.id !== undefined) {
       requestBody.id = inlineScript.id;
@@ -687,11 +785,12 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if ((runnable.type === "path" || runnable.type === "runnableByPath") && runnable.path) {
-    const runType = runnable.runType ?? "script";
+  } else if (runnable.type === "path" && runnable.runType && runnable.path) {
+    // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
+    const prefix = runnable.runType;
     requestBody.path =
-      runType !== "hubscript"
-        ? `${runType}/${runnable.path}`
+      prefix !== "hubscript"
+        ? `${prefix}/${runnable.path}`
         : `script/${runnable.path}`;
   }
 

@@ -126,13 +126,9 @@
 		}
 	}
 
-	// Cleanup function to safely remove widget and cancel requests
-	function cleanupWidget() {
-		// Only cancel if we're in SCRIPT mode (inline editing)
-		// Don't cancel flow requests when the editor is destroyed/recreated
-		if (aiChatManager.mode === AIMode.SCRIPT) {
-			aiChatManager.cancel()
-		}
+	// Cleanup function to safely remove widget and cancel inline requests
+	function cleanupWidget(reason?: string) {
+		aiChatManager.cancelInlineRequest(reason ?? 'aiChatInlineWidget destroyed')
 		if (widget) {
 			try {
 				widget.dispose()
@@ -157,12 +153,12 @@
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			cleanupWidget()
+			cleanupWidget('aiChatInlineWidget hidden')
 		}
 	})
 
 	onDestroy(() => {
-		cleanupWidget()
+		cleanupWidget('aiChatInlineWidget destroyed')
 	})
 
 	export function focusInput() {

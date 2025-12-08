@@ -509,7 +509,12 @@
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
-					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
+					setModuleState(mod.id ?? '', {
+						type: mod.type,
+						args: job?.args,
+						tag: job?.tag,
+						script_hash: job?.script_hash
+					})
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -527,7 +532,8 @@
 								job_id: job?.id,
 								parent_module: mod['parent_module'],
 								args: job?.args,
-								tag: job?.tag
+								tag: job?.tag,
+								script_hash: job?.script_hash
 							}
 
 							setModuleState(mod.id ?? '', newState)
@@ -851,7 +857,8 @@
 						args: job.args,
 						tag: job.tag,
 						started_at,
-						parent_module: mod['parent_module']
+						parent_module: mod['parent_module'],
+						script_hash: job.script_hash
 					},
 					force
 				)
@@ -888,7 +895,8 @@
 						iteration_total: mod.iterator?.itered?.length,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
-						agent_actions: mod.agent_actions
+						agent_actions: mod.agent_actions,
+						script_hash: job.script_hash
 						// retries: flowStateStore?.raw_flow
 					},
 					force
@@ -1979,7 +1987,8 @@
 									>{/if}
 							</div>
 						{:else if rightColumnSelect == 'node_definition'}
-							<FlowGraphViewerStep {stepDetail} />
+							{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+							<FlowGraphViewerStep {stepDetail} jobScriptHash={node?.script_hash} />
 						{:else if rightColumnSelect == 'user_states'}
 							<div class="p-2">
 								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
