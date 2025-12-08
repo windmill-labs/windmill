@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.590.0](https://github.com/windmill-labs/windmill/compare/v1.589.3...v1.590.0) (2025-12-08)
+
+
+### Features
+
+* add query arg for oidc expiration ([#7312](https://github.com/windmill-labs/windmill/issues/7312)) ([e6adf16](https://github.com/windmill-labs/windmill/commit/e6adf16fc9e8efb145d7dfe9d48e78ece9bc0fce))
+* **aichat:** simplify flow mode edits ([#6981](https://github.com/windmill-labs/windmill/issues/6981)) ([3d5b79c](https://github.com/windmill-labs/windmill/commit/3d5b79c154c9b9c1ec6e4fd1b35556ea5c3cb457))
+* **cli:** new command to generate RT namespace + on init ([#7317](https://github.com/windmill-labs/windmill/issues/7317)) ([e8ca7c5](https://github.com/windmill-labs/windmill/commit/e8ca7c5f952676b653e97362fab43a57a6b79237))
+* configurable max ai agent iterations ([#7302](https://github.com/windmill-labs/windmill/issues/7302)) ([8897dab](https://github.com/windmill-labs/windmill/commit/8897dab282f58e38b103dcff7ba4eaad896b6995))
+* Data tables ([#7226](https://github.com/windmill-labs/windmill/issues/7226)) ([9bbab33](https://github.com/windmill-labs/windmill/commit/9bbab3321e064dc00c5734990949ce9515f46de7))
+* **frontend:** add wildcard pattern support to MCP token custom scope ([#7306](https://github.com/windmill-labs/windmill/issues/7306)) ([2f0e00f](https://github.com/windmill-labs/windmill/commit/2f0e00f9cf4aac717b5a2c441e1c8bbc945c1dd1))
+* new live onboarding for flows ([#7194](https://github.com/windmill-labs/windmill/issues/7194)) ([3699ce7](https://github.com/windmill-labs/windmill/commit/3699ce7a8fd4e0c58a1b715597ff7284c6c66fab))
+* triggers suspended mode ([#7297](https://github.com/windmill-labs/windmill/issues/7297)) ([eb284df](https://github.com/windmill-labs/windmill/commit/eb284dfabd7fce3c12ca8e9bf2f3e861db5bc602))
+
+
+### Bug Fixes
+
+* **frontend:** add missing docs link for json schema resource in error ([#7315](https://github.com/windmill-labs/windmill/issues/7315)) ([bfe95a3](https://github.com/windmill-labs/windmill/commit/bfe95a3d61f0c2d42bd47518ac456dc5a69c03a0))
+* **frontend:** use right workspace script version in flow status ([#7308](https://github.com/windmill-labs/windmill/issues/7308)) ([a8d4073](https://github.com/windmill-labs/windmill/commit/a8d40733f48f01e08f8e5134d5d8bf5562c2774e))
+* improve S3 etag caching ([#7301](https://github.com/windmill-labs/windmill/issues/7301)) ([7b1a8b0](https://github.com/windmill-labs/windmill/commit/7b1a8b0dce482452d1a99d6a536aaa1dd51de2e9))
+* raw app v0.5 ([#7310](https://github.com/windmill-labs/windmill/issues/7310)) ([0e63dd3](https://github.com/windmill-labs/windmill/commit/0e63dd301f2b2b258225d19a2830ec35c325716a))
+
 ## [1.589.3](https://github.com/windmill-labs/windmill/compare/v1.589.2...v1.589.3) (2025-12-05)
 
 
