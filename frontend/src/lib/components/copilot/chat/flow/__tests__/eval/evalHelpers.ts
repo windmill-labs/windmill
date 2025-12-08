@@ -7,15 +7,18 @@ import { findModuleById } from '../../../shared'
  * Creates mock FlowAIChatHelpers for eval testing.
  * Tracks flow state in memory and allows tool functions to modify it.
  */
-export function createEvalHelpers(initialModules: FlowModule[] = [], initialSchema?: Record<string, any>) {
+export function createEvalHelpers(
+	initialModules: FlowModule[] = [],
+	initialSchema?: Record<string, any>
+) {
 	let flow: ExtendedOpenFlow = {
 		value: { modules: structuredClone(initialModules) },
 		summary: '',
 		schema: initialSchema ?? {
-			$schema: "https://json-schema.org/draft/2020-12/schema",
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties: {},
 			required: [],
-			type: "object"
+			type: 'object'
 		}
 	}
 

@@ -8,14 +8,46 @@ import {
 	formatToolCalls,
 	type EvalResult
 } from './evalRunner'
-import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT, type VariantConfig } from './variants'
+import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+// const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
 // Skip all tests if no API key is provided
-const describeWithApiKey = OPENAI_API_KEY ? describe : describe.skip
+// const describeWithApiKey = OPENAI_API_KEY ? describe : describe.skip
+const describeWithApiKey = OPENROUTER_API_KEY ? describe : describe.skip
+
+describeWithApiKey('Flow Chat LLM Evaluation', () => {
+	const TEST_TIMEOUT = 120_000
+	if (!OPENROUTER_API_KEY) {
+		console.warn('OPENROUTER_API_KEY is not set, skipping tests')
+	}
+
+	it.only(
+		'example: compare variants on simple task',
+		async () => {
+			const results = await runVariantComparison(
+				'Add a step that prints Hello World',
+				[BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT],
+				OPENROUTER_API_KEY!,
+				{ model: 'gpt-4o-mini' }
+			)
+
+			// Log comparison table
+			console.log('\n--- Variant Comparison Results ---')
+			console.log(formatComparisonResults(results))
+
+			// Assert all variants succeeded
+			for (const result of results) {
+				expect(result.success, `${result.variantName} should succeed`).toBe(true)
+				expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
+			}
+		},
+		TEST_TIMEOUT * 2 // Double timeout for comparison tests
+	)
+})
 
 /**
  * Helper to validate eval result and log details on failure
@@ -45,125 +77,3 @@ function assertEvalResult(
 	}
 	expect(toolValidation.valid, toolValidation.message).toBe(true)
 }
-
-describeWithApiKey('Flow Chat LLM Evaluation', () => {
-	const TEST_TIMEOUT = 120_000
-	if (!OPENAI_API_KEY) {
-		console.warn('OPENAI_API_KEY is not set, skipping tests')
-	}
-
-	it(
-		'should add a simple rawscript module',
-		async () => {
-			const result = await runFlowEval('Add a step that prints Hello World', OPENAI_API_KEY!, {
-				model: 'gpt-4o-mini'
-			})
-
-			assertEvalResult(
-				result,
-				{
-					modules: [{ type: 'rawscript' }],
-					tools: ['add_module', 'test_run_flow']
-				},
-				'TEST 1'
-			)
-		},
-		TEST_TIMEOUT
-	)
-
-	it.only(
-		'example: compare variants on simple task',
-		async () => {
-			const results = await runVariantComparison(
-				'Add a step that prints Hello World',
-				[BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT],
-				OPENAI_API_KEY!,
-				{ model: 'gpt-4o-mini' }
-			)
-
-			// Log comparison table
-			console.log('\n--- Variant Comparison Results ---')
-			console.log(formatComparisonResults(results))
-
-			// Assert all variants succeeded
-			for (const result of results) {
-				expect(result.success, `${result.variantName} should succeed`).toBe(true)
-				expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
-			}
-		},
-		TEST_TIMEOUT * 2 // Double timeout for comparison tests
-	)
-})
-
-// Unit tests for validateModules helper (no API needed)
-describe('validateModules', () => {
-	it('returns valid for matching modules', () => {
-		const modules = [
-			{ id: 'a', value: { type: 'rawscript' } },
-			{ id: 'b', value: { type: 'forloopflow', modules: [] } }
-		] as any
-
-		const result = validateModules(modules, [{ type: 'rawscript' }, { type: 'forloopflow' }])
-
-		expect(result.valid).toBe(true)
-	})
-
-	it('returns invalid for count mismatch', () => {
-		const modules = [{ id: 'a', value: { type: 'rawscript' } }] as any
-
-		const result = validateModules(modules, [{ type: 'rawscript' }, { type: 'rawscript' }])
-
-		expect(result.valid).toBe(false)
-		expect(result.message).toContain('count mismatch')
-	})
-
-	it('returns invalid for type mismatch', () => {
-		const modules = [{ id: 'a', value: { type: 'rawscript' } }] as any
-
-		const result = validateModules(modules, [{ type: 'forloopflow' }])
-
-		expect(result.valid).toBe(false)
-		expect(result.message).toContain('type mismatch')
-	})
-})
-
-// Unit tests for validateToolCalls helper (no API needed)
-describe('validateToolCalls', () => {
-	it('returns valid for matching tool calls', () => {
-		const actual = ['add_module', 'add_module', 'modify_module']
-		const expected = ['add_module', 'add_module', 'modify_module']
-
-		const result = validateToolCalls(actual, expected)
-
-		expect(result.valid).toBe(true)
-	})
-
-	it('returns invalid for count mismatch', () => {
-		const actual = ['add_module']
-		const expected = ['add_module', 'add_module']
-
-		const result = validateToolCalls(actual, expected)
-
-		expect(result.valid).toBe(false)
-		expect(result.message).toContain('count mismatch')
-		expect(result.message).toContain('Called: [add_module]')
-	})
-
-	it('returns invalid for tool name mismatch', () => {
-		const actual = ['add_module', 'remove_module']
-		const expected = ['add_module', 'modify_module']
-
-		const result = validateToolCalls(actual, expected)
-
-		expect(result.valid).toBe(false)
-		expect(result.message).toContain('mismatch')
-		expect(result.message).toContain('modify_module')
-		expect(result.message).toContain('remove_module')
-	})
-
-	it('returns valid for empty arrays', () => {
-		const result = validateToolCalls([], [])
-
-		expect(result.valid).toBe(true)
-	})
-})

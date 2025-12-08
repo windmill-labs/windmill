@@ -45,7 +45,7 @@ export async function runFlowEval(
 	openaiApiKey: string,
 	options?: EvalOptions
 ): Promise<EvalResult> {
-	const client = new OpenAI({ apiKey: openaiApiKey })
+	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openaiApiKey })
 	const { helpers, getModules } = createEvalHelpers(
 		options?.initialModules ?? [],
 		options?.initialSchema
