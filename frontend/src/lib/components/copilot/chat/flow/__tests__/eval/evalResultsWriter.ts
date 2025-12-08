@@ -88,6 +88,16 @@ export async function writeComparisonResults(
 				summaryLines.push('')
 				summaryLines.push(`**Statement:** ${result.evaluationResult.statement}`)
 				summaryLines.push('')
+				if (
+					result.evaluationResult.missingRequirements &&
+					result.evaluationResult.missingRequirements.length > 0
+				) {
+					summaryLines.push('**Missing Requirements:**')
+					for (const req of result.evaluationResult.missingRequirements) {
+						summaryLines.push(`- ${req}`)
+					}
+					summaryLines.push('')
+				}
 				if (result.evaluationResult.error) {
 					summaryLines.push(`**Error:** ${result.evaluationResult.error}`)
 					summaryLines.push('')
@@ -95,10 +105,6 @@ export async function writeComparisonResults(
 			}
 		}
 	}
-
-	summaryLines.push('')
-	summaryLines.push('## Flow Outputs')
-	summaryLines.push('')
 
 	const flowPaths: string[] = []
 
@@ -109,9 +115,6 @@ export async function writeComparisonResults(
 
 		const flowFilename = `${result.variantName}_flow.json`
 		const flowPath = join(resultFolder, flowFilename)
-
-		summaryLines.push(`- ${result.variantName}: ./${resultFilename}`)
-		summaryLines.push(`  - Flow definition: ./${flowFilename}`)
 
 		// Write result JSON file (with metadata)
 		const resultData = {

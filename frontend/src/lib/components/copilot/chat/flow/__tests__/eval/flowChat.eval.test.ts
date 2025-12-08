@@ -20,7 +20,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 // const describeWithApiKey = OPENAI_API_KEY ? describe : describe.skip
 const describeWithApiKey = OPENROUTER_API_KEY ? describe : describe.skip
 
-const MODELS = ['google/gemini-2.5-flash', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o']
+const MODELS = ['google/gemini-2.5-flash', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o']
 
 describeWithApiKey('Flow Chat LLM Evaluation', () => {
 	const TEST_TIMEOUT = 120_000
@@ -43,12 +43,12 @@ STEP 5: Return action taken for each user
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					{ ...BASELINE_VARIANT, model: MODELS[0] },
-					{ ...BASELINE_VARIANT, model: MODELS[1] },
-					{ ...BASELINE_VARIANT, model: MODELS[2] },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0] },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1] },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2] }
+					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					{ ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' }
 				],
 				OPENROUTER_API_KEY!,
 				{
@@ -71,6 +71,14 @@ STEP 5: Return action taken for each user
 						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
 					)
 					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
 				}
 			}
 		},
@@ -113,6 +121,14 @@ STEP 7: Return final order summary with status
 						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
 					)
 					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
 				}
 			}
 		},
@@ -160,6 +176,14 @@ STEP 6: Return processing report with statistics (total records, quality score, 
 						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
 					)
 					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
 				}
 			}
 		},
@@ -207,6 +231,14 @@ STEP 5: Return the agent's response and any actions taken
 						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
 					)
 					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
 				}
 			}
 		},

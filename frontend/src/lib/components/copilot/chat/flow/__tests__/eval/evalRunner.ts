@@ -179,7 +179,7 @@ export async function runFlowEval(
 		let evaluationResult: EvalComparisonResult | undefined
 		if (options?.expectedFlow) {
 			const generatedFlow = getFlow()
-			evaluationResult = await evaluateFlowComparison(generatedFlow, options.expectedFlow)
+			evaluationResult = await evaluateFlowComparison(generatedFlow, options.expectedFlow, userPrompt)
 		}
 
 		return {
