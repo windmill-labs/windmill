@@ -1,4 +1,5 @@
 import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
+import { isFlowModuleTool } from './agentToolUtils'
 
 type ModuleBranches = FlowModule[][]
 
@@ -9,6 +10,22 @@ export function getSubModules(flowModule: FlowModule): ModuleBranches {
 		return flowModule.value.branches.map((branch) => branch.modules)
 	} else if (flowModule.value.type == 'branchone') {
 		return [...flowModule.value.branches.map((branch) => branch.modules), flowModule.value.default]
+	} else if (flowModule.value.type === 'aiagent') {
+		// Return AI agent tools as pseudo-FlowModules for searching
+		if (flowModule.value.tools) {
+			return [
+				flowModule.value.tools
+					.filter(isFlowModuleTool)
+					.map(
+						(tool) =>
+							({
+								id: tool.id,
+								value: tool.value,
+								summary: tool.summary
+							}) as FlowModule
+					)
+			]
+		}
 	}
 	return []
 }

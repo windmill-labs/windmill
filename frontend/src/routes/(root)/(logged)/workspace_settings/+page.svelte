@@ -116,6 +116,7 @@
 	})
 
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
+	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
 
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
@@ -559,6 +560,10 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (dataTableSettingsComponent) {
+			return dataTableSettingsComponent.unsavedChanges()
+		}
+
 		// Check AI settings
 		const aiChanges = getAiSettingsInitialAndModifiedValues()
 		if (aiChanges.savedValue && aiChanges.modifiedValue) {
@@ -1127,7 +1132,7 @@
 				}}
 			/>
 		{:else if tab == 'windmill_data_tables'}
-			<DataTableSettings bind:dataTableSettings />
+			<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings
 				bind:s3ResourceSettings

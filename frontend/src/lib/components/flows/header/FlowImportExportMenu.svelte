@@ -5,7 +5,6 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { cleanFlow } from '../utils.svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	interface Props {
 		drawer: Drawer | undefined
@@ -15,7 +14,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let flow = $derived(aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val)
+	let flow = $derived(flowStore.val)
 </script>
 
 <Drawer bind:this={drawer} size="800px">

@@ -83,7 +83,7 @@
 			{:else if message.role === 'tool'}
 				<ToolExecutionDisplay message={message as ToolDisplayMessage} />
 			{:else}
-				{message.content}
+				<span class="whitespace-pre-wrap">{message.content}</span>
 			{/if}
 		</div>
 	{/if}

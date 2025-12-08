@@ -15,15 +15,14 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
-	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
-		moduleAction: AIModuleAction | undefined
-		onShowModuleDiff?: (moduleId: string) => void
+		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -57,7 +56,6 @@
 		mod = $bindable(),
 		insertable,
 		moduleAction = undefined,
-		onShowModuleDiff = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -76,7 +74,8 @@
 
 	const { selectionManager } = getGraphContext()
 
-	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const { flowStore } = flowEditorContext || {}
 
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
@@ -122,7 +121,7 @@
 		{#if duration_ms}
 			<div
 				class={twMerge(
-					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
+					'absolute z-5 right-0 -top-4 center-center text-primary text-2xs',
 					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-16' : ''
 				)}
 			>
@@ -159,7 +158,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -194,7 +192,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -214,7 +211,6 @@
 					deletable={insertable}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -234,7 +230,6 @@
 					{retries}
 					{editMode}
 					{moduleAction}
-					{onShowModuleDiff}
 					on:changeId
 					on:pointerdown={handlePointerDown}
 					on:delete

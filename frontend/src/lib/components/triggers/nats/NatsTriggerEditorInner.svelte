@@ -5,9 +5,9 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { NatsTriggerService, type ErrorHandler, type Retry } from '$lib/gen'
+	import { NatsTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -19,6 +19,9 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -67,7 +70,6 @@
 	let fixedScriptPath = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -75,6 +77,7 @@
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 	let natsResourcePath = $state('')
 	let initialConfig: Record<string, any> | undefined = undefined
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let natsCfg: {
 		subjects: string[]
 		use_jetstream: boolean
@@ -91,9 +94,14 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let mode = $state<TriggerMode>('enabled')
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 
 	const saveDisabled = $derived(
-		pathError != '' || emptyString(script_path) || !can_write || !isValid
+		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
 	)
 	const natsConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -127,6 +135,7 @@
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		}
 	}
 
@@ -159,11 +168,12 @@
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
-			enabled = nDefaultValues?.enabled ?? false
+			mode = nDefaultValues?.mode ?? 'enabled'
 			error_handler_path = nDefaultValues?.error_handler_path ?? undefined
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -184,7 +194,7 @@
 			stream_name: useJetstream ? cfg?.stream_name || '' : undefined,
 			consumer_name: useJetstream ? cfg?.consumer_name || '' : undefined
 		}
-		enabled = cfg?.enabled
+		mode = cfg?.mode ?? 'enabled'
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
@@ -210,7 +220,7 @@
 			path,
 			script_path,
 			is_flow,
-			enabled,
+			mode,
 			nats_resource_path: natsResourcePath,
 			stream_name: natsCfg.stream_name,
 			consumer_name: natsCfg.consumer_name,
@@ -234,7 +244,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(cfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -253,15 +268,20 @@
 		)
 	}
 
-	async function handleToggleEnabled(toggleEnabled: boolean) {
-		enabled = toggleEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await NatsTriggerService.setNatsTriggerEnabled({
+			await NatsTriggerService.setNatsTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: toggleEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} NATS trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} NATS trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -280,6 +300,23 @@
 			handleConfigChange(natsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="nats"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -317,7 +354,6 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -325,8 +361,10 @@
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
 			{cloudDisabled}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}
@@ -352,6 +390,9 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
