@@ -114,7 +114,7 @@ export async function savePostgresTriggerFromCfg(
 			? {
 					error_handler_path: config.error_handler_path,
 					error_handler_args: config.error_handler_path ? config.error_handler_args : undefined,
-					retry: config.retry,
+					retry: config.retry
 				}
 			: {}
 		const requestBody: EditPostgresTrigger = {
@@ -125,7 +125,7 @@ export async function savePostgresTriggerFromCfg(
 			replication_slot_name: config.replication_slot_name,
 			publication_name: config.publication_name,
 			publication: config.publication,
-			enabled: config.enabled,
+			mode: config.mode,
 			...errorHandlerAndRetries
 		}
 		if (edit) {
@@ -140,7 +140,7 @@ export async function savePostgresTriggerFromCfg(
 				workspace: workspace,
 				requestBody: {
 					...requestBody,
-					enabled: true
+					mode: 'enabled'
 				}
 			})
 			sendUserToast(`PostgresTrigger ${config.path} created`)

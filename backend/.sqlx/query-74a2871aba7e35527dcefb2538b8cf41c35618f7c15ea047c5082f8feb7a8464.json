@@ -15,7 +15,8 @@
                 "s3object",
                 "resource",
                 "variable",
-                "ducklake"
+                "ducklake",
+                "datatable"
               ]
             }
           }

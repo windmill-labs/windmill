@@ -5,6 +5,7 @@
 		WebsocketTriggerService,
 		WorkspaceService,
 		type WebsocketTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -13,7 +14,8 @@
 		getLocalSetting,
 		sendUserToast,
 		storeLocalSetting,
-		removeTriggerKindIfUnused
+		removeTriggerKindIfUnused,
+		capitalize
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -24,7 +26,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
+	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -39,6 +41,7 @@
 	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
@@ -79,7 +82,7 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled,
+						mode: newTrigger.mode,
 						server_id: newTrigger.server_id
 					}
 				}
@@ -93,16 +96,19 @@
 		clearInterval(interval)
 	})
 
-	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await WebsocketTriggerService.setWebsocketTriggerEnabled({
+			await WebsocketTriggerService.setWebsocketTriggerMode({
 				path,
 				workspace: $workspaceStore!,
-				requestBody: { enabled }
+				requestBody: { mode }
 			})
+			sendUserToast(`${capitalize(mode)} websocket trigger ${path}`)
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` websocket trigger: ${err.body}`,
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` websocket trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -299,10 +305,11 @@
 			<div class="text-center text-sm text-primary mt-2"> No websocket triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, enabled } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
+					{@const enabled = mode === 'enabled' || mode === 'suspended'}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -379,12 +386,23 @@
 								{/if}
 							</div>
 
-							<Toggle
-								checked={enabled}
-								disabled={!canWrite}
-								on:change={(e) => {
-									setTriggerEnabled(path, e.detail)
+							<TriggerModeToggle
+								onToggleMode={(newMode) => onToggleMode(path, newMode)}
+								triggerMode={mode}
+								includeModalConfig={{
+									triggerPath: path,
+									triggerKind: 'websocket',
+									runnableConfig: {
+										path: script_path,
+										kind: is_flow ? 'flow' : 'script',
+										retry,
+										errorHandlerPath: error_handler_path,
+										errorHandlerArgs: error_handler_args
+									}
 								}}
+								{canWrite}
+								hideToggleLabels
+								hideDropdown
 							/>
 
 							<div class="flex gap-2 items-center justify-end">
@@ -409,19 +427,17 @@
 												goto(href)
 											}
 										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												await WebsocketTriggerService.deleteWebsocketTrigger({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadTriggers()
-											}
-										},
+										...(canWrite && mode !== 'suspended'
+											? [
+													{
+														displayName: 'Suspend job execution',
+														icon: Pause,
+														action: () => {
+															onToggleMode(path, 'suspended')
+														}
+													}
+												]
+											: []),
 										{
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
@@ -454,6 +470,19 @@
 											icon: Share,
 											action: () => {
 												shareModal?.openDrawer(path, 'websocket_trigger')
+											}
+										},
+										{
+											displayName: 'Delete',
+											type: 'delete',
+											icon: Trash,
+											disabled: !canWrite,
+											action: async () => {
+												await WebsocketTriggerService.deleteWebsocketTrigger({
+													workspace: $workspaceStore ?? '',
+													path
+												})
+												loadTriggers()
 											}
 										}
 									]}

@@ -982,7 +982,6 @@ pub fn start_interactive_worker_shell(
                     Connection::Sql(db) => {
                         let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
                         let job = pull(
@@ -1025,7 +1024,6 @@ pub fn start_interactive_worker_shell(
                 match pulled_job {
                     Ok(Some(job)) => {
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -2640,6 +2638,13 @@ pub async fn handle_queued_job(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
+    match job.kind {
+        JobKind::UnassignedScript | JobKind::UnassignedFlow | JobKind::UnassignedSinglestepFlow => {
+            return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
+        }
+        _ => {}
+    }
+
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
     match conn {
         Connection::Sql(db) => {
@@ -3168,6 +3173,9 @@ async fn try_validate_schema(
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
                 JobKind::AIAgent => 15,
+                JobKind::UnassignedScript => 16,
+                JobKind::UnassignedFlow => 17,
+                JobKind::UnassignedSinglestepFlow => 18,
             };
 
             let sv = match job.runnable_id {

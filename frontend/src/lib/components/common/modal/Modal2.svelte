@@ -59,7 +59,7 @@
 {#if isOpen}
 	<Portal name="always-mounted" {target}>
 		<div
-			class={'fixed top-0 bottom-0 left-0 right-0 transition-all overflow-auto z-[1100] bg-black bg-opacity-60 w-full h-full'}
+			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1110] overflow-auto bg-black bg-opacity-60 w-full h-full'}
 			transition:fadeFast|local
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
@@ -68,7 +68,7 @@
 						css?.popup?.style || ''
 					}`}
 					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface pt-2 px-4 pb-4',
+						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface p-4',
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
@@ -92,7 +92,7 @@
 												<div class="w-8">
 													<button
 														on:click={() => {
-															isOpen = false
+															close()
 														}}
 														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
 													>

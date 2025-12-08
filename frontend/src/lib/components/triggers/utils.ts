@@ -8,6 +8,7 @@ import type {
 	CaptureTriggerKind,
 	ErrorHandler,
 	Flow,
+	JobTriggerKind,
 	NewScript,
 	TriggersCount
 } from '$lib/gen/types.gen'
@@ -54,8 +55,9 @@ export type TriggerType =
 	| 'poll'
 	| 'cli'
 
-export const jobTriggerTypes = [
+export const jobTriggerKinds: JobTriggerKind[] = [
 	'webhook',
+	'default_email',
 	'http',
 	'websocket',
 	'kafka',
@@ -66,9 +68,7 @@ export const jobTriggerTypes = [
 	'postgres',
 	'schedule',
 	'gcp'
-] as const
-
-export type JobTriggerType = (typeof jobTriggerTypes)[number]
+]
 
 export type Trigger = {
 	type: TriggerType

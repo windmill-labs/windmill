@@ -13,7 +13,7 @@ export async function saveSqsTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditSqsTrigger = {
@@ -24,7 +24,7 @@ export async function saveSqsTriggerFromCfg(
 		queue_url: cfg.queue_url,
 		message_attributes: cfg.message_attributes,
 		aws_auth_resource_type: cfg.aws_auth_resource_type,
-		enabled: cfg.enabled,
+		mode: cfg.mode,
 		...errorHandlerAndRetries
 	}
 	try {
@@ -38,7 +38,7 @@ export async function saveSqsTriggerFromCfg(
 		} else {
 			await SqsTriggerService.createSqsTrigger({
 				workspace,
-				requestBody: { ...requestBody, enabled: true }
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
 			sendUserToast(`SQS trigger ${cfg.path} created`)
 		}
