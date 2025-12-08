@@ -847,6 +847,20 @@ paths:
               schema:
                 type: boolean
 
+  /settings/refresh_custom_instance_user_pwd:
+    post:
+      summary: Refreshes the password for the custom_instance_user
+      operationId: refreshCustomInstanceUserPwd
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+
   /settings/list_custom_instance_pg_databases:
     post:
       summary: Returns the set-up statuses of custom instance pg databases
