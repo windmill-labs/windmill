@@ -2,16 +2,16 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 
-	export let value: any
+	let { value = $bindable() }: { value: any } = $props()
 
-	$: enabled = value != undefined
+	let enabled = $derived(value != undefined)
 
-	let org = ''
+	// Initialize org from existing config or empty string
+	let org = $state(value?.connect_config?.auth_url?.replace('/authorize', '') ?? '')
 
-	$: changeOrg(org)
-
-	function changeOrg(org) {
-		if (value) {
+	// Update configs when org changes
+	$effect(() => {
+		if (value && org) {
 			value = {
 				...value,
 				connect_config: {
@@ -27,41 +27,43 @@
 				}
 			}
 		}
+	})
+
+	function handleToggle(e: CustomEvent<boolean>) {
+		if (e.detail) {
+			value = { id: '', secret: '' }
+			org = ''
+		} else {
+			value = undefined
+			org = ''
+		}
 	}
 </script>
 
 <div class="flex flex-col gap-1">
-	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
-		><div class="w-[120px]"><IconedResourceType name={'pocket-id'} after={true} /></div><Toggle
-			checked={enabled}
-			on:change={(e) => {
-				if (e.detail) {
-					value = { id: '', secret: '' }
-				} else {
-					value = undefined
-				}
-			}}
-		/></label
-	>
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center">
+		<div class="w-[120px]"><IconedResourceType name={'pocket-id'} after={true} /></div>
+		<Toggle checked={enabled} onchange={handleToggle} />
+	</label>
 	{#if enabled}
 		<div class="border rounded p-2">
 			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
-					>Pocket-ID Base URL ({'POCKET_ID_URL/authorize'})</span
-				>
+				<span class="text-primary font-semibold text-sm">
+					Pocket-ID Base URL ({'POCKET_ID_URL/authorize'})
+				</span>
 				<input type="text" placeholder="https://id.example.com" bind:value={org} />
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Custom Name</span>
-				<input type="text" placeholder="Pocket ID" bind:value={value['display_name']} />
+				<input type="text" placeholder="Pocket ID" bind:value={value.display_name} />
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Client Id</span>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<input type="text" placeholder="Client Id" bind:value={value.id} />
 			</label>
 			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Secret </span>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<span class="text-primary font-semibold text-sm">Client Secret</span>
+				<input type="text" placeholder="Client Secret" bind:value={value.secret} />
 			</label>
 		</div>
 	{/if}
