@@ -1212,10 +1212,8 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
 
-    let deployment_status = DeploymentStatus {
-        lock_error_logs: status.lock_error_logs,
-        job_id: status.job_id,
-    };
+    let deployment_status =
+        DeploymentStatus { lock_error_logs: status.lock_error_logs, job_id: status.job_id };
 
     tx.commit().await?;
     Ok(Json(deployment_status))
@@ -1636,6 +1634,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1668,6 +1667,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1700,6 +1700,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1731,6 +1732,7 @@ mod tests {
                 retry: None,
                 sleep: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 mock: None,
                 timeout: None,
                 priority: None,
@@ -1744,6 +1746,7 @@ mod tests {
             same_worker: false,
             skip_expr: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             early_return: None,
             chat_input_enabled: None,

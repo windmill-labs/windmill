@@ -29,6 +29,7 @@ use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
+use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_conversations::add_message_to_conversation_tx;
@@ -36,7 +37,7 @@ use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, DynamicInput,
-    JobTriggerKind, ENTRYPOINT_OVERRIDE,
+    JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::triggers::TriggerMetadata;
@@ -48,6 +49,7 @@ use windmill_common::workspace_dependencies::{
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
@@ -238,6 +240,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run_inline/preview", post(run_inline_preview_script))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -876,71 +879,71 @@ async fn get_job(
 }
 
 macro_rules! get_job_query {
-        ("v2_job_completed", $($opts:tt)*) => {
-            get_job_query!(
-                @impl "v2_job_completed", ($($opts)*),
-                "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
-                CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
-                "",
-            )
-        };
-        ("v2_job_queue", $($opts:tt)*) => {
-            get_job_query!(
-                @impl "v2_job_queue", ($($opts)*),
-                "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-                flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
-                script_entrypoint_override",
-                "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
-            )
-        };
-        (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
-            if $with_logs {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "right(job_logs.logs, 20000)", $($args)*)
-            } else {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "null", $($args)*)
-            }
-        };
-        (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
-            if $with_code {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "raw_lock", code = "raw_code", $($args)*)
-            } else {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "null", code = "null", $($args)*)
-            }
-        };
-        (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
-            if $with_flow {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "raw_flow", $($args)*)
-            } else {
-                get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "null", $($args)*)
-            }
-        };
-        (@impl $table:literal, (), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
-            const_format::formatcp!(
-                "SELECT \
-                {table}.id, {table}.workspace_id, parent_job, v2_job.created_by, v2_job.created_at, started_at, v2_job.runnable_id as script_hash, v2_job.runnable_path as script_path, \
-                CASE WHEN args is null THEN NULL
-                WHEN pg_column_size(args) < 90000 THEN
-                    CASE WHEN jsonb_typeof(args) = 'object' THEN args
-                    ELSE jsonb_build_object('value', args)
-                    END
-                ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, flow_status, workflow_as_code_status, \
-                {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
-                CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
-                {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
-                {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
-                {additional_fields} \
-                FROM {table}
-                INNER JOIN v2_job ON v2_job.id = {table}.id \
-                {additional_joins} \
-                LEFT JOIN job_logs ON {table}.id = job_id \
-                WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
-                table = $table,
-                additional_fields = $additional_fields,
-                additional_joins = $additional_joins,
-                $($args)*
-            )
+    ("v2_job_completed", $($opts:tt)*) => {
+        get_job_query!(
+            @impl "v2_job_completed", ($($opts)*),
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
+            "",
+        )
+    };
+    ("v2_job_queue", $($opts:tt)*) => {
+        get_job_query!(
+            @impl "v2_job_queue", ($($opts)*),
+            "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, \
+            script_entrypoint_override",
+            "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
+        )
+    };
+    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
+        if $with_logs {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "right(job_logs.logs, 20000)", $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "null", $($args)*)
         }
+    };
+    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
+        if $with_code {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "raw_lock", code = "raw_code", $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "null", code = "null", $($args)*)
+        }
+    };
+    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
+        if $with_flow {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "raw_flow", $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "null", $($args)*)
+        }
+    };
+    (@impl $table:literal, (), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
+        const_format::formatcp!(
+            "SELECT \
+            {table}.id, {table}.workspace_id, parent_job, v2_job.created_by, v2_job.created_at, started_at, v2_job.runnable_id as script_hash, v2_job.runnable_path as script_path, \
+            CASE WHEN args is null THEN NULL
+            WHEN pg_column_size(args) < 90000 THEN
+                CASE WHEN jsonb_typeof(args) = 'object' THEN args
+                ELSE jsonb_build_object('value', args)
+                END
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, flow_status, workflow_as_code_status, \
+            {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
+            CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
+            {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
+            {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
+            {additional_fields} \
+            FROM {table}
+            INNER JOIN v2_job ON v2_job.id = {table}.id \
+            {additional_joins} \
+            LEFT JOIN job_logs ON {table}.id = job_id \
+            WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
+            table = $table,
+            additional_fields = $additional_fields,
+            additional_joins = $additional_joins,
+            $($args)*
+        )
     }
+}
 
 #[derive(Copy, Clone)]
 struct GetQuery<'a> {
@@ -1773,6 +1776,7 @@ pub struct RunJobQuery {
     pub tag: Option<String>,
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
@@ -3545,6 +3549,7 @@ impl<'a> From<UnifiedJob> for Job {
                     timeout: None,
                     flow_step_id: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                 },
@@ -3581,6 +3586,13 @@ struct Preview {
     dedicated_worker: Option<bool>,
     lock: Option<String>,
     format: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreviewInline {
+    content: String,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
+    language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -4658,6 +4670,7 @@ pub async fn run_workflow_as_code(
                     concurrency_time_window_s: job.concurrency_time_window_s,
                 },
                 cache_ttl: job.cache_ttl,
+                cache_ignore_s3_path: job.cache_ignore_s3_path,
                 dedicated_worker: None,
                 // TODO(debouncing): enable for this mode
                 debouncing_settings: DebouncingSettings::default(),
@@ -5482,6 +5495,7 @@ pub async fn run_wait_result_script_by_hash(
         debounce_key,
         debounce_delay_s,
         mut cache_ttl,
+        mut cache_ignore_s3_path,
         language,
         dedicated_worker,
         priority,
@@ -5494,6 +5508,7 @@ pub async fn run_wait_result_script_by_hash(
     } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
+        cache_ignore_s3_path = run_query.cache_ignore_s3_path;
     }
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
@@ -5536,6 +5551,7 @@ pub async fn run_wait_result_script_by_hash(
                 ..Default::default() // TODO
             },
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -6013,6 +6029,7 @@ async fn run_preview_script(
                 concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 debouncing_settings: DebouncingSettings::default(), // TODO(pyra): same as for concurrency limits.
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
@@ -6046,6 +6063,39 @@ async fn run_preview_script(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn run_inline_preview_script(
+    authed: ApiAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(preview): Json<PreviewInline>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
+        content: preview.content,
+        args: preview.args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        lang: preview.language,
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
 }
 
 async fn run_wait_result_preview_script(
@@ -6131,6 +6181,7 @@ async fn run_bundle_preview_script(
                     language: preview.language.unwrap_or(ScriptLang::Deno),
                     lock: preview.lock,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     dedicated_worker: preview.dedicated_worker,
                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     debouncing_settings: DebouncingSettings::default(),
@@ -6924,6 +6975,7 @@ async fn run_dynamic_select(
             language: dynamic_input.x_windmill_dyn_select_lang,
             lock: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
@@ -7017,6 +7069,7 @@ pub async fn run_job_by_hash_inner(
         debounce_delay_s,
         debounce_key,
         mut cache_ttl,
+        mut cache_ignore_s3_path,
         language,
         dedicated_worker,
         priority,
@@ -7031,6 +7084,7 @@ pub async fn run_job_by_hash_inner(
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
+        cache_ignore_s3_path = run_query.cache_ignore_s3_path;
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
@@ -7072,6 +7126,7 @@ pub async fn run_job_by_hash_inner(
                 ..Default::default()
             },
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,

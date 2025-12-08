@@ -62,6 +62,8 @@ components:
           type: string
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         flow_env:
           type: object
           additionalProperties:
@@ -208,6 +210,8 @@ components:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         timeout:
           $ref: "#/components/schemas/InputTransform"
         delete_after_use:
@@ -373,6 +377,7 @@ components:
                   - s3object
                   - resource
                   - ducklake
+                  - datatable
               access_type:
                 type: string
                 enum: [r, w, rw]

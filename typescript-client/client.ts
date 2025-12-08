@@ -17,6 +17,8 @@ import {
   type S3Object,
 } from "./s3Types";
 
+export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
+
 export {
   AdminService,
   AuditService,
@@ -138,7 +140,9 @@ export async function runScript(
   args: Record<string, any> | null = null,
   verbose: boolean = false
 ): Promise<any> {
-  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  console.warn(
+    "runScript is deprecated. Use runScriptByPath or runScriptByHash instead."
+  );
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
@@ -157,7 +161,10 @@ async function _runScriptInternal(
     if (path) {
       console.info(`running \`${path}\` synchronously with args:`, args);
     } else if (hash_) {
-      console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+      console.info(
+        `running script with hash \`${hash_}\` synchronously with args:`,
+        args
+      );
     }
   }
 
@@ -185,9 +192,7 @@ export async function runScriptByHash(
  * Append a text to the result stream
  * @param text text to append to the result stream
  */
-export function appendToResultStream(
-  text: string
-) {
+export function appendToResultStream(text: string) {
   console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
 }
 
@@ -195,9 +200,7 @@ export function appendToResultStream(
  * Stream to the result stream
  * @param stream stream to stream to the result stream
  */
-export async function streamResult(
-  stream: AsyncIterable<string>
-) {
+export async function streamResult(stream: AsyncIterable<string>) {
   for await (const text of stream) {
     appendToResultStream(text);
   }
@@ -310,7 +313,9 @@ export async function runScriptAsync(
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
-  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
+  console.warn(
+    "runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead."
+  );
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
@@ -815,7 +820,8 @@ export async function loadS3FileStream(
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
   const response = await fetch(
-    `${OpenAPI.BASE
+    `${
+      OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",

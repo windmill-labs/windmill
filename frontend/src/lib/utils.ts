@@ -370,6 +370,13 @@ export function clickOutside(
 	}
 }
 
+export function undefinedIfEmpty(obj: any): any {
+	if (Object.keys(obj).length === 0) {
+		return undefined
+	}
+	return obj
+}
+
 export function pointerDownOutside(
 	node: Node,
 	options?: ClickOutsideOptions

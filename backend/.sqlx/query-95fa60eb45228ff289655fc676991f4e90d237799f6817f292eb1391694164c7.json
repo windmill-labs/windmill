@@ -1,0 +1,220 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            auto_invite_domain,\n            auto_invite_operator,\n            auto_add,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            error_handler,\n            error_handler_extra_args,\n            error_handler_muted_on_cancel,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_add_instance_groups,\n            auto_add_instance_groups_roles\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_team_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "teams_team_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "slack_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "slack_command_script",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "teams_command_script",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "slack_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "slack_oauth_client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "slack_oauth_client_secret",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "auto_invite_domain",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "auto_invite_operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "auto_add",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "customer_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "plan",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 15,
+        "name": "webhook",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "deploy_to",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 17,
+        "name": "ai_config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "error_handler",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 19,
+        "name": "error_handler_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 20,
+        "name": "error_handler_muted_on_cancel",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "datatable",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 23,
+        "name": "ducklake",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 24,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 25,
+        "name": "deploy_ui",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 26,
+        "name": "default_app",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 27,
+        "name": "default_scripts",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 28,
+        "name": "mute_critical_alerts",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 29,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 30,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 31,
+        "name": "git_app_installations",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 32,
+        "name": "auto_add_instance_groups",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 33,
+        "name": "auto_add_instance_groups_roles",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "95fa60eb45228ff289655fc676991f4e90d237799f6817f292eb1391694164c7"
+}

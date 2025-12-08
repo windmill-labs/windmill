@@ -65,6 +65,12 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
 			showExpr: "fields.output_type === 'text'"
+		},
+		max_iterations: {
+			type: 'number',
+			description:
+				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-1000.',
+			default: 10
 		}
 	},
 	required: ['provider', 'user_message', 'output_type'],
@@ -78,7 +84,8 @@ export const AI_AGENT_SCHEMA = {
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',
-		'temperature'
+		'temperature',
+		'max_iterations'
 	]
 }
 

@@ -432,6 +432,7 @@ pub async fn push_init_job<'c>(
             language: ScriptLang::Bash,
             lock: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
@@ -489,6 +490,7 @@ pub async fn push_periodic_bash_job<'c>(
             language: ScriptLang::Bash,
             lock: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
@@ -1325,6 +1327,7 @@ async fn restart_job_if_perpetual_inner(
                 hash,
                 path: queued_job.runnable_path.clone().unwrap_or_default(),
                 cache_ttl: queued_job.cache_ttl,
+                cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
                 dedicated_worker: None,
                 language: queued_job
                     .script_lang
@@ -1981,6 +1984,7 @@ pub struct MiniPulledJob {
     pub timeout: Option<i32>,
     pub flow_step_id: Option<String>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub priority: Option<i16>,
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
@@ -2014,6 +2018,7 @@ pub struct MiniCompletedJob {
     pub concurrent_limit: Option<i32>,
     pub tag: String,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -2039,6 +2044,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             concurrent_limit: job.concurrent_limit,
             tag: job.tag,
             cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
         }
     }
 }
@@ -2067,6 +2073,7 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             concurrent_limit: job.concurrent_limit,
             tag: job.tag,
             cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
         }
     }
 }
@@ -2094,6 +2101,7 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             concurrent_limit: job.concurrent_limit,
             tag: job.tag.clone(),
             cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
         }
     }
 }
@@ -2193,6 +2201,7 @@ impl MiniPulledJob {
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
+            cache_ignore_s3_path: job.cache_ignore_s3_path.clone(),
             priority: job.priority.clone(),
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
@@ -2400,6 +2409,7 @@ pub async fn get_mini_pulled_job<'c>(
         timeout,
         flow_step_id,
         cache_ttl,
+        cache_ignore_s3_path,
         v2_job_queue.priority,
         preprocessed,
         script_entrypoint_override,
@@ -2437,6 +2447,7 @@ pub struct QueuedJobV2 {
     pub concurrent_limit: Option<i32>,
     pub tag: String,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub worker: Option<String>,
     pub memory_peak: Option<i32>,
@@ -2456,7 +2467,7 @@ pub async fn get_queued_job_v2<'c>(
     let job = sqlx::query_as!(
         QueuedJobV2,
         "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
-        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, r.ping as last_ping, worker, memory_peak, running
+        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1",
         job_id,
@@ -3613,7 +3624,7 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT 
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -4049,6 +4060,7 @@ pub async fn push<'c, 'd>(
         flow_status: Option<FlowStatus>,
         language: Option<ScriptLang>,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         dedicated_worker: Option<bool>,
         _low_level_priority: Option<i16>,
         concurrency_settings: ConcurrencySettings,
@@ -4065,6 +4077,7 @@ pub async fn push<'c, 'd>(
         flow_status,
         language,
         cache_ttl,
+        cache_ignore_s3_path,
         dedicated_worker,
         _low_level_priority,
         concurrency_settings:
@@ -4079,6 +4092,7 @@ pub async fn push<'c, 'd>(
             hash,
             path,
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -4098,6 +4112,7 @@ pub async fn push<'c, 'd>(
                 concurrency_settings,
                 debouncing_settings,
                 cache_ttl,
+                cache_ignore_s3_path,
                 dedicated_worker,
                 _low_level_priority: priority,
                 ..Default::default()
@@ -4107,6 +4122,7 @@ pub async fn push<'c, 'd>(
             id, // flow_node(id).
             language,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
             path,
             concurrency_settings,
@@ -4117,6 +4133,7 @@ pub async fn push<'c, 'd>(
             language: Some(language),
             concurrency_settings,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
             ..Default::default()
         },
@@ -4184,6 +4201,7 @@ pub async fn push<'c, 'd>(
             language,
             lock,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
             concurrency_settings,
             debouncing_settings,
@@ -4196,6 +4214,7 @@ pub async fn push<'c, 'd>(
             concurrency_settings: concurrency_settings.into(),
             debouncing_settings,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
             ..Default::default()
         },
@@ -4315,6 +4334,7 @@ pub async fn push<'c, 'd>(
                 job_kind: JobKind::FlowPreview,
                 flow_status: Some(flow_status),
                 cache_ttl,
+                cache_ignore_s3_path: value.cache_ignore_s3_path,
                 _low_level_priority: priority,
                 concurrency_settings: value.concurrency_settings.clone(),
                 debouncing_settings: value.debouncing_settings.clone(),
@@ -4332,6 +4352,7 @@ pub async fn push<'c, 'd>(
             skip_handler,
             args,
             cache_ttl,
+            cache_ignore_s3_path,
             priority,
             tag_override,
             trigger_path,
@@ -4475,6 +4496,7 @@ pub async fn push<'c, 'd>(
                 debouncing_settings: debouncing_settings.clone(),
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
+                cache_ignore_s3_path: cache_ignore_s3_path,
                 same_worker: false,
                 early_return: None,
                 skip_expr: None,
@@ -4490,6 +4512,7 @@ pub async fn push<'c, 'd>(
                 raw_flow: Some(flow_value),
                 flow_status: Some(flow_status),
                 cache_ttl,
+                cache_ignore_s3_path,
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
@@ -4517,6 +4540,7 @@ pub async fn push<'c, 'd>(
             let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
+            let cache_ignore_s3_path = value.cache_ignore_s3_path;
             let mut concurrency_settings = value.concurrency_settings.clone();
             let mut debouncing_settings = value.debouncing_settings.clone();
 
@@ -4556,6 +4580,7 @@ pub async fn push<'c, 'd>(
                 raw_flow: value_o,
                 flow_status: Some(status),
                 cache_ttl,
+                cache_ignore_s3_path,
                 dedicated_worker,
                 _low_level_priority: priority,
                 concurrency_settings,
@@ -4627,6 +4652,7 @@ pub async fn push<'c, 'd>(
                 raw_flow: value_o,
                 flow_status: Some(restarted_flow_status),
                 cache_ttl,
+                cache_ignore_s3_path: value.cache_ignore_s3_path,
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
@@ -5134,8 +5160,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42)",
         job_id,
         workspace_id,
         raw_code,
@@ -5181,6 +5207,7 @@ pub async fn push<'c, 'd>(
         trigger_kind as Option<JobTriggerKind>,
         running,
         end_user_email,
+        cache_ignore_s3_path,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -5690,6 +5717,7 @@ pub async fn get_same_worker_job(
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
+                    v2_job_queue.cache_ignore_s3_path,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,

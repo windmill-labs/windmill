@@ -38,10 +38,10 @@ use windmill_common::{
     db::{UserDB, UserDbWithAuthed, UserDbWithOptAuthed},
     error::{self, Error, JsonResult, Result},
     get_database_url, parse_postgres_url,
+    utils::get_custom_pg_instance_password,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, TMP_DIR},
-    workspaces::get_ducklake_instance_pg_catalog_password,
 };
 
 pub fn workspaced_service() -> Router {
@@ -469,17 +469,17 @@ pub async fn get_resource_value_interpolated_internal(
     token: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
-    // This is a special syntax to help debugging ducklake catalogs stored in the instance
-    if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
+    // This is a special syntax to help debugging custom instance databases
+    if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
         require_super_admin(db, &authed.email).await?;
         let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
         return Ok(Some(serde_json::json!({
             "dbname": dbname,
             "host": pg_creds.host,
             "port": pg_creds.port,
-            "user": "ducklake_user",
+            "user": "custom_instance_user",
             "sslmode": pg_creds.ssl_mode,
-            "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+            "password": get_custom_pg_instance_password(&db).await?,
         })));
     }
 

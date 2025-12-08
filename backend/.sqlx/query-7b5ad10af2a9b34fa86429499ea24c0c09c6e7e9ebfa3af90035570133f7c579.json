@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT \n            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, \n            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl\n            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id\n            WHERE j.id = $1 AND j.workspace_id = $2",
+  "query": "SELECT \n            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, \n            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path\n            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id\n            WHERE j.id = $1 AND j.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -185,6 +185,11 @@
         "ordinal": 19,
         "name": "cache_ttl",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 20,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -213,8 +218,9 @@
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "6cc922a5bbd348c938a9d1431aaa0f24f078ea814b429d44403aca1e5002e750"
+  "hash": "7b5ad10af2a9b34fa86429499ea24c0c09c6e7e9ebfa3af90035570133f7c579"
 }
