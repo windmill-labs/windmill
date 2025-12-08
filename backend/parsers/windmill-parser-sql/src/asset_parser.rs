@@ -1,11 +1,10 @@
 use sqlparser::{
-    ast::{Expr, Ident, ObjectName, TableFactor, Value, ValueWithSpan, Visit, Visitor},
+    ast::{CopyTarget, Expr, ObjectName, TableFactor, Value, ValueWithSpan, Visit, Visitor},
     dialect::GenericDialect,
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
-    detect_sql_access_type, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsResult,
+    merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -14,7 +13,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
 
     let mut collector = AssetCollector::new();
     for statement in statements {
-        statement.visit(&mut collector);
+        let _ = statement.visit(&mut collector);
     }
 
     Ok(merge_assets(collector.assets))
@@ -50,6 +49,9 @@ impl AssetCollector {
             if is_read_fn(fname) {
                 self.current_access_type_stack.push(R);
             }
+        }
+        if let Some(str_lit) = get_str_lit_from_obj_name(name) {
+            self.handle_string_literal(str_lit);
         }
     }
     fn handle_obj_name_post(&mut self, name: &ObjectName) {
@@ -110,6 +112,52 @@ impl Visitor for AssetCollector {
         }
         std::ops::ControlFlow::Continue(())
     }
+
+    fn pre_visit_statement(
+        &mut self,
+        statement: &sqlparser::ast::Statement,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        if let Some(access_type) = get_stmt_access_type(statement) {
+            self.current_access_type_stack.push(access_type);
+        }
+
+        self.current_access_type_stack.push(W);
+        match statement {
+            sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
+                self.handle_string_literal(filename);
+            }
+            _ => {}
+        }
+        self.current_access_type_stack.pop();
+
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_statement(
+        &mut self,
+        statement: &sqlparser::ast::Statement,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        if let Some(_access_type) = get_stmt_access_type(statement) {
+            self.current_access_type_stack.pop();
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn pre_visit_query(
+        &mut self,
+        _query: &sqlparser::ast::Query,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        self.current_access_type_stack.push(R);
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_query(
+        &mut self,
+        _query: &sqlparser::ast::Query,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        self.current_access_type_stack.pop();
+        std::ops::ControlFlow::Continue(())
+    }
 }
 
 fn is_read_fn(fname: &str) -> bool {
@@ -118,31 +166,63 @@ fn is_read_fn(fname: &str) -> bool {
         || fname.eq_ignore_ascii_case("read_json")
 }
 
+fn get_stmt_access_type(statement: &sqlparser::ast::Statement) -> Option<AssetUsageAccessType> {
+    match statement {
+        sqlparser::ast::Statement::Query(_) => Some(R),
+        sqlparser::ast::Statement::Insert { .. } => Some(W),
+        sqlparser::ast::Statement::Update { .. } => Some(W),
+        sqlparser::ast::Statement::Delete { .. } => Some(W),
+        _ => None,
+    }
+}
+
 fn get_trivial_obj_name(name: &sqlparser::ast::ObjectName) -> Option<&str> {
     if name.0.len() != 1 {
         return None;
     }
-    name.0
-        .first()
-        .and_then(|ident| ident.as_ident().map(|id| id.value.as_str()))
+    Some(name.0.first()?.as_ident()?.value.as_str())
 }
 
 fn get_str_lit_from_obj_name(name: &ObjectName) -> Option<&str> {
     if name.0.len() != 1 {
         return None;
     }
-    match &name.0.first()? {
-        Ident { value, .. } => Some(value.as_str()),
+    let ident = name.0.first()?.as_ident()?;
+    if ident.quote_style != Some('\'') {
+        return None;
     }
+    Some(ident.value.as_str())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn test_parse_assets() {
-        let input = "SELECT * FROM read_parquet('s3:///READ.parquet'); SELECT * FROM f('s3:///UNKONWN.parquet');";
+    fn test_sql_asset_parser_s3_literals() {
+        let input = r#"
+            SELECT * FROM read_parquet('s3:///READ.parquet');
+            COPY (SELECT * FROM 's3://snd/UNKONWN.parquet') TO 's3:///WRITE.parquet';
+        "#;
         let s = parse_assets(input);
-        assert_eq!("", format!("{:?}", s));
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/READ.parquet".to_string(),
+                    access_type: Some(R)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/WRITE.parquet".to_string(),
+                    access_type: Some(W)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "snd/UNKONWN.parquet".to_string(),
+                    access_type: Some(R)
+                }
+            ])
+        );
     }
 }

@@ -19,7 +19,7 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct ParseAssetsResult<S: AsRef<str>> {
     pub kind: AssetKind,
     pub path: S,
