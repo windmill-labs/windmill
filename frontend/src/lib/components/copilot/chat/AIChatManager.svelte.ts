@@ -225,7 +225,7 @@ class AIChatManager {
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = [this.changeModeTool, ...prepareScriptTools(currentModel, lang, context)]
+			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -249,7 +249,7 @@ class AIChatManager {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			this.tools = [this.changeModeTool, ...flowTools]
+			this.tools = [...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -608,9 +608,8 @@ class AIChatManager {
 
 			let snapshot: ExtendedOpenFlow | undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				this.flowAiChatHelpers!.rejectAllModuleActions()
 				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
+				this.flowAiChatHelpers!.setSnapshot(snapshot)
 			}
 
 			this.displayMessages = [
@@ -781,6 +780,18 @@ class AIChatManager {
 			abortController: this.abortController
 		})
 		this.abortController?.abort(cancelReason)
+		// Mark all tool messages in loading state as canceled
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.isLoading) {
+				return {
+					...message,
+					isLoading: false,
+					content: 'Canceled',
+					error: 'Canceled'
+				}
+			}
+			return message
+		})
 	}
 
 	cancelInlineRequest = (reason?: string) => {

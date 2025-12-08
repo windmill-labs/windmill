@@ -6,11 +6,11 @@
 
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import DiffActionBar from '$lib/components/flows/map/DiffActionBar.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import { MessageSquare, DiffIcon } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { MessageSquare } from 'lucide-svelte'
 	import { getGraphContext } from '../../graphContext'
 	import FunnelCog from '$lib/components/icons/FunnelCog.svelte'
 
@@ -20,10 +20,10 @@
 
 	let { data }: Props = $props()
 
-	const { selectionManager } = getGraphContext()
+	const { selectionManager, diffManager } = getGraphContext()
 
-	const { previewArgs, flowStore } =
-		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const { previewArgs, flowStore } = flowEditorContext || {}
 
 	let topFlowInput = $derived(
 		flowStore?.val && previewArgs && flowStore?.val?.schema
@@ -34,17 +34,12 @@
 	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
 
-{#if data.inputSchemaModified && data.onShowModuleDiff}
-	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
-		<Button
-			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-			onClick={() => {
-				data.onShowModuleDiff?.('Input')
-			}}
-			startIcon={{ icon: DiffIcon }}>Diff</Button
-		>
-	</div>
-{/if}
+<DiffActionBar
+	moduleId="Input"
+	moduleAction={data.moduleAction}
+	{diffManager}
+	flowStore={flowEditorContext?.flowStore}
+/>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
@@ -99,7 +94,7 @@
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
-			action={data.inputSchemaModified ? 'modified' : undefined}
+			action={data.moduleAction?.action}
 			onEditInput={data.eventHandlers.editInput}
 			onTestFlow={() => {
 				data.eventHandlers.testFlow()

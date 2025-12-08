@@ -7,7 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
-import { type AIModuleAction } from '../copilot/chat/flow/core'
+import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 
 export type InsertKind =
 	| 'script'
@@ -128,8 +128,7 @@ export type InputN = {
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
-		inputSchemaModified?: boolean
-		onShowModuleDiff?: (moduleId: string) => void
+		moduleAction?: ModuleActionInfo
 		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
@@ -150,8 +149,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
-		moduleAction: AIModuleAction | undefined
-		onShowModuleDiff?: (moduleId: string) => void
+		moduleAction: ModuleActionInfo | undefined
 	}
 }
 
@@ -370,8 +368,7 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
-		moduleActions?: Record<string, AIModuleAction>
-		inputSchemaModified?: boolean
+		moduleActions?: Record<string, ModuleActionInfo>
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -386,7 +383,6 @@ export function graphBuilder(
 		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
-		onShowModuleDiff?: (moduleId: string) => void
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
@@ -445,8 +441,7 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id],
-					onShowModuleDiff: extra.onShowModuleDiff
+					moduleAction: extra.moduleActions?.[module.id]
 				},
 				type: 'module',
 				selectable: true
@@ -566,8 +561,7 @@ export function graphBuilder(
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
-				inputSchemaModified: extra.inputSchemaModified,
-				onShowModuleDiff: extra.onShowModuleDiff,
+				moduleAction: extra.moduleActions?.['Input'],
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}

@@ -129,6 +129,7 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
@@ -213,11 +214,12 @@
 					{suspendStatus}
 					onOpenDetails={onOpenPreview}
 					{previewOpen}
+					{flowModuleSchemaMap}
 				/>
 			{/if}
 		</Pane>
 		{#if !disableAi}
-			<FlowAIChat {flowModuleSchemaMap} />
+			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
 		{/if}
 	</Splitpanes>
 </div>

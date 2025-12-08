@@ -1,3 +1,4 @@
+import { playwright } from '@vitest/browser-playwright'
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -32,9 +33,7 @@ const config = {
 			'public.windmill.xyz'
 		],
 		port: 3000,
-		cors: {
-			origin: '*'
-		},
+		cors: { origin: '*' },
 		proxy: {
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
@@ -44,6 +43,7 @@ const config = {
 					proxy.on('proxyReq', (proxyReq, req, res) => {
 						// Prevent collapsing slashes during URL normalization
 						const originalPath = req.url
+
 						proxyReq.path = originalPath
 					})
 				}
@@ -74,13 +74,9 @@ const config = {
 			}
 		}
 	},
-	preview: {
-		port: 3001
-	},
+	preview: { port: 3001 },
 	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
-	define: {
-		__pkg__: version
-	},
+	define: { __pkg__: version },
 	optimizeDeps: {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
 		exclude: [
@@ -89,9 +85,7 @@ const config = {
 			'vscode'
 		]
 	},
-	worker: {
-		format: 'es'
-	},
+	worker: { format: 'es' },
 	resolve: {
 		alias: {
 			path: 'path-browserify',
@@ -100,7 +94,34 @@ const config = {
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},
-	assetsInclude: ['**/*.wasm']
+	assetsInclude: ['**/*.wasm'],
+	test: {
+		expect: { requireAssertions: true },
+		projects: [
+			{
+				extends: './vite.config.js',
+				test: {
+					name: 'client',
+					browser: {
+						enabled: true,
+						provider: playwright(),
+						instances: [{ browser: 'chromium', headless: true }]
+					},
+					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					exclude: ['src/lib/server/**']
+				}
+			},
+			{
+				extends: './vite.config.js',
+				test: {
+					name: 'server',
+					environment: 'node',
+					include: ['src/**/*.{test,spec}.{js,ts}'],
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+				}
+			}
+		]
+	}
 }
 
 export default config
