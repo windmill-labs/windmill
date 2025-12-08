@@ -1777,7 +1777,11 @@ async fn execute_component(
             ..
         } => (
             &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
-            &PolicyTriggerableInputs { static_inputs, one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(), allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default() },
+            &PolicyTriggerableInputs {
+                static_inputs,
+                one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(),
+                allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
+            },
         ),
         // 2. "run" mode.
         _ => {
@@ -2057,44 +2061,6 @@ async fn sign_s3_objects(
     let signed_s3_objects = futures::future::try_join_all(futures).await?;
 
     Ok(Json(signed_s3_objects))
-}
-
-#[cfg(feature = "parquet")]
-async fn validate_s3_signature(file_query: &AppS3FileQuery, w_id: &str, db: &DB) -> Result<()> {
-    let workspace_key = get_workspace_key(w_id, &db).await?;
-
-    let Some(exp) = file_query
-        .exp
-        .as_ref()
-        .map(|e| e.parse::<i64>().unwrap_or_default())
-    else {
-        return Err(Error::BadRequest("Missing exp".to_string()));
-    };
-
-    let Some(ref sig) = file_query.sig else {
-        return Err(Error::BadRequest("Missing signature".to_string()));
-    };
-
-    let mut message = format!("file_key={}&exp={}", file_query.s3, exp);
-
-    if let Some(ref storage) = file_query.storage {
-        message = format!("{}&storage={}", message, storage);
-    }
-
-    let mut mac = HmacSha256::new_from_slice(workspace_key.as_bytes())
-        .map_err(|err| Error::internal_err(format!("Failed to create hmac: {}", err)))?;
-
-    mac.update(message.as_bytes());
-
-    let sig_bytes = hex::decode(sig)?;
-    mac.verify_slice(&sig_bytes)
-        .map_err(|err| Error::BadRequest(format!("Invalid signature: {}", err)))?;
-
-    if exp < chrono::Utc::now().timestamp() {
-        return Err(Error::BadRequest("Signature expired".to_string()));
-    }
-
-    Ok(())
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -2544,7 +2510,23 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
 
     if file_query.sig.is_some() {
-        validate_s3_signature(file_query, w_id, &db).await
+        #[cfg(feature = "private")]
+        {
+            crate::s3_proxy_ee::validate_s3_signature(
+                &file_query.s3,
+                &file_query.sig,
+                &file_query.exp,
+                &file_query.storage,
+                w_id,
+                &db,
+            )
+            .await?;
+            Ok(())
+        }
+        #[cfg(not(feature = "private"))]
+        return Err(Error::InternalErr(
+            "Internal error: signature validation is not supported in open source mode".to_string(),
+        ));
     } else if opt_authed.is_some() {
         Ok(())
     } else {
