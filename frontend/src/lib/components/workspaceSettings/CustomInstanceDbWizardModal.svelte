@@ -172,7 +172,7 @@
 								if (!wasAlreadySuccessful) sendUserToast('Setup successful')
 								else sendUserToast('Check successful')
 							} else {
-								sendUserToast(result.error ?? 'An error occured', true)
+								sendUserToast(result.error ?? 'An error occurred', true)
 							}
 						} catch (e) {
 							sendUserToast('Unexpected error, check console for details', true)

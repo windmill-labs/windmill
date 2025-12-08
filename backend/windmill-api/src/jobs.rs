@@ -36,7 +36,8 @@ use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    DynamicInput, JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, DynamicInput,
+    JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
@@ -287,10 +288,7 @@ pub fn workspaced_service() -> Router {
             "/completed/import",
             post(crate::jobs_export::import_completed_jobs).layer(cors.clone()),
         )
-        .route(
-            "/delete",
-            post(crate::jobs_export::delete_jobs),
-        )
+        .route("/delete", post(crate::jobs_export::delete_jobs))
         .route(
             "/completed/get/:id",
             get(get_completed_job).layer(cors.clone()),
@@ -892,7 +890,7 @@ macro_rules! get_job_query {
         get_job_query!(
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, \
             script_entrypoint_override",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
@@ -1777,6 +1775,7 @@ pub struct RunJobQuery {
     pub tag: Option<String>,
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
@@ -3542,6 +3541,7 @@ impl<'a> From<UnifiedJob> for Job {
                     timeout: None,
                     flow_step_id: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                 },
@@ -4598,16 +4598,18 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
-                    .await
-                    .map_err(to_anyhow)?,
-                concurrent_limit: job.concurrent_limit,
-                concurrency_time_window_s: job.concurrency_time_window_s,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettingsWithCustom {
+                    custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
+                        .await
+                        .map_err(to_anyhow)?,
+                    concurrent_limit: job.concurrent_limit,
+                    concurrency_time_window_s: job.concurrency_time_window_s,
+                },
                 cache_ttl: job.cache_ttl,
+                cache_ignore_s3_path: job.cache_ignore_s3_path,
                 dedicated_worker: None,
                 // TODO(debouncing): enable for this mode
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                debouncing_settings: DebouncingSettings::default(),
             }),
             Some(job.tag.clone()),
             None,
@@ -5426,6 +5428,7 @@ pub async fn run_wait_result_script_by_hash(
         debounce_key,
         debounce_delay_s,
         mut cache_ttl,
+        mut cache_ignore_s3_path,
         language,
         dedicated_worker,
         priority,
@@ -5438,6 +5441,7 @@ pub async fn run_wait_result_script_by_hash(
     } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
+        cache_ignore_s3_path = run_query.cache_ignore_s3_path;
     }
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
@@ -5468,12 +5472,19 @@ pub async fn run_wait_result_script_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            custom_concurrency_key: concurrency_key,
-            concurrent_limit: concurrent_limit,
-            concurrency_time_window_s: concurrency_time_window_s,
-            custom_debounce_key: debounce_key,
-            debounce_delay_s,
+            concurrency_settings: windmill_common::jobs::ConcurrencySettingsWithCustom {
+                custom_concurrency_key: concurrency_key,
+                concurrent_limit: concurrent_limit,
+                concurrency_time_window_s: concurrency_time_window_s,
+            }
+            .into(),
+            debouncing_settings: DebouncingSettings {
+                custom_key: debounce_key,
+                delay_s: debounce_delay_s,
+                ..Default::default() // TODO
+            },
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -5944,12 +5955,10 @@ async fn run_preview_script(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: preview.lock,
-                custom_concurrency_key: None,
-                concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                concurrency_time_window_s: None, // TODO(gbouv): same as above
-                custom_debounce_key: None, // TODO(pyra): same as for concurrency limits.
-                debounce_delay_s: None,
+                concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                debouncing_settings: DebouncingSettings::default(), // TODO(pyra): same as for concurrency limits.
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
@@ -6099,13 +6108,11 @@ async fn run_bundle_preview_script(
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
                     lock: preview.lock,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     dedicated_worker: preview.dedicated_worker,
-                    custom_concurrency_key: None,
-                    custom_debounce_key: None,
-                    debounce_delay_s: None,
+                    concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                    debouncing_settings: DebouncingSettings::default(),
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -6509,19 +6516,19 @@ async fn add_batch_jobs(
             add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (
-                None,                            // script_hash
-                path,                            // script_path
-                job_kind,                        // job_kind
-                None,                            // language
-                None,                            // dedicated_worker
-                value.concurrency_key.clone(),   // custom_concurrency_key
-                value.concurrent_limit.clone(),  // concurrent_limit
-                value.concurrency_time_window_s, // concurrency_time_window_s
-                None,                            // timeout
-                None,                            // raw_code
-                None,                            // raw_lock
-                Some(value),                     // raw_flow
-                Some(flow_status),               // flow_status
+                None,                                                 // script_hash
+                path,                                                 // script_path
+                job_kind,                                             // job_kind
+                None,                                                 // language
+                None,                                                 // dedicated_worker
+                value.concurrency_settings.concurrency_key.clone(),   // custom_concurrency_key
+                value.concurrency_settings.concurrent_limit.clone(),  // concurrent_limit
+                value.concurrency_settings.concurrency_time_window_s, // concurrency_time_window_s
+                None,                                                 // timeout
+                None,                                                 // raw_code
+                None,                                                 // raw_lock
+                Some(value),                                          // raw_flow
+                Some(flow_status),                                    // flow_status
             )
         }
         "noop" => (
@@ -6890,13 +6897,11 @@ async fn run_dynamic_select(
             path: None,
             language: dynamic_input.x_windmill_dyn_select_lang,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: ConcurrencySettings::default().into(),
+            debouncing_settings: DebouncingSettings::default(),
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),
@@ -6976,6 +6981,7 @@ pub async fn run_job_by_hash_inner(
         debounce_delay_s,
         debounce_key,
         mut cache_ttl,
+        mut cache_ignore_s3_path,
         language,
         dedicated_worker,
         priority,
@@ -6990,6 +6996,7 @@ pub async fn run_job_by_hash_inner(
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
+        cache_ignore_s3_path = run_query.cache_ignore_s3_path;
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
@@ -7020,12 +7027,18 @@ pub async fn run_job_by_hash_inner(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            custom_concurrency_key: concurrency_key,
-            concurrent_limit: concurrent_limit,
-            concurrency_time_window_s: concurrency_time_window_s,
-            custom_debounce_key: debounce_key,
-            debounce_delay_s,
+            concurrency_settings: ConcurrencySettings {
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+            },
+            debouncing_settings: DebouncingSettings {
+                custom_key: debounce_key,
+                delay_s: debounce_delay_s,
+                ..Default::default()
+            },
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,

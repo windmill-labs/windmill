@@ -37,6 +37,7 @@
 		Plus,
 		RotateCw,
 		Save,
+		Settings,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
@@ -746,7 +747,62 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
 				(path) => ({ path })
 			)}
-	/>
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_lfs"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
+{/if}
+
+{#if showDataTablePicker}
+	<ItemPicker
+		bind:this={dataTablePicker}
+		pickCallback={async (_, name) => {
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'datatable' : `datatable://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`db = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				}
+				editor?.insertAtCursor(`let sql = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+			}
+		}}
+		tooltip="Attach a datatable to your script."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/data_tables"
+		itemName="data table"
+		loadItems={async () =>
+			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_data_tables"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
 {/if}
 
 {#if showDataTablePicker}

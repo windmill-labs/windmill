@@ -2729,7 +2729,6 @@ pub async fn handle_queued_job(
             let cached_result_maybe = get_cached_resource_value_if_valid(
                 db,
                 &client,
-                &job.id,
                 &job.workspace_id,
                 &cached_res_path,
             )
@@ -2828,7 +2827,7 @@ pub async fn handle_queued_job(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        if job.concurrent_limit.is_some() {
+        if job.concurrent_limit.is_some() && !job.kind.is_dependency() {
             logs.push_str("---\n");
             logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
@@ -4282,6 +4281,7 @@ pub fn init_worker_internal_server_inline_utils(
                 timeout: None,
                 flow_step_id: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 priority: None,
                 preprocessed: None,
                 script_entrypoint_override: None,

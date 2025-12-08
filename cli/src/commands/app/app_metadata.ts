@@ -20,15 +20,19 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
-import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
-import { AppFile as RawAppFile } from "./raw_apps.ts";
+import {
+  AppFile as RawAppFile,
+  loadRunnablesFromBackend,
+  writeRunnableToBackend,
+} from "./raw_apps.ts";
 import { replaceInlineScripts, AppFile as NormalAppFile } from "./apps.ts";
 import {
   newPathAssigner,
+  newRawAppPathAssigner,
   SupportedLanguage,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
@@ -164,21 +168,29 @@ export async function generateAppLocksInternal(
       );
 
       if (rawApp) {
-        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER) + SEP;
+        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
+
+        // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
         const rawAppFile = appFile as RawAppFile;
+        let runnables = await loadRunnablesFromBackend(runnablesPath);
+        if (Object.keys(runnables).length === 0 && rawAppFile.runnables) {
+          // Fall back to old format
+          runnables = rawAppFile.runnables;
+        }
 
         // Replace inline scripts for changed runnables
-        replaceInlineScripts(rawAppFile.runnables, runnablesPath, false);
+        replaceInlineScripts(runnables, runnablesPath + SEP, false);
 
-        // Update the app runnables with new locks
-        rawAppFile.runnables = await updateRawAppRunnables(
+        // Update the app runnables with new locks (writes to separate files)
+        await updateRawAppRunnables(
           workspace,
-          rawAppFile.runnables,
+          runnables,
           remote_path,
           appFolder,
           rawWorkspaceDependencies,
           opts.defaultTs
         );
+        // Note: updateRawAppRunnables now writes each runnable to its own file
       } else {
         const normalAppFile = appFile as NormalAppFile;
 
@@ -194,13 +206,13 @@ export async function generateAppLocksInternal(
           rawWorkspaceDependencies,
           opts.defaultTs
         );
-      }
 
-      // Write the updated app file
-      writeIfChanged(
-        appFilePath,
-        yamlStringify(appFile as Record<string, any>, yamlOptions)
-      );
+        // Write the updated app file (only for normal apps, raw apps use separate files)
+        writeIfChanged(
+          appFilePath,
+          yamlStringify(appFile as Record<string, any>, yamlOptions)
+        );
+      }
     } else {
       log.info(colors.gray(`No scripts changed in ${appFolder}`));
     }
@@ -279,8 +291,9 @@ async function traverseAndProcessInlineScripts(
 }
 
 /**
- * Updates locks for all runnables in a raw app, generating locks inline script by inline script
- * Also writes content and locks back to the runnables folder
+ * Updates locks for all runnables in a raw app, generating locks inline script by inline script.
+ * Writes each runnable to its own YAML file in the backend folder (new format).
+ * Also writes content and lock files to the runnables folder.
  */
 async function updateRawAppRunnables(
   workspace: Workspace,
@@ -289,7 +302,7 @@ async function updateRawAppRunnables(
   appFolder: string,
   rawDeps?: Record<string, string>,
   defaultTs: "bun" | "deno" = "bun"
-): Promise<Record<string, any>> {
+): Promise<void> {
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
 
   // Ensure runnables folder exists
@@ -299,15 +312,16 @@ async function updateRawAppRunnables(
     // Folder may already exist
   }
 
-  const pathAssigner = newPathAssigner(defaultTs);
-
-  // Process each runnable
-  const updatedRunnables: Record<string, any> = {};
+  const pathAssigner = newRawAppPathAssigner(defaultTs);
 
   for (const [runnableId, runnable] of Object.entries(runnables)) {
-    // Only process inline scripts (runnableByName with inlineScript)
-    if (runnable?.type !== "runnableByName" || !runnable?.inlineScript) {
-      updatedRunnables[runnableId] = runnable;
+    // Only process inline scripts (runnableByName/inline with inlineScript)
+    if (
+      (runnable?.type !== "runnableByName" && runnable?.type !== "inline") ||
+      !runnable?.inlineScript
+    ) {
+      // Write non-inline runnables to their own file as-is
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
       continue;
     }
 
@@ -316,7 +330,7 @@ async function updateRawAppRunnables(
     const content = inlineScript.content;
 
     if (!content || !language) {
-      updatedRunnables[runnableId] = runnable;
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
       continue;
     }
 
@@ -327,13 +341,30 @@ async function updateRawAppRunnables(
           `Runnable ${runnableId} content is still an !inline reference, skipping`
         )
       );
-      updatedRunnables[runnableId] = runnable;
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
       continue;
     }
 
     // Skip frontend scripts - they don't need locks
     if (language === "frontend") {
-      updatedRunnables[runnableId] = runnable;
+      // Still need to write the runnable YAML file
+      const [basePathO, ext] = pathAssigner.assignPath(
+        runnable.name ?? runnableId,
+        language
+      );
+      const basePath = basePathO.replaceAll(SEP, "/");
+      const contentPath = path.join(runnablesFolder, `${basePath}${ext}`);
+      writeIfChanged(contentPath, content);
+
+      // Write simplified runnable YAML - just type: 'inline' plus metadata
+      // inlineScript is not needed since content/language can be derived from files
+      const simplifiedRunnable: Record<string, any> = { type: "inline" };
+      for (const [key, value] of Object.entries(runnable)) {
+        if (key !== "inlineScript" && key !== "type") {
+          simplifiedRunnable[key] = value;
+        }
+      }
+      writeRunnableToBackend(runnablesFolder, runnableId, simplifiedRunnable);
       continue;
     }
 
@@ -354,7 +385,10 @@ async function updateRawAppRunnables(
       );
 
       // Determine file extension for this language
-      const [basePathO, ext] = pathAssigner.assignPath(runnable.name, language);
+      const [basePathO, ext] = pathAssigner.assignPath(
+        runnable.name ?? runnableId,
+        language
+      );
       const basePath = basePathO.replaceAll(SEP, "/");
       const contentPath = path.join(runnablesFolder, `${basePath}${ext}`);
       const lockPath = path.join(runnablesFolder, `${basePath}lock`);
@@ -367,23 +401,21 @@ async function updateRawAppRunnables(
         writeIfChanged(lockPath, lock);
       }
 
-      // Update the runnable with !inline references (preserve existing schema)
-      const inlineContentRef = `!inline ${basePath}${ext}`;
-      const inlineLockRef =
-        lock && lock !== "" ? `!inline ${basePath}lock` : "";
+      // Write simplified runnable YAML - just type: 'inline' plus metadata
+      // inlineScript is not needed since content/lock/language can be derived from files
+      const simplifiedRunnable: Record<string, any> = { type: "inline" };
+      for (const [key, value] of Object.entries(runnable)) {
+        if (key !== "inlineScript" && key !== "type") {
+          simplifiedRunnable[key] = value;
+        }
+      }
 
-      updatedRunnables[runnableId] = {
-        ...runnable,
-        inlineScript: {
-          ...inlineScript,
-          content: inlineContentRef,
-          lock: inlineLockRef,
-        },
-      };
+      // Write the runnable to its own YAML file
+      writeRunnableToBackend(runnablesFolder, runnableId, simplifiedRunnable);
 
       log.info(
         colors.gray(
-          `  Written ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
+          `  Written ${runnableId}.yaml, ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
         )
       );
     } catch (error: any) {
@@ -392,12 +424,10 @@ async function updateRawAppRunnables(
           `Failed to generate lock for runnable ${runnableId}: ${error.message}`
         )
       );
-      // Continue with other runnables even if one fails
-      updatedRunnables[runnableId] = runnable;
+      // Write the original runnable even if lock generation fails
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
     }
   }
-
-  return updatedRunnables;
 }
 
 /**
@@ -434,33 +464,30 @@ async function updateAppInlineScripts(
       return inlineScript;
     }
 
-    // Skip frontend scripts - they don't need locks
-    if (language === "frontend") {
-      return inlineScript;
-    }
-
     // Get the name from the parent object (following extractInlineScriptsForApps pattern)
     // For normal apps, the name is stored in the component's "name" property
     const scriptName = context.parentObject?.["name"] || "unnamed";
     const scriptPath = `${remotePath}/${context.path.join("/")}`;
 
-    log.info(
-      colors.gray(
-        `Generating lock for inline script "${scriptName}" at ${context.path.join(
-          "."
-        )} (${language})`
-      )
-    );
-
     try {
-      const lock = await generateInlineScriptLock(
-        workspace,
-        content,
-        language,
-        scriptPath,
-        rawDeps
-      );
+      let lock: string | undefined;
+      if (language !== "frontend") {
+        log.info(
+          colors.gray(
+            `Generating lock for inline script "${scriptName}" at ${context.path.join(
+              "."
+            )} (${language})`
+          )
+        );
 
+        lock = await generateInlineScriptLock(
+          workspace,
+          content,
+          language,
+          scriptPath,
+          rawDeps
+        );
+      }
       // Determine file extension for this language (following extractInlineScriptsForApps pattern)
       const [basePathO, ext] = pathAssigner.assignPath(scriptName, language);
       const basePath = basePathO.replaceAll(SEP, "/");
@@ -489,7 +516,7 @@ async function updateAppInlineScripts(
       return {
         ...inlineScript,
         content: inlineContentRef,
-        lock: inlineLockRef,
+        ...(lock ? { lock: inlineLockRef } : {}),
       };
     } catch (error: any) {
       log.error(
@@ -589,7 +616,7 @@ export interface InferredSchemaResult {
 /**
  * Infers schema for a single runnable from its file content.
  * Used by dev server to update schema in memory (for wmill.d.ts generation).
- * Does NOT write to raw_app.yaml - schema is kept in memory only.
+ * Does NOT write to the runnable YAML file - schema is kept in memory only.
  *
  * @param appFolder - The folder containing the raw app
  * @param runnableFilePath - The path to the changed runnable file (relative to runnables folder)
@@ -599,32 +626,51 @@ export async function inferRunnableSchemaFromFile(
   appFolder: string,
   runnableFilePath: string
 ): Promise<InferredSchemaResult | undefined> {
-  // Extract runnable ID from file path (e.g., "myRunnable.inline_script.ts" -> "myRunnable")
+  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable")
   const fileName = path.basename(runnableFilePath);
 
-  // Skip lock files
-  if (fileName.endsWith(".lock")) {
+  // Skip lock files and yaml files (runnable metadata)
+  if (fileName.endsWith(".lock") || fileName.endsWith(".yaml")) {
     return undefined;
   }
 
-  // Match pattern: {runnableId}.inline_script.{ext}
-  const match = fileName.match(/^(.+)\.inline_script\.[^.]+$/);
+  // Match pattern: {runnableId}.{ext} - extract the runnable ID (everything before the last dot)
+  const match = fileName.match(/^(.+)\.[^.]+$/);
   if (!match) {
     return undefined;
   }
 
   const runnableId = match[1];
 
-  // Read the app file to get the language
-  const appFilePath = path.join(appFolder, "raw_app.yaml");
-  const appFile = (await yamlParseFile(appFilePath)) as RawAppFile;
+  // Read the runnable from its separate YAML file (new format)
+  const runnableFilePath2 = path.join(
+    appFolder,
+    APP_BACKEND_FOLDER,
+    `${runnableId}.yaml`
+  );
 
-  if (!appFile.runnables?.[runnableId]) {
-    log.warn(colors.yellow(`Runnable ${runnableId} not found in raw_app.yaml`));
-    return undefined;
+  let runnable: any;
+  try {
+    runnable = await yamlParseFile(runnableFilePath2);
+  } catch {
+    // Fall back to reading from raw_app.yaml (old format)
+    try {
+      const appFilePath = path.join(appFolder, "raw_app.yaml");
+      const appFile = (await yamlParseFile(appFilePath)) as RawAppFile;
+      if (!appFile.runnables?.[runnableId]) {
+        log.warn(
+          colors.yellow(`Runnable ${runnableId} not found in backend folder or raw_app.yaml`)
+        );
+        return undefined;
+      }
+      runnable = appFile.runnables[runnableId];
+    } catch {
+      log.warn(
+        colors.yellow(`Could not read runnable ${runnableId} from any source`)
+      );
+      return undefined;
+    }
   }
-
-  const runnable = appFile.runnables[runnableId];
 
   // Only process inline scripts
   if (!runnable?.inlineScript) {

@@ -66,6 +66,7 @@ export type GraphModuleState = {
 	isListJob?: boolean
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
+	script_hash?: string
 }
 
 export type NestedNodes = GraphItem[]
