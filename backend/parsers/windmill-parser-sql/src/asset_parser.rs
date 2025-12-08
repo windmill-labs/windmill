@@ -200,8 +200,8 @@ mod tests {
     #[test]
     fn test_sql_asset_parser_s3_literals() {
         let input = r#"
-            SELECT * FROM read_parquet('s3:///READ.parquet');
-            COPY (SELECT * FROM 's3://snd/UNKONWN.parquet') TO 's3:///WRITE.parquet';
+            SELECT * FROM read_parquet('s3:///a.parquet');
+            COPY (SELECT * FROM 's3://snd/b.parquet') TO 's3:///c.parquet';
         "#;
         let s = parse_assets(input);
         assert_eq!(
@@ -209,19 +209,19 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/READ.parquet".to_string(),
+                    path: "/a.parquet".to_string(),
                     access_type: Some(R)
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/WRITE.parquet".to_string(),
+                    path: "/c.parquet".to_string(),
                     access_type: Some(W)
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "snd/UNKONWN.parquet".to_string(),
+                    path: "snd/b.parquet".to_string(),
                     access_type: Some(R)
-                }
+                },
             ])
         );
     }
