@@ -1,4 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
+
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
 import {
   GlobalOptions,
   isSuperset,
@@ -10,6 +15,8 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { colors, Command, log, Table } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { ResourceType } from "../../../gen/types.gen.ts";
+import { compileResourceTypeToTsType } from "../../utils/resource_types.ts";
+import { capitalize, toCamel } from "../../utils/utils.ts";
 
 export interface ResourceTypeFile {
   schema?: any;
@@ -88,7 +95,13 @@ async function list(opts: GlobalOptions & { schema?: boolean }) {
       .header(["Workspace", "Name", "Schema"])
       .padding(2)
       .border(true)
-      .body(res.map((x) => [x.workspace_id ?? "Global", x.name, JSON.stringify(x.schema, null, 2)]))
+      .body(
+        res.map((x) => [
+          x.workspace_id ?? "Global",
+          x.name,
+          JSON.stringify(x.schema, null, 2),
+        ])
+      )
       .render();
   } else {
     new Table()
@@ -100,11 +113,38 @@ async function list(opts: GlobalOptions & { schema?: boolean }) {
   }
 }
 
+export async function generateRTNamespace(opts: GlobalOptions) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const rts = await wmill.listResourceType({
+    workspace: workspace.workspaceId,
+  });
+
+  let namespaceContent = "declare namespace RT {\n";
+  namespaceContent += rts
+    .map((resourceType) => {
+      return `  type ${toCamel(
+        capitalize(resourceType.name)
+      )} = ${compileResourceTypeToTsType(resourceType.schema as any).replaceAll(
+        "\n",
+        "\n  "
+      )}`;
+    })
+    .join("\n\n");
+  namespaceContent += "\n}";
+
+  writeFileSync(path.join(process.cwd(), "rt.d.ts"), namespaceContent);
+
+  log.info(
+    colors.green(
+      "Created rt.d.ts with resource types namespace (RT) for TypeScript."
+    )
+  );
+}
+
 const command = new Command()
   .description("resource type related commands")
-  .action(() =>
-    log.info("2 actions available, list and push.")
-  )
+  .action(() => log.info("2 actions available, list and push."))
   .command("list", "list all resource types")
   .option("--schema", "Show schema in the output")
   .action(list as any)
@@ -113,6 +153,11 @@ const command = new Command()
     "push a local resource spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <name:string>")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "generate-namespace",
+    "Create a TypeScript definition file with the RT namespace generated from the resource types"
+  )
+  .action(generateRTNamespace as any);
 
 export default command;
