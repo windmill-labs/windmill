@@ -6,6 +6,10 @@ import type { FlowModule } from '$lib/gen'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { ToolCallbacks } from '../../../shared'
 import { type VariantConfig, resolveSystemPrompt, resolveTools, resolveModel } from './evalVariants'
+import { evaluateFlowComparison, type EvalComparisonResult } from './evalFlowComparison'
+
+// Re-export for convenience
+export type { EvalComparisonResult } from './evalFlowComparison'
 
 export interface ToolCallDetail {
 	name: string
@@ -14,7 +18,6 @@ export interface ToolCallDetail {
 
 export interface EvalResult {
 	success: boolean
-	modules: FlowModule[]
 	flow: ExtendedOpenFlow
 	error?: string
 	tokenUsage: {
@@ -27,6 +30,15 @@ export interface EvalResult {
 	toolCallDetails: ToolCallDetail[]
 	iterations: number
 	variantName: string
+	evaluationResult?: EvalComparisonResult
+}
+
+export interface ExpectedFlow {
+	summary?: string
+	value: {
+		modules: FlowModule[]
+	}
+	schema?: Record<string, any>
 }
 
 export interface EvalOptions {
@@ -36,6 +48,7 @@ export interface EvalOptions {
 	customSystemPrompt?: string
 	maxIterations?: number
 	variant?: VariantConfig
+	expectedFlow?: ExpectedFlow
 }
 
 /**
@@ -48,7 +61,7 @@ export async function runFlowEval(
 	options?: EvalOptions
 ): Promise<EvalResult> {
 	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openaiApiKey })
-	const { helpers, getModules, getFlow } = createEvalHelpers(
+	const { helpers, getFlow } = createEvalHelpers(
 		options?.initialModules ?? [],
 		options?.initialSchema
 	)
@@ -158,21 +171,27 @@ export async function runFlowEval(
 			}
 		}
 
+		// Run evaluation if expected flow is provided
+		let evaluationResult: EvalComparisonResult | undefined
+		if (options?.expectedFlow) {
+			const generatedFlow = getFlow()
+			evaluationResult = await evaluateFlowComparison(generatedFlow, options.expectedFlow)
+		}
+
 		return {
 			success: true,
-			modules: getModules(),
 			flow: getFlow(),
 			tokenUsage: totalTokens,
 			toolCallsCount,
 			toolsCalled,
 			toolCallDetails,
 			iterations,
-			variantName
+			variantName,
+			evaluationResult
 		}
 	} catch (err) {
 		return {
 			success: false,
-			modules: getModules(),
 			flow: getFlow(),
 			error: err instanceof Error ? err.message : String(err),
 			tokenUsage: totalTokens,
@@ -183,67 +202,6 @@ export async function runFlowEval(
 			variantName
 		}
 	}
-}
-
-/**
- * Validates that actual modules match expected modules by order and type.
- */
-export function validateModules(
-	actual: FlowModule[],
-	expected: Array<{ type: string }>
-): { valid: boolean; message: string } {
-	if (actual.length !== expected.length) {
-		return {
-			valid: false,
-			message: `Module count mismatch: expected ${expected.length}, got ${actual.length}`
-		}
-	}
-
-	for (let i = 0; i < expected.length; i++) {
-		if (actual[i].value.type !== expected[i].type) {
-			return {
-				valid: false,
-				message: `Module ${i} type mismatch: expected '${expected[i].type}', got '${actual[i].value.type}'`
-			}
-		}
-	}
-
-	return { valid: true, message: 'All modules match expected types' }
-}
-
-/**
- * Validates that actual tool calls match expected tool calls by order and name.
- */
-export function validateToolCalls(
-	actual: string[],
-	expected: string[]
-): { valid: boolean; message: string } {
-	if (actual.length !== expected.length) {
-		return {
-			valid: false,
-			message: `Tool call count mismatch: expected ${expected.length}, got ${actual.length}. Called: [${actual.join(', ')}]`
-		}
-	}
-
-	for (let i = 0; i < expected.length; i++) {
-		if (actual[i] !== expected[i]) {
-			return {
-				valid: false,
-				message: `Tool call ${i} mismatch: expected '${expected[i]}', got '${actual[i]}'`
-			}
-		}
-	}
-
-	return { valid: true, message: 'All tool calls match expected' }
-}
-
-/**
- * Formats tool call details for logging/debugging.
- */
-export function formatToolCalls(details: ToolCallDetail[]): string {
-	return details
-		.map((d, i) => `${i + 1}. ${d.name}(${JSON.stringify(d.arguments, null, 2)})`)
-		.join('\n')
 }
 
 /**
@@ -265,16 +223,4 @@ export async function runVariantComparison(
 		})
 	)
 	return results
-}
-
-/**
- * Formats comparison results as a table for logging.
- */
-export function formatComparisonResults(results: EvalResult[]): string {
-	const header = 'Variant\t\tSuccess\tTokens\tTools\tIterations'
-	const rows = results.map((r) => {
-		const name = r.variantName.padEnd(16)
-		return `${name}\t${r.success}\t${r.tokenUsage.total}\t${r.toolsCalled.length}\t${r.iterations}`
-	})
-	return [header, ...rows].join('\n')
 }

@@ -36,6 +36,9 @@ export async function writeComparisonResults(
 	const resultFolder = join(resultsDir, timestamp)
 	await mkdir(resultFolder, { recursive: true })
 
+	// Check if any results have evaluation data
+	const hasEvaluation = results.some((r) => r.evaluationResult)
+
 	// Build summary markdown
 	const summaryLines: string[] = [
 		`# Eval Results - ${timestamp}`,
@@ -46,15 +49,51 @@ export async function writeComparisonResults(
 		'```',
 		'',
 		'## Results',
-		'',
-		'| Variant | Success | Total Tokens | Tool Calls | Iterations |',
-		'|---------|---------|--------------|------------|------------|'
+		''
 	]
 
-	for (const result of results) {
+	// Add results table header based on whether evaluation data exists
+	if (hasEvaluation) {
 		summaryLines.push(
-			`| ${result.variantName} | ${result.success} | ${result.tokenUsage.total} | ${result.toolsCalled.length} | ${result.iterations} |`
+			'| Variant | Success | Total Tokens | Tool Calls | Iterations | Resemblance Score |'
 		)
+		summaryLines.push(
+			'|---------|---------|--------------|------------|------------|-------------------|'
+		)
+	} else {
+		summaryLines.push('| Variant | Success | Total Tokens | Tool Calls | Iterations |')
+		summaryLines.push('|---------|---------|--------------|------------|------------|')
+	}
+
+	for (const result of results) {
+		const baseRow = `| ${result.variantName} | ${result.success} | ${result.tokenUsage.total} | ${result.toolsCalled.length} | ${result.iterations}`
+		if (hasEvaluation) {
+			const score = result.evaluationResult?.resemblanceScore ?? 'N/A'
+			summaryLines.push(`${baseRow} | ${score} |`)
+		} else {
+			summaryLines.push(`${baseRow} |`)
+		}
+	}
+
+	// Add evaluation details section if available
+	if (hasEvaluation) {
+		summaryLines.push('')
+		summaryLines.push('## Evaluation Details')
+		summaryLines.push('')
+		for (const result of results) {
+			if (result.evaluationResult) {
+				summaryLines.push(`### ${result.variantName}`)
+				summaryLines.push('')
+				summaryLines.push(`**Score:** ${result.evaluationResult.resemblanceScore}/100`)
+				summaryLines.push('')
+				summaryLines.push(`**Statement:** ${result.evaluationResult.statement}`)
+				summaryLines.push('')
+				if (result.evaluationResult.error) {
+					summaryLines.push(`**Error:** ${result.evaluationResult.error}`)
+					summaryLines.push('')
+				}
+			}
+		}
 	}
 
 	summaryLines.push('')
@@ -79,6 +118,7 @@ export async function writeComparisonResults(
 			variantName: result.variantName,
 			success: result.success,
 			error: result.error,
+			evaluationResult: result.evaluationResult,
 			toolsCalled: result.toolsCalled,
 			toolCallDetails: result.toolCallDetails
 		}

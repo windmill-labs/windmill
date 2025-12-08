@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import {
-	runVariantComparison,
-	validateModules,
-	validateToolCalls,
-	formatToolCalls,
-	type EvalResult
-} from './evalRunner'
+import { runVariantComparison, type ExpectedFlow } from './evalRunner'
 import { writeComparisonResults } from './evalResultsWriter'
 import { BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT } from './variants'
+// @ts-ignore - JSON import
+import expectedTest1 from './expected/test1.json'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -40,7 +36,10 @@ STEP 5: Return action taken for each user
 				USER_PROMPT,
 				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
 				OPENROUTER_API_KEY!,
-				{ model: 'anthropic/claude-haiku-4.5' }
+				{
+					model: 'anthropic/claude-haiku-4.5',
+					expectedFlow: expectedTest1 as ExpectedFlow
+				}
 			)
 
 			// Write results to files
@@ -51,38 +50,16 @@ STEP 5: Return action taken for each user
 			// Assert all variants succeeded
 			for (const result of results) {
 				expect(result.success, `${result.variantName} should succeed`).toBe(true)
-				// expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
+
+				// Log evaluation results
+				if (result.evaluationResult) {
+					console.log(
+						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
+					)
+					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+				}
 			}
 		},
 		TEST_TIMEOUT * 2 // Double timeout for comparison tests
 	)
 })
-
-/**
- * Helper to validate eval result and log details on failure
- */
-function assertEvalResult(
-	result: EvalResult,
-	expected: {
-		modules: Array<{ type: string }>
-		tools: string[]
-	},
-	testName: string
-) {
-	expect(result.success).toBe(true)
-	console.log(
-		`[${testName}] Tokens: ${result.tokenUsage.total}, Tools: [${result.toolsCalled.join(', ')}]`
-	)
-
-	const moduleValidation = validateModules(result.modules, expected.modules)
-	if (!moduleValidation.valid) {
-		console.log('Tool calls with arguments:\n' + formatToolCalls(result.toolCallDetails))
-	}
-	expect(moduleValidation.valid, moduleValidation.message).toBe(true)
-
-	const toolValidation = validateToolCalls(result.toolsCalled, expected.tools)
-	if (!toolValidation.valid) {
-		console.log('Tool calls with arguments:\n' + formatToolCalls(result.toolCallDetails))
-	}
-	expect(toolValidation.valid, toolValidation.message).toBe(true)
-}
