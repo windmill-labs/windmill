@@ -1,0 +1,241 @@
+{
+  "variantName": "baseline",
+  "success": true,
+  "modules": [
+    {
+      "id": "fetch_users",
+      "summary": "Fetch mock users from API",
+      "value": {
+        "type": "rawscript",
+        "language": "bun",
+        "content": "inline_script.fetch_users",
+        "input_transforms": {}
+      }
+    },
+    {
+      "id": "filter_active_users",
+      "summary": "Filter only active users",
+      "value": {
+        "type": "rawscript",
+        "language": "bun",
+        "content": "inline_script.filter_active_users",
+        "input_transforms": {
+          "users": {
+            "type": "javascript",
+            "expr": "results.fetch_users"
+          }
+        }
+      }
+    },
+    {
+      "id": "loop_users",
+      "summary": "Loop through all active users",
+      "value": {
+        "type": "forloopflow",
+        "iterator": {
+          "type": "javascript",
+          "expr": "results.filter_active_users"
+        },
+        "skip_failures": false,
+        "modules": [
+          {
+            "id": "process_user",
+            "summary": "Process user based on role",
+            "value": {
+              "type": "rawscript",
+              "language": "bun",
+              "content": "export async function main(user: any) { let action = ''; if (user.role === 'admin') action = 'Admin privileges'; else if (user.role === 'moderator') action = 'Moderator permissions'; else action = 'Standard access'; return { userId: user.id, userName: user.name, role: user.role, action: action }; }",
+              "input_transforms": {
+                "user": {
+                  "type": "javascript",
+                  "expr": "flow_input.iter.value"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "return_results",
+      "summary": "Return action taken for each user",
+      "value": {
+        "type": "rawscript",
+        "language": "bun",
+        "content": "inline_script.return_results",
+        "input_transforms": {
+          "actions": {
+            "type": "javascript",
+            "expr": "results.loop_users"
+          }
+        }
+      }
+    }
+  ],
+  "toolsCalled": [
+    "set_flow_schema",
+    "get_instructions_for_code_generation",
+    "add_module",
+    "add_module",
+    "add_module",
+    "add_module",
+    "add_module",
+    "add_module",
+    "add_module",
+    "add_module",
+    "test_run_flow",
+    "test_run_step"
+  ],
+  "toolCallDetails": [
+    {
+      "name": "set_flow_schema",
+      "arguments": {
+        "schema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "name": "get_instructions_for_code_generation",
+      "arguments": {
+        "language": "bun"
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": null,
+        "value": {
+          "id": "fetch_users",
+          "summary": "Fetch mock users from API",
+          "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export async function main() {\n  // Mock API call to fetch users\n  const users = [\n    { id: 1, name: 'Alice', role: 'admin', active: true },\n    { id: 2, name: 'Bob', role: 'user', active: false },\n    { id: 3, name: 'Charlie', role: 'user', active: true },\n    { id: 4, name: 'Diana', role: 'moderator', active: true },\n    { id: 5, name: 'Eve', role: 'admin', active: false }\n  ];\n  return users;\n}",
+            "input_transforms": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "fetch_users",
+        "value": "{\"id\": \"filter_active_users\", \"summary\": \"Filter only active users\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(users: any[]) {\\n  // Filter only active users\\n  const activeUsers = users.filter(user => user.active === true);\\n  return activeUsers;\\n}\", \"input_transforms\": {\"users\": {\"type\": \"javascript\", \"expr\": \"results.fetch_users\"}}}}}"
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "fetch_users",
+        "value": {
+          "id": "filter_active_users",
+          "summary": "Filter only active users",
+          "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export async function main(users: any[]) {\n  const activeUsers = users.filter(user => user.active === true);\n  return activeUsers;\n}",
+            "input_transforms": {
+              "users": {
+                "type": "javascript",
+                "expr": "results.fetch_users"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "filter_active_users",
+        "value": "{\"id\": \"loop_users\", \"summary\": \"Loop through all active users\", \"value\": {\"type\": \"forloopflow\", \"iterator\": {\"type\": \"javascript\", \"expr\": \"results.filter_active_users\"}, \"skip_failures\": false, \"modules\": [{\"id\": \"branch_by_role\", \"summary\": \"Branch based on user role\", \"value\": {\"type\": \"branchone\", \"branches\": [{\"expr\": \"flow_input.iter.value.role === 'admin'\", \"summary\": \"Admin user\", \"modules\": [{\"id\": \"admin_action\", \"summary\": \"Perform admin action\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  return { userId: user.id, action: 'Admin privileges granted to ' + user.name };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}, {\"expr\": \"flow_input.iter.value.role === 'moderator'\", \"summary\": \"Moderator user\", \"modules\": [{\"id\": \"moderator_action\", \"summary\": \"Perform moderator action\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  return { userId: user.id, action: 'Moderator permissions granted to ' + user.name };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}, {\"expr\": \"flow_input.iter.value.role === 'user'\", \"summary\": \"Regular user\", \"modules\": [{\"id\": \"user_action\", \"summary\": \"Perform user action\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  return { userId: user.id, action: 'Standard user access granted to ' + user.name };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}], \"default\": [{\"id\": \"default_action\", \"summary\": \"Default action for unknown role\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  return { userId: user.id, action: 'Unknown role for ' + user.name };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}}]}}}"
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "filter_active_users",
+        "value": "{\"id\": \"loop_users\", \"summary\": \"Loop through all active users\", \"value\": {\"type\": \"forloopflow\", \"iterator\": {\"type\": \"javascript\", \"expr\": \"results.filter_active_users\"}, \"skip_failures\": false, \"modules\": [{\"id\": \"process_user\", \"summary\": \"Process user based on role\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  let action = '';\\n  if (user.role === 'admin') {\\n    action = 'Admin privileges granted to ' + user.name;\\n  } else if (user.role === 'moderator') {\\n    action = 'Moderator permissions granted to ' + user.name;\\n  } else if (user.role === 'user') {\\n    action = 'Standard user access granted to ' + user.name;\\n  } else {\\n    action = 'Unknown role for ' + user.name;\\n  }\\n  return { userId: user.id, userName: user.name, role: user.role, action: action };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}}}"
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "filter_active_users",
+        "value": "{\"id\": \"loop_users\", \"summary\": \"Loop through all active users\", \"value\": {\"type\": \"forloopflow\", \"iterator\": {\"type\": \"javascript\", \"expr\": \"results.filter_active_users\"}, \"skip_failures\": false, \"modules\": [{\"id\": \"process_user\", \"summary\": \"Process user based on role\", \"value\": {\"type\": \"rawscript\", \"language\": \"bun\", \"content\": \"export async function main(user: any) {\\n  let action = '';\\n  if (user.role === 'admin') action = 'Admin privileges granted';\\n  else if (user.role === 'moderator') action = 'Moderator permissions granted';\\n  else if (user.role === 'user') action = 'Standard user access granted';\\n  else action = 'Unknown role';\\n  return { userId: user.id, userName: user.name, role: user.role, action: action };\\n}\", \"input_transforms\": {\"user\": {\"type\": \"javascript\", \"expr\": \"flow_input.iter.value\"}}}}]}}}"
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "filter_active_users",
+        "value": {
+          "id": "loop_users",
+          "summary": "Loop through all active users",
+          "value": {
+            "type": "forloopflow",
+            "iterator": {
+              "type": "javascript",
+              "expr": "results.filter_active_users"
+            },
+            "skip_failures": false,
+            "modules": [
+              {
+                "id": "process_user",
+                "summary": "Process user based on role",
+                "value": {
+                  "type": "rawscript",
+                  "language": "bun",
+                  "content": "export async function main(user: any) { let action = ''; if (user.role === 'admin') action = 'Admin privileges'; else if (user.role === 'moderator') action = 'Moderator permissions'; else action = 'Standard access'; return { userId: user.id, userName: user.name, role: user.role, action: action }; }",
+                  "input_transforms": {
+                    "user": {
+                      "type": "javascript",
+                      "expr": "flow_input.iter.value"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "add_module",
+      "arguments": {
+        "afterId": "loop_users",
+        "value": {
+          "id": "return_results",
+          "summary": "Return action taken for each user",
+          "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export async function main(actions: any[]) { return { summary: 'Actions completed for ' + actions.length + ' users', details: actions }; }",
+            "input_transforms": {
+              "actions": {
+                "type": "javascript",
+                "expr": "results.loop_users"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "test_run_flow",
+      "arguments": {
+        "args": null
+      }
+    },
+    {
+      "name": "test_run_step",
+      "arguments": {
+        "stepId": "fetch_users",
+        "args": null
+      }
+    }
+  ]
+}

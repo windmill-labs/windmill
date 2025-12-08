@@ -1,15 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-	runFlowEval,
 	runVariantComparison,
-	formatComparisonResults,
 	validateModules,
 	validateToolCalls,
 	formatToolCalls,
 	type EvalResult
 } from './evalRunner'
 import { writeComparisonResults } from './evalResultsWriter'
-import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
+import { BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT } from './variants'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -30,18 +28,20 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 		'example: compare variants on simple task',
 		async () => {
 			const USER_PROMPT = `
-Add a step that prints Hello World
-			`
+THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES
+
+STEP 1: Fetch mock users from api
+STEP 2: Filter only active users:
+STEP 3: Loop on all users
+STEP 4: Do branches based on user's role, do different action based on that. Roles are admin, user, moderator
+STEP 5: Return action taken for each user
+`
 			const results = await runVariantComparison(
 				USER_PROMPT,
-				[BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT],
+				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
 				OPENROUTER_API_KEY!,
 				{ model: 'anthropic/claude-haiku-4.5' }
 			)
-
-			// Log comparison table
-			console.log('\n--- Variant Comparison Results ---')
-			console.log(formatComparisonResults(results))
 
 			// Write results to files
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
@@ -51,7 +51,7 @@ Add a step that prints Hello World
 			// Assert all variants succeeded
 			for (const result of results) {
 				expect(result.success, `${result.variantName} should succeed`).toBe(true)
-				expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
+				// expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
 			}
 		},
 		TEST_TIMEOUT * 2 // Double timeout for comparison tests

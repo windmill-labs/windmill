@@ -3,6 +3,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { prepareFlowUserMessage } from '../../core'
 import { createEvalHelpers } from './evalHelpers'
 import type { FlowModule } from '$lib/gen'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { ToolCallbacks } from '../../../shared'
 import { type VariantConfig, resolveSystemPrompt, resolveTools, resolveModel } from './evalVariants'
 
@@ -14,6 +15,7 @@ export interface ToolCallDetail {
 export interface EvalResult {
 	success: boolean
 	modules: FlowModule[]
+	flow: ExtendedOpenFlow
 	error?: string
 	tokenUsage: {
 		prompt: number
@@ -46,7 +48,7 @@ export async function runFlowEval(
 	options?: EvalOptions
 ): Promise<EvalResult> {
 	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openaiApiKey })
-	const { helpers, getModules } = createEvalHelpers(
+	const { helpers, getModules, getFlow } = createEvalHelpers(
 		options?.initialModules ?? [],
 		options?.initialSchema
 	)
@@ -85,8 +87,6 @@ export async function runFlowEval(
 				tools: toolDefs,
 				temperature: 0
 			})
-
-			console.log('called LLM')
 
 			// Track token usage
 			if (response.usage) {
@@ -161,6 +161,7 @@ export async function runFlowEval(
 		return {
 			success: true,
 			modules: getModules(),
+			flow: getFlow(),
 			tokenUsage: totalTokens,
 			toolCallsCount,
 			toolsCalled,
@@ -172,6 +173,7 @@ export async function runFlowEval(
 		return {
 			success: false,
 			modules: getModules(),
+			flow: getFlow(),
 			error: err instanceof Error ? err.message : String(err),
 			tokenUsage: totalTokens,
 			toolCallsCount,

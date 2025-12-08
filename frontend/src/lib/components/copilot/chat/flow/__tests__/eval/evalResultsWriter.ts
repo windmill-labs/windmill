@@ -64,20 +64,38 @@ export async function writeComparisonResults(
 	const flowPaths: string[] = []
 
 	for (const result of results) {
-		const flowFilename = `${result.variantName}.json`
+		const resultFilename = `${result.variantName}.json`
+		const resultPath = join(resultFolder, resultFilename)
+		flowPaths.push(resultPath)
+
+		const flowFilename = `${result.variantName}_flow.json`
 		const flowPath = join(resultFolder, flowFilename)
-		flowPaths.push(flowPath)
 
-		summaryLines.push(`- ${result.variantName}: ./${flowFilename}`)
+		summaryLines.push(`- ${result.variantName}: ./${resultFilename}`)
+		summaryLines.push(`  - Flow definition: ./${flowFilename}`)
 
-		// Write flow JSON file
-		const flowData = {
+		// Write result JSON file (with metadata)
+		const resultData = {
 			variantName: result.variantName,
 			success: result.success,
 			error: result.error,
-			modules: result.modules,
 			toolsCalled: result.toolsCalled,
 			toolCallDetails: result.toolCallDetails
+		}
+		await writeFile(resultPath, JSON.stringify(resultData, null, 2))
+
+		// Write flow definition JSON file (clean flow format)
+		const flowData = {
+			summary: result.flow.summary ?? '',
+			value: {
+				modules: result.flow.value.modules
+			},
+			schema: result.flow.schema ?? {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: {},
+				required: [],
+				type: 'object'
+			}
 		}
 		await writeFile(flowPath, JSON.stringify(flowData, null, 2))
 	}
