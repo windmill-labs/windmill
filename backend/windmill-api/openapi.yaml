@@ -3449,6 +3449,10 @@ paths:
           required: true
           schema:
             type: string
+        - name: expires_in
+          in: query
+          schema:
+            type: number
 
       responses:
         "200":
