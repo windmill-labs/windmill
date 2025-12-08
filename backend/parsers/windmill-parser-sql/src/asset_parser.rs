@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use sqlparser::{
     ast::{CopyTarget, Expr, ObjectName, TableFactor, Value, ValueWithSpan, Visit, Visitor},
-    dialect::GenericDialect,
+    dialect::DuckDbDialect,
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
@@ -11,7 +11,7 @@ use windmill_parser::asset_parser::{
 use AssetUsageAccessType::*;
 
 pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
-    let statements = Parser::parse_sql(&GenericDialect, input)?;
+    let statements = Parser::parse_sql(&DuckDbDialect, input)?;
 
     let mut collector = AssetCollector::new();
     for statement in statements {
@@ -39,6 +39,23 @@ impl AssetCollector {
         }
     }
 
+    // Detect when we do a.b and a is associated with an asset in var_identifiers
+    fn get_associated_asset_from_obj_name(
+        &self,
+        name: &ObjectName,
+    ) -> Option<ParseAssetsResult<String>> {
+        if name.0.len() < 2 {
+            return None;
+        }
+        let ident = name.0.first()?.as_ident()?;
+        let (kind, path) = self.var_identifiers.get(&ident.value)?;
+        Some(ParseAssetsResult {
+            kind: *kind,
+            access_type: self.current_access_type_stack.last().copied(),
+            path: path.clone(),
+        })
+    }
+
     fn handle_string_literal(&mut self, s: &str) {
         // Check if the string matches our asset syntax patterns
         if let Some((kind, path)) = parse_asset_syntax(s) {
@@ -61,7 +78,11 @@ impl AssetCollector {
         if let Some(str_lit) = get_str_lit_from_obj_name(name) {
             self.handle_string_literal(str_lit);
         }
+        if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+            self.assets.push(asset);
+        }
     }
+
     fn handle_obj_name_post(&mut self, name: &ObjectName) {
         if self.current_access_type_stack.is_empty() {
             return;
@@ -186,6 +207,16 @@ impl Visitor for AssetCollector {
         self.current_access_type_stack.pop();
         std::ops::ControlFlow::Continue(())
     }
+
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> std::ops::ControlFlow<Self::Break> {
+        self.handle_obj_name_pre(relation);
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_relation(&mut self, relation: &ObjectName) -> std::ops::ControlFlow<Self::Break> {
+        self.handle_obj_name_post(relation);
+        std::ops::ControlFlow::Continue(())
+    }
 }
 
 fn is_read_fn(fname: &str) -> bool {
@@ -258,5 +289,69 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_attach_no_usage_is_registered_as_unknown() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT 2;
+            USE dl;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl".to_string(),
+                access_type: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_attach_dot_notation_read() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT * FROM dl.table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_attach_dot_notation_write() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT dl.read_bait FROM unrelated_table; -- dl. doesn't access the asset
+            INSERT INTO dl.table1 VALUES ('test');
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_dl".to_string(),
+                access_type: Some(W)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_detach() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            DETACH dl;
+            SELECT * FROM dl.table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
     }
 }
