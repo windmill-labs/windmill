@@ -470,9 +470,7 @@
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
-					if (flow?.ws_error_handler_muted) {
-						flow.ws_error_handler_muted = v
-					}
+					if (flow !== undefined) flow.ws_error_handler_muted = v
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
