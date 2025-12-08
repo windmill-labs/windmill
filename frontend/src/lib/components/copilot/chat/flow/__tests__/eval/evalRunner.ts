@@ -108,6 +108,10 @@ export async function runFlowEval(
 				totalTokens.total += response.usage.total_tokens
 			}
 
+			if (!response.choices.length) {
+				throw new Error('No response from API')
+			}
+
 			const choice = response.choices[0]
 			const assistantMessage = choice.message
 
