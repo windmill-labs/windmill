@@ -86,7 +86,7 @@ export async function runFlowEval(
 				temperature: 0
 			})
 
-			console.log('response', response)
+			console.log('called LLM')
 
 			// Track token usage
 			if (response.usage) {

@@ -8,6 +8,7 @@ import {
 	formatToolCalls,
 	type EvalResult
 } from './evalRunner'
+import { writeComparisonResults } from './evalResultsWriter'
 import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
 
 // Get API key from environment - tests will be skipped if not set
@@ -28,16 +29,24 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 	it.only(
 		'example: compare variants on simple task',
 		async () => {
+			const USER_PROMPT = `
+Add a step that prints Hello World
+			`
 			const results = await runVariantComparison(
-				'Add a step that prints Hello World',
+				USER_PROMPT,
 				[BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT],
 				OPENROUTER_API_KEY!,
-				{ model: 'gpt-4o-mini' }
+				{ model: 'anthropic/claude-haiku-4.5' }
 			)
 
 			// Log comparison table
 			console.log('\n--- Variant Comparison Results ---')
 			console.log(formatComparisonResults(results))
+
+			// Write results to files
+			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			console.log(`\nResults written to: ${summaryPath}`)
+			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
 			// Assert all variants succeeded
 			for (const result of results) {
