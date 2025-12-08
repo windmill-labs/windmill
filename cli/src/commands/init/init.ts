@@ -4,6 +4,7 @@ import { readLockfile } from "../../utils/metadata.ts";
 import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
+import { generateRTNamespace } from "../resource-type/resource-type.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -279,6 +280,17 @@ ${flowGuidanceContent}
     } else {
       log.warn(`Could not create guidance files: ${error}`);
     }
+  }
+
+  // Generate resource type namespace
+  try {
+    await generateRTNamespace(opts as GlobalOptions);
+  } catch (error) {
+    log.warn(
+      `Could not pull resource types and generate TypeScript namespace: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
   }
 }
 

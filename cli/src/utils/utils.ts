@@ -275,3 +275,13 @@ export async function fetchRemoteVersion(
   }
   log.info(colors.gray("Remote version: " + version));
 }
+
+export function toCamel(s: string) {
+  return s.replace(/([-_][a-z])/gi, ($1) => {
+    return $1.toUpperCase().replace("-", "").replace("_", "");
+  });
+}
+
+export function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
