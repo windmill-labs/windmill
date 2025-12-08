@@ -150,6 +150,10 @@
 		}
 		return map
 	})
+
+	export function unsavedChanges(): { savedValue: any; modifiedValue: any } {
+		return { savedValue: dataTableSettings, modifiedValue: tempSettings }
+	}
 </script>
 
 <div class="flex flex-col gap-4 my-8">
