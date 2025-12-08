@@ -42,7 +42,7 @@
 
 <div class="flex flex-col gap-1">
 	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center">
-		<div class="w-[120px]"><IconedResourceType name={'pocket-id'} after={true} /></div>
+		<div class="w-[120px]"><IconedResourceType name={'pocketid'} after={true} /></div>
 		<Toggle checked={enabled} onchange={handleToggle} />
 	</label>
 	{#if enabled}

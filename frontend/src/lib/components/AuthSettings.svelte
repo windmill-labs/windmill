@@ -259,12 +259,12 @@
 				<KeycloakSetting bind:value={oauths['keycloak']} />
 				<AuthentikSetting bind:value={oauths['authentik']} />
 				<AutheliaSetting bind:value={oauths['authelia']} />
-				<PocketIdSetting bind:value={oauths['pocket-id']} />
+				<PocketIdSetting bind:value={oauths['pocketid']} />
 				<KanidmSetting bind:value={oauths['kanidm']} />
 				<ZitadelSetting bind:value={oauths['zitadel']} />
 				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocket-id'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud', 'pocketid'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">
