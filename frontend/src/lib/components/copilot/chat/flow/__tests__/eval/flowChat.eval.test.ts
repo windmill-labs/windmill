@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
 	runFlowEval,
+	runVariantComparison,
+	formatComparisonResults,
 	validateModules,
 	validateToolCalls,
 	formatToolCalls,
 	type EvalResult
 } from './evalRunner'
+import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT, type VariantConfig } from './variants'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -49,19 +52,46 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 		console.warn('OPENAI_API_KEY is not set, skipping tests')
 	}
 
-	it.only(
+	it(
 		'should add a simple rawscript module',
 		async () => {
 			const result = await runFlowEval('Add a step that prints Hello World', OPENAI_API_KEY!, {
 				model: 'gpt-4o-mini'
 			})
 
-			assertEvalResult(result, {
-				modules: [{ type: 'rawscript' }],
-				tools: ['add_module', 'test_run_flow']
-			}, 'TEST 1')
+			assertEvalResult(
+				result,
+				{
+					modules: [{ type: 'rawscript' }],
+					tools: ['add_module', 'test_run_flow']
+				},
+				'TEST 1'
+			)
 		},
 		TEST_TIMEOUT
+	)
+
+	it.only(
+		'example: compare variants on simple task',
+		async () => {
+			const results = await runVariantComparison(
+				'Add a step that prints Hello World',
+				[BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT],
+				OPENAI_API_KEY!,
+				{ model: 'gpt-4o-mini' }
+			)
+
+			// Log comparison table
+			console.log('\n--- Variant Comparison Results ---')
+			console.log(formatComparisonResults(results))
+
+			// Assert all variants succeeded
+			for (const result of results) {
+				expect(result.success, `${result.variantName} should succeed`).toBe(true)
+				expect(result.modules.length, `${result.variantName} should create 1 module`).toBe(1)
+			}
+		},
+		TEST_TIMEOUT * 2 // Double timeout for comparison tests
 	)
 })
 
