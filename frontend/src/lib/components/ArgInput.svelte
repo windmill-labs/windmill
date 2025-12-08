@@ -793,6 +793,11 @@
 						<div class="text-red-500 text-2xs">
 							Error loading json schema resource {format.substring('jsonschema-'.length)}, please
 							check if the resource exists and is a valid json schema.
+							<a
+								href="https://windmill.dev/docs/core_concepts/resources_and_types#json-schema-resources"
+								target="_blank"
+								class="text-blue-500 hover:text-blue-700 underline">See documentation</a
+							>
 						</div>
 					</div>
 				{:else}
