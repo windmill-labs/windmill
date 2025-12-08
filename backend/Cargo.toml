@@ -328,7 +328,7 @@ futures = "^0"
 futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
-const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
+const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"

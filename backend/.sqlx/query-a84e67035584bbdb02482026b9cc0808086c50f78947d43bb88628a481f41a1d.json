@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", \n        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, r.ping as last_ping, worker, memory_peak, running\n             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
+  "query": "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", \n        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running\n             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
   "describe": {
     "columns": [
       {
@@ -184,21 +184,26 @@
       },
       {
         "ordinal": 20,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
         "name": "last_ping",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "worker",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "memory_peak",
         "type_info": "Int4"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "running",
         "type_info": "Bool"
       }
@@ -232,8 +237,9 @@
       true,
       true,
       true,
+      true,
       false
     ]
   },
-  "hash": "d48c9a748746080e9b6cf0366b2ca3516ac5c1d32a98946196b1a42e3f103efd"
+  "hash": "a84e67035584bbdb02482026b9cc0808086c50f78947d43bb88628a481f41a1d"
 }

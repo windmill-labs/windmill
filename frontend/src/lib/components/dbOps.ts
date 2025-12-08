@@ -11,6 +11,7 @@ import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
+import { assert } from '$lib/utils'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -47,7 +48,7 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+	const dbArg = getDatabaseArg(input)
 	return {
 		dbType,
 		tableKey,
@@ -128,7 +129,7 @@ export function dbDeleteTableActionWithPreviewScript({
 	workspace: string
 	input: DbInput
 }): DbTableActionFactory {
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+	const dbArg = getDatabaseArg(input)
 
 	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
@@ -169,9 +170,12 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	const mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? [])
+	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
+	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
 
 	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	assert('mainSchema is an object', typeof mainSchema === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
 		schema: { main: mainSchema },
 		publicOnly: true,
@@ -204,4 +208,15 @@ export function getDbType(input: DbInput): DbType {
 		case 'ducklake':
 			return 'duckdb'
 	}
+}
+
+export function getDatabaseArg(input: DbInput | undefined) {
+	if (input?.type === 'database') {
+		if (input.resourcePath.startsWith('datatable://')) {
+			return { database: 'datatable://' + input.resourcePath }
+		} else {
+			return { database: '$res:' + input.resourcePath }
+		}
+	}
+	return {}
 }

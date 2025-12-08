@@ -192,6 +192,7 @@ def main():
         concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 
@@ -240,6 +241,7 @@ def main():
             concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
             debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
         });
 
@@ -273,6 +275,7 @@ def main():
             concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
             debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
         });
 
@@ -311,6 +314,7 @@ def main():
         concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 
@@ -347,6 +351,7 @@ def main():
         concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 

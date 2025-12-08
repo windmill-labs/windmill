@@ -1770,12 +1770,12 @@ async fn execute_component(
         // 1. "preview" mode.
         ExecuteApp {
             force_viewer_static_fields: Some(static_inputs),
-            force_viewer_one_of_fields: Some(one_of_inputs),
-            force_viewer_allow_user_resources: Some(allow_user_resources),
+            force_viewer_one_of_fields,
+            force_viewer_allow_user_resources,
             ..
         } => (
             &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
-            &PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources },
+            &PolicyTriggerableInputs { static_inputs, one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(), allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default() },
         ),
         // 2. "run" mode.
         _ => {
