@@ -358,6 +358,7 @@
 </DataTable>
 <Button
 	wrapperClasses="mt-4 mb-16 max-w-fit"
+	variant="accent"
 	on:click={onSave}
 	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
 		Object.values(ducklakeIsDirty).every((v) => v === false)}

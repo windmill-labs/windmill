@@ -282,7 +282,7 @@
 	</tbody>
 </DataTable>
 
-<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave}>Save</Button>
+<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave} variant="accent">Save</Button>
 
 <ConfirmationModal {...confirmationModal.props} />
 <DBManagerDrawer bind:this={dbManagerDrawer} />
