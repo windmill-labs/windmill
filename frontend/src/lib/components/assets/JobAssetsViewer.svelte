@@ -35,10 +35,9 @@
 			)
 		}
 		if (job.job_kind === 'script') {
-			return [
-				...(await inferAssets(job.language!, job.raw_code ?? '')),
-				...parseInputArgsAssets(job.args ?? {})
-			]
+			let inferAssetsResult = await inferAssets(job.language!, job.raw_code ?? '')
+			let assets = inferAssetsResult.status === 'ok' ? inferAssetsResult.assets : []
+			return [...assets, ...parseInputArgsAssets(job.args ?? {})]
 		}
 		return []
 	}
