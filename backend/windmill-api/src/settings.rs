@@ -658,10 +658,10 @@ async fn refresh_custom_instance_user_pwd(
                 ));
                 RAISE NOTICE 'Inserted new global setting for custom_instance_pg_databases';
             ELSE
-            UPDATE global_settings
-            SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
-            WHERE name = 'custom_instance_pg_databases';
-            RAISE NOTICE 'Updated user_pwd in existing global setting for custom_instance_pg_databases';
+                UPDATE global_settings
+                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
+                WHERE name = 'custom_instance_pg_databases';
+                RAISE NOTICE 'Updated user_pwd in existing global setting for custom_instance_pg_databases';
             END IF;
         END
         $$;
