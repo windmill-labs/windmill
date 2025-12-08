@@ -361,24 +361,32 @@ pub async fn load_otel(db: &DB) {
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    }
                     Some(endpoint.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
                 };
 
                 let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    }
                     Some(headers.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
                 };
 
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    }
                 }
                 if let Some(compression) = o.otel_exporter_otlp_compression {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    }
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());

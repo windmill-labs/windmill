@@ -335,7 +335,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     update_ca_certificates_if_requested();
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info")
+        unsafe { std::env::set_var("RUST_LOG", "info") }
     }
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {

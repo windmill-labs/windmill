@@ -58,12 +58,16 @@ pub fn initialize_tracing(
         .as_ref()
         .is_ok_and(|x| x == "debug" || x == "info")
     {
-        std::env::set_var(
-            "RUST_LOG",
-            &format!("windmill={}", rust_log_env.as_ref().unwrap()),
-        )
+        unsafe {
+            std::env::set_var(
+                "RUST_LOG",
+                &format!("windmill={}", rust_log_env.as_ref().unwrap()),
+            )
+        }
     } else if rust_log_env.as_ref().is_ok_and(|x| x == "sqlxdebug") {
-        std::env::set_var("RUST_LOG", "windmill=debug,sqlx=debug");
+        unsafe {
+            std::env::set_var("RUST_LOG", "windmill=debug,sqlx=debug");
+        }
     };
 
     let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug" || x == "sqlxdebug") {
@@ -110,14 +114,18 @@ pub fn initialize_tracing(
     let stdout_env_filter = if rust_log_stdout_env.is_ok() {
         // Temporarily set RUST_LOG to RUST_LOG_STDOUT value to parse it
         let original_rust_log = std::env::var("RUST_LOG").ok();
-        std::env::set_var("RUST_LOG", rust_log_stdout_env.unwrap());
+        unsafe {
+            std::env::set_var("RUST_LOG", rust_log_stdout_env.unwrap());
+        }
         let filter = EnvFilter::builder()
             .with_default_directive(tracing::level_filters::LevelFilter::ERROR.into())
             .from_env_lossy();
-        // Restore original RUST_LOG
-        match original_rust_log {
-            Some(val) => std::env::set_var("RUST_LOG", val),
-            None => std::env::remove_var("RUST_LOG"),
+        unsafe {
+            // Restore original RUST_LOG
+            match original_rust_log {
+                Some(val) => std::env::set_var("RUST_LOG", val),
+                None => std::env::remove_var("RUST_LOG"),
+            }
         }
         filter
     } else {
