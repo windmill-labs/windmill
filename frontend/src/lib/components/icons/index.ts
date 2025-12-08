@@ -212,7 +212,7 @@ export const APP_TO_ICON_COMPONENT = {
 	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon,
-	'pocket-id': PocketIdIcon
+	pocketid: PocketIdIcon
 } as const
 
 export {
