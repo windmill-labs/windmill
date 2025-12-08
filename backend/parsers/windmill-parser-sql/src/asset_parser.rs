@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlparser::{
     ast::{CopyTarget, Expr, ObjectName, TableFactor, Value, ValueWithSpan, Visit, Visitor},
     dialect::GenericDialect,
@@ -24,11 +26,17 @@ struct AssetCollector {
     assets: Vec<ParseAssetsResult<String>>,
     // e.g set to true when we are inside a SELECT ... FROM ... statement
     current_access_type_stack: Vec<AssetUsageAccessType>,
+    // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
+    var_identifiers: HashMap<String, (AssetKind, String)>,
 }
 
 impl AssetCollector {
     fn new() -> Self {
-        Self { assets: Vec::new(), current_access_type_stack: Vec::with_capacity(8) }
+        Self {
+            assets: Vec::new(),
+            current_access_type_stack: Vec::with_capacity(8),
+            var_identifiers: HashMap::new(),
+        }
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -121,14 +129,34 @@ impl Visitor for AssetCollector {
             self.current_access_type_stack.push(access_type);
         }
 
-        self.current_access_type_stack.push(W);
         match statement {
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
+                self.current_access_type_stack.push(W);
                 self.handle_string_literal(filename);
+                self.current_access_type_stack.pop();
+            }
+            sqlparser::ast::Statement::AttachDuckDBDatabase {
+                database_path,
+                database_alias,
+                ..
+            } => {
+                if let Some((kind, path)) = parse_asset_syntax(&database_path.value) {
+                    if kind == AssetKind::Ducklake
+                        || kind == AssetKind::DataTable
+                        || kind == AssetKind::Resource
+                    {
+                        if let Some(database_alias) = database_alias {
+                            self.var_identifiers
+                                .insert(database_alias.value.clone(), (kind, path.to_string()));
+                        }
+                    }
+                }
+            }
+            sqlparser::ast::Statement::DetachDuckDBDatabase { database_alias, .. } => {
+                self.var_identifiers.remove(&database_alias.value);
             }
             _ => {}
         }
-        self.current_access_type_stack.pop();
 
         std::ops::ControlFlow::Continue(())
     }
@@ -169,9 +197,15 @@ fn is_read_fn(fname: &str) -> bool {
 fn get_stmt_access_type(statement: &sqlparser::ast::Statement) -> Option<AssetUsageAccessType> {
     match statement {
         sqlparser::ast::Statement::Query(_) => Some(R),
-        sqlparser::ast::Statement::Insert { .. } => Some(W),
-        sqlparser::ast::Statement::Update { .. } => Some(W),
-        sqlparser::ast::Statement::Delete { .. } => Some(W),
+        sqlparser::ast::Statement::Insert(insert) => {
+            Some(if insert.returning.is_some() { RW } else { W })
+        }
+        sqlparser::ast::Statement::Update { returning, .. } => {
+            Some(if returning.is_some() { RW } else { W })
+        }
+        sqlparser::ast::Statement::Delete(delete) => {
+            Some(if delete.returning.is_some() { RW } else { W })
+        }
         _ => None,
     }
 }
