@@ -37,7 +37,7 @@ STEP 5: Return action taken for each user
 				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
 				OPENROUTER_API_KEY!,
 				{
-					model: 'anthropic/claude-haiku-4.5',
+					model: 'google/gemini-2.5-flash',
 					expectedFlow: expectedTest1 as ExpectedFlow
 				}
 			)

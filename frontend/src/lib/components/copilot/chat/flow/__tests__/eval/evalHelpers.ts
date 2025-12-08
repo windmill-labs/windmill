@@ -2,6 +2,7 @@ import type { FlowAIChatHelpers } from '../../core'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleById } from '../../../shared'
+import { inlineScriptStore, restoreInlineScriptReferences } from '../../inlineScriptsUtils'
 
 /**
  * Creates mock FlowAIChatHelpers for eval testing.
@@ -44,10 +45,18 @@ export function createEvalHelpers(
 			if (module && module.value.type === 'rawscript') {
 				module.value.content = code
 			}
+			// Keep store coherent for subsequent set_flow_json calls with references
+			inlineScriptStore.set(id, code)
 		},
 
 		setFlowJson: async (json: string) => {
 			const parsed = JSON.parse(json)
+
+			// Restore inline script references back to full content (mirrors FlowAIChat.svelte)
+			if (parsed.modules && Array.isArray(parsed.modules)) {
+				parsed.modules = restoreInlineScriptReferences(parsed.modules)
+			}
+
 			flow.value = { ...flow.value, ...parsed }
 			// Also update schema if provided
 			if (parsed.schema !== undefined) {

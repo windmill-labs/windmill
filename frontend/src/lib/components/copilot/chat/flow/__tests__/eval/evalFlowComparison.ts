@@ -61,7 +61,7 @@ export async function evaluateFlowComparison(
 	generatedFlow: ExpectedFlow,
 	expectedFlow: ExpectedFlow
 ): Promise<EvalComparisonResult> {
-	const model = 'anthropic/claude-haiku-4.5'
+	const model = 'openai/gpt-4o'
 	// @ts-ignore
 	const apiKey = process.env.OPENROUTER_API_KEY
 	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey })
