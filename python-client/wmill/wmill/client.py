@@ -413,8 +413,11 @@ class Windmill:
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
-    def get_id_token(self, audience: str) -> str:
-        return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
+    def get_id_token(self, audience: str, expires_in: int | None = None) -> str:
+        params = {}
+        if expires_in is not None:
+            params["expires_in"] = expires_in
+        return self.post(f"/w/{self.workspace}/oidc/token/{audience}", params=params).text
 
     def get_job_status(self, job_id: str) -> JobStatus:
         job = self.get_job(job_id)

@@ -945,13 +945,15 @@ export function getResumeEndpoints(approver?: string): Promise<{
 /**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
+ * @param expiresIn Optional number of seconds until the token expires
  * @returns jwt token
  */
-export async function getIdToken(audience: string): Promise<string> {
+export async function getIdToken(audience: string, expiresIn?: number): Promise<string> {
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
     audience,
+    expiresIn,
   });
 }
 
