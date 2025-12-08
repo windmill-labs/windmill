@@ -18,13 +18,25 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
         let _ = statement.visit(&mut collector);
     }
 
+    for (_, (kind, path)) in collector.var_identifiers {
+        if collector
+            .assets
+            .iter()
+            .all(|a| a.path.as_ref() != path || a.kind != kind)
+        {
+            collector
+                .assets
+                .push(ParseAssetsResult { kind: kind, access_type: None, path: path });
+        }
+    }
+
     Ok(merge_assets(collector.assets))
 }
 
 /// Visitor that collects S3 asset literals from SQL statements
 struct AssetCollector {
     assets: Vec<ParseAssetsResult<String>>,
-    // e.g set to true when we are inside a SELECT ... FROM ... statement
+    // e.g set to Read when we are inside a SELECT ... FROM ... statement
     current_access_type_stack: Vec<AssetUsageAccessType>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
     var_identifiers: HashMap<String, (AssetKind, String)>,
