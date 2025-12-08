@@ -58,8 +58,12 @@ pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<Par
     arr
 }
 
-pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
-    if s.starts_with("s3://") {
+pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
+    if enable_default_syntax && s == "datatable" {
+        Some((AssetKind::DataTable, "main"))
+    } else if enable_default_syntax && s == "ducklake" {
+        Some((AssetKind::Ducklake, "main"))
+    } else if s.starts_with("s3://") {
         Some((AssetKind::S3Object, &s[5..]))
     } else if s.starts_with("res://") {
         Some((AssetKind::Resource, &s[6..]))

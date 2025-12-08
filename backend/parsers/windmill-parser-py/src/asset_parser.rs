@@ -108,7 +108,7 @@ impl Visitor for AssetsFinder {
                     if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) =
                         &keyword.value
                     {
-                        if let Some((kind, path)) = parse_asset_syntax(s) {
+                        if let Some((kind, path)) = parse_asset_syntax(s, false) {
                             self.assets.push(ParseAssetsResult {
                                 kind,
                                 path: path.to_string(),

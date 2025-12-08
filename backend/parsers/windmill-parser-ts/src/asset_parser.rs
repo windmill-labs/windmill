@@ -58,7 +58,7 @@ impl Visit for AssetsFinder {
     fn visit_lit(&mut self, node: &swc_ecma_ast::Lit) {
         match node {
             swc_ecma_ast::Lit::Str(str) => {
-                if let Some((kind, path)) = parse_asset_syntax(str.value.as_str()) {
+                if let Some((kind, path)) = parse_asset_syntax(str.value.as_str(), false) {
                     self.assets.push(ParseAssetsResult {
                         kind,
                         path: path.to_string(),
@@ -221,7 +221,9 @@ impl AssetsFinder {
 
         match arg_value.map(|e| e.expr.as_ref()) {
             Some(Expr::Lit(Lit::Str(Str { value, .. }))) => {
-                let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
+                let path = parse_asset_syntax(&value, false)
+                    .map(|(_, p)| p)
+                    .unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
             }

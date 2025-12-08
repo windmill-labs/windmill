@@ -88,7 +88,7 @@ impl AssetCollector {
 
     fn handle_string_literal(&mut self, s: &str) {
         // Check if the string matches our asset syntax patterns
-        if let Some((kind, path)) = parse_asset_syntax(s) {
+        if let Some((kind, path)) = parse_asset_syntax(s, false) {
             if kind == AssetKind::S3Object {
                 self.assets.push(ParseAssetsResult {
                     kind,
@@ -191,7 +191,7 @@ impl Visitor for AssetCollector {
                 database_alias,
                 ..
             } => {
-                if let Some((kind, path)) = parse_asset_syntax(&database_path.value) {
+                if let Some((kind, path)) = parse_asset_syntax(&database_path.value, true) {
                     if kind == AssetKind::Ducklake
                         || kind == AssetKind::DataTable
                         || kind == AssetKind::Resource
@@ -410,6 +410,23 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
+                access_type: Some(W)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_default_main() {
+        let input = r#"
+            ATTACH 'datatable' AS dl;
+            INSERT INTO dl.table1 VALUES ('test');
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "main".to_string(),
                 access_type: Some(W)
             },])
         );
