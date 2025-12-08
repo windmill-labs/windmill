@@ -527,7 +527,7 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<NoItemFound />
+			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
 		{:else if treeView}
 			<TreeViewRoot
 				{items}

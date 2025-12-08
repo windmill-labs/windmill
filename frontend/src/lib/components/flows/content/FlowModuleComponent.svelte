@@ -458,50 +458,52 @@
 													<AssetsDropdownButton {assets} />
 												{/if}
 											</div>
-											<Editor
-												loadAsync
-												folding
-												path={$pathStore + '/' + flowModule.id}
-												bind:websocketAlive
-												bind:this={editor}
-												class="h-full relative"
-												code={flowModule.value.content}
-												scriptLang={flowModule?.value?.language}
-												automaticLayout={true}
-												cmdEnterAction={async () => {
-													selected = 'test'
-													if (selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
+											<div id="flow-editor-code-section" class="h-full relative">
+												<Editor
+													loadAsync
+													folding
+													path={$pathStore + '/' + flowModule.id}
+													bind:websocketAlive
+													bind:this={editor}
+													class="h-full relative"
+													code={flowModule.value.content}
+													scriptLang={flowModule?.value?.language}
+													automaticLayout={true}
+													cmdEnterAction={async () => {
+														selected = 'test'
+														if (selectedId == flowModule.id) {
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
+															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
-													}
-												}}
-												on:change={async (event) => {
-													const content = event.detail
-													if (flowModule.value.type === 'rawscript') {
-														if (flowModule.value.content !== content) {
-															flowModule.value.content = content
+													}}
+													on:change={async (event) => {
+														const content = event.detail
+														if (flowModule.value.type === 'rawscript') {
+															if (flowModule.value.content !== content) {
+																flowModule.value.content = content
+															}
+															await reload(flowModule)
 														}
-														await reload(flowModule)
-													}
-												}}
-												formatAction={() => {
-													reload(flowModule)
-													saveDraft()
-												}}
-												fixedOverflowWidgets={true}
-												args={Object.entries(flowModule.value.input_transforms).reduce(
-													(acc, [key, obj]) => {
-														acc[key] = obj.type === 'static' ? obj.value : undefined
-														return acc
-													},
-													{}
-												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-												moduleId={flowModule.id}
-											/>
+													}}
+													formatAction={() => {
+														reload(flowModule)
+														saveDraft()
+													}}
+													fixedOverflowWidgets={true}
+													args={Object.entries(flowModule.value.input_transforms).reduce(
+														(acc, [key, obj]) => {
+															acc[key] = obj.type === 'static' ? obj.value : undefined
+															return acc
+														},
+														{}
+													)}
+													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+													moduleId={flowModule.id}
+												/>
+											</div>
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
