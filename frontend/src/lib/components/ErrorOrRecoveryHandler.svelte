@@ -1,3 +1,24 @@
+<script lang="ts" module>
+	export const errorHandlerArgs = [
+		'path',
+		'workspace_id',
+		'job_id',
+		'is_flow',
+		'schedule_path',
+		'error',
+		'error_started_at',
+		'failed_times',
+		'started_at',
+		'success_times',
+		'success_result',
+		'success_started_at',
+		'email',
+		'trigger_path'
+	]
+
+	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
+</script>
+
 <script lang="ts">
 	import { Alert, Button, Tab, Tabs, Badge } from '$lib/components/common'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -189,10 +210,7 @@
 			return false
 		}
 		if (errorOrRecovery == 'error') {
-			return (
-				scriptPath.startsWith('hub/') &&
-				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-			)
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith(slackErrorHandlerHubPathEnding)
 		} else if (errorOrRecovery == 'recovery') {
 			return (
 				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
@@ -275,44 +293,17 @@
 			!isSlackHandler(handlerPath) &&
 			!isTeamsHandler(handlerPath) &&
 			!isEmailHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, [
-				'path',
-				'workspace_id',
-				'job_id',
-				'is_flow',
-				'schedule_path',
-				'error',
-				'error_started_at',
-				'failed_times',
-				'started_at',
-				'success_times',
-				'success_result',
-				'success_started_at',
-				'email',
-				'trigger_path'
-			]).then((schema) => (customHandlerSchema = schema))
+			loadHandlerScriptArgs(handlerPath, errorHandlerArgs).then(
+				(schema) => (customHandlerSchema = schema)
+			)
 	})
 
 	$effect(() => {
 		handlerPath &&
 			isSlackHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, [
-				'path',
-				'workspace_id',
-				'job_id',
-				'is_flow',
-				'schedule_path',
-				'error',
-				'error_started_at',
-				'failed_times',
-				'started_at',
-				'success_times',
-				'success_result',
-				'success_started_at',
-				'email',
-				'trigger_path',
-				'slack'
-			]).then((schema) => (slackHandlerSchema = schema))
+			loadHandlerScriptArgs(handlerPath, [...errorHandlerArgs, 'slack']).then(
+				(schema) => (slackHandlerSchema = schema)
+			)
 	})
 
 	$effect(() => {

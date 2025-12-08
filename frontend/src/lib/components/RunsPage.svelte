@@ -12,7 +12,8 @@
 		ScriptService,
 		FlowService,
 		type ExtendedJobs,
-		OpenAPI
+		OpenAPI,
+		type JobTriggerKind
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -53,7 +54,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import type { JobTriggerType } from '$lib/components/triggers/utils'
 
 	let { perPage = $bindable() }: { perPage: number } = $props()
 
@@ -114,8 +114,8 @@
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 	)
-	let jobTriggerKind: JobTriggerType | undefined = $state(
-		(page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
+	let jobTriggerKind: JobTriggerKind | undefined = $state(
+		(page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
 	)
 
 	// Handled on the main page
@@ -166,7 +166,7 @@
 		resultFilter = page.url.searchParams.get('result')
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
-		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerType) ?? undefined
+		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
 
 		// Handled on the main page
 		minTs = page.url.searchParams.get('min_ts') ?? undefined

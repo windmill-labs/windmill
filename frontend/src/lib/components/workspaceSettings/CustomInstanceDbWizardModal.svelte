@@ -16,9 +16,11 @@
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import type DBManagerDrawer from '../DBManagerDrawer.svelte'
-	import { ArrowRight } from 'lucide-svelte'
+	import { ArrowRight, InfoIcon } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { truncate } from '$lib/utils'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import { superadmin } from '$lib/stores'
 
 	type Props = {
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
@@ -81,7 +83,7 @@
 					/>
 				</div>
 			</div>
-			<div class="flex-1 shrink-0 flex flex-col pl-4 gap-4">
+			<div class="flex-1 shrink-0 flex flex-col pl-4 gap-2">
 				<div class="flex-1 overflow-y-scroll">
 					{#if status?.error}
 						<div transition:slide={{ duration: 200 }} class="mb-4">
@@ -141,6 +143,20 @@
 						)}
 					/>
 				</div>
+				{#if $superadmin}
+					<Tooltip>
+						<Button
+							endIcon={{ icon: InfoIcon }}
+							onClick={async () => {
+								await SettingService.refreshCustomInstanceUserPwd()
+								sendUserToast('custom_instance_user password refreshed')
+							}}>Refresh custom_instance_user password</Button
+						>
+						{#snippet text()}
+							Try this if there is an issue with your custom instance database password.
+						{/snippet}
+					</Tooltip>
+				{/if}
 				<Button
 					size="sm"
 					variant={!status?.success ? 'accent' : 'default'}

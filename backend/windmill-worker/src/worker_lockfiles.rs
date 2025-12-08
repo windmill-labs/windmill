@@ -660,6 +660,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
             debounce_job_id_o,
             None,
+            None,
         )
         .await?;
 

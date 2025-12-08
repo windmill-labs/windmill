@@ -13,7 +13,7 @@ export async function saveNatsTriggerFromCfg(
 		? {
 				error_handler_path: cfg.error_handler_path,
 				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
-				retry: cfg.retry,
+				retry: cfg.retry
 			}
 		: {}
 	const requestBody: EditNatsTrigger = {
@@ -40,7 +40,7 @@ export async function saveNatsTriggerFromCfg(
 				workspace,
 				requestBody: {
 					...requestBody,
-					enabled: true
+					mode: 'enabled'
 				}
 			})
 			sendUserToast(`Nats trigger ${cfg.path} created`)
