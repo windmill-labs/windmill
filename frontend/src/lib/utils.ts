@@ -1642,6 +1642,9 @@ export function validateRetryConfig(retry: Retry | undefined): string | null {
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+import BarsStaggered from './components/icons/BarsStaggered.svelte'
+import { GitIcon } from './components/icons'
+import { Bot, Code, Package } from 'lucide-svelte'
 export function getCssColor(
 	color: CssColor,
 	{
@@ -1662,3 +1665,28 @@ export function getCssColor(
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
+
+export function getJobKindIcon(jobKind: Job['job_kind']) {
+	if (jobKind === 'flow' || isFlowPreview(jobKind) || jobKind === 'unassigned_flow') {
+		return BarsStaggered
+	} else if (jobKind === 'deploymentcallback') {
+		return GitIcon
+	} else if (
+		jobKind === 'dependencies' ||
+		jobKind === 'appdependencies' ||
+		jobKind === 'flowdependencies'
+	) {
+		return Package
+	} else if (
+		jobKind === 'script' ||
+		isScriptPreview(jobKind) ||
+		jobKind === 'script_hub' ||
+		jobKind === 'singlestepflow' ||
+		jobKind === 'unassigned_script' ||
+		jobKind === 'unassigned_singlestepflow'
+	) {
+		return Code
+	} else if (jobKind === 'aiagent') {
+		return Bot
+	} else if (jobKind) return Code
+}

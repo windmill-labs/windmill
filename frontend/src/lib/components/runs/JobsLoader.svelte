@@ -8,7 +8,8 @@
 		ConcurrencyGroupsService,
 		type ObscuredJob,
 		CancelablePromise,
-		CancelError
+		CancelError,
+		type JobTriggerKind
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -16,7 +17,6 @@
 
 	import { tweened, type Tweened } from 'svelte/motion'
 	import { subtractDaysFromDateString } from '$lib/utils'
-	import type { JobTriggerType } from '../triggers/utils'
 	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 
 	interface Props {
@@ -31,7 +31,7 @@
 		showFutureJobs?: boolean
 		argFilter: string | undefined
 		resultFilter?: string | undefined
-		jobTriggerKind?: JobTriggerType | undefined
+		jobTriggerKind?: JobTriggerKind | undefined
 		schedulePath?: string | undefined
 		jobKindsCat?: string | undefined
 		minTs?: string | undefined

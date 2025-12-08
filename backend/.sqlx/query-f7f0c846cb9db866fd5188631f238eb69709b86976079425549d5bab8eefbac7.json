@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                        result_columns,\n                        status = 'success' AS \"success!\"\n                    FROM \n                        v2_job_completed\n                    WHERE \n                        id = $1 AND \n                        workspace_id = $2\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "result_columns",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "success!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "f7f0c846cb9db866fd5188631f238eb69709b86976079425549d5bab8eefbac7"
+}
