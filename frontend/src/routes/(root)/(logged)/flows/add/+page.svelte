@@ -143,15 +143,24 @@
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
-			} else {
-				tick().then(() => {
-					flowBuilder?.triggerTutorial()
-				})
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
 		flowBuilder?.loadFlowState()
 		loading = false
+
+		// Trigger tutorial after everything is initialized
+		const tutorialParam = $page.url.searchParams.get('tutorial')
+		if (tutorialParam) {
+			// Wait for critical elements to be ready before triggering tutorial
+			await tick()
+			let attempts = 0
+			while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
+				await new Promise(resolve => setTimeout(resolve, 100))
+				attempts++
+			}
+			flowBuilder?.triggerTutorial()
+		}
 	}
 
 	loadFlow()

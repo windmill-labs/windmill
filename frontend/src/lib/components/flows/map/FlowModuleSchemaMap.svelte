@@ -23,11 +23,9 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import { tutorialsToDo, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
@@ -103,8 +101,6 @@
 		onDelete,
 		flowHasChanged
 	}: Props = $props()
-
-	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -307,14 +303,6 @@
 		noteMode = !noteMode
 	}
 
-	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
-		return (
-			$tutorialsToDo.includes(index) &&
-			name == tutorialName &&
-			!$ignoredTutorials.includes(index) &&
-			!tutorialInProgress()
-		)
-	}
 
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
@@ -473,13 +461,7 @@
 				}
 			}}
 			onInsert={async (detail) => {
-				if (shouldRunTutorial('forloop', detail.detail, 1)) {
-					flowTutorials?.runTutorialById('forloop', detail.index)
-				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
-					flowTutorials?.runTutorialById('branchone')
-				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
-					flowTutorials?.runTutorialById('branchall')
-				} else {
+				{
 					let originalModules
 					let targetModules
 					if (
@@ -675,5 +657,5 @@
 </div>
 
 {#if !disableTutorials}
-	<FlowTutorials bind:this={flowTutorials} on:reload />
+	<FlowTutorials on:reload />
 {/if}

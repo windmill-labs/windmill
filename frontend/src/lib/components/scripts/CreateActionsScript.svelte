@@ -9,6 +9,7 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		id="create-script-button"
 		{aiId}
 		{aiDescription}
 		unifiedSize="lg"

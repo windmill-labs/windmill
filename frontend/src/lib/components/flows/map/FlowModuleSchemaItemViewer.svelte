@@ -38,6 +38,7 @@
 </script>
 
 <div
+	id={id || undefined}
 	class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 	 p-2 text-2xs module text-primary"
 >

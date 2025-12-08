@@ -7,8 +7,11 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
-		devopsRole
+		devopsRole,
+		tutorialsToDo,
+		skippedAll
 	} from '$lib/stores'
+	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -21,6 +24,7 @@
 		FolderCog,
 		FolderOpen,
 		Github,
+		GraduationCap,
 		HelpCircle,
 		Home,
 		LogOut,
@@ -83,7 +87,7 @@
 	let recentChangelogs: Changelog[] = $state([])
 	let lastOpened = localStorage.getItem('changelogsLastOpened')
 
-	onMount(() => {
+	onMount(async () => {
 		if (lastOpened) {
 			// @ts-ignore
 			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
@@ -92,6 +96,8 @@
 		} else {
 			recentChangelogs = changelogs.slice(0, 3)
 		}
+		// Sync tutorial progress on mount
+		await syncTutorialsTodos()
 	})
 
 	function openChangelogs() {
@@ -106,32 +112,44 @@
 			icon: HelpCircle,
 			subItems: [
 				{
+					label: 'Tutorials',
+					href: `${base}/tutorials`,
+					icon: GraduationCap,
+					aiId: 'sidebar-menu-link-tutorials',
+					aiDescription: 'Button to navigate to tutorials',
+					external: false
+				},
+				{
 					label: 'Docs',
 					href: 'https://www.windmill.dev/docs/intro/',
 					icon: BookOpen,
 					aiId: 'sidebar-menu-link-docs',
-					aiDescription: 'Button to navigate to docs'
+					aiDescription: 'Button to navigate to docs',
+					external: true
 				},
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
 					icon: DiscordIcon,
 					aiId: 'sidebar-menu-link-feedbacks',
-					aiDescription: 'Button to navigate to feedbacks'
+					aiDescription: 'Button to navigate to feedbacks',
+					external: true
 				},
 				{
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
 					icon: Github,
 					aiId: 'sidebar-menu-link-issues',
-					aiDescription: 'Button to navigate to issues'
+					aiDescription: 'Button to navigate to issues',
+					external: true
 				},
 				{
 					label: 'Changelog',
 					href: 'https://www.windmill.dev/changelog/',
 					icon: Newspaper,
 					aiId: 'sidebar-menu-link-changelog',
-					aiDescription: 'Button to navigate to changelog'
+					aiDescription: 'Button to navigate to changelog',
+					external: true
 				}
 			]
 		}
@@ -202,7 +220,19 @@
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-assets',
 			aiDescription: 'Button to navigate to assets'
-		}
+		},
+		// Add Tutorials to main menu only if not all completed and not skipped
+		...($tutorialsToDo.length > 0 && !$skippedAll
+			? [
+					{
+						label: 'Tutorials',
+						href: `${base}/tutorials`,
+						icon: GraduationCap,
+						aiId: 'sidebar-menu-link-tutorials-main',
+						aiDescription: 'Button to navigate to tutorials'
+					}
+				]
+			: [])
 	])
 	let defaultExtraTriggerLinks = $derived([
 		{
@@ -619,7 +649,7 @@
 							{/snippet}
 							{#snippet children({ item })}
 								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem href={subItem.href} class={itemClass} target="_blank" {item}>
+									<MenuItem href={subItem.href} class={itemClass} target={subItem.external !== false ? "_blank" : undefined} {item}>
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<subItem.icon size={16} />
