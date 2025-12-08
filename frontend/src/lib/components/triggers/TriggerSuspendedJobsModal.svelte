@@ -357,7 +357,8 @@
 		? `${queuedJobs.length}+ suspended`
 		: `${queuedJobs.length} suspended`} job{queuedJobs.length === 1 ? '' : 's'} for this trigger"
 	target="#content"
-	fixedSize="lg"
+	fixedHeight="lg"
+	fixedWidth="lg"
 >
 	<div class="flex w-full flex-col gap-4 h-full">
 		{#if action !== 'none'}
