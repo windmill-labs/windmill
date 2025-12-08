@@ -571,9 +571,7 @@
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
-						if (script?.ws_error_handler_muted) {
-							script.ws_error_handler_muted = v
-						}
+						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
 				errorHandlerKind="script"
