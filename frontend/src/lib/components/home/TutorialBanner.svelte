@@ -39,27 +39,33 @@
 	})
 
 	onMount(async () => {
-		// Sync tutorial progress from backend first
-		await syncTutorialsTodos()
+		try {
+			// Sync tutorial progress from backend first
+			await syncTutorialsTodos()
 
-		// Check if banner has been manually dismissed
-		const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
+			// Check if banner has been manually dismissed
+			const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 
-		// Filter tutorialsToDo to only include tutorials accessible to the user
-		const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
-			accessibleTutorialIndexes.has(index)
-		)
+			// Filter tutorialsToDo to only include tutorials accessible to the user
+			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
+				accessibleTutorialIndexes.has(index)
+			)
 
-		// Check if all accessible tutorials are completed
-		const allTutorialsCompleted = remainingAccessibleTutorials.length === 0
+			// Check if all accessible tutorials are completed
+			const allTutorialsCompleted = remainingAccessibleTutorials.length === 0
 
-		// Dismiss banner if manually dismissed OR all accessible tutorials completed
-		if (manuallyDismissed || allTutorialsCompleted) {
-			isDismissed = true
-			// Set localStorage to ensure banner stays dismissed
-			if (allTutorialsCompleted) {
-				storeLocalSetting(DISMISSED_KEY, 'true')
+			// Dismiss banner if manually dismissed OR all accessible tutorials completed
+			if (manuallyDismissed || allTutorialsCompleted) {
+				isDismissed = true
+				// Set localStorage to ensure banner stays dismissed
+				if (allTutorialsCompleted) {
+					storeLocalSetting(DISMISSED_KEY, 'true')
+				}
 			}
+		} catch (error) {
+			console.error('Failed to sync tutorial progress:', error)
+			// Fallback to manual dismissal check only if API call fails
+			isDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 		}
 	})
 
