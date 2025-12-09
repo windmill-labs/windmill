@@ -36,6 +36,7 @@ import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import openFlowSchema from './openFlow.json'
 import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
+import { flowModulesSchema } from './openFlowZod'
 
 /**
  * Helper interface for AI chat flow operations
@@ -512,16 +513,53 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { modules, schema } = args
-			const parsedModules = modules
-				? typeof modules === 'string'
-					? JSON.parse(modules)
-					: modules
-				: undefined
-			const parsedSchema = schema
-				? typeof schema === 'string'
-					? JSON.parse(schema)
-					: schema
-				: undefined
+
+			let parsedModules: FlowModule[] | undefined
+			let parsedSchema: Record<string, any> | undefined
+
+			// Parse JSON strings
+			try {
+				parsedModules = modules
+					? typeof modules === 'string'
+						? JSON.parse(modules)
+						: modules
+					: undefined
+				parsedSchema = schema
+					? typeof schema === 'string'
+						? JSON.parse(schema)
+						: schema
+					: undefined
+			} catch (e) {
+				const errorMessage = e instanceof Error ? e.message : String(e)
+				throw new Error(`Invalid JSON: ${errorMessage}`)
+			}
+
+			// Validate modules against OpenFlow schema
+			if (parsedModules) {
+				const result = flowModulesSchema.safeParse(parsedModules)
+				if (!result.success) {
+					const errors = result.error.errors.slice(0, 5).map((e) => {
+						const path = e.path
+						// Try to find module id for better context
+						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
+						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const fieldPath = path.slice(1).join('.')
+
+						let message = e.message
+						if (e.code === 'invalid_type') {
+							message = `expected ${(e as any).expected}, got ${(e as any).received}`
+						}
+
+						if (moduleId) {
+							return `Module "${moduleId}" -> ${fieldPath}: ${message}`
+						}
+						return `${path.join('.')}: ${message}`
+					})
+
+					throw new Error(`Invalid flow modules:\n${errors.join('\n')}`)
+				}
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Setting flow...`
 			})
@@ -534,20 +572,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	}
 ]
-
-/**
- * Formats the OpenFlow schema for inclusion in the AI system prompt.
- * Extracts only the component schemas and formats them as JSON for the AI to reference.
- */
-export function formatOpenFlowSchemaForPrompt(): string {
-	const schemas = openFlowSchema.components?.schemas
-	if (!schemas) {
-		return 'Schema not available'
-	}
-
-	// Create a simplified schema reference that's easier for the AI to parse
-	return JSON.stringify(schemas, null, 2)
-}
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
 	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform.
@@ -872,7 +896,7 @@ On Windmill, credentials and configuration are stored in resources. Resource typ
 Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow JSON:
 
 \`\`\`json
-${formatOpenFlowSchemaForPrompt()}
+${JSON.stringify(openFlowSchema, null, 2)}
 \`\`\`
 
 The schema includes detailed descriptions for:
