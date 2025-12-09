@@ -8,16 +8,17 @@
 	import { skipAllTodos, syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { tutorialsToDo, userStore } from '$lib/stores'
 	import { TUTORIALS_CONFIG } from '$lib/tutorials/config'
-	import { getUserEffectiveRole, hasRoleAccess } from '$lib/tutorials/roleUtils'
+	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
 	const DISMISSED_KEY = 'tutorial_banner_dismissed'
 	let isDismissed = $state(false)
 
 	/**
-	 * Get all tutorial indexes that are accessible to the current user based on their role
+	 * Get all tutorial indexes that are accessible to the current user based on their role.
+	 * Automatically recomputes when $userStore changes.
 	 */
-	function getAccessibleTutorialIndexes(): Set<number> {
+	const accessibleTutorialIndexes = $derived.by(() => {
 		const indexes = new Set<number>()
 		const user = $userStore
 
@@ -35,7 +36,7 @@
 			}
 		}
 		return indexes
-	}
+	})
 
 	onMount(async () => {
 		// Sync tutorial progress from backend first
@@ -44,12 +45,9 @@
 		// Check if banner has been manually dismissed
 		const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 
-		// Get all tutorial indexes accessible to the current user based on their role
-		const accessibleIndexes = getAccessibleTutorialIndexes()
-
 		// Filter tutorialsToDo to only include tutorials accessible to the user
 		const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
-			accessibleIndexes.has(index)
+			accessibleTutorialIndexes.has(index)
 		)
 
 		// Check if all accessible tutorials are completed
