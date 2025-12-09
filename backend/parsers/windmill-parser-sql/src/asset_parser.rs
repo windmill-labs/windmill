@@ -22,10 +22,13 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
     }
 
     for (_, (kind, path)) in collector.var_identifiers {
-        if collector.assets.iter().all(|a| {
+        if !collector.assets.iter().any(|a| {
             let a_path = a.path.as_str();
-            let path_base = a_path.split_once('/').map(|(b, _)| b).unwrap_or(a_path);
-            path_base != path || a.kind != kind
+            let has_same_path_base = a_path
+                .strip_prefix(&path)
+                .map(|p| p.starts_with('/'))
+                .unwrap_or(false);
+            (has_same_path_base || a_path == path) && a.kind == kind
         }) {
             collector
                 .assets
@@ -587,6 +590,24 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_resourcce() {
+        let input = r#"
+            ATTACH 'res://u/user/pg_resource' AS db (TYPE postgres);
+            USE db;
+            SELECT * FROM table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Resource,
+                path: "u/user/pg_resource/table1".to_string(),
+                access_type: Some(R)
             },])
         );
     }
