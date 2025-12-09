@@ -37,7 +37,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import openFlowSchema from './openFlow.json'
 import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
 import { flowModulesSchema } from './openFlowZod'
-import { collectAllModuleIds, collectAllModuleIdsFromArray } from './utils'
+import { collectAllModuleIdsFromArray } from './utils'
 
 /**
  * Helper interface for AI chat flow operations
@@ -572,6 +572,20 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Setting flow...`
 			})
 			await helpers.setFlowJson(parsedModules, parsedSchema)
+
+			// Update exprsToSet if the selected module has input_transforms
+			if (parsedModules) {
+				const { selectedId } = helpers.getFlowAndSelectedId()
+				const selectedModule = findModuleById(parsedModules, selectedId)
+				if (
+					selectedModule &&
+					'input_transforms' in selectedModule.value &&
+					selectedModule.value.input_transforms
+				) {
+					helpers.updateExprsToSet(selectedId, selectedModule.value.input_transforms)
+				}
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Flow updated`,
 				result: 'Success'
