@@ -6,14 +6,7 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { wait } from '$lib/utils'
-	import {
-		DELAY_SHORT,
-		DELAY_MEDIUM,
-		DELAY_ANIMATION,
-		DELAY_LONG,
-		moveCursorToElement,
-		createFakeCursor
-	} from '../utils'
+	import { DELAY_MEDIUM } from '../utils'
 
 	interface Props {
 		index: number
@@ -120,29 +113,11 @@
 					title: 'Finally, the Menu section',
 					description: 'Explore available tabs where you can access your history of runs, your scheduled scripts, your tutorials progress etc.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu.</p>',
 					onNextClick: async () => {
-						// Create a cursor element
-						const fakeCursor = createFakeCursor()
-
-						// Find the target button
+						// Find the target button and click it
 						const targetButton = document.querySelector('[role="menuitem"]') as HTMLElement | null
 						if (targetButton) {
-							const rect = targetButton.getBoundingClientRect()
-							// Start from off-screen left
-							fakeCursor.style.left = `${rect.left - 100}px`
-							fakeCursor.style.top = `${rect.top + rect.height / 2}px`
-							await wait(DELAY_SHORT)
-
-							// Move to target button
-							await moveCursorToElement(fakeCursor, targetButton, DELAY_ANIMATION)
-							await wait(DELAY_LONG)
-
-							// Click the button
 							targetButton.click()
 						}
-
-						// Remove cursor
-						await wait(DELAY_MEDIUM)
-						fakeCursor.remove()
 
 						// Wait for menu to open
 						await wait(DELAY_MEDIUM)
