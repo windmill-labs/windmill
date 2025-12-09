@@ -25,7 +25,7 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::{DbWithOptAuthed, UserDB, UserDbWithAuthed},
+    db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
@@ -821,6 +821,7 @@ pub async fn get_value_internal<'a>(
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
+                let db = db_with_opt_authed.db();
                 let tx = db.begin().await?;
                 crate::oauth2_oss::_refresh_token(
                     tx,
