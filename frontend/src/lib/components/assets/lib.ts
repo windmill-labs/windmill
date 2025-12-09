@@ -28,6 +28,10 @@ export function formatAsset(asset: Asset): string {
 	return 'unknown'
 }
 
+export function formatShortAssetPath(asset: Asset): string {
+	return asset.path.split('/').pop() || asset.path
+}
+
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
 	if (usage.kind === 'script') {
 		return `/scripts/get/${usage.path}`

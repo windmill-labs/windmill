@@ -76,12 +76,7 @@
 					<tr class="h-14">
 						<Cell first class="w-16">
 							<Tooltip>
-								<AssetGenericIcon
-									assetKind={asset.kind}
-									size="24px"
-									fill=""
-									class="!fill-secondary !stroke-secondary"
-								/>
+								<AssetGenericIcon assetKind={asset.kind} size="24px" class="!text-secondary" />
 								<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
 							</Tooltip>
 						</Cell>

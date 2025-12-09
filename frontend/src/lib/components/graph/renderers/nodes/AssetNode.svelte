@@ -220,6 +220,7 @@
 	import {
 		assetEq,
 		formatAssetKind,
+		formatShortAssetPath,
 		getAccessType,
 		type AssetWithAltAccessType
 	} from '$lib/components/assets/lib'
@@ -271,14 +272,11 @@
 			>
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
-					fill={''}
-					class="shrink-0 ml-1 {isSelected
-						? 'fill-accent stroke-accent'
-						: 'fill-tertiary stroke-tertiary'}"
+					class="shrink-0 ml-1 {isSelected ? 'text-accent' : 'text-tertiary'}"
 					size="16px"
 				/>
 				<span class="text-3xs truncate flex-1">
-					{data.asset.path}
+					{formatShortAssetPath(data.asset)}
 				</span>
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
