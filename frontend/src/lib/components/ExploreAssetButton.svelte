@@ -58,23 +58,28 @@
 	{btnClasses}
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
-			let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+			let resourcePath = asset.path.split('/').slice(0, 3).join('/')
+			let specificTable = asset.path.split('/')[3] as string | undefined
 			dbManagerDrawer?.openDrawer({
 				type: 'database',
 				resourceType: _resourceMetadata.resource_type,
-				resourcePath: truncatedPath
+				resourcePath,
+				specificTable
 			})
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'ducklake') {
-			let truncatedPath = asset.path.split('/')[0]
-			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake: truncatedPath })
+			let ducklake = asset.path.split('/')[0]
+			let specificTable = asset.path.split('/')[1] as string | undefined
+			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificTable })
 		} else if (asset.kind === 'datatable') {
-			let truncatedPath = asset.path.split('/')[0]
+			let datatable = asset.path.split('/')[0]
+			let specificTable = asset.path.split('/')[1] as string | undefined
 			dbManagerDrawer?.openDrawer({
 				type: 'database',
 				resourceType: 'postgresql',
-				resourcePath: `datatable://${truncatedPath}`
+				resourcePath: `datatable://${datatable}`,
+				specificTable
 			})
 		}
 		onClick?.()

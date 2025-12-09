@@ -216,6 +216,7 @@
 								refresh()
 							}
 						})}
+						initialTableKey={input.specificTable}
 					/>
 				</Pane>
 				<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">

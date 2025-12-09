@@ -20,6 +20,7 @@
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
 		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
+		initialTableKey?: string
 	}
 	let {
 		dbSchema,
@@ -28,7 +29,8 @@
 		dbTableActionsFactory,
 		refresh,
 		dbTableEditorPropsFactory,
-		dbSupportsSchemas
+		dbSupportsSchemas,
+		initialTableKey
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
@@ -40,10 +42,13 @@
 
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
-			selected = {
-				schemaKey:
-					'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
-			}
+			let schemaKey =
+				'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
+			let tableKey =
+				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
+					? initialTableKey
+					: undefined
+			selected = { schemaKey, tableKey }
 		}
 	})
 
