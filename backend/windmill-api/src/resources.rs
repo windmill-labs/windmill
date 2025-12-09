@@ -32,7 +32,7 @@ use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use std::process::Stdio;
 use tokio::process::Command;
 use uuid::Uuid;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{AuditAuthorable, audit_log};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
@@ -444,14 +444,13 @@ async fn get_resource_value_interpolated(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     return get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db),
-        &db,
+        &db_with_opt_authed,
         w_id.as_str(),
         path,
         job_info.job_id,
-        token.as_str(),
+            Some(token.as_str()),
         job_info.allow_cache.unwrap_or(false),
     )
     .await
@@ -461,19 +460,18 @@ async fn get_resource_value_interpolated(
 use async_recursion::async_recursion;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
-pub async fn get_resource_value_interpolated_internal(
-    authed: &ApiAuthed,
-    user_db: Option<UserDB>,
-    db: &DB,
+pub async fn get_resource_value_interpolated_internal<'a>(
+    db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
     workspace: &str,
     path: &str,
     job_id: Option<Uuid>,
-    token: &str,
+    token_for_context: Option<&str>,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
     // This is a special syntax to help debugging custom instance databases
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
-        require_super_admin(db, &authed.email).await?;
+        let db = db_with_opt_authed.db();
+        require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
         return Ok(Some(serde_json::json!({
             "dbname": dbname,
@@ -490,7 +488,6 @@ pub async fn get_resource_value_interpolated_internal(
             return Ok(Some(cached_value));
         }
     }
-    let db_with_opt_authed = DbWithOptAuthed::from_authed(authed, db.clone(), user_db);
     use sqlx::Acquire;
     let mut tx = db_with_opt_authed.begin().await?;
 
@@ -503,12 +500,15 @@ pub async fn get_resource_value_interpolated_internal(
     .await?;
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(path, workspace, db, &authed).await?;
+        if let Some(authed) = db_with_opt_authed.authed() {
+            let db = db_with_opt_authed.db();
+            explain_resource_perm_error(path, workspace, db, authed).await?;
+        }
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        let r = transform_json_value(&db_with_opt_authed, workspace, value, &job_id, token).await?;
+        let r = transform_json_value(&db_with_opt_authed, workspace, value, &job_id, token_for_context).await?;
         if allow_cache {
             cache_resource(&workspace, &path, r.clone());
         }
@@ -524,7 +524,7 @@ pub async fn transform_json_value(
     workspace: &str,
     v: Value,
     job_id: &Option<Uuid>,
-    token: &str,
+    token: Option<&str>,
 ) -> Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -599,7 +599,7 @@ pub async fn transform_json_value(
             let variables = variables::get_reserved_variables(
                 &db_with_opt_authed.db().into(),
                 workspace,
-                token,
+                token.unwrap_or_else(|| "no_token_available"),
                 &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
@@ -1473,7 +1473,6 @@ async fn get_git_commit_hash(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Tokened { token }: Tokened,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<GitCommitHashQuery>,
 ) -> JsonResult<GitCommitHashResponse> {
@@ -1481,14 +1480,13 @@ async fn get_git_commit_hash(
 
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     let git_repo_resource_value = get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db.clone()),
-        &db,
+        &db_with_opt_authed,
         &w_id,
         path,
         None,
-        &token,
+        None,
         false,
     )
     .await

@@ -139,6 +139,13 @@ impl<'a, T: Authable + Sync> DbWithOptAuthed<'a, T> {
             DbWithOptAuthed::DB { db } => db,
         }
     }
+
+    pub fn authed(&self) -> Option<&T> {
+        match self {
+            DbWithOptAuthed::UserDB { authed, .. } => Some(authed),
+            DbWithOptAuthed::DB { .. } => None,
+        }
+    }
 }
 
 impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
