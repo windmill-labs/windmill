@@ -22,6 +22,7 @@ import initialTest5 from './initial/test5_initial.json'
 import initialTest6 from './initial/test6_initial.json'
 // @ts-ignore - JSON import
 import initialTest7 from './initial/test7_initial.json'
+import type { FlowModule } from '$lib/gen'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -55,24 +56,17 @@ STEP 5: Return action taken for each user
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					// { ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					// { ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					// { ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
-					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
-					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
-					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' }
-					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
 						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[0],
-						name: 'minimal-single-tool-gemini-2.5-flash'
-					},
-					{
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[1],
-						name: 'minimal-single-tool-claude-haiku-4-5'
-					}
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
 				],
 				OPENROUTER_API_KEY!,
 				{
@@ -125,10 +119,21 @@ STEP 7: Return final order summary with status
 `
 			const results = await runVariantComparison(
 				USER_PROMPT,
-				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
+				[
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
+				],
 				OPENROUTER_API_KEY!,
 				{
-					model: 'google/gemini-2.5-flash',
 					expectedFlow: expectedTest2 as ExpectedFlow
 				}
 			)
@@ -181,27 +186,20 @@ STEP 6: Return processing report with statistics (total records, quality score, 
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
-					{
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
 						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[0],
-						name: 'minimal-single-tool-gemini-2.5-flash'
-					},
-					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
-					{
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[1],
-						name: 'minimal-single-tool-claude-haiku-4-5'
-					},
-					{ ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' },
-					{ ...MINIMAL_SINGLE_TOOL_VARIANT, model: MODELS[2], name: 'minimal-single-tool-gpt-4o' }
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
 				],
 				OPENROUTER_API_KEY!,
 				{
-					model: 'google/gemini-2.5-flash',
 					expectedFlow: expectedTest3 as ExpectedFlow
 				}
 			)
@@ -253,10 +251,21 @@ STEP 5: Return the agent's response and any actions taken
 `
 			const results = await runVariantComparison(
 				USER_PROMPT,
-				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
+				[
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
+				],
 				OPENROUTER_API_KEY!,
 				{
-					model: 'google/gemini-2.5-flash',
 					expectedFlow: expectedTest4 as ExpectedFlow
 				}
 			)
@@ -306,22 +315,21 @@ Modify this existing flow to add error handling:
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
 						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[0],
-						name: 'minimal-single-tool-gemini-2.5-flash'
-					},
-					{
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[1],
-						name: 'minimal-single-tool-claude-haiku-4-5'
-					}
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
 				],
 				OPENROUTER_API_KEY!,
 				{
-					initialModules: initialTest5.value.modules,
+					initialModules: initialTest5.value.modules as FlowModule[],
 					initialSchema: initialTest5.schema,
 					expectedFlow: expectedTest5 as ExpectedFlow
 				}
@@ -370,22 +378,21 @@ Modify the order processing loop to handle different order types:
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
 						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[0],
-						name: 'minimal-single-tool-gemini-2.5-flash'
-					},
-					{
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[1],
-						name: 'minimal-single-tool-claude-haiku-4-5'
-					}
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
 				],
 				OPENROUTER_API_KEY!,
 				{
-					initialModules: initialTest6.value.modules,
+					initialModules: initialTest6.value.modules as FlowModule[],
 					initialSchema: initialTest6.schema,
 					expectedFlow: expectedTest6 as ExpectedFlow
 				}
@@ -417,7 +424,7 @@ Modify the order processing loop to handle different order types:
 		TEST_TIMEOUT * 2
 	)
 
-	it.only(
+	it(
 		'test7: complex modification - refactor sequential to parallel execution',
 		async () => {
 			const USER_PROMPT = `
@@ -434,24 +441,21 @@ Refactor this flow for better performance by parallelizing the enrichment steps:
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
-					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
-					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{
+					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
+					...MODELS.map((model) => ({
+						...NO_FULL_SCHEMA_VARIANT,
+						model,
+						name: `no-full-schema-${model}`
+					})),
+					...MODELS.map((model) => ({
 						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[0],
-						name: 'minimal-single-tool-gemini-2.5-flash'
-					},
-					{
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model: MODELS[1],
-						name: 'minimal-single-tool-claude-haiku-4-5'
-					},
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' }
+						model,
+						name: `minimal-single-tool-${model}`
+					}))
 				],
 				OPENROUTER_API_KEY!,
 				{
-					initialModules: initialTest7.value.modules,
+					initialModules: initialTest7.value.modules as FlowModule[],
 					initialSchema: initialTest7.schema,
 					expectedFlow: expectedTest7 as ExpectedFlow
 				}

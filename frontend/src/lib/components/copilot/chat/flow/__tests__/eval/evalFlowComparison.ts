@@ -24,7 +24,7 @@ const EVALUATOR_SYSTEM_PROMPT = `You are an expert evaluator for Windmill flow d
 - Flows consist of modules (steps) that execute sequentially
 - Module types include: rawscript, forloopflow, branchone, branchall, script, flow, aiagent
 - Each module has an id, value (containing type and config), and may have input_transforms
-- input_transforms connect modules using expressions like "results.previous_step"
+- input_transforms connect modules using expressions like "results.previous_step". Valid input_transforms are: static, javascript. Valid variables in javascript expressions are: results, flow_input, flow_input.iter.value (for forloopflow), flow_input.iter.index (for forloopflow).
 - forloopflow contains nested modules that execute per iteration with access to flow_input.iter.value
 - branchone executes first matching branch, branchall executes all matching branches
 - Branches have conditional expressions (expr) that determine execution
@@ -72,7 +72,7 @@ export async function evaluateFlowComparison(
 	expectedFlow: ExpectedFlow,
 	userPrompt: string
 ): Promise<EvalComparisonResult> {
-	const model = 'openai/gpt-4o'
+	const model = 'anthropic/claude-sonnet-4.5'
 	// @ts-ignore
 	const apiKey = process.env.OPENROUTER_API_KEY
 	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey })
