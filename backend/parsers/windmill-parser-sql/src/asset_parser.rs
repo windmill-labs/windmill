@@ -60,16 +60,18 @@ impl AssetCollector {
         &self,
         name: &ObjectName,
     ) -> Option<ParseAssetsResult<String>> {
+        let access_type = self.current_access_type_stack.last().copied();
         if name.0.len() == 1 {
             if name.0.first()?.as_ident()?.quote_style.is_some() {
                 return None;
             }
+            // We don't want to infer that any simple identifier refers to an asset if
+            // we are not in a known R/W context
+            if access_type.is_none() {
+                return None;
+            }
             if let Some((kind, path)) = &self.currently_used_asset {
-                return Some(ParseAssetsResult {
-                    kind: *kind,
-                    access_type: self.current_access_type_stack.last().copied(),
-                    path: path.clone(),
-                });
+                return Some(ParseAssetsResult { kind: *kind, access_type, path: path.clone() });
             }
         }
 
@@ -79,11 +81,7 @@ impl AssetCollector {
         }
         let ident = name.0.first()?.as_ident()?;
         let (kind, path) = self.var_identifiers.get(&ident.value)?;
-        Some(ParseAssetsResult {
-            kind: *kind,
-            access_type: self.current_access_type_stack.last().copied(),
-            path: path.clone(),
-        })
+        Some(ParseAssetsResult { kind: *kind, access_type, path: path.clone() })
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -277,6 +275,8 @@ fn get_stmt_access_type(statement: &sqlparser::ast::Statement) -> Option<AssetUs
         sqlparser::ast::Statement::Delete(delete) => {
             Some(if delete.returning.is_some() { RW } else { W })
         }
+        sqlparser::ast::Statement::CreateTable { .. } => Some(W),
+        sqlparser::ast::Statement::CreateView { .. } => Some(W),
         _ => None,
     }
 }
@@ -428,6 +428,28 @@ mod tests {
                 kind: AssetKind::DataTable,
                 path: "main".to_string(),
                 access_type: Some(W)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_create_table() {
+        let input = r#"
+            ATTACH 'ducklake' AS dl; USE dl;
+            CREATE TABLE friends (
+                name text,
+                age int
+            );
+            INSERT INTO friends VALUES ($name, $age);
+            SELECT * FROM friends;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "main".to_string(),
+                access_type: Some(RW)
             },])
         );
     }
