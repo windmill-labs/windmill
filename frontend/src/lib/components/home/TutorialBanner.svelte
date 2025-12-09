@@ -5,13 +5,16 @@
 	import { goto } from '$app/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { skipAllTodos, syncTutorialsTodos } from '$lib/tutorialUtils'
+	import {
+		skipAllTodos,
+		syncTutorialsTodos,
+		TUTORIAL_BANNER_DISMISSED_KEY
+	} from '$lib/tutorialUtils'
 	import { tutorialsToDo, userStore } from '$lib/stores'
 	import { TUTORIALS_CONFIG } from '$lib/tutorials/config'
 	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
-	const DISMISSED_KEY = 'tutorial_banner_dismissed'
 	let isDismissed = $state(false)
 
 	/**
@@ -44,7 +47,7 @@
 			await syncTutorialsTodos()
 
 			// Check if banner has been manually dismissed
-			const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
+			const manuallyDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
 
 			// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
 			// Filter tutorialsToDo to only include tutorials accessible to the user
@@ -63,25 +66,25 @@
 				// but tutorials remain completed in backend. This is intentional - the banner
 				// should stay hidden if tutorials are completed, regardless of localStorage state.
 				if (allTutorialsCompleted) {
-					storeLocalSetting(DISMISSED_KEY, 'true')
+					storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
 				}
 			}
 		} catch (error) {
 			console.error('Failed to sync tutorial progress:', error)
 			// Fallback to manual dismissal check only if API call fails
-			isDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
+			isDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
 		}
 	})
 
 	async function handleSkipAllTutorials() {
 		await skipAllTodos()
 		await syncTutorialsTodos()
-		storeLocalSetting(DISMISSED_KEY, 'true')
+		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
 		isDismissed = true
 	}
 
 	function dismissBanner() {
-		storeLocalSetting(DISMISSED_KEY, 'true')
+		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
 		isDismissed = true
 		
 		const actions: ToastAction[] = [
