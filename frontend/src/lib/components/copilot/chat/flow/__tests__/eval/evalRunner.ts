@@ -269,13 +269,4 @@ export async function runVariantComparison(
 		})
 	)
 	return results
-	// const results: EvalResult[] = []
-	// for (const variant of variants) {
-	// 	const result = await runFlowEval(userPrompt, openaiApiKey, {
-	// 		...baseOptions,
-	// 		variant
-	// 	})
-	// 	results.push(result)
-	// }
-	// return results
 }

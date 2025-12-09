@@ -53,8 +53,6 @@ const VARIANTS = [
 	}))
 ]
 
-// const VARIANTS = [{ ...BASELINE_VARIANT, model: MODELS[2] }]
-
 describeWithApiKey('Flow Chat LLM Evaluation', () => {
 	const TEST_TIMEOUT = 120_000
 	if (!OPENROUTER_API_KEY) {
@@ -103,7 +101,7 @@ STEP 5: Return action taken for each user
 				}
 			}
 		},
-		TEST_TIMEOUT * 5
+		TEST_TIMEOUT
 	)
 
 	it(
@@ -147,7 +145,7 @@ STEP 7: Return final order summary with status
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 
 	it(
@@ -196,7 +194,7 @@ STEP 6: Return processing report with statistics (total records, quality score, 
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 
 	it(
@@ -245,7 +243,7 @@ STEP 5: Return the agent's response and any actions taken
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 
 	// ==================== MODIFICATION TESTS ====================
@@ -293,7 +291,7 @@ Modify this existing flow to add error handling:
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 
 	it(
@@ -339,7 +337,7 @@ Modify the order processing loop to handle different order types:
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 
 	it(
@@ -385,6 +383,6 @@ Refactor this flow for better performance by parallelizing the enrichment steps:
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT
 	)
 })
