@@ -4,6 +4,12 @@ import { UserService } from './gen'
 import { TUTORIALS_CONFIG } from './tutorials/config'
 
 /**
+ * LocalStorage key for tracking if the tutorial banner has been dismissed.
+ * Shared between tutorialUtils and TutorialBanner component.
+ */
+export const TUTORIAL_BANNER_DISMISSED_KEY = 'tutorial_banner_dismissed'
+
+/**
  * Get the maximum tutorial index from the config.
  * This ensures we don't hardcode the max ID and it automatically updates when tutorials are added.
  */
@@ -64,6 +70,12 @@ export async function skipAllTodos() {
 	}
 	tutorialsToDo.set([])
 	skippedAll.set(true)
+
+	// Dismiss the tutorial banner when all tutorials are skipped
+	if (typeof window !== 'undefined') {
+		localStorage.setItem(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
+	}
+
 	await UserService.updateTutorialProgress({ requestBody: { progress: bits, skipped_all: true } })
 }
 
