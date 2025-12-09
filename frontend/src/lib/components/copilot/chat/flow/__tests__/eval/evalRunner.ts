@@ -31,6 +31,7 @@ export interface EvalResult {
 	iterations: number
 	variantName: string
 	evaluationResult?: EvalComparisonResult
+	messages: ChatCompletionMessageParam[]
 }
 
 export interface ExpectedFlow {
@@ -179,7 +180,11 @@ export async function runFlowEval(
 		let evaluationResult: EvalComparisonResult | undefined
 		if (options?.expectedFlow) {
 			const generatedFlow = getFlow()
-			evaluationResult = await evaluateFlowComparison(generatedFlow, options.expectedFlow, userPrompt)
+			evaluationResult = await evaluateFlowComparison(
+				generatedFlow,
+				options.expectedFlow,
+				userPrompt
+			)
 		}
 
 		return {
@@ -191,7 +196,8 @@ export async function runFlowEval(
 			toolCallDetails,
 			iterations,
 			variantName,
-			evaluationResult
+			evaluationResult,
+			messages
 		}
 	} catch (err) {
 		return {
@@ -203,7 +209,8 @@ export async function runFlowEval(
 			toolsCalled,
 			toolCallDetails,
 			iterations,
-			variantName
+			variantName,
+			messages
 		}
 	}
 }

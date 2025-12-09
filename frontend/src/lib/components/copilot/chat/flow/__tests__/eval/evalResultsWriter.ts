@@ -123,7 +123,8 @@ export async function writeComparisonResults(
 			error: result.error,
 			evaluationResult: result.evaluationResult,
 			toolsCalled: result.toolsCalled,
-			toolCallDetails: result.toolCallDetails
+			toolCallDetails: result.toolCallDetails,
+			messages: result.messages
 		}
 		await writeFile(resultPath, JSON.stringify(resultData, null, 2))
 

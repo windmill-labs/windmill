@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { runVariantComparison, type ExpectedFlow } from './evalRunner'
 import { writeComparisonResults } from './evalResultsWriter'
-import { BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT } from './variants'
+import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT, NO_FULL_SCHEMA_VARIANT } from './variants'
 // @ts-ignore - JSON import
 import expectedTest1 from './expected/test1.json'
 // @ts-ignore - JSON import
@@ -10,6 +10,18 @@ import expectedTest2 from './expected/test2.json'
 import expectedTest3 from './expected/test3.json'
 // @ts-ignore - JSON import
 import expectedTest4 from './expected/test4.json'
+// @ts-ignore - JSON import
+import expectedTest5 from './expected/test5_modify_simple.json'
+// @ts-ignore - JSON import
+import expectedTest6 from './expected/test6_modify_medium.json'
+// @ts-ignore - JSON import
+import expectedTest7 from './expected/test7_modify_complex.json'
+// @ts-ignore - JSON import
+import initialTest5 from './initial/test5_initial.json'
+// @ts-ignore - JSON import
+import initialTest6 from './initial/test6_initial.json'
+// @ts-ignore - JSON import
+import initialTest7 from './initial/test7_initial.json'
 
 // Get API key from environment - tests will be skipped if not set
 // @ts-ignore
@@ -28,7 +40,7 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 		console.warn('OPENROUTER_API_KEY is not set, skipping tests')
 	}
 
-	it.only(
+	it(
 		'test1: user role-based actions with loop and branches',
 		async () => {
 			const USER_PROMPT = `
@@ -43,12 +55,24 @@ STEP 5: Return action taken for each user
 			const results = await runVariantComparison(
 				USER_PROMPT,
 				[
+					// { ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					// { ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					// { ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
+					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
+					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
+					// { ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' }
 					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
 					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
-					{ ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
-					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' }
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[0],
+						name: 'minimal-single-tool-gemini-2.5-flash'
+					},
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[1],
+						name: 'minimal-single-tool-claude-haiku-4-5'
+					}
 				],
 				OPENROUTER_API_KEY!,
 				{
@@ -156,7 +180,25 @@ STEP 6: Return processing report with statistics (total records, quality score, 
 `
 			const results = await runVariantComparison(
 				USER_PROMPT,
-				[BASELINE_VARIANT, NO_FULL_SCHEMA_VARIANT],
+				[
+					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[0],
+						name: 'minimal-single-tool-gemini-2.5-flash'
+					},
+					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' },
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[1],
+						name: 'minimal-single-tool-claude-haiku-4-5'
+					},
+					{ ...BASELINE_VARIANT, model: MODELS[2], name: 'baseline-gpt-4o' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[2], name: 'no-full-schema-gpt-4o' },
+					{ ...MINIMAL_SINGLE_TOOL_VARIANT, model: MODELS[2], name: 'minimal-single-tool-gpt-4o' }
+				],
 				OPENROUTER_API_KEY!,
 				{
 					model: 'google/gemini-2.5-flash',
@@ -216,6 +258,202 @@ STEP 5: Return the agent's response and any actions taken
 				{
 					model: 'google/gemini-2.5-flash',
 					expectedFlow: expectedTest4 as ExpectedFlow
+				}
+			)
+
+			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			console.log(`\nResults written to: ${summaryPath}`)
+			console.log(`Flow files: ${flowPaths.join(', ')}`)
+
+			for (const result of results) {
+				expect(true).toBe(true)
+
+				if (result.evaluationResult) {
+					console.log(
+						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
+					)
+					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
+				}
+			}
+		},
+		TEST_TIMEOUT * 2
+	)
+
+	// ==================== MODIFICATION TESTS ====================
+	// These tests evaluate the LLM's ability to modify existing flows
+
+	it(
+		'test5: simple modification - add validation step to existing flow',
+		async () => {
+			const USER_PROMPT = `
+THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES
+
+Modify this existing flow to add error handling:
+- Add a new step after process_data called "validate_data" to validate the processed data
+- The validation step should check if the data array is not empty
+- If validation fails (empty array), it should return an error object with message "No data to save"
+- If validation passes, return the data for the next step
+- Update save_results to handle the validation result appropriately
+`
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				[
+					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[0],
+						name: 'minimal-single-tool-gemini-2.5-flash'
+					},
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[1],
+						name: 'minimal-single-tool-claude-haiku-4-5'
+					}
+				],
+				OPENROUTER_API_KEY!,
+				{
+					initialModules: initialTest5.value.modules,
+					initialSchema: initialTest5.schema,
+					expectedFlow: expectedTest5 as ExpectedFlow
+				}
+			)
+
+			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			console.log(`\nResults written to: ${summaryPath}`)
+			console.log(`Flow files: ${flowPaths.join(', ')}`)
+
+			for (const result of results) {
+				expect(true).toBe(true)
+
+				if (result.evaluationResult) {
+					console.log(
+						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
+					)
+					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
+				}
+			}
+		},
+		TEST_TIMEOUT * 2
+	)
+
+	it(
+		'test6: medium modification - add branching inside existing loop',
+		async () => {
+			const USER_PROMPT = `
+THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES
+
+Modify the order processing loop to handle different order types:
+- Inside the loop_orders, replace the simple process_order step with branching based on order.type
+- For type "express": add a step called handle_express that marks as priority and calculates express shipping cost ($15.99)
+- For type "standard": add a step called handle_standard that calculates standard shipping cost ($5.99)
+- For type "pickup": add a step called handle_pickup that marks as no shipping required (cost $0)
+- Move the original process_order step to the default branch for unknown order types
+- Each branch step should return the orderId, shipping cost, and shipping type
+`
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				[
+					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[0],
+						name: 'minimal-single-tool-gemini-2.5-flash'
+					},
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[1],
+						name: 'minimal-single-tool-claude-haiku-4-5'
+					}
+				],
+				OPENROUTER_API_KEY!,
+				{
+					initialModules: initialTest6.value.modules,
+					initialSchema: initialTest6.schema,
+					expectedFlow: expectedTest6 as ExpectedFlow
+				}
+			)
+
+			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			console.log(`\nResults written to: ${summaryPath}`)
+			console.log(`Flow files: ${flowPaths.join(', ')}`)
+
+			for (const result of results) {
+				expect(true).toBe(true)
+
+				if (result.evaluationResult) {
+					console.log(
+						`[${result.variantName}] Resemblance Score: ${result.evaluationResult.resemblanceScore}/100`
+					)
+					console.log(`[${result.variantName}] Statement: ${result.evaluationResult.statement}`)
+					if (
+						result.evaluationResult.missingRequirements &&
+						result.evaluationResult.missingRequirements.length > 0
+					) {
+						console.log(
+							`[${result.variantName}] Missing: ${result.evaluationResult.missingRequirements.join(', ')}`
+						)
+					}
+				}
+			}
+		},
+		TEST_TIMEOUT * 2
+	)
+
+	it.only(
+		'test7: complex modification - refactor sequential to parallel execution',
+		async () => {
+			const USER_PROMPT = `
+THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES
+
+Refactor this flow for better performance by parallelizing the enrichment steps:
+- The three enrichment steps (enrich_price, enrich_inventory, enrich_reviews) currently run sequentially
+- Wrap them in a parallel branch (branchall) called "parallel_enrichment" so they run concurrently
+- Each enrichment step should include basic error handling with try/catch that returns a fallback value if it fails
+- Update the combine_data step to receive results from the parallel branch (results.parallel_enrichment returns an array of branch results)
+- The combine_data step should check if any enrichment used a fallback value and set a hasFallbacks flag
+- Keep get_item as the first step and return_result as the last step unchanged
+`
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				[
+					{ ...BASELINE_VARIANT, model: MODELS[0], name: 'baseline-gemini-2.5-flash' },
+					{ ...BASELINE_VARIANT, model: MODELS[1], name: 'baseline-claude-haiku-4-5' },
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[0],
+						name: 'minimal-single-tool-gemini-2.5-flash'
+					},
+					{
+						...MINIMAL_SINGLE_TOOL_VARIANT,
+						model: MODELS[1],
+						name: 'minimal-single-tool-claude-haiku-4-5'
+					},
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[0], name: 'no-full-schema-gemini-2.5-flash' },
+					{ ...NO_FULL_SCHEMA_VARIANT, model: MODELS[1], name: 'no-full-schema-claude-haiku-4-5' }
+				],
+				OPENROUTER_API_KEY!,
+				{
+					initialModules: initialTest7.value.modules,
+					initialSchema: initialTest7.schema,
+					expectedFlow: expectedTest7 as ExpectedFlow
 				}
 			)
 

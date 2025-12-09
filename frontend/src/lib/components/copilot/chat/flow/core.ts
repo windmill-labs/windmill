@@ -894,7 +894,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
  * Formats the OpenFlow schema for inclusion in the AI system prompt.
  * Extracts only the component schemas and formats them as JSON for the AI to reference.
  */
-function formatOpenFlowSchemaForPrompt(): string {
+export function formatOpenFlowSchemaForPrompt(): string {
 	const schemas = openFlowSchema.components?.schemas
 	if (!schemas) {
 		return 'Schema not available'

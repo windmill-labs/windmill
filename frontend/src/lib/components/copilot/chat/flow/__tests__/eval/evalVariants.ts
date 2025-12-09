@@ -67,7 +67,13 @@ export function resolveTools(variant?: VariantConfig): {
 	}
 
 	if (variant.tools.type === 'subset') {
-		const subset = flowTools.filter((t) => variant.tools!.type === 'subset' && (variant.tools as { type: 'subset'; include: string[] }).include.includes(t.def.function.name))
+		const subset = flowTools.filter(
+			(t) =>
+				variant.tools!.type === 'subset' &&
+				(variant.tools as { type: 'subset'; include: string[] }).include.includes(
+					t.def.function.name
+				)
+		)
 		return {
 			toolDefs: subset.map((t) => t.def),
 			tools: subset
@@ -76,6 +82,7 @@ export function resolveTools(variant?: VariantConfig): {
 
 	// type === 'custom'
 	const customTools = variant.tools.tools
+
 	return {
 		toolDefs: customTools.map((t) => t.def),
 		tools: customTools
