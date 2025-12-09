@@ -87,7 +87,7 @@ impl Visitor for AssetsFinder {
     fn visit_expr_constant(&mut self, node: ExprConstant) {
         match node.value {
             Constant::Str(s) => {
-                if let Some((kind, path)) = parse_asset_syntax(&s) {
+                if let Some((kind, path)) = parse_asset_syntax(&s, false) {
                     self.assets.push(ParseAssetsResult {
                         kind,
                         path: path.to_string(),
@@ -249,7 +249,9 @@ impl AssetsFinder {
 
         match arg_val {
             Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
-                let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
+                let path = parse_asset_syntax(&value, false)
+                    .map(|(_, p)| p)
+                    .unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
             }
