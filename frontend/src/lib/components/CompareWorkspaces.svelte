@@ -76,9 +76,9 @@
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
 			if (mergeIntoParent) {
-				return diff.versions_ahead > 0
+				return diff.ahead > 0
 			} else {
-				return diff.versions_behind > 0
+				return diff.behind > 0
 			}
 		}) ?? []
 	)
@@ -86,7 +86,7 @@
 	let selectedItems = $state<string[]>([])
 
 	let conflictingDiffs = $derived(
-		comparison?.diffs.filter((diff) => diff.versions_ahead > 0 && diff.versions_behind > 0) ?? []
+		comparison?.diffs.filter((diff) => diff.ahead > 0 && diff.behind > 0) ?? []
 	)
 
 	let groupedDiffs = $derived(groupDiffsByKind(comparison?.diffs ?? []))
@@ -233,7 +233,7 @@
 
 	async function selectAllNonConflicts() {
 		selectedItems = selectableDiffs
-			.filter((d) => !(d.versions_ahead > 0 && d.versions_behind > 0))
+			.filter((d) => !(d.ahead > 0 && d.behind > 0))
 			.map((d) => getItemKey(d))
 	}
 
@@ -622,6 +622,7 @@
 			<a href="/">Click here to go home ({$workspaceStore})</a>
 		</Alert>
 	{/if}
+	{console.log(comparison)}
 	{#if comparison}
 		<div class="bg-surface">
 			<div class="flex items-center justify-between">
@@ -750,7 +751,7 @@
 					{@const key = getItemKey(diff)}
 					{@const isSelectable = selectableDiffs.includes(diff)}
 					{@const isSelected = selectedItems.includes(key)}
-					{@const isConflict = diff.versions_ahead > 0 && diff.versions_behind > 0}
+					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 					{@const Icon = getItemIcon(diff.kind)}
 
 					<Row
@@ -770,16 +771,16 @@
 							<!-- Status badges -->
 							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
 							<div class="flex items-center gap-2">
-								{#if diff.versions_ahead > 0}
+								{#if diff.ahead > 0}
 									<Badge color="green" size="xs">
 										<ArrowUpRight class="w-3 h-3 inline" />
-										{diff.versions_ahead} ahead
+										{diff.ahead} ahead
 									</Badge>
 								{/if}
-								{#if diff.versions_behind > 0}
+								{#if diff.behind > 0}
 									<Badge color="blue" size="xs">
 										<ArrowDownRight class="w-3 h-3 inline" />
-										{diff.versions_behind} behind
+										{diff.behind} behind
 									</Badge>
 								{/if}
 								{#if isConflict}
@@ -788,12 +789,12 @@
 										Conflict
 									</Badge>
 								{/if}
-								{#if diff.metadata_changes.includes('only_in_source')}
-									<Badge color="gray" size="xs">New</Badge>
-								{/if}
-								{#if diff.metadata_changes.includes('only_in_target')}
-									<Badge color="gray" size="xs">Deleted</Badge>
-								{/if}
+								<!-- {#if diff.metadata_changes.includes('only_in_source')} -->
+								<!-- 	<Badge color="gray" size="xs">New</Badge> -->
+								<!-- {/if} -->
+								<!-- {#if diff.metadata_changes.includes('only_in_target')} -->
+								<!-- 	<Badge color="gray" size="xs">Deleted</Badge> -->
+								<!-- {/if} -->
 							</div>
 							<Button
 								size="xs"

@@ -173,6 +173,10 @@ pub fn workspaced_service() -> Router {
             "/create_workspace_fork_branch",
             post(create_workspace_fork_branch),
         )
+        .route(
+            "/reset_diff_tally/:fork_workspace_id",
+            post(reset_workspace_diffs),
+        )
         .route("/compare/:target_workspace_id", get(compare_workspaces));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -3974,7 +3978,7 @@ pub struct WorkspaceComparison {
     pub source_workspace_id: String,
     pub target_workspace_id: String,
     pub is_fork: bool,
-    pub diffs: Vec<WorkspaceItemDiff>,
+    pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
 }
 
@@ -3991,40 +3995,41 @@ pub struct CompareSummary {
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
-// Mock implementation until sqlx prepare can be run
-async fn compare_workspaces_mock(
+async fn reset_workspace_diffs(
     authed: ApiAuthed,
     Path((w_id, target_workspace_id)): Path<(String, String)>,
-    Extension(_db): Extension<DB>,
-) -> JsonResult<WorkspaceComparison> {
-    // Check permissions for source workspace
-    require_admin(authed.is_admin, &authed.username)?;
+    Extension(db): Extension<DB>,
+) -> JsonResult<()> {
+    // Needed to compute the has_changes: Option<bool>. Otherwise it will be None, and the query will not hit the items
+    let _ = compare_workspaces(
+        authed,
+        Path((w_id.clone(), target_workspace_id.clone())),
+        Extension(db.clone()),
+    )
+    .await?;
 
-    // Return empty comparison for now
-    // TODO: Replace with actual implementation once sqlx prepare is run
-    Ok(Json(WorkspaceComparison {
-        source_workspace_id: w_id,
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE has_changes = false AND (
+            (source_workspace_id = $1 AND fork_workspace_id = $2)
+            OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+        )",
         target_workspace_id,
-        is_fork: false,
-        diffs: Vec::new(),
-        summary: CompareSummary {
-            total_diffs: 0,
-            total_ahead: 0,
-            total_behind: 0,
-            scripts_changed: 0,
-            flows_changed: 0,
-            apps_changed: 0,
-            resources_changed: 0,
-            variables_changed: 0,
-            conflicts: 0,
-        },
-    }))
+        w_id,
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(Json(()))
 }
 
-// TODO: Enable once sqlx prepare is run - full implementation with database queries
-// The functions below contain the complete implementation but are commented out
-// because they use sqlx compile-time checked queries that require `cargo sqlx prepare`
-// to be run with a database connection.
+#[derive(Serialize, Debug, Clone, Default)]
+struct WorkspaceDiffRow {
+    kind: String,
+    path: String,
+    ahead: i32,
+    behind: i32,
+    has_changes: Option<bool>,
+}
 
 async fn compare_workspaces(
     authed: ApiAuthed,
@@ -4034,25 +4039,83 @@ async fn compare_workspaces(
     // Check permissions for source workspace
     require_admin(authed.is_admin, &authed.username)?;
 
-    let diff_items: Vec<WorkspaceItemDiff> = sqlx::query!(
+    let diff_items = sqlx::query_as!(
+        WorkspaceDiffRow,
         "SELECT path, kind, ahead, behind, has_changes FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
         target_workspace_id,
         w_id,
     )
     .fetch_all(&db)
-    .await?
-    .into_iter()
-    .map(|r| WorkspaceItemDiff {
-        kind: r.kind,
-        path: r.path,
-        versions_ahead: r.ahead,
-        versions_behind: r.behind,
-        has_changes: r.has_changes.unwrap_or(true),
-        ..Default::default()
-    })
-    .collect();
+    .await?;
 
+    let mut confirmed_diffs = vec![];
+    for item in diff_items {
+        if let Some(has_changes) = item.has_changes {
+            if has_changes {
+                confirmed_diffs.push(item);
+            }
+            continue;
+        }
+
+        let item_comparison = match item.kind.as_str() {
+            "script" => {
+                Some(compare_two_scripts(&db, &w_id, &target_workspace_id, &item.path).await?)
+            }
+            // "flow" => {
+            //     Some(compare_two_flows(&db, &w_id, &target_workspace_id, &item.path).await?)
+            // }
+            k => {
+                tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {w_id} and {target_workspace_id} workspaces. Skipping this item", item.path);
+                Some(ItemComparison { has_changes: true, exists_in_source: true, exists_in_target: true })
+            }
+        };
+
+        if let Some(item_comparison) = item_comparison {
+            if item_comparison.has_changes {
+                sqlx::query!(
+                    "UPDATE workspace_diff SET has_changes = true WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    target_workspace_id,
+                    w_id,
+                    item.path,
+                    item.kind,
+                )
+                .execute(&db)
+                .await?;
+                confirmed_diffs.push(item);
+            } else {
+                sqlx::query!(
+                    "UPDATE workspace_diff SET has_changes = false WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    target_workspace_id,
+                    w_id,
+                    item.path,
+                    item.kind,
+                )
+                .execute(&db)
+                .await?;
+                // sqlx::query!(
+                //     "DELETE FROM workspace_diff WHERE path = $3 AND kind = $4 AND (
+                //         (source_workspace_id = $1 AND fork_workspace_id = $2)
+                //         OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                //     )",
+                //     target_workspace_id,
+                //     w_id,
+                //     item.path,
+                //     item.kind,
+                // )
+                // .execute(&db)
+                // .await?;
+            }
+        }
+    }
+
+    let diff_items = confirmed_diffs;
     tracing::error!("diff items: {diff_items:#?}");
 
     let is_fork: bool = sqlx::query_scalar(
@@ -4069,14 +4132,23 @@ async fn compare_workspaces(
 
     let summary = CompareSummary {
         total_diffs: diff_items.len(),
-        total_ahead: diff_items.iter().map(|s| s.versions_ahead).fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
-        total_behind: diff_items.iter().map(|s| s.versions_behind).fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        total_ahead: diff_items
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        total_behind: diff_items
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
         scripts_changed: diff_items.iter().filter(|s| s.kind == "script").count(),
         flows_changed: diff_items.iter().filter(|s| s.kind == "flow").count(),
         apps_changed: diff_items.iter().filter(|s| s.kind == "app").count(),
         resources_changed: diff_items.iter().filter(|s| s.kind == "resource").count(),
         variables_changed: diff_items.iter().filter(|s| s.kind == "variable").count(),
-        conflicts: diff_items.iter().filter(|s| s.versions_ahead > 0 && s.versions_behind > 0).count(),
+        conflicts: diff_items
+            .iter()
+            .filter(|s| s.ahead > 0 && s.behind > 0)
+            .count(),
     };
 
     return Ok(Json(WorkspaceComparison {
@@ -4087,53 +4159,53 @@ async fn compare_workspaces(
         summary,
     }));
 
-    // Check if workspaces have parent-child relationship
-
-    let mut diffs = Vec::new();
-
-    // Compare scripts
-    let script_diffs = compare_scripts(&db, &w_id, &target_workspace_id).await?;
-    diffs.extend(script_diffs);
-
-    // Compare flows
-    let flow_diffs = compare_flows(&db, &w_id, &target_workspace_id).await?;
-    diffs.extend(flow_diffs);
-
-    // Compare apps
-    let app_diffs = compare_apps(&db, &w_id, &target_workspace_id).await?;
-    diffs.extend(app_diffs);
-
-    // Compare resources
-    let resource_diffs = compare_resources(&db, &w_id, &target_workspace_id).await?;
-    diffs.extend(resource_diffs);
-
-    // Compare variables
-    let variable_diffs = compare_variables(&db, &w_id, &target_workspace_id).await?;
-    diffs.extend(variable_diffs);
-
-    // Calculate summary
-    let summary = CompareSummary {
-        total_diffs: diffs.len(),
-        total_ahead: diffs.len(),
-        total_behind: diffs.len(),
-        scripts_changed: diffs.iter().filter(|d| d.kind == "script").count(),
-        flows_changed: diffs.iter().filter(|d| d.kind == "flow").count(),
-        apps_changed: diffs.iter().filter(|d| d.kind == "app").count(),
-        resources_changed: diffs.iter().filter(|d| d.kind == "resource").count(),
-        variables_changed: diffs.iter().filter(|d| d.kind == "variable").count(),
-        conflicts: diffs
-            .iter()
-            .filter(|d| d.versions_ahead > 0 && d.versions_behind > 0)
-            .count(),
-    };
-
-    Ok(Json(WorkspaceComparison {
-        source_workspace_id: w_id,
-        target_workspace_id,
-        is_fork,
-        diffs,
-        summary,
-    }))
+    // // Check if workspaces have parent-child relationship
+    //
+    // let mut diffs = Vec::new();
+    //
+    // // Compare scripts
+    // let script_diffs = compare_scripts(&db, &w_id, &target_workspace_id).await?;
+    // diffs.extend(script_diffs);
+    //
+    // // Compare flows
+    // let flow_diffs = compare_flows(&db, &w_id, &target_workspace_id).await?;
+    // diffs.extend(flow_diffs);
+    //
+    // // Compare apps
+    // let app_diffs = compare_apps(&db, &w_id, &target_workspace_id).await?;
+    // diffs.extend(app_diffs);
+    //
+    // // Compare resources
+    // let resource_diffs = compare_resources(&db, &w_id, &target_workspace_id).await?;
+    // diffs.extend(resource_diffs);
+    //
+    // // Compare variables
+    // let variable_diffs = compare_variables(&db, &w_id, &target_workspace_id).await?;
+    // diffs.extend(variable_diffs);
+    //
+    // // Calculate summary
+    // let summary = CompareSummary {
+    //     total_diffs: diffs.len(),
+    //     total_ahead: diffs.len(),
+    //     total_behind: diffs.len(),
+    //     scripts_changed: diffs.iter().filter(|d| d.kind == "script").count(),
+    //     flows_changed: diffs.iter().filter(|d| d.kind == "flow").count(),
+    //     apps_changed: diffs.iter().filter(|d| d.kind == "app").count(),
+    //     resources_changed: diffs.iter().filter(|d| d.kind == "resource").count(),
+    //     variables_changed: diffs.iter().filter(|d| d.kind == "variable").count(),
+    //     conflicts: diffs
+    //         .iter()
+    //         .filter(|d| d.versions_ahead > 0 && d.versions_behind > 0)
+    //         .count(),
+    // };
+    //
+    // Ok(Json(WorkspaceComparison {
+    //     source_workspace_id: w_id,
+    //     target_workspace_id,
+    //     is_fork,
+    //     diffs,
+    //     summary,
+    // }))
 }
 
 #[allow(dead_code)]
@@ -4258,6 +4330,67 @@ async fn compare_scripts(
     }
 
     Ok(diffs)
+}
+
+struct ItemComparison {
+    has_changes: bool,
+    exists_in_source: bool,
+    exists_in_target: bool,
+}
+
+async fn compare_two_scripts(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest script from each workspace
+    let source_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        target_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_script, &target_script) {
+        if source.content != target.content
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.lock != target.lock
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_script.is_some() || target_script.is_some() {
+        // The script exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_script.is_some(),
+        exists_in_target: target_script.is_some(),
+    });
 }
 
 #[allow(dead_code)]

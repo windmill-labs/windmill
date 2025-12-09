@@ -1985,6 +1985,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkspaceComparison"
 
+  /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
+    post:
+      operationId: resetDiffTally
+      summary: Resets the ahead and behind deployement counter after a deployement
+      description: This endpoint should be called after a fork deployement
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: fork_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -20664,10 +20687,9 @@ components:
       required:
         - kind
         - path
-        - versions_ahead
-        - versions_behind
+        - ahead
+        - behind
         - has_changes
-        - metadata_changes
       properties:
         kind:
           type: string
@@ -20676,38 +20698,15 @@ components:
         path:
           type: string
           description: Path of the item in the workspace
-        versions_ahead:
+        ahead:
           type: integer
           description: Number of versions source is ahead of target
-        versions_behind:
+        behind:
           type: integer
           description: Number of versions source is behind target
         has_changes:
           type: boolean
           description: Whether the item has any differences
-        source_hash:
-          type: string
-          nullable: true
-          description: Hash/ID of the source version
-        target_hash:
-          type: string
-          nullable: true
-          description: Hash/ID of the target version
-        source_version:
-          type: integer
-          format: int64
-          nullable: true
-          description: Version number in source workspace
-        target_version:
-          type: integer
-          format: int64
-          nullable: true
-          description: Version number in target workspace
-        metadata_changes:
-          type: array
-          items:
-            type: string
-          description: List of changed metadata fields (content, summary, description, etc.)
 
     CompareSummary:
       type: object
