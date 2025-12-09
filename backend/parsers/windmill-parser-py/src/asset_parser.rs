@@ -23,9 +23,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
             .iter()
             .all(|a| !(a.kind == kind && a.path == name))
         {
-            assets_finder
-                .assets
-                .push(ParseAssetsResult { kind, access_type: None, path: name });
+            assets_finder.assets.push(ParseAssetsResult {
+                kind,
+                access_type: None,
+                path: name,
+                specific_table: None,
+            });
         }
     }
 
@@ -70,6 +73,7 @@ impl Visitor for AssetsFinder {
                                     kind,
                                     access_type: None,
                                     path: name,
+                                    specific_table: None,
                                 });
                             }
                         }
@@ -92,6 +96,7 @@ impl Visitor for AssetsFinder {
                         kind,
                         path: path.to_string(),
                         access_type: None,
+                        specific_table: None,
                     });
                 }
             }
@@ -113,6 +118,7 @@ impl Visitor for AssetsFinder {
                                 kind,
                                 path: path.to_string(),
                                 access_type: None,
+                                specific_table: None,
                             });
                         }
                     }
@@ -212,6 +218,7 @@ impl AssetsFinder {
                             kind: *kind,
                             path: path.to_string(),
                             access_type,
+                            specific_table: None,
                         });
                         return Ok(());
                     }
@@ -252,8 +259,12 @@ impl AssetsFinder {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
                     .unwrap_or(&value);
-                self.assets
-                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: path.to_string(),
+                    access_type,
+                    specific_table: None,
+                });
             }
             _ => return Err(()),
         };

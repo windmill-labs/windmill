@@ -24,9 +24,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
             .iter()
             .all(|a| a.path.as_ref() != path || a.kind != kind)
         {
-            collector
-                .assets
-                .push(ParseAssetsResult { kind: kind, access_type: None, path: path });
+            collector.assets.push(ParseAssetsResult {
+                kind: kind,
+                access_type: None,
+                path: path,
+                specific_table: None,
+            });
         }
     }
 
@@ -42,6 +45,7 @@ struct AssetCollector {
     var_identifiers: HashMap<String, (AssetKind, String)>,
     // e.g USE dl;
     currently_used_asset: Option<(AssetKind, String)>,
+    //
 }
 
 impl AssetCollector {
@@ -71,7 +75,12 @@ impl AssetCollector {
                 return None;
             }
             if let Some((kind, path)) = &self.currently_used_asset {
-                return Some(ParseAssetsResult { kind: *kind, access_type, path: path.clone() });
+                return Some(ParseAssetsResult {
+                    kind: *kind,
+                    access_type,
+                    path: path.clone(),
+                    specific_table: None,
+                });
             }
         }
 
@@ -81,7 +90,12 @@ impl AssetCollector {
         }
         let ident = name.0.first()?.as_ident()?;
         let (kind, path) = self.var_identifiers.get(&ident.value)?;
-        Some(ParseAssetsResult { kind: *kind, access_type, path: path.clone() })
+        Some(ParseAssetsResult {
+            kind: *kind,
+            access_type,
+            path: path.clone(),
+            specific_table: None,
+        })
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -92,6 +106,7 @@ impl AssetCollector {
                     kind,
                     path: path.to_string(),
                     access_type: self.current_access_type_stack.last().copied(),
+                    specific_table: None,
                 });
             }
         }
@@ -315,17 +330,20 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/a.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    specific_table: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/c.parquet".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    specific_table: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "snd/b.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    specific_table: None
                 },
             ])
         );
@@ -344,7 +362,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: None
+                access_type: None,
+                specific_table: None
             },])
         );
     }
@@ -361,7 +380,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                specific_table: None
             },])
         );
     }
@@ -379,7 +399,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                specific_table: None
             },])
         );
     }
@@ -410,7 +431,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                specific_table: None
             },])
         );
     }
@@ -427,7 +449,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                specific_table: None
             },])
         );
     }
@@ -449,7 +472,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                specific_table: None
             },])
         );
     }

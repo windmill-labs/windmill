@@ -1,6 +1,6 @@
 use windmill_parser::asset_parser::{
-        merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
-    };
+    merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+};
 
 use crate::{parse_ansible_reqs, ResourceOrVariablePath};
 
@@ -12,6 +12,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
                 kind: AssetKind::Resource,
                 path: delegate_to_git_repo_details.resource,
                 access_type: Some(AssetUsageAccessType::R),
+                specific_table: None,
             })
         }
 
@@ -21,6 +22,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
                     kind: AssetKind::Resource,
                     path: pinned_res,
                     access_type: Some(AssetUsageAccessType::R),
+                    specific_table: None,
                 })
             }
         }
@@ -31,6 +33,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
                     kind: AssetKind::Resource,
                     path: resource,
                     access_type: Some(AssetUsageAccessType::R),
+                    specific_table: None,
                 })
             }
         }
@@ -38,4 +41,3 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
 
     Ok(merge_assets(assets))
 }
-

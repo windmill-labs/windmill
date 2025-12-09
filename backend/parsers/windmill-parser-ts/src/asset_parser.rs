@@ -63,6 +63,7 @@ impl Visit for AssetsFinder {
                         kind,
                         path: path.to_string(),
                         access_type: None,
+                        specific_table: None,
                     });
                 }
             }
@@ -99,8 +100,12 @@ impl Visit for AssetsFinder {
             {
                 continue;
             }
-            self.assets
-                .push(ParseAssetsResult { kind, access_type: None, path: path.clone() });
+            self.assets.push(ParseAssetsResult {
+                kind,
+                access_type: None,
+                path: path.clone(),
+                specific_table: None,
+            });
         }
 
         // Restore state - identifiers declared in this block go out of scope
@@ -192,8 +197,12 @@ impl Visit for AssetsFinder {
         // Determine access type based on SQL keywords
         let access_type = detect_sql_access_type(&sql);
 
-        self.assets
-            .push(ParseAssetsResult { kind, path: asset_name, access_type });
+        self.assets.push(ParseAssetsResult {
+            kind,
+            path: asset_name,
+            access_type,
+            specific_table: None,
+        });
     }
 }
 
@@ -224,8 +233,12 @@ impl AssetsFinder {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
                     .unwrap_or(&value);
-                self.assets
-                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: path.to_string(),
+                    access_type,
+                    specific_table: None,
+                });
             }
             _ => return Err(()),
         }

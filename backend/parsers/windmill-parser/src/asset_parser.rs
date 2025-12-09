@@ -25,6 +25,8 @@ pub struct ParseAssetsResult<S: AsRef<str>> {
     pub path: S,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub specific_table: Option<String>, // e.g SELECT * FROM my_ducklake.friends => specific_table = "friends"
 }
 
 #[derive(Debug, Clone, Serialize)]
