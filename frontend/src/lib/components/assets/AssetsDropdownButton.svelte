@@ -84,10 +84,14 @@
 			}
 
 			for (const asset of assets) {
-				if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
-				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-					.then((resource) => (resourceDataCache[asset.path] = resource.resource_type))
-					.catch((err) => (resourceDataCache[asset.path] = undefined))
+				if (asset.kind == 'resource') {
+					let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+					if (truncatedPath in resourceDataCache) continue
+					resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+					ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+						.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
+						.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+				}
 			}
 		})
 	})
@@ -128,11 +132,11 @@
 				{@const ducklakeNotFound =
 					asset.kind === 'ducklake' &&
 					ducklakes.current &&
-					!ducklakes.current.find((name) => name === asset.path)}
+					!ducklakes.current.find((name) => name === asset.path.split('/')[0])}
 				{@const datatableNotFound =
 					asset.kind === 'datatable' &&
 					datatables.current &&
-					!datatables.current.find((name) => name === asset.path)}
+					!datatables.current.find((name) => name === asset.path.split('/')[0])}
 				<li
 					class="text-sm px-3 h-12 flex gap-3 items-center"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}

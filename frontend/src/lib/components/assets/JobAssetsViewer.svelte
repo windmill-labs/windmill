@@ -34,6 +34,7 @@
 				(x) => x.kind + x.path
 			)
 		}
+
 		if (job.job_kind === 'script') {
 			let inferAssetsResult = await inferAssets(job.language!, job.raw_code ?? '')
 			let assets = inferAssetsResult.status === 'ok' ? inferAssetsResult.assets : []
@@ -52,10 +53,14 @@
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 	$effect(() => {
 		for (const asset of assets.value ?? []) {
-			if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((resource) => (resourceDataCache[asset.path] = resource.resource_type))
-				.catch((err) => (resourceDataCache[asset.path] = undefined))
+			if (asset.kind == 'resource') {
+				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				if (truncatedPath in resourceDataCache) continue
+				resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
+					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+			}
 		}
 	})
 
