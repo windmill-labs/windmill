@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import OpenAI, { APIError } from 'openai'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import { prepareFlowUserMessage } from '../../core'
 import { createEvalHelpers } from './evalHelpers'
@@ -200,16 +200,51 @@ export async function runFlowEval(
 			messages
 		}
 	} catch (err) {
+		// Build detailed error message
+		let errorMessage: string
+		if (err instanceof APIError) {
+			const details: string[] = [`${err.status} ${err.message}`]
+			if (err.code) details.push(`Code: ${err.code}`)
+			if (err.type) details.push(`Type: ${err.type}`)
+			if (err.param) details.push(`Param: ${err.param}`)
+			if (err.requestID) details.push(`Request ID: ${err.requestID}`)
+			if (err.error && typeof err.error === 'object') {
+				details.push(`Response: ${JSON.stringify(err.error, null, 2)}`)
+			}
+			errorMessage = details.join('\n')
+		} else if (err instanceof Error) {
+			errorMessage = err.stack ?? err.message
+		} else {
+			errorMessage = String(err)
+		}
+
+		// Still run evaluation on partial content if expected flow is provided
+		let evaluationResult: EvalComparisonResult | undefined
+		if (options?.expectedFlow) {
+			try {
+				const generatedFlow = getFlow()
+				evaluationResult = await evaluateFlowComparison(
+					generatedFlow,
+					options.expectedFlow,
+					userPrompt
+				)
+			} catch (evalErr) {
+				// If evaluation itself fails, just log it and continue
+				console.error('Evaluation failed:', evalErr)
+			}
+		}
+
 		return {
 			success: false,
 			flow: getFlow(),
-			error: err instanceof Error ? err.message : String(err),
+			error: errorMessage,
 			tokenUsage: totalTokens,
 			toolCallsCount,
 			toolsCalled,
 			toolCallDetails,
 			iterations,
 			variantName,
+			evaluationResult,
 			messages
 		}
 	}
@@ -234,4 +269,13 @@ export async function runVariantComparison(
 		})
 	)
 	return results
+	// const results: EvalResult[] = []
+	// for (const variant of variants) {
+	// 	const result = await runFlowEval(userPrompt, openaiApiKey, {
+	// 		...baseOptions,
+	// 		variant
+	// 	})
+	// 	results.push(result)
+	// }
+	// return results
 }

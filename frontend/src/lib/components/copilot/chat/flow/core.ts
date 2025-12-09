@@ -276,8 +276,6 @@ class WorkspaceScriptsSearch {
 const testRunFlowSchema = z.object({
 	args: z
 		.object({})
-		.nullable()
-		.optional()
 		.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 

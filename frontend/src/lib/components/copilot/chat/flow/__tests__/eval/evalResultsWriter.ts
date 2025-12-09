@@ -106,6 +106,22 @@ export async function writeComparisonResults(
 		}
 	}
 
+	// Add errors section for failed variants
+	const failedResults = results.filter((r) => !r.success && r.error)
+	if (failedResults.length > 0) {
+		summaryLines.push('')
+		summaryLines.push('## Errors')
+		summaryLines.push('')
+		for (const result of failedResults) {
+			summaryLines.push(`### ${result.variantName}`)
+			summaryLines.push('')
+			summaryLines.push('```')
+			summaryLines.push(result.error!)
+			summaryLines.push('```')
+			summaryLines.push('')
+		}
+	}
+
 	const flowPaths: string[] = []
 
 	for (const result of results) {

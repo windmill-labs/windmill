@@ -35,13 +35,33 @@ const describeWithApiKey = OPENROUTER_API_KEY ? describe : describe.skip
 
 const MODELS = ['google/gemini-2.5-flash', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o']
 
+const VARIANTS = [
+	...MODELS.map((model) => ({
+		...BASELINE_VARIANT,
+		model,
+		name: `baseline-${model.replace('/', '-')}`
+	})),
+	...MODELS.map((model) => ({
+		...NO_FULL_SCHEMA_VARIANT,
+		model,
+		name: `no-full-schema-${model.replace('/', '-')}`
+	})),
+	...MODELS.map((model) => ({
+		...MINIMAL_SINGLE_TOOL_VARIANT,
+		model,
+		name: `minimal-single-tool-${model.replace('/', '-')}`
+	}))
+]
+
+// const VARIANTS = [{ ...BASELINE_VARIANT, model: MODELS[2] }]
+
 describeWithApiKey('Flow Chat LLM Evaluation', () => {
 	const TEST_TIMEOUT = 120_000
 	if (!OPENROUTER_API_KEY) {
 		console.warn('OPENROUTER_API_KEY is not set, skipping tests')
 	}
 
-	it.only(
+	it(
 		'test1: user role-based actions with loop and branches',
 		async () => {
 			const USER_PROMPT = `
@@ -53,26 +73,9 @@ STEP 3: Loop on all users
 STEP 4: Do branches based on user's role, do different action based on that. Roles are admin, user, moderator
 STEP 5: Return action taken for each user
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					expectedFlow: expectedTest1 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				expectedFlow: expectedTest1 as ExpectedFlow
+			})
 
 			// Write results to files
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
@@ -100,7 +103,7 @@ STEP 5: Return action taken for each user
 				}
 			}
 		},
-		TEST_TIMEOUT * 2
+		TEST_TIMEOUT * 5
 	)
 
 	it(
@@ -117,26 +120,9 @@ STEP 5: Branch based on inventory - if all items available, create shipment reco
 STEP 6: Send confirmation (mock email to customer_email)
 STEP 7: Return final order summary with status
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					expectedFlow: expectedTest2 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				expectedFlow: expectedTest2 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -183,26 +169,9 @@ STEP 5: Branch based on quality score:
   - If score < 70: Store in quarantine and send alert
 STEP 6: Return processing report with statistics (total records, quality score, destination)
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					expectedFlow: expectedTest3 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				expectedFlow: expectedTest3 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -249,26 +218,9 @@ STEP 3: Use an AI agent to handle the customer query. The agent should have acce
 STEP 4: Log the interaction to audit trail (customer_id, query, response summary)
 STEP 5: Return the agent's response and any actions taken
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					expectedFlow: expectedTest4 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				expectedFlow: expectedTest4 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -312,28 +264,11 @@ Modify this existing flow to add error handling:
 - If validation passes, return the data for the next step
 - Update save_results to handle the validation result appropriately
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					initialModules: initialTest5.value.modules as FlowModule[],
-					initialSchema: initialTest5.schema,
-					expectedFlow: expectedTest5 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				initialModules: initialTest5.value.modules as FlowModule[],
+				initialSchema: initialTest5.schema,
+				expectedFlow: expectedTest5 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -375,28 +310,11 @@ Modify the order processing loop to handle different order types:
 - Move the original process_order step to the default branch for unknown order types
 - Each branch step should return the orderId, shipping cost, and shipping type
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					initialModules: initialTest6.value.modules as FlowModule[],
-					initialSchema: initialTest6.schema,
-					expectedFlow: expectedTest6 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				initialModules: initialTest6.value.modules as FlowModule[],
+				initialSchema: initialTest6.schema,
+				expectedFlow: expectedTest6 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -438,28 +356,11 @@ Refactor this flow for better performance by parallelizing the enrichment steps:
 - The combine_data step should check if any enrichment used a fallback value and set a hasFallbacks flag
 - Keep get_item as the first step and return_result as the last step unchanged
 `
-			const results = await runVariantComparison(
-				USER_PROMPT,
-				[
-					...MODELS.map((model) => ({ ...BASELINE_VARIANT, model, name: `baseline-${model}` })),
-					...MODELS.map((model) => ({
-						...NO_FULL_SCHEMA_VARIANT,
-						model,
-						name: `no-full-schema-${model}`
-					})),
-					...MODELS.map((model) => ({
-						...MINIMAL_SINGLE_TOOL_VARIANT,
-						model,
-						name: `minimal-single-tool-${model}`
-					}))
-				],
-				OPENROUTER_API_KEY!,
-				{
-					initialModules: initialTest7.value.modules as FlowModule[],
-					initialSchema: initialTest7.schema,
-					expectedFlow: expectedTest7 as ExpectedFlow
-				}
-			)
+			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
+				initialModules: initialTest7.value.modules as FlowModule[],
+				initialSchema: initialTest7.schema,
+				expectedFlow: expectedTest7 as ExpectedFlow
+			})
 
 			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
