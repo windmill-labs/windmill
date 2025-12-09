@@ -35,21 +35,19 @@
 		const steps: DriveStep[] = [
 			{
 				popover: {
-					title: 'Welcome to your Windmill workspace! 🎉',
+					title: 'Welcome to Windmill! 🎉',
 					description:
-						"Let's take a quick tour! We'll show you how to view and run the main resources in Windmill: Scripts, Flows, and Apps.",
+						"Let's take a quick tour! We'll show you the three main tools you can use: Scripts, Flows, and Apps.",
 					onNextClick: () => {
 						// Wait a bit to ensure the page is fully rendered before moving to next step
 						setTimeout(() => {
-							// Try to find scripts navigation or section
-							const scriptsLink = document.querySelector('a[href*="/scripts"]') as HTMLElement | null
-							const scriptsSection = document.querySelector('[data-section="scripts"]') as HTMLElement | null
-							const scriptsButton = document.querySelector('#view-scripts-button, #scripts-nav, .scripts-link') as HTMLElement | null
+							// Try to find the script tab button
+							const scriptsButton = document.querySelector('[data-value="script"]') as HTMLElement | null
 
-							if (scriptsLink || scriptsSection || scriptsButton) {
+							if (scriptsButton) {
 								driver.moveNext()
 							} else {
-								// If we can't find specific elements, just move to next step
+								// If we can't find the button, just move to next step anyway
 								driver.moveNext()
 							}
 						}, 100)
@@ -58,16 +56,15 @@
 			},
 			{
 				popover: {
-					title: 'Scripts - Your automation tools',
+					title: 'Scripts - Run automated tasks',
 					description:
-						'<img src="/languages.png" alt="Programming Languages" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Scripts</strong> are the building blocks of automation in Windmill. They can be written in Python, TypeScript, Go, Bash, SQL and more.</p><p style="margin-top: 8px;">As an operator, you can <strong>view</strong> existing scripts and <strong>run them</strong> with different parameters to perform various tasks.</p>',
+						'<img src="/script-tutorial-operator.png" alt="Script Example" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Scripts</strong> are ready-to-use tasks that do things automatically for you.</p><p style="margin-top: 8px;">You can <strong>run scripts</strong> whenever you need them - like generating a report, sending notifications, or processing data.</p>',
 					onNextClick: async () => {
 						// Move to the next step (Flows)
 						setTimeout(() => {
-							const flowsLink = document.querySelector('a[href*="/flows"]') as HTMLElement | null
-							const flowsSection = document.querySelector('[data-section="flows"]') as HTMLElement | null
+							const flowsButton = document.querySelector('[data-value="flow"]') as HTMLElement | null
 
-							if (flowsLink || flowsSection) {
+							if (flowsButton) {
 								driver.moveNext()
 							} else {
 								driver.moveNext()
@@ -75,20 +72,19 @@
 						}, 100)
 					}
 				},
-				element: 'a[href*="/scripts"], [data-section="scripts"], #view-scripts-button, #scripts-nav, .scripts-link'
+				element: '[data-value="script"]'
 			},
 			{
 				popover: {
-					title: 'Flows - Multi-step workflows',
+					title: 'Flows - Run step-by-step processes',
 					description:
-						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Flows</strong> are multi-step workflows that orchestrate multiple scripts together. They can include branching logic, loops, and error handling.</p><p style="margin-top: 8px;">As an operator, you can <strong>execute flows</strong> to run complex automation sequences and <strong>monitor their progress</strong> in real-time.</p>',
+						'<img src="/flow.png" alt="Flow" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Flows</strong> are processes that run multiple tasks in order, one after another.</p><p style="margin-top: 8px;">You can <strong>start a flow</strong> and watch it complete each step automatically - perfect for tasks that have multiple stages.</p>',
 					onNextClick: async () => {
 						// Move to the next step (Apps)
 						setTimeout(() => {
-							const appsLink = document.querySelector('a[href*="/apps"]') as HTMLElement | null
-							const appsSection = document.querySelector('[data-section="apps"]') as HTMLElement | null
+							const appsButton = document.querySelector('[data-value="app"]') as HTMLElement | null
 
-							if (appsLink || appsSection) {
+							if (appsButton) {
 								driver.moveNext()
 							} else {
 								driver.moveNext()
@@ -96,13 +92,13 @@
 						}, 100)
 					}
 				},
-				element: 'a[href*="/flows"], [data-section="flows"], #view-flows-button, #flows-nav, .flows-link'
+				element: '[data-value="flow"]'
 			},
 			{
 				popover: {
-					title: 'Apps - Custom user interfaces',
+					title: 'Apps - Use custom tools',
 					description:
-						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Apps</strong> are custom user interfaces built with drag-and-drop components. They can include tables, forms, charts, and buttons that trigger scripts and flows.</p><p style="margin-top: 8px;">As an operator, you can <strong>use apps</strong> to interact with data and trigger automations through intuitive interfaces built specifically for your needs.</p><p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>🎉 That\'s it for the tour!</strong></p><p style="margin-top: 8px; font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> You can always access the documentation and support resources from the help menu.</p>',
+						'<img src="/app.png" alt="App" style="width: 100%; max-width: 400px; margin-bottom: 12px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;" /><p><strong>Apps</strong> are easy-to-use tools with buttons, forms, and displays built just for your team.</p><p style="margin-top: 8px;">You can <strong>open an app</strong> to work with your data, fill out forms, or trigger tasks - no technical knowledge needed!</p><p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>🎉 That\'s it!</strong> You\'re ready to start using Windmill.</p><p style="margin-top: 8px; font-size: 0.9em; opacity: 0.9;"><strong>💡 Need help?</strong> You can always access support and documentation from the help menu.</p>',
 					onNextClick: async () => {
 						// Mark tutorial as complete
 						updateProgress(index)
@@ -114,7 +110,7 @@
 						}
 					}
 				},
-				element: 'a[href*="/apps"], [data-section="apps"], #view-apps-button, #apps-nav, .apps-link'
+				element: '[data-value="app"]'
 			}
 		]
 
