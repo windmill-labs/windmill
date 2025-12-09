@@ -107,7 +107,7 @@
 				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
 				'border',
 				'bg-surface hover:bg-surface-hover active:bg-surface',
-				'transition-all hover:text-primary cursor-pointer'
+				'transition-all hover:text-primary backdrop-blur-md cursor-pointer'
 			)}
 		>
 			<div
