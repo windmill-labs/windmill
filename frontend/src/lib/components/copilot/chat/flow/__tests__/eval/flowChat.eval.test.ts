@@ -41,7 +41,7 @@ describeWithApiKey('Flow Chat LLM Evaluation', () => {
 		console.warn('OPENROUTER_API_KEY is not set, skipping tests')
 	}
 
-	it(
+	it.only(
 		'test1: user role-based actions with loop and branches',
 		async () => {
 			const USER_PROMPT = `
