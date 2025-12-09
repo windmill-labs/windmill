@@ -858,6 +858,7 @@ export async function parseOpenAICompletion(
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	const streamingTools: Record<number, boolean> = {} // Track which tools should stream
+	let malformedFunctionCallError = false
 
 	let answer = ''
 	for await (const chunk of completion) {
@@ -865,6 +866,17 @@ export async function parseOpenAICompletion(
 			continue
 		}
 		const c = chunk as ChatCompletionChunk
+
+		// Check for malformed function call error (e.g. from Gemini models)
+		const finishReason = c.choices[0].finish_reason
+		if (
+			finishReason &&
+			typeof finishReason === 'string' &&
+			finishReason.includes('MALFORMED_FUNCTION_CALL')
+		) {
+			malformedFunctionCallError = true
+		}
+
 		const delta = c.choices[0].delta.content
 		if (delta) {
 			answer += delta
@@ -984,12 +996,26 @@ export async function parseOpenAICompletion(
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {
-			const messageToAdd = await processToolCall({
-				tools,
-				toolCall,
-				helpers,
-				toolCallbacks: callbacks
-			})
+			let messageToAdd: ChatCompletionMessageParam
+			if (malformedFunctionCallError) {
+				// Mark tool call as failed due to malformed function call
+				callbacks.setToolStatus(toolCall.id, {
+					isLoading: false,
+					error: 'Invalid input given to function call'
+				})
+				messageToAdd = {
+					role: 'tool' as const,
+					tool_call_id: toolCall.id,
+					content: 'Invalid input given to function call, try again'
+				}
+			} else {
+				messageToAdd = await processToolCall({
+					tools,
+					toolCall,
+					helpers,
+					toolCallbacks: callbacks
+				})
+			}
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
