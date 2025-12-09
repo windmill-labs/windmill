@@ -7,7 +7,7 @@ import { TUTORIALS_CONFIG } from './tutorials/config'
  * LocalStorage key for tracking if the tutorial banner has been dismissed.
  * Shared between tutorialUtils and TutorialBanner component.
  */
-export const TUTORIAL_BANNER_DISMISSED_KEY = 'tutorial_banner_dismissed'
+export const TUTORIAL_BANNER_DISMISSED_KEY: string = 'tutorial_banner_dismissed'
 
 /**
  * Get the maximum tutorial index from the config.

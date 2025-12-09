@@ -16,6 +16,7 @@
 	import { onMount } from 'svelte'
 
 	let isDismissed = $state(false)
+	let hasCompletedAny = $state(false)
 
 	/**
 	 * Get all tutorial indexes that are accessible to the current user based on their role.
@@ -64,6 +65,9 @@
 			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
 				accessibleTutorialIndexes.has(index)
 			)
+
+			// Calculate if user has completed at least one tutorial (for banner wording)
+			hasCompletedAny = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
 
 			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
 			if (remainingAccessibleTutorials.length === 0) {
@@ -122,16 +126,24 @@
 			<GraduationCap size={20} class="text-accent-primary flex-shrink-0" />
 			<div class="flex-1 min-w-0">
 				<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
-					Learn with interactive tutorials
+					{#if hasCompletedAny}
+						New tutorial available
+					{:else}
+						Learn with interactive tutorials
+					{/if}
 				</div>
 				<div class="text-hint text-3xs truncate text-left font-normal">
-					Get started quickly with step-by-step guides on building flows, scripts, and more.
+					{#if hasCompletedAny}
+						Continue your learning journey and master new Windmill skills!
+					{:else}
+						Get started quickly with step-by-step guides on building flows, scripts, and more.
+					{/if}
 				</div>
 			</div>
 		</div>
 		<div class="flex items-center gap-2 flex-shrink-0">
 			<Button size="xs" variant="accent" onclick={goToTutorials} startIcon={{ icon: GraduationCap }}>
-				View tutorials
+					View tutorials
 			</Button>
 			<button
 				onclick={dismissBanner}
