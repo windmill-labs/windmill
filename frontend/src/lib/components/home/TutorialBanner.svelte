@@ -6,21 +6,30 @@
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { skipAllTodos, syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { tutorialsToDo } from '$lib/stores'
+	import { tutorialsToDo, userStore } from '$lib/stores'
 	import { TUTORIALS_CONFIG } from '$lib/tutorials/config'
+	import { getUserEffectiveRole, hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
 	const DISMISSED_KEY = 'tutorial_banner_dismissed'
 	let isDismissed = $state(false)
 
 	/**
-	 * Get all tutorial indexes that are actually defined in the config
+	 * Get all tutorial indexes that are accessible to the current user based on their role
 	 */
-	function getDefinedTutorialIndexes(): Set<number> {
+	function getAccessibleTutorialIndexes(): Set<number> {
 		const indexes = new Set<number>()
+		const user = $userStore
+
 		for (const tab of Object.values(TUTORIALS_CONFIG)) {
+			// Check if user has access to this tab category
+			if (!hasRoleAccess(user, tab.roles)) {
+				continue
+			}
+
 			for (const tutorial of tab.tutorials) {
-				if (tutorial.index !== undefined) {
+				// Check if tutorial has an index and user has access to it
+				if (tutorial.index !== undefined && hasRoleAccess(user, tutorial.roles)) {
 					indexes.add(tutorial.index)
 				}
 			}
@@ -35,16 +44,18 @@
 		// Check if banner has been manually dismissed
 		const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 
-		// Get all defined tutorial indexes
-		const definedIndexes = getDefinedTutorialIndexes()
+		// Get all tutorial indexes accessible to the current user based on their role
+		const accessibleIndexes = getAccessibleTutorialIndexes()
 
-		// Filter tutorialsToDo to only include tutorials that actually exist
-		const remainingRealTutorials = $tutorialsToDo.filter((index) => definedIndexes.has(index))
+		// Filter tutorialsToDo to only include tutorials accessible to the user
+		const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
+			accessibleIndexes.has(index)
+		)
 
-		// Check if all real tutorials are completed
-		const allTutorialsCompleted = remainingRealTutorials.length === 0
+		// Check if all accessible tutorials are completed
+		const allTutorialsCompleted = remainingAccessibleTutorials.length === 0
 
-		// Dismiss banner if manually dismissed OR all tutorials completed
+		// Dismiss banner if manually dismissed OR all accessible tutorials completed
 		if (manuallyDismissed || allTutorialsCompleted) {
 			isDismissed = true
 			// Set localStorage to ensure banner stays dismissed
