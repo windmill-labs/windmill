@@ -146,9 +146,7 @@
 							<div
 								class={twMerge(
 									'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
-									!asset.access_type && !asset.alt_access_type
-										? 'text-orange-500 !border-orange-500'
-										: '',
+									!asset.access_type ? 'text-orange-600 !border-orange-600' : '',
 									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
 								)}
 							>
@@ -162,7 +160,11 @@
 									<span class="text-xs">Please select manually </span>
 								</span>
 								<div class="flex items-center gap-2">
-									<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+									<ToggleButtonGroup
+										allowEmpty
+										bind:selected={asset.alt_access_type}
+										class="max-w-fit"
+									>
 										{#snippet children({ item })}
 											<ToggleButton value="r" label="Read" {item} />
 											<ToggleButton value="w" label="Write" {item} />

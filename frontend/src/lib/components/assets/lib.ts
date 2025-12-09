@@ -93,8 +93,8 @@ export function formatAssetAccessType(accessType: AssetUsageAccessType | undefin
 }
 
 export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {
-	if (asset.alt_access_type) return asset.alt_access_type
 	if (asset.access_type) return asset.access_type
+	if (asset.alt_access_type) return asset.alt_access_type
 }
 
 export function getFlowModuleAssets(
