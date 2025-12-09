@@ -10,7 +10,7 @@
 		syncTutorialsTodos,
 		TUTORIAL_BANNER_DISMISSED_KEY
 	} from '$lib/tutorialUtils'
-	import { tutorialsToDo, userStore } from '$lib/stores'
+	import { tutorialsToDo, userStore, skippedAll } from '$lib/stores'
 	import { TUTORIALS_CONFIG } from '$lib/tutorials/config'
 	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
@@ -46,29 +46,33 @@
 			// Sync tutorial progress from backend first
 			await syncTutorialsTodos()
 
-			// Check if banner has been manually dismissed
+			// Check if banner has been manually dismissed via X button (soft dismiss, per-device)
 			const manuallyDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
+			if (manuallyDismissed) {
+				isDismissed = true
+				return
+			}
+
+			// Check if user deliberately skipped all tutorials (permanent dismiss, from backend)
+			if ($skippedAll) {
+				isDismissed = true
+				return
+			}
 
 			// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
-			// Filter tutorialsToDo to only include tutorials accessible to the user
+			// Filter tutorialsToDo to only include tutorials accessible to the user's role
 			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
 				accessibleTutorialIndexes.has(index)
 			)
 
-			// Check if all accessible tutorials are completed
-			const allTutorialsCompleted = remainingAccessibleTutorials.length === 0
-
-			// Dismiss banner if manually dismissed OR all accessible tutorials completed
-			if (manuallyDismissed || allTutorialsCompleted) {
+			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
+			if (remainingAccessibleTutorials.length === 0) {
 				isDismissed = true
-				// Set localStorage when all tutorials are completed to persist dismissal
-				// Note: This will re-set the key on every page load if localStorage is cleared
-				// but tutorials remain completed in backend. This is intentional - the banner
-				// should stay hidden if tutorials are completed, regardless of localStorage state.
-				if (allTutorialsCompleted) {
-					storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
-				}
+				return
 			}
+
+			// Show banner - user has accessible tutorials to complete
+			isDismissed = false
 		} catch (error) {
 			console.error('Failed to sync tutorial progress:', error)
 			// Fallback to manual dismissal check only if API call fails
@@ -77,9 +81,10 @@
 	})
 
 	async function handleSkipAllTutorials() {
+		// Skip all tutorials and set skipped_all flag in backend (permanent)
 		await skipAllTodos()
 		await syncTutorialsTodos()
-		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
+		// No need to set localStorage - backend skipped_all flag is the source of truth
 		isDismissed = true
 	}
 

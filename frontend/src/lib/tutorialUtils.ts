@@ -71,11 +71,7 @@ export async function skipAllTodos() {
 	tutorialsToDo.set([])
 	skippedAll.set(true)
 
-	// Dismiss the tutorial banner when all tutorials are skipped
-	if (typeof window !== 'undefined') {
-		localStorage.setItem(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
-	}
-
+	// Set skipped_all flag in backend - this is the permanent source of truth
 	await UserService.updateTutorialProgress({ requestBody: { progress: bits, skipped_all: true } })
 }
 
