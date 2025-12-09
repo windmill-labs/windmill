@@ -1006,7 +1006,7 @@ export async function parseOpenAICompletion(
 				messageToAdd = {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Invalid input given to function call, try again'
+					content: 'Invalid input given to function call, MUST TRY WITH SIMPLER ARGUMENTS'
 				}
 			} else {
 				messageToAdd = await processToolCall({
@@ -1019,6 +1019,43 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+	} else if (malformedFunctionCallError) {
+		// Malformed function call with no tool calls - create artificial tool call to inform AI
+		const fakeToolCallId = generateRandomString()
+
+		// Show error status to user
+		callbacks.setToolStatus(fakeToolCallId, {
+			isLoading: false,
+			content: 'Malformed function call',
+			error: 'Invalid input given to function call',
+			toolName: 'unknown'
+		})
+
+		// Add assistant message with fake tool call
+		const assistantMessage = {
+			role: 'assistant' as const,
+			tool_calls: [
+				{
+					id: fakeToolCallId,
+					type: 'function' as const,
+					function: {
+						name: 'unknown',
+						arguments: '{}'
+					}
+				}
+			]
+		}
+		messages.push(assistantMessage)
+		addedMessages.push(assistantMessage)
+
+		// Add tool response telling AI to retry
+		const toolResponse = {
+			role: 'tool' as const,
+			tool_call_id: fakeToolCallId,
+			content: 'Invalid input given to function call, MUST TRY WITH SIMPLER ARGUMENTS'
+		}
+		messages.push(toolResponse)
+		addedMessages.push(toolResponse)
 	} else {
 		return false
 	}

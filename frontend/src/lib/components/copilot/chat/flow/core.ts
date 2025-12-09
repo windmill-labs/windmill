@@ -56,7 +56,10 @@ export interface FlowAIChatHelpers {
 
 	// ai chat tools
 	setCode: (id: string, code: string) => Promise<void>
-	setFlowJson: (json: string) => Promise<void>
+	setFlowJson: (
+		modules: FlowModule[] | undefined,
+		schema: Record<string, any> | undefined
+	) => Promise<void>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
 	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
 	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
@@ -114,10 +117,6 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
-/**
- * A single tool that sets the entire flow JSON at once.
- * This replaces the granular flow editing tools (add_module, remove_module, modify_module, etc.)
- */
 const setFlowJsonToolDef: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
@@ -129,15 +128,12 @@ const setFlowJsonToolDef: ChatCompletionFunctionTool = {
 			type: 'object',
 			properties: {
 				modules: {
-					type: 'array',
-					description: 'Array of flow modules',
-					items: {
-						type: 'object'
-					}
+					type: 'string',
+					description: 'JSON string containing the flow modules'
 				},
 				schema: {
-					type: 'object',
-					description: 'Flow input schema (JSON Schema format) defining parameters the flow accepts'
+					type: 'string',
+					description: 'JSON string containing the flow input schema'
 				}
 			},
 			required: []
@@ -516,19 +512,25 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const { modules, schema } = args
-			const flowValue: Record<string, unknown> = { modules }
-			if (schema) {
-				flowValue.schema = schema
-			}
+			const parsedModules = modules
+				? typeof modules === 'string'
+					? JSON.parse(modules)
+					: modules
+				: undefined
+			const parsedSchema = schema
+				? typeof schema === 'string'
+					? JSON.parse(schema)
+					: schema
+				: undefined
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Setting flow with ${modules.length} module(s)...`
+				content: `Setting flow...`
 			})
-			await helpers.setFlowJson(JSON.stringify(flowValue))
+			await helpers.setFlowJson(parsedModules, parsedSchema)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Flow updated with ${modules.length} module(s)`,
+				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated with ${modules.length} module(s): [${modules.map((m: any) => m.id).join(', ')}]`
+			return `Flow updated`
 		}
 	}
 ]
