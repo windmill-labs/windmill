@@ -37,6 +37,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import openFlowSchema from './openFlow.json'
 import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
 import { flowModulesSchema } from './openFlowZod'
+import { collectAllModuleIds, collectAllModuleIdsFromArray } from './utils'
 
 /**
  * Helper interface for AI chat flow operations
@@ -557,6 +558,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					})
 
 					throw new Error(`Invalid flow modules:\n${errors.join('\n')}`)
+				} else {
+					// check for duplicate ids
+					const ids = collectAllModuleIdsFromArray(parsedModules)
+					console.log('ids', ids)
+					if (ids.length !== new Set(ids).size) {
+						throw new Error('Duplicate module IDs found in flow')
+					}
 				}
 			}
 
