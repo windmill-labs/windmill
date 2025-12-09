@@ -46,6 +46,7 @@
 			// Check if banner has been manually dismissed
 			const manuallyDismissed = getLocalSetting(DISMISSED_KEY) === 'true'
 
+			// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
 			// Filter tutorialsToDo to only include tutorials accessible to the user
 			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
 				accessibleTutorialIndexes.has(index)
@@ -57,7 +58,10 @@
 			// Dismiss banner if manually dismissed OR all accessible tutorials completed
 			if (manuallyDismissed || allTutorialsCompleted) {
 				isDismissed = true
-				// Set localStorage to ensure banner stays dismissed
+				// Set localStorage when all tutorials are completed to persist dismissal
+				// Note: This will re-set the key on every page load if localStorage is cleared
+				// but tutorials remain completed in backend. This is intentional - the banner
+				// should stay hidden if tutorials are completed, regardless of localStorage state.
 				if (allTutorialsCompleted) {
 					storeLocalSetting(DISMISSED_KEY, 'true')
 				}
