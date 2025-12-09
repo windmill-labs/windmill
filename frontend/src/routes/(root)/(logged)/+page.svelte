@@ -274,9 +274,7 @@
 		{/if}
 	</PageHeader>
 
-	{#if !$userStore?.operator}
-		<TutorialBanner />
-	{/if}
+	<TutorialBanner />
 
 	{#if !$userStore?.operator}
 		<div class="w-full overflow-auto scrollbar-hidden pb-2">
