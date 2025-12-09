@@ -127,14 +127,14 @@
 			<div class="flex-1 min-w-0">
 				<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
 					{#if hasCompletedAny}
-						New tutorial available
+						New tutorial available!
 					{:else}
 						Learn with interactive tutorials
 					{/if}
 				</div>
 				<div class="text-hint text-3xs truncate text-left font-normal">
 					{#if hasCompletedAny}
-						Continue your learning journey and master new Windmill skills!
+						Continue your learning journey and master new Windmill skills.
 					{:else}
 						Get started quickly with step-by-step guides on building flows, scripts, and more.
 					{/if}
