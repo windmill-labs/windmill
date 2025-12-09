@@ -574,17 +574,14 @@ async fn get_tutorial_progress(
     )
     .fetch_optional(&db)
     .await?;
-    
+
     if let Some(row) = row {
         Ok(Json(Progress {
             progress: row.progress.unwrap_or_default() as u64,
             skipped_all: row.skipped_all,
         }))
     } else {
-        Ok(Json(Progress {
-            progress: 0,
-            skipped_all: false,
-        }))
+        Ok(Json(Progress { progress: 0, skipped_all: false }))
     }
 }
 

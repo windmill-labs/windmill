@@ -25,7 +25,7 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::{UserDB, UserDbWithAuthed},
+    db::{DbWithOptAuthed, UserDB, UserDbWithAuthed},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
@@ -38,7 +38,7 @@ use windmill_common::{
 use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
 use serde::Deserialize;
-use sqlx::{Postgres, Transaction};
+use sqlx::{Acquire, Postgres, Transaction};
 use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -244,19 +244,12 @@ async fn get_value(
 ) -> JsonResult<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
-    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let userdb_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
 
-    return get_value_internal(
-        &userdb_authed,
-        &db,
-        &w_id,
-        &path,
-        &authed,
-        q.allow_cache.unwrap_or(false),
-    )
-    .warn_after_seconds(10)
-    .await
-    .map(Json);
+    return get_value_internal(&userdb_authed, &w_id, &path, q.allow_cache.unwrap_or(false))
+        .warn_after_seconds(10)
+        .await
+        .map(Json);
 }
 
 async fn explain_variable_perm_error(
@@ -780,12 +773,10 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
-pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
-    acquire_db: A,
-    db: &DB,
+pub async fn get_value_internal<'a>(
+    db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
     w_id: &str,
     path: &str,
-    audit_author: &impl AuditAuthorable,
     allow_cache: bool,
 ) -> Result<String> {
     if allow_cache {
@@ -794,7 +785,7 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
         }
     }
 
-    let mut tx = acquire_db.begin().await?;
+    let mut tx = db_with_opt_authed.begin().await?;
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
@@ -807,15 +798,16 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
     let variable = if let Some(variable) = variable_o {
         variable
     } else {
-        explain_variable_perm_error(path, w_id, db).await?;
+        explain_variable_perm_error(path, w_id, &db_with_opt_authed.db()).await?;
         unreachable!()
     };
 
     let r = if variable.is_secret {
-        let mut tx = db.begin().await?;
+        // let audit_author =
+        let mut tx = db_with_opt_authed.db().begin().await?;
         audit_log(
             &mut *tx,
-            audit_author,
+            db_with_opt_authed,
             "variables.decrypt_secret",
             ActionKind::Execute,
             &w_id,
@@ -842,7 +834,7 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
-            let mc = build_crypt(&db, &w_id).await?;
+            let mc = build_crypt(db_with_opt_authed.db(), &w_id).await?;
             decrypt(&mc, value).map_err(|e| {
                 Error::internal_err(format!(
                     "Error decrypting variable {}: {}",
@@ -858,9 +850,8 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
 
     // Cache the result when explicitly allowed and caching appropriate
     if allow_cache {
-        cache_variable(&w_id, &path, audit_author.email(), r.clone());
+        cache_variable(&w_id, &path, db_with_opt_authed.email(), r.clone());
     }
 
     Ok(r)
 }
-
