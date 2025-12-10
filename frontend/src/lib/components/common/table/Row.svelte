@@ -20,7 +20,7 @@
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
-		kind?: 'script' | 'flow' | 'app' | 'raw_app'
+		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable'
 		summary?: string | undefined
 		path: string
 		href?: string
@@ -28,6 +28,7 @@
 		depth?: number
 		badges?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
+		customSummary?: import('svelte').Snippet
 		onSelect?: (
 			e: Event & {
 				currentTarget: EventTarget & HTMLInputElement
@@ -54,6 +55,7 @@
 		depth = 0,
 		badges,
 		actions,
+		customSummary,
 		onSelect = () => {}
 	}: Props = $props()
 
@@ -90,38 +92,10 @@
 
 	{#if href}
 		<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
-			<div class="shrink">
-				<RowIcon {kind} />
-			</div>
-			<div class="grow">
-				<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
-					{#if marked}
-						{@html marked}
-					{:else}
-						{!summary || summary.length == 0 ? displayPath : summary}
-					{/if}
-				</div>
-				<div class="text-hint text-3xs truncate text-left font-normal">
-					{path}
-				</div>
-			</div>
+			{@render rowContent()}
 		</a>
 	{:else}
-		<div class="shrink">
-			<RowIcon {kind} />
-		</div>
-		<div class="grow">
-			<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
-				{#if marked}
-					{@html marked}
-				{:else}
-					{!summary || summary.length == 0 ? displayPath : summary}
-				{/if}
-			</div>
-			<div class="text-hint text-3xs truncate text-left font-normal">
-				{path}
-			</div>
-		</div>
+			{@render rowContent()}
 	{/if}
 
 	{#if errorHandlerMuted}
@@ -154,3 +128,25 @@
 		{@render actions?.()}
 	</div>
 </div>
+
+{#snippet rowContent()}
+	<div class="shrink">
+		<RowIcon {kind} />
+	</div>
+	<div class="grow">
+		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
+			{#if customSummary}
+				{@render customSummary?.()}
+			{:else}
+				{#if marked}
+					{@html marked}
+				{:else}
+					{!summary || summary.length == 0 ? displayPath : summary}
+				{/if}
+			{/if}
+		</div>
+		<div class="text-hint text-3xs truncate text-left font-normal">
+			{path}
+		</div>
+	</div>
+{/snippet}

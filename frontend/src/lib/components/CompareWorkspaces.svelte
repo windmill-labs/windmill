@@ -15,6 +15,7 @@
 		FileText,
 		GitBranch,
 		GitFork,
+		Info,
 		Key,
 		Layout,
 		Loader2,
@@ -91,6 +92,10 @@
 
 	let groupedDiffs = $derived(groupDiffsByKind(comparison?.diffs ?? []))
 
+	// Summary cache: stores summaries from both workspaces
+	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
+	let summaryCache = $state<SummaryCache>({})
+
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
 	}
@@ -109,6 +114,74 @@
 				return Key
 			default:
 				return FileText
+		}
+	}
+
+	async function fetchSummary(kind: string, path: string, workspace: string): Promise<string | undefined> {
+		try {
+			if (kind === 'script') {
+				const script = await ScriptService.getScriptByPath({ workspace, path })
+				return script.summary
+			} else if (kind === 'flow') {
+				const flow = await FlowService.getFlowByPath({ workspace, path })
+				return flow.summary
+			} else if (kind === 'app') {
+				const app = await AppService.getAppByPath({ workspace, path })
+				return app.summary
+			}
+		} catch (error) {
+			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
+		}
+		return undefined
+	}
+
+	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
+		// Only fetch summaries for scripts, flows, and apps
+		const itemsToFetch = diffs.filter((diff) =>
+			['script', 'flow', 'app'].includes(diff.kind)
+		)
+
+		for (const diff of itemsToFetch) {
+			const key = getItemKey(diff)
+
+			// Skip if already cached or loading
+			if (summaryCache[key]) continue
+
+			// Mark as loading
+			summaryCache[key] = { loading: true }
+
+			// Fetch from both workspaces in parallel
+			const [currentSummary, parentSummary] = await Promise.all([
+				fetchSummary(diff.kind, diff.path, currentWorkspaceId),
+				fetchSummary(diff.kind, diff.path, parentWorkspaceId)
+			])
+
+			summaryCache[key] = {
+				current: currentSummary,
+				parent: parentSummary,
+				loading: false
+			}
+		}
+	}
+
+	function getSummaryDisplay(key: string): { summary: string; isDifferent: boolean } {
+		const cached = summaryCache[key]
+
+		if (!cached || cached.loading) {
+			return { summary: '', isDifferent: false }
+		}
+
+		const currentSummary = cached.current || ''
+		const parentSummary = cached.parent || ''
+
+		const isDifferent = currentSummary !== parentSummary &&
+			(currentSummary.length > 0 || parentSummary.length > 0)
+
+		// Return the summary from the current workspace by default
+		// The visual indicator will show if they're different
+		return {
+			summary: currentSummary || parentSummary || '',
+			isDifferent
 		}
 	}
 
@@ -587,6 +660,13 @@
 		}
 	}
 
+	// Fetch summaries when comparison data loads
+	$effect(() => {
+		if (comparison?.diffs) {
+			fetchSummaries(comparison.diffs)
+		}
+	})
+
 	async function deleteWorkspace() {
 		// if (!sourceWorkspace || comparison?.summary.total_diffs !== 0) return
 		//
@@ -622,7 +702,6 @@
 			<a href="/">Click here to go home ({$workspaceStore})</a>
 		</Alert>
 	{/if}
-	{console.log(comparison)}
 	{#if comparison}
 		<div class="bg-surface">
 			<div class="flex items-center justify-between">
@@ -741,18 +820,14 @@
 		</div>
 
 		<div class="flex-1 overflow-y-auto">
-			<!-- {#each Object.entries(groupedDiffs) as [kind, diffs]} -->
-			<!-- 	<div class="border-b"> -->
-			<!-- 		<div class="px-4 py-2 bg-surface-secondary text-sm font-medium capitalize"> -->
-			<!-- 			{kind}s ({diffs.length}) -->
-			<!-- 		</div> -->
 			<div class="border rounded-md bg-surface-tertiary">
 				{#each comparison.diffs as diff}
 					{@const key = getItemKey(diff)}
 					{@const isSelectable = selectableDiffs.includes(diff)}
 					{@const isSelected = selectedItems.includes(key)}
 					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
-					{@const Icon = getItemIcon(diff.kind)}
+					{@const oldSummary = mergeIntoParent ? summaryCache[key]?.parent : summaryCache[key]?.current}
+					{@const newSummary = mergeIntoParent ? summaryCache[key]?.current : summaryCache[key]?.parent}
 
 					<Row
 						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
@@ -760,13 +835,20 @@
 						disabled={!isSelectable}
 						selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
 						onSelect={() => toggleItem(diff)}
-						path={diff.path}
+						path={diff.kind != 'resource' && diff.kind != 'variable' ? diff.path : ''}
 						marked={undefined}
-						kind={diff.kind as any}
+						kind={diff.kind}
 						canFavorite={false}
 						workspaceId=""
 						starred={false}
 					>
+						{#snippet customSummary()}
+							{#if oldSummary != newSummary && isSelectable}
+								<span class="line-through text-secondary">{oldSummary || diff.path}</span> {newSummary || diff.path}
+							{:else}
+								{newSummary || diff.path}
+							{/if}
+						{/snippet}
 						{#snippet actions()}
 							<!-- Status badges -->
 							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
