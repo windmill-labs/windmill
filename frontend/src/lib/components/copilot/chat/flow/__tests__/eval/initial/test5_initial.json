@@ -1,0 +1,53 @@
+{
+    "summary": "Simple data pipeline",
+    "value": {
+        "modules": [
+            {
+                "id": "fetch_data",
+                "summary": "Fetch data from API",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main() {\n  // Mock API call\n  return [\n    { id: 1, name: \"Item 1\", value: 100 },\n    { id: 2, name: \"Item 2\", value: 200 },\n    { id: 3, name: \"Item 3\", value: 300 }\n  ];\n}",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "process_data",
+                "summary": "Process the fetched data",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(data: any[]) {\n  // Apply some transformation\n  return data.map(item => ({\n    ...item,\n    value: item.value * 1.1,\n    processed: true\n  }));\n}",
+                    "input_transforms": {
+                        "data": {
+                            "type": "javascript",
+                            "expr": "results.fetch_data"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "save_results",
+                "summary": "Save results to database",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(data: any[]) {\n  // Mock database save\n  console.log(`Saving ${data.length} items to database`);\n  return { saved: data.length, status: \"success\" };\n}",
+                    "input_transforms": {
+                        "data": {
+                            "type": "javascript",
+                            "expr": "results.process_data"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {},
+        "required": [],
+        "type": "object"
+    }
+}

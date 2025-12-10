@@ -1,0 +1,134 @@
+{
+    "summary": "",
+    "value": {
+        "modules": [
+            {
+                "id": "fetch_users",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main() {\n  return [\n    { id: 1, name: \"Alice\", role: \"admin\", active: true },\n    { id: 2, name: \"Bob\", role: \"user\", active: false },\n    { id: 4, name: \"Dana\", role: \"moderator\", active: true },\n    { id: 3, name: \"Charlie\", role: \"user\", active: true },\n  ];\n}",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "filter_active_users",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(users) {\n  return users.filter(user => user.active);\n}",
+                    "input_transforms": {
+                        "users": {
+                            "type": "javascript",
+                            "expr": "results.fetch_users"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "loop_users",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {
+                        "type": "javascript",
+                        "expr": "results.filter_active_users"
+                    },
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "branch_user_role",
+                            "value": {
+                                "type": "branchone",
+                                "branches": [
+                                    {
+                                        "summary": "Admin Action",
+                                        "expr": "flow_input.iter.value.role === 'admin'",
+                                        "modules": [
+                                            {
+                                                "id": "admin_action",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(user) {\n  return `Admin action taken for ${user.name}`;\n}",
+                                                    "input_transforms": {
+                                                        "user": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "summary": "User Action",
+                                        "expr": "flow_input.iter.value.role === 'user'",
+                                        "modules": [
+                                            {
+                                                "id": "user_action",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(user) {\n  return `User action taken for ${user.name}`;\n}",
+                                                    "input_transforms": {
+                                                        "user": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "summary": "Moderator Action",
+                                        "expr": "flow_input.iter.value.role === 'moderator'",
+                                        "modules": [
+                                            {
+                                                "id": "moderator_action",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(user) { return `Moderator action taken for ${user.name}`; }",
+                                                    "input_transforms": {
+                                                        "user": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "default": []
+                            }
+                        }
+                    ],
+                    "parallel": false,
+                    "squash": false
+                }
+            },
+            {
+                "id": "return_actions",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(actions) {\n  return actions;\n}",
+                    "input_transforms": {
+                        "actions": {
+                            "type": "javascript",
+                            "expr": "results.loop_users"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {},
+        "required": [],
+        "type": "object"
+    }
+}
