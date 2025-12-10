@@ -51,7 +51,6 @@ pub async fn get_workspace_s3_resource<'c>(
     _authed: &ApiAuthed,
     _db: &DB,
     _user_db: Option<UserDB>,
-    _token: &str,
     _w_id: &str,
     _storage: Option<String>,
 ) -> windmill_common::error::Result<(Option<bool>, Option<ObjectStoreResource>)> {
@@ -65,11 +64,11 @@ pub fn get_random_file_name(_file_extension: Option<String>) -> String {
 }
 
 #[cfg(not(feature = "private"))]
+use windmill_common::db::DbWithOptAuthed;
+
+#[cfg(not(feature = "private"))]
 pub async fn get_s3_resource<'c>(
-    _authed: &ApiAuthed,
-    _db: &DB,
-    _user_db: Option<UserDB>,
-    _token: &str,
+    _db_with_opt_authed: &DbWithOptAuthed<'c, ApiAuthed>,
     _w_id: &str,
     _resource_path: &str,
     _resource_type: Option<StorageResourceType>,
@@ -109,7 +108,6 @@ pub async fn download_s3_file_internal(
     _authed: ApiAuthed,
     _db: &DB,
     _user_db: Option<UserDB>,
-    _token: &str,
     _w_id: &str,
     _query: DownloadFileQuery,
 ) -> error::Result<Response> {
@@ -153,10 +151,7 @@ pub struct DeleteS3FileQuery {
 
 #[cfg(not(feature = "private"))]
 pub async fn get_workspace_s3_resource_and_check_paths<'c>(
-    _authed: &crate::db::ApiAuthed,
-    _db: &crate::db::DB,
-    _user_db: Option<windmill_common::db::UserDB>,
-    _token: &str,
+    _db_with_opt_authed: &DbWithOptAuthed<'c, ApiAuthed>,
     _w_id: &str,
     _storage: Option<String>,
     _paths: &[(&str, windmill_common::s3_helpers::S3Permission)],

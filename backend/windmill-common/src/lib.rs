@@ -28,6 +28,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod ai_providers;
 pub mod apps;
+pub mod audit;
 pub mod assets;
 pub mod auth;
 #[cfg(feature = "benchmark")]

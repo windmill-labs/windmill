@@ -924,7 +924,6 @@ async fn route_job(
                 &authed,
                 &db,
                 None,
-                &"NO_TOKEN".to_string(), // no token is provided in this case
                 &trigger.workspace_id,
                 config.storage,
             )
