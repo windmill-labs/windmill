@@ -15,7 +15,7 @@
 	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
-	let isDismissed = $state(false)
+	let isDismissed = $state(true)
 
 	/**
 	 * Get all tutorial indexes that are accessible to the current user based on their role.
@@ -86,7 +86,7 @@
 	function dismissBanner() {
 		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
 		isDismissed = true
-		
+
 		const actions: ToastAction[] = [
 			{
 				label: 'Skip tutorials',
@@ -94,7 +94,7 @@
 				buttonType: 'default'
 			}
 		]
-		
+
 		sendUserToast(
 			'You can still access tutorials from the Tutorials page in the main menu or in the Help submenu.',
 			false,
@@ -125,7 +125,12 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2 flex-shrink-0">
-			<Button size="xs" variant="accent" onclick={goToTutorials} startIcon={{ icon: GraduationCap }}>
+			<Button
+				size="xs"
+				variant="accent"
+				onclick={goToTutorials}
+				startIcon={{ icon: GraduationCap }}
+			>
 				View tutorials
 			</Button>
 			<button
@@ -138,4 +143,3 @@
 		</div>
 	</div>
 {/if}
-
