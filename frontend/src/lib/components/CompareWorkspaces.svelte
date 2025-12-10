@@ -397,8 +397,8 @@
 
 	async function deploy(kind: Kind, path: string, workspaceToDeployTo: string, workspaceFrom: string) {
 		const statusPath = `${kind}:${path}`
+		deploymentStatus[statusPath] = {status: 'loading'}
 
-		// deploymentStatus[statusPath] = {status: 'loading'}
 		// await sleep(1000)
 		// if (Math.random() > 0.5) {
 		// 	deploymentStatus[statusPath] = {status: 'failed'}
@@ -407,7 +407,6 @@
 		// }
 		// return
 
-		deploymentStatus[statusPath] = { status: 'loading' }
 		try {
 			let alreadyExists = await checkAlreadyExists(kind, path, workspaceToDeployTo)
 			if (kind == 'flow') {
@@ -608,10 +607,13 @@
 			deploymentStatus[statusPath] = { status: 'deployed' }
 		} catch (e) {
 			deploymentStatus[statusPath] = { status: 'failed', error: e.body || e.message }
+			sendUserToast(`Failed to deploy ${statusPath}: ${e.body || e.message}`)
 		}
-
 	}
 	async function deployChanges() {
+		deploying = true
+		const parent = parentWorkspaceId
+		const current = currentWorkspaceId
 		for (const itemKey of selectedItems) {
 			const diff = selectableDiffs.find((d) => itemKey == getItemKey(d))
 
@@ -621,11 +623,13 @@
 			}
 
 			if (mergeIntoParent) {
-				await deploy(diff.kind, diff.path, parentWorkspaceId, currentWorkspaceId)
+				await deploy(diff.kind, diff.path, parent, current)
 			} else {
-				await deploy(diff.kind, diff.path, currentWorkspaceId, parentWorkspaceId)
+				await deploy(diff.kind, diff.path, current, parent)
 			}
 		}
+		deploying = false
+		deselectAll()
 	}
 
 	function groupDiffsByKind(diffs: WorkspaceItemDiff[]) {
@@ -650,14 +654,18 @@
 		// selectedItems = selectedItems // Trigger reactivity
 	}
 
-	function toggleDeploymentDirection(v: string) {
-		deselectAll()
-		mergeIntoParent = v == 'deploy_to'
+	function selectDefault() {
 		if (mergeIntoParent) {
 			selectAll()
 		} else {
 			selectAllNonConflicts()
 		}
+	}
+
+	function toggleDeploymentDirection(v: string) {
+		deselectAll()
+		mergeIntoParent = v == 'deploy_to'
+		selectDefault()
 	}
 
 	// Fetch summaries when comparison data loads
@@ -712,7 +720,7 @@
 					<!-- 	{mergeIntoParent ? 'Deploying to Parent' : 'Updating from Parent'} ({parentWorkspaceId}) -->
 					<!-- </div> -->
 					<div class="flex flex-row gap-1 items-center">
-						<ToggleButtonGroup selected="deploy_to" onSelected={toggleDeploymentDirection} noWFull>
+						<ToggleButtonGroup disabled={deploying} selected="deploy_to" onSelected={toggleDeploymentDirection} noWFull>
 							{#snippet children({ item })}
 								<ToggleButton
 									value="deploy_to"
