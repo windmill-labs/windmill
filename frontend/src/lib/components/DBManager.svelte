@@ -159,6 +159,7 @@
 			on:click={() => (dbTableEditorState = { open: true })}
 			wrapperClasses="mx-2 my-2 text-sm"
 			startIcon={{ icon: Plus }}
+			variant={tableKeys.length === 0 ? 'accent' : 'default'}
 		>
 			New table
 		</Button>
