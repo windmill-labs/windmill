@@ -561,7 +561,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				} else {
 					// check for duplicate ids
 					const ids = collectAllModuleIdsFromArray(parsedModules)
-					console.log('ids', ids)
 					if (ids.length !== new Set(ids).size) {
 						throw new Error('Duplicate module IDs found in flow')
 					}
