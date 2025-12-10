@@ -227,7 +227,6 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
-RUN curl  -H "Range: bytes=0-0" -L -v https://huggingface.co/thenlper/gte-small/resolve/main/tokenizer.json
 RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
 
 # Create a non-root user 'windmill' with UID and GID 1000
