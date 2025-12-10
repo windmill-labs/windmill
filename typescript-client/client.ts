@@ -65,6 +65,10 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.BASE = baseUrl + "/api";
 }
 
+function getPublicBaseUrl(): string {
+  return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
+}
+
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
     // node
@@ -905,7 +909,6 @@ export async function signS3Objects(
   });
   return signedKeys;
 }
-
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
@@ -914,6 +917,44 @@ export async function signS3Objects(
 export async function signS3Object(s3object: S3Object): Promise<S3Object> {
   const [signedObject] = await signS3Objects([s3object]);
   return signedObject;
+}
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+export async function getS3SignedPublicUrls(
+  s3Objects: S3Object[],
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string[]> {
+  let s3Objs = s3Objects.map(parseS3Object);
+  const s3ObjsToSign: [S3Object, number][] = s3Objs
+    .map((s3Obj, index) => [s3Obj, index] as const)
+    .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
+
+  const signedUrls: string[] = [];
+  for (const s3Object of s3Objects) {
+    const { s3, presigned, storage = "_default_" } = s3Obj;
+    baseUrl ??= getPublicBaseUrl();
+    const signedUrl = `${baseUrl}/api/w/${getWorkspace()}/s3_proxy/${storage}/${s3}?${presigned}`;
+    signedUrls.push(signedUrl);
+  }
+  return signedUrls;
+}
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+export async function getS3SignedPublicUrl(
+  s3Objects: S3Object,
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string> {
+  const [s3Object] = await getS3SignedPublicUrls([s3Objects], { baseUrl });
+  return s3Object;
 }
 
 /**
