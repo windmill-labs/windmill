@@ -1,4 +1,7 @@
-use windmill_common::db::{Authable, DbWithOptAuthed};
+use windmill_common::{
+    audit::AuditAuthor,
+    db::{Authable, DbWithOptAuthed},
+};
 
 #[cfg(feature = "private")]
 #[allow(unused)]
@@ -22,26 +25,17 @@ use {
     },
 };
 
-
-#[derive(Clone)]
-pub struct AuditAuthor {
-    pub username: String,
-    pub email: String,
-    pub username_override: Option<String>,
-    pub token_prefix: Option<String>,
-}
-
 impl<'a, T: Authable + AuditAuthorable + Sync> AuditAuthorable for DbWithOptAuthed<'a, T> {
     fn email(&self) -> &str {
         match self {
             DbWithOptAuthed::UserDB { authed, .. } => AuditAuthorable::email(*authed),
-            DbWithOptAuthed::DB { .. } => "backend",
+            DbWithOptAuthed::DB { audit_author, .. } => audit_author.email(),
         }
     }
     fn username(&self) -> &str {
         match self {
             DbWithOptAuthed::UserDB { authed, .. } => AuditAuthorable::username(*authed),
-            DbWithOptAuthed::DB { .. } => "backend",
+            DbWithOptAuthed::DB { audit_author, .. } => audit_author.username(),
         }
     }
     fn username_override(&self) -> Option<&str> {

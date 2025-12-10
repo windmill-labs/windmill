@@ -1,5 +1,7 @@
 use sqlx::{Acquire, Pool, Postgres, Transaction};
 
+use crate::audit::AuditAuthor;
+
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -123,20 +125,20 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithAuthed<'d, T> {
 
 pub enum DbWithOptAuthed<'a, T: Authable + Sync> {
     UserDB { authed: &'a T, user_db: UserDB, db: DB },
-    DB { db: DB },
+    DB { db: DB, audit_author: AuditAuthor },
 }
 impl<'a, T: Authable + Sync> DbWithOptAuthed<'a, T> {
     pub fn from_authed(authed: &'a T, db: DB, user_db: Option<UserDB>) -> Self {
         if let Some(user_db) = user_db {
             Self::UserDB { authed, user_db, db }
         } else {
-            Self::DB { db }
+            Self::DB { db, audit_author: AuditAuthor::from(authed) }
         }
     }
     pub fn db(&self) -> &DB {
         match self {
             DbWithOptAuthed::UserDB { db, .. } => db,
-            DbWithOptAuthed::DB { db } => db,
+            DbWithOptAuthed::DB { db, .. } => db,
         }
     }
 
@@ -158,7 +160,7 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
                 DbWithOptAuthed::UserDB { authed, user_db, .. } => {
                     user_db.clone().begin(&**authed).await
                 }
-                DbWithOptAuthed::DB { db } => db.clone().begin().await,
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
             }
         })
     }
@@ -171,7 +173,7 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
                 DbWithOptAuthed::UserDB { authed, user_db, .. } => {
                     user_db.clone().begin(&**authed).await
                 }
-                DbWithOptAuthed::DB { db } => db.clone().begin().await,
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
             }
         })
     }

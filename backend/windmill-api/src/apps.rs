@@ -52,9 +52,20 @@ use std::str;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    HUB_BASE_URL, apps::{APP_WORKSPACED_ROUTE, AppScriptId, ListAppQuery}, auth::TOKEN_PREFIX_LEN, cache::{self, future::FutureCachedExt}, db::{DbWithOptAuthed, UserDB}, error::{Error, JsonResult, Result, to_anyhow}, jobs::{JobPayload, RawCode, get_payload_tag_from_prefixed_path}, users::username_to_permissioned_as, utils::{
-        Pagination, RunnableKind, StripPath, WarnAfterExt, http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin
-    }, variables::{build_crypt, build_crypt_with_key_suffix, encrypt}, worker::{CLOUD_HOSTED, to_raw_value}
+    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    auth::TOKEN_PREFIX_LEN,
+    cache::{self, future::FutureCachedExt},
+    db::{DbWithOptAuthed, UserDB},
+    error::{to_anyhow, Error, JsonResult, Result},
+    jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
+    users::username_to_permissioned_as,
+    utils::{
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
+        Pagination, RunnableKind, StripPath, WarnAfterExt,
+    },
+    variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
+    worker::{to_raw_value, CLOUD_HOSTED},
+    HUB_BASE_URL,
 };
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -1885,7 +1896,6 @@ async fn execute_component(
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-    
     let (args, job_id) = build_args(
         policy,
         policy_triggerables,
@@ -2111,81 +2121,62 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) =
-        if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
-            let policy = policy.unwrap();
-            let s3_inputs = policy.s3_inputs.as_ref().unwrap();
+    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
+        .as_ref()
+        .is_some_and(|p| p.s3_inputs.is_some())
+    {
+        let policy = policy.unwrap();
+        let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
-            let (username, permissioned_as, email) =
-                get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+        let (username, permissioned_as, email) =
+            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-            let on_behalf_authed = fetch_api_authed_from_permissioned_as(
-                permissioned_as.clone(),
-                email.clone(),
-                &w_id,
-                &db,
-                Some(username.clone()),
-            )
-            .await?;
+        let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+            permissioned_as.clone(),
+            email.clone(),
+            &w_id,
+            &db,
+            Some(username.clone()),
+        )
+        .await?;
 
-            if let Some(file_key) = query.file_key {
-                // file key is provided => requires workspace, user or list policy and must match the regex
-                let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path
-                {
-                    s3_inputs
-                        .iter()
-                        .filter(|s3_input| {
-                            s3_input.allowed_resources.contains(s3_resource_path)
-                                || s3_input.allow_user_resources
-                        })
-                        .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
-                        .collect::<Vec<_>>()
-                } else {
-                    s3_inputs
-                        .iter()
-                        .filter(|s3_input| s3_input.allow_workspace_resource)
-                        .collect::<Vec<_>>()
-                };
+        if let Some(file_key) = query.file_key {
+            // file key is provided => requires workspace, user or list policy and must match the regex
+            let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| {
+                        s3_input.allowed_resources.contains(s3_resource_path)
+                            || s3_input.allow_user_resources
+                    })
+                    .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
+                    .collect::<Vec<_>>()
+            } else {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| s3_input.allow_workspace_resource)
+                    .collect::<Vec<_>>()
+            };
 
-                let matched_input = matching_s3_inputs.iter().find(|s3_input| {
-                    match Regex::new(&s3_input.file_key_regex) {
-                        Ok(re) => re.is_match(&file_key),
-                        Err(e) => {
-                            tracing::error!("Error compiling regex: {}", e);
-                            false
-                        }
+            let matched_input = matching_s3_inputs.iter().find(|s3_input| {
+                match Regex::new(&s3_input.file_key_regex) {
+                    Ok(re) => re.is_match(&file_key),
+                    Err(e) => {
+                        tracing::error!("Error compiling regex: {}", e);
+                        false
                     }
-                });
+                }
+            });
 
-                if let Some(matched_input) = matched_input {
-                    if let Some(ref s3_resource_path) = query.s3_resource_path {
-                        if matched_input.allow_user_resources {
-                            if let Some(authed) = opt_authed {
-                                let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
-                                (
-                                    Some(
-                                        get_s3_resource(
-                                            &db_with_opt_authed,
-                                            &w_id,
-                                            s3_resource_path,
-                                            None,
-                                            None,
-                                        )
-                                        .await?,
-                                    ),
-                                    file_key,
-                                    email,
-                                    permissioned_as,
-                                    username,
-                                )
-                            } else {
-                                return Err(Error::BadRequest(
-                                    "User resources are not allowed without being logged in"
-                                        .to_string(),
-                                ));
-                            }
-                        } else {
-                            let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
+            if let Some(matched_input) = matched_input {
+                if let Some(ref s3_resource_path) = query.s3_resource_path {
+                    if matched_input.allow_user_resources {
+                        if let Some(authed) = opt_authed {
+                            let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                                &authed,
+                                db.clone(),
+                                Some(user_db.clone()),
+                            );
                             (
                                 Some(
                                     get_s3_resource(
@@ -2202,40 +2193,112 @@ async fn upload_s3_file_from_app(
                                 permissioned_as,
                                 username,
                             )
+                        } else {
+                            return Err(Error::BadRequest(
+                                "User resources are not allowed without being logged in"
+                                    .to_string(),
+                            ));
                         }
                     } else {
-                        let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
-                        let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
-                            &db_with_opt_authed,
-                            &w_id,
-                            None,
-                            &[(&file_key, S3Permission::WRITE)],
+                        let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                            &on_behalf_authed,
+                            db.clone(),
+                            Some(user_db.clone()),
+                        );
+                        (
+                            Some(
+                                get_s3_resource(
+                                    &db_with_opt_authed,
+                                    &w_id,
+                                    s3_resource_path,
+                                    None,
+                                    None,
+                                )
+                                .await?,
+                            ),
+                            file_key,
+                            email,
+                            permissioned_as,
+                            username,
                         )
-                        .await?;
-                        (s3_resource_opt, file_key, email, permissioned_as, username)
                     }
                 } else {
-                    return Err(Error::BadRequest(
-                        "No matching s3 resource found for the given file key".to_string(),
-                    ));
+                    let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                        &on_behalf_authed,
+                        db.clone(),
+                        Some(user_db.clone()),
+                    );
+                    let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                        &db_with_opt_authed,
+                        &w_id,
+                        None,
+                        &[(&file_key, S3Permission::WRITE)],
+                    )
+                    .await?;
+                    (s3_resource_opt, file_key, email, permissioned_as, username)
                 }
             } else {
-                // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
-                let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
-                    s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
-                });
+                return Err(Error::BadRequest(
+                    "No matching s3 resource found for the given file key".to_string(),
+                ));
+            }
+        } else {
+            // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
+            let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
+                s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
+            });
 
-                if !has_unnamed_policy {
-                    return Err(Error::BadRequest(
-                        "no policy found for unnamed s3 file upload".to_string(),
-                    ));
-                }
+            if !has_unnamed_policy {
+                return Err(Error::BadRequest(
+                    "no policy found for unnamed s3 file upload".to_string(),
+                ));
+            }
 
-                // for now, we place all files into `windmill_uploads` folder with a random name
-                // TODO: make the folder configurable via the workspace settings
-                let file_key = get_random_file_name(query.file_extension);
-                let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
-                let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+            // for now, we place all files into `windmill_uploads` folder with a random name
+            // TODO: make the folder configurable via the workspace settings
+            let file_key = get_random_file_name(query.file_extension);
+            let db_with_opt_authed =
+                DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
+            let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                &db_with_opt_authed,
+                &w_id,
+                None,
+                &[(&file_key, S3Permission::WRITE)],
+            )
+            .await?;
+
+            (s3_resource_opt, file_key, email, permissioned_as, username)
+        }
+    } else {
+        // backward compatibility (no policy)
+        // if no policy but logged in, use the user's auth to get the s3 resource
+        if let Some(authed) = opt_authed {
+            let file_key = query
+                .file_key
+                .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+            let (on_behalf_of_email, permissioned_as, username) = (
+                authed.email.clone(),
+                username_to_permissioned_as(&authed.username),
+                authed.display_username().to_string(),
+            );
+
+            if let Some(ref s3_resource_path) = query.s3_resource_path {
+                let db_with_opt_authed =
+                    DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+                (
+                    Some(
+                        get_s3_resource(&db_with_opt_authed, &w_id, s3_resource_path, None, None)
+                            .await?,
+                    ),
+                    file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
+                )
+            } else {
+                let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
+                let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
                     &w_id,
                     None,
@@ -2243,62 +2306,18 @@ async fn upload_s3_file_from_app(
                 )
                 .await?;
 
-                (s3_resource_opt, file_key, email, permissioned_as, username)
+                (
+                    s3_resource,
+                    file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
+                )
             }
         } else {
-            // backward compatibility (no policy)
-            // if no policy but logged in, use the user's auth to get the s3 resource
-            if let Some(authed) = opt_authed {
-                let file_key = query
-                    .file_key
-                    .unwrap_or_else(|| get_random_file_name(query.file_extension));
-
-                let (on_behalf_of_email, permissioned_as, username) = (
-                    authed.email.clone(),
-                    username_to_permissioned_as(&authed.username),
-                    authed.display_username().to_string(),
-                );
-
-                if let Some(ref s3_resource_path) = query.s3_resource_path {
-                    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
-                    (
-                        Some(
-                            get_s3_resource(
-                                &db_with_opt_authed,
-                                &w_id,
-                                s3_resource_path,
-                                None,
-                                None,
-                            )
-                            .await?,
-                        ),
-                        file_key,
-                        on_behalf_of_email,
-                        permissioned_as,
-                        username,
-                    )
-                } else {
-                    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
-                    let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
-                        &db_with_opt_authed,
-                        &w_id,
-                        None,
-                        &[(&file_key, S3Permission::WRITE)],
-                    )
-                    .await?;
-
-                    (
-                        s3_resource,
-                        file_key,
-                        on_behalf_of_email,
-                        permissioned_as,
-                        username,
-                    )
-                }
-            } else {
-                return Err(Error::BadRequest("Missing s3 policy".to_string()));
-            }
-        };
+            return Err(Error::BadRequest("Missing s3 policy".to_string()));
+        }
+    };
 
     let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
         "No files storage resource defined at the workspace level".to_string(),
@@ -2377,7 +2396,8 @@ async fn delete_s3_file_from_app(
     .await?;
 
     let s3_resource = if let Some(s3_resource_path) = s3_resource_path {
-        let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
+        let db_with_opt_authed =
+            DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
         get_s3_resource(
             &db_with_opt_authed,
             &w_id,
@@ -2589,7 +2609,6 @@ async fn download_s3_file_from_app(
         on_behalf_authed,
         &db,
         None,
-        "",
         &w_id,
         DownloadFileQuery {
             file_key: query.file_query.s3,
@@ -2676,7 +2695,8 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
-                    let db_with_opt_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+                    let db_with_opt_authed =
+                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
                         &db_with_opt_authed,
                         w_id,
