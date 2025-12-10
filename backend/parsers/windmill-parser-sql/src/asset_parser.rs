@@ -113,8 +113,12 @@ impl AssetCollector {
         if let Some(str_lit) = get_str_lit_from_obj_name(name) {
             self.handle_string_literal(str_lit);
         }
-        if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
-            self.assets.push(asset);
+
+        // Writes to tables should be handled directly when visiting the statement
+        if self.current_access_type_stack.last() == Some(&R) {
+            if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                self.assets.push(asset);
+            }
         }
     }
 
@@ -586,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sql_asset_parser_resourcce() {
+    fn test_sql_asset_parser_resource() {
         let input = r#"
             ATTACH 'res://u/user/pg_resource' AS db (TYPE postgres);
             USE db;
@@ -599,6 +603,23 @@ mod tests {
                 kind: AssetKind::Resource,
                 path: "u/user/pg_resource/table1".to_string(),
                 access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_update_with_dot_notation() {
+        let input = r#"
+            ATTACH 'ducklake' AS dl;
+            UPDATE dl.table1 SET id = NULL;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "main/table1".to_string(),
+                access_type: Some(W)
             },])
         );
     }
