@@ -49,15 +49,7 @@ export const setFlowJsonTool: Tool<FlowAIChatHelpers> = {
 	},
 	fn: async ({ args, helpers }) => {
 		const { modules, schema } = args
-<<<<<<< HEAD
 		await helpers.setFlowJson(modules, schema)
-=======
-		const flowValue: Record<string, unknown> = { modules }
-		if (schema) {
-			flowValue.schema = schema
-		}
-		await helpers.setFlowJson(JSON.stringify(flowValue))
->>>>>>> main
 		return `Flow updated with ${modules.length} module(s): [${modules.map((m: any) => m.id).join(', ')}]`
 	}
 }
@@ -375,11 +367,7 @@ On Windmill, credentials and configuration are stored in resources. Resource typ
 Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow JSON:
 
 \`\`\`json
-<<<<<<< HEAD
 ${JSON.stringify(openFlowSchema, null, 2)}
-=======
-${formatOpenFlowSchemaForPrompt()}
->>>>>>> main
 \`\`\`
 
 The schema includes detailed descriptions for:
