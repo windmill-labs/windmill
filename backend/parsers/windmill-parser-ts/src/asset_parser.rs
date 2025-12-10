@@ -5,12 +5,12 @@ use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
-    detect_sql_access_type, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
+    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
     ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
+pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
@@ -41,7 +41,7 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>
 }
 
 struct AssetsFinder {
-    assets: Vec<ParseAssetsResult<String>>,
+    assets: Vec<ParseAssetsResult>,
 
     // The user will write code like:
     //   let sql = wmill.datatable('main')
@@ -84,19 +84,12 @@ impl Visit for AssetsFinder {
         // Visit children (this may add new identifiers)
         node.visit_children_with(self);
 
-        // If we find 'let sql = wmill.datatable(...)',
-        // but no sql`` tagged templates were used, we add
-        // the asset with unknown access type
         for var in self.var_identifiers.keys() {
             if saved_var_identifiers.contains_key(var) {
                 continue;
             }
             let (kind, ref path) = self.var_identifiers[var];
-            if self
-                .assets
-                .iter()
-                .any(|a| a.kind == kind && &a.path == path)
-            {
+            if asset_was_used(&self.assets, (kind, path)) {
                 continue;
             }
             self.assets
@@ -187,13 +180,22 @@ impl Visit for AssetsFinder {
             .iter()
             .map(|quasi| quasi.raw.as_str())
             .collect::<Vec<_>>()
-            .join(" ");
+            .join("$1"); // placeholder for expressions
 
-        // Determine access type based on SQL keywords
-        let access_type = detect_sql_access_type(&sql);
+        let duckdb_conn_prefix = match kind {
+            AssetKind::DataTable => "datatable",
+            AssetKind::Ducklake => "ducklake",
+            _ => return,
+        };
+        let sql = format!("ATTACH '{duckdb_conn_prefix}://{asset_name}' AS dt; USE dt; {sql}");
 
-        self.assets
-            .push(ParseAssetsResult { kind, path: asset_name, access_type });
+        // We use the SQL parser to detect if it's a read or write query
+        match windmill_parser_sql::parse_assets(&sql) {
+            Ok(sql_assets) => {
+                self.assets.extend(sql_assets);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -230,5 +232,137 @@ impl AssetsFinder {
             _ => return Err(()),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ts_asset_parser_load_s3() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                wmill.loadS3File('s3:///test.csv')
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/test.csv".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_unused_sql() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                let sql = wmill.datatable('dt')
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt".to_string(),
+                access_type: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_read() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/friends".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_read_write() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                await sql`UPDATE friends SET name = 'Pierre' WHERE age = ${x}`.fetch()
+                let pierre = await sql`SELECT * FROM friends WHERE age = ${x}`.fetchOne()
+                return await sql`SELECT * FROM analytics`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/analytics".to_string(),
+                    access_type: Some(R)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/friends".to_string(),
+                    access_type: Some(RW)
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_multiple_sql_scopes() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                async function f(x: number) {
+                    let sql = wmill.datatable()
+                    return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+                }
+                let sql = wmill.datatable('another1')
+                return await sql`INSERT INTO customers VALUES (${0})`.fetch()
+            }
+
+            function unused() {
+                let sql = wmill.ducklake('another2')
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "another1/customers".to_string(),
+                    access_type: Some(W)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::Ducklake,
+                    path: "another2".to_string(),
+                    access_type: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "main/friends".to_string(),
+                    access_type: Some(R)
+                },
+            ])
+        );
     }
 }

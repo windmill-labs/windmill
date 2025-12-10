@@ -9,11 +9,12 @@ use sqlparser::{
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
-    merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
+    ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
+pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     let statements = Parser::parse_sql(&DuckDbDialect, input)?;
 
     let mut collector = AssetCollector::new();
@@ -22,17 +23,10 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
     }
 
     for (_, (kind, path)) in collector.var_identifiers {
-        if !collector.assets.iter().any(|a| {
-            let a_path = a.path.as_str();
-            let has_same_path_base = a_path
-                .strip_prefix(&path)
-                .map(|p| p.starts_with('/'))
-                .unwrap_or(false);
-            (has_same_path_base || a_path == path) && a.kind == kind
-        }) {
+        if !asset_was_used(&collector.assets, (kind, &path)) {
             collector
                 .assets
-                .push(ParseAssetsResult { kind: kind, access_type: None, path: path });
+                .push(ParseAssetsResult { kind, access_type: None, path: path });
         }
     }
 
@@ -41,7 +35,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>
 
 /// Visitor that collects S3 asset literals from SQL statements
 struct AssetCollector {
-    assets: Vec<ParseAssetsResult<String>>,
+    assets: Vec<ParseAssetsResult>,
     // e.g set to Read when we are inside a SELECT ... FROM ... statement
     current_access_type_stack: Vec<AssetUsageAccessType>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
@@ -62,10 +56,7 @@ impl AssetCollector {
 
     // Detect when we do 'a.b' and 'a' is associated with an asset in var_identifiers
     // Or when we access 'b' and we did USE a;
-    fn get_associated_asset_from_obj_name(
-        &self,
-        name: &ObjectName,
-    ) -> Option<ParseAssetsResult<String>> {
+    fn get_associated_asset_from_obj_name(&self, name: &ObjectName) -> Option<ParseAssetsResult> {
         let access_type = self.current_access_type_stack.last().copied();
         if name.0.len() == 1 {
             let ident = name.0.first()?.as_ident()?;
@@ -455,16 +446,16 @@ mod tests {
     #[test]
     fn test_sql_asset_parser_attach_dot_notation_write() {
         let input = r#"
-            ATTACH 'ducklake://my_dl' AS dl;
-            SELECT dl.read_bait FROM unrelated_table; -- dl. doesn't access the asset
-            INSERT INTO dl.table1 VALUES ('test');
+            ATTACH 'datatable://my_dt' AS dt;
+            SELECT dt.read_bait FROM unrelated_table; -- dt. doesn't access the asset
+            INSERT INTO dt.table1 VALUES ('test');
         "#;
         let s = parse_assets(input);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                path: "my_dl/table1".to_string(),
+                kind: AssetKind::DataTable,
+                path: "my_dt/table1".to_string(),
                 access_type: Some(W)
             },])
         );
