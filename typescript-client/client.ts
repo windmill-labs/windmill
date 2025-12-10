@@ -17,6 +17,11 @@ import {
   type S3Object,
 } from "./s3Types";
 
+export {
+  type S3Object,
+  type S3ObjectRecord,
+  type S3ObjectURI,
+} from "./s3Types";
 export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
 
 export {
@@ -948,7 +953,10 @@ export function getResumeEndpoints(approver?: string): Promise<{
  * @param expiresIn Optional number of seconds until the token expires
  * @returns jwt token
  */
-export async function getIdToken(audience: string, expiresIn?: number): Promise<string> {
+export async function getIdToken(
+  audience: string,
+  expiresIn?: number
+): Promise<string> {
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
