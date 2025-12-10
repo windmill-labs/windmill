@@ -4023,7 +4023,7 @@ async fn reset_workspace_diffs(
 }
 
 #[derive(Serialize, Debug, Clone, Default)]
-struct WorkspaceDiffRow {
+pub struct WorkspaceDiffRow {
     kind: String,
     path: String,
     ahead: i32,
@@ -4062,9 +4062,18 @@ async fn compare_workspaces(
             "script" => {
                 Some(compare_two_scripts(&db, &w_id, &target_workspace_id, &item.path).await?)
             }
-            // "flow" => {
-            //     Some(compare_two_flows(&db, &w_id, &target_workspace_id, &item.path).await?)
-            // }
+            "flow" => {
+                Some(compare_two_flows(&db, &w_id, &target_workspace_id, &item.path).await?)
+            }
+            "app" => {
+                Some(compare_two_apps(&db, &w_id, &target_workspace_id, &item.path).await?)
+            }
+            "resource" => {
+                Some(compare_two_resources(&db, &w_id, &target_workspace_id, &item.path).await?)
+            }
+            "variable" => {
+                Some(compare_two_variables(&db, &w_id, &target_workspace_id, &item.path).await?)
+            }
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {w_id} and {target_workspace_id} workspaces. Skipping this item", item.path);
                 Some(ItemComparison { has_changes: true, exists_in_source: true, exists_in_target: true })
@@ -4088,7 +4097,7 @@ async fn compare_workspaces(
                 confirmed_diffs.push(item);
             } else {
                 sqlx::query!(
-                    "UPDATE workspace_diff SET has_changes = false WHERE path = $3 AND kind = $4 AND (
+                    "DELETE FROM workspace_diff WHERE path = $3 AND kind = $4 AND (
                         (source_workspace_id = $1 AND fork_workspace_id = $2)
                         OR (source_workspace_id = $2 AND fork_workspace_id =$1)
                     )",
@@ -4099,18 +4108,6 @@ async fn compare_workspaces(
                 )
                 .execute(&db)
                 .await?;
-                // sqlx::query!(
-                //     "DELETE FROM workspace_diff WHERE path = $3 AND kind = $4 AND (
-                //         (source_workspace_id = $1 AND fork_workspace_id = $2)
-                //         OR (source_workspace_id = $2 AND fork_workspace_id =$1)
-                //     )",
-                //     target_workspace_id,
-                //     w_id,
-                //     item.path,
-                //     item.kind,
-                // )
-                // .execute(&db)
-                // .await?;
             }
         }
     }
@@ -4390,6 +4387,230 @@ async fn compare_two_scripts(
         has_changes,
         exists_in_source: source_script.is_some(),
         exists_in_target: target_script.is_some(),
+    });
+}
+
+async fn compare_two_flows(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest flow from each workspace
+    let source_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        target_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_flow, &target_flow) {
+        if source.value != target.value
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_flow.is_some() || target_flow.is_some() {
+        // The flow exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_flow.is_some(),
+        exists_in_target: target_flow.is_some(),
+    });
+}
+
+async fn compare_two_apps(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest app metadata and version ID from each workspace
+    let source_app = sqlx::query!(
+        "SELECT versions[array_length(versions, 1)] as latest_version, summary, policy
+         FROM app
+         WHERE workspace_id = $1 AND path = $2 AND draft_only = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_app = sqlx::query!(
+        "SELECT versions[array_length(versions, 1)] as latest_version, summary, policy
+         FROM app
+         WHERE workspace_id = $1 AND path = $2 AND draft_only = false",
+        target_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    // Get actual app content from app_version table
+    let source_version_data = if let Some(app) = &source_app {
+        if let Some(version_id) = app.latest_version {
+            sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
+                .fetch_optional(db)
+                .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let target_version_data = if let Some(app) = &target_app {
+        if let Some(version_id) = app.latest_version {
+            sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
+                .fetch_optional(db)
+                .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_app, &target_app) {
+        if source.summary != target.summary || source.policy != target.policy {
+            has_changes = true;
+        }
+
+        // Compare actual app content
+        if let (Some(source_data), Some(target_data)) = (&source_version_data, &target_version_data)
+        {
+            if source_data.value != target_data.value {
+                has_changes = true;
+            }
+        }
+    } else if source_app.is_some() || target_app.is_some() {
+        // The app exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_app.is_some(),
+        exists_in_target: target_app.is_some(),
+    });
+}
+
+async fn compare_two_resources(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get resource from each workspace
+    let source_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        target_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
+        if source.value != target.value
+            || source.description != target.description
+            || source.resource_type != target.resource_type
+        {
+            has_changes = true;
+        }
+    } else if source_resource.is_some() || target_resource.is_some() {
+        // The resource exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource.is_some(),
+        exists_in_target: target_resource.is_some(),
+    });
+}
+
+async fn compare_two_variables(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get variable from each workspace
+    let source_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        target_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
+        if source.is_secret != target.is_secret || source.value != target.value || source.description != target.description {
+            has_changes = true;
+        }
+    } else if source_variable.is_some() || target_variable.is_some() {
+        // The variable exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_variable.is_some(),
+        exists_in_target: target_variable.is_some(),
     });
 }
 
