@@ -3,25 +3,21 @@
 		AlertTriangle,
 		ArrowDown,
 		ArrowDownRight,
-		ArrowLeft,
 		ArrowRight,
 		ArrowUp,
 		ArrowUpRight,
 		Building,
-		CodeXml,
 		Database,
 		DiffIcon,
 		FileCode,
 		FileText,
-		GitBranch,
 		GitFork,
-		Info,
 		Key,
 		Layout,
 		Loader2,
 		Workflow
 	} from 'lucide-svelte'
-	import { Alert, Badge, Tab, Tabs } from './common'
+	import { Alert, Badge } from './common'
 	import {
 		AppService,
 		FlowService,
@@ -66,13 +62,7 @@
 	let activeTab = $state<'all' | 'scripts' | 'flows' | 'apps' | 'resources' | 'variables'>('all')
 	let mergeIntoParent = $state(true)
 	let deploying = $state(false)
-
-	let filteredDiffs = $derived(
-		comparison?.diffs.filter((diff) => {
-			if (activeTab === 'all') return true
-			return diff.kind === activeTab.slice(0, -1) // Remove 's' from plural
-		}) ?? []
-	)
+	let hasAutoSelected = $state(false)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -117,7 +107,11 @@
 		}
 	}
 
-	async function fetchSummary(kind: string, path: string, workspace: string): Promise<string | undefined> {
+	async function fetchSummary(
+		kind: string,
+		path: string,
+		workspace: string
+	): Promise<string | undefined> {
 		try {
 			if (kind === 'script') {
 				const script = await ScriptService.getScriptByPath({ workspace, path })
@@ -137,9 +131,7 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app'].includes(diff.kind)
-		)
+		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app'].includes(diff.kind))
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -174,8 +166,8 @@
 		const currentSummary = cached.current || ''
 		const parentSummary = cached.parent || ''
 
-		const isDifferent = currentSummary !== parentSummary &&
-			(currentSummary.length > 0 || parentSummary.length > 0)
+		const isDifferent =
+			currentSummary !== parentSummary && (currentSummary.length > 0 || parentSummary.length > 0)
 
 		// Return the summary from the current workspace by default
 		// The visual indicator will show if they're different
@@ -395,9 +387,14 @@
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
 
-	async function deploy(kind: Kind, path: string, workspaceToDeployTo: string, workspaceFrom: string) {
+	async function deploy(
+		kind: Kind,
+		path: string,
+		workspaceToDeployTo: string,
+		workspaceFrom: string
+	) {
 		const statusPath = `${kind}:${path}`
-		deploymentStatus[statusPath] = {status: 'loading'}
+		deploymentStatus[statusPath] = { status: 'loading' }
 
 		// await sleep(1000)
 		// if (Math.random() > 0.5) {
@@ -577,28 +574,28 @@
 						name: path
 					}
 				})
-			// } else if (kind === 'trigger') {
-			// 	if (additionalInformation?.triggers) {
-			// 		const { data, createFn, updateFn } = await getTriggersDeployData(
-			// 			additionalInformation.triggers.kind,
-			// 			path,
-			// 			workspaceFrom
-			// 		)
-			// 		if (alreadyExists) {
-			// 			await updateFn({
-			// 				path,
-			// 				workspace: workspaceToDeployTo,
-			// 				requestBody: data
-			// 			} as any)
-			// 		} else {
-			// 			await createFn({
-			// 				workspace: workspaceToDeployTo,
-			// 				requestBody: data
-			// 			} as any)
-			// 		}
-			// 	} else {
-			// 		throw new Error('Missing triggers kind')
-			// 	}
+				// } else if (kind === 'trigger') {
+				// 	if (additionalInformation?.triggers) {
+				// 		const { data, createFn, updateFn } = await getTriggersDeployData(
+				// 			additionalInformation.triggers.kind,
+				// 			path,
+				// 			workspaceFrom
+				// 		)
+				// 		if (alreadyExists) {
+				// 			await updateFn({
+				// 				path,
+				// 				workspace: workspaceToDeployTo,
+				// 				requestBody: data
+				// 			} as any)
+				// 		} else {
+				// 			await createFn({
+				// 				workspace: workspaceToDeployTo,
+				// 				requestBody: data
+				// 			} as any)
+				// 		}
+				// 	} else {
+				// 		throw new Error('Missing triggers kind')
+				// 	}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
 			}
@@ -650,8 +647,6 @@
 		} else {
 			selectedItems.push(key)
 		}
-		// console.log(selectedItems)
-		// selectedItems = selectedItems // Trigger reactivity
 	}
 
 	function selectDefault() {
@@ -675,6 +670,14 @@
 		}
 	})
 
+	// Auto-select items on initial load
+	$effect(() => {
+		if (comparison?.diffs && !hasAutoSelected && selectableDiffs.length > 0) {
+			selectDefault()
+			hasAutoSelected = true
+		}
+	})
+
 	async function deleteWorkspace() {
 		// if (!sourceWorkspace || comparison?.summary.total_diffs !== 0) return
 		//
@@ -694,9 +697,6 @@
 		// 	}
 		// }
 	}
-	;(async () => {
-		selectAll()
-	})()
 </script>
 
 <div class="flex flex-col h-full">
@@ -716,11 +716,13 @@
 				<div
 					class="flex flex-col gap-2 border bg-surface-tertiary w-full p-4 border-radius-5 rounded"
 				>
-					<!-- <div class="text-sm font-medium"> -->
-					<!-- 	{mergeIntoParent ? 'Deploying to Parent' : 'Updating from Parent'} ({parentWorkspaceId}) -->
-					<!-- </div> -->
 					<div class="flex flex-row gap-1 items-center">
-						<ToggleButtonGroup disabled={deploying} selected="deploy_to" onSelected={toggleDeploymentDirection} noWFull>
+						<ToggleButtonGroup
+							disabled={deploying}
+							selected="deploy_to"
+							onSelected={toggleDeploymentDirection}
+							noWFull
+						>
 							{#snippet children({ item })}
 								<ToggleButton
 									value="deploy_to"
@@ -834,8 +836,12 @@
 					{@const isSelectable = selectableDiffs.includes(diff)}
 					{@const isSelected = selectedItems.includes(key)}
 					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
-					{@const oldSummary = mergeIntoParent ? summaryCache[key]?.parent : summaryCache[key]?.current}
-					{@const newSummary = mergeIntoParent ? summaryCache[key]?.current : summaryCache[key]?.parent}
+					{@const oldSummary = mergeIntoParent
+						? summaryCache[key]?.parent
+						: summaryCache[key]?.current}
+					{@const newSummary = mergeIntoParent
+						? summaryCache[key]?.current
+						: summaryCache[key]?.parent}
 
 					<Row
 						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
@@ -852,7 +858,8 @@
 					>
 						{#snippet customSummary()}
 							{#if oldSummary != newSummary && isSelectable}
-								<span class="line-through text-secondary">{oldSummary || diff.path}</span> {newSummary || diff.path}
+								<span class="line-through text-secondary">{oldSummary || diff.path}</span>
+								{newSummary || diff.path}
 							{:else}
 								{newSummary || diff.path}
 							{/if}
@@ -860,40 +867,40 @@
 						{#snippet actions()}
 							<!-- Status badges -->
 							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-							<div class="flex items-center gap-2">
-								{#if diff.ahead > 0}
-									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
-										{diff.ahead} ahead
-									</Badge>
-								{/if}
-								{#if diff.behind > 0}
-									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
-										{diff.behind} behind
-									</Badge>
-								{/if}
-								{#if isConflict}
-									<Badge color="orange" size="xs">
-										<AlertTriangle class="w-3 h-3 inline" />
-										Conflict
-									</Badge>
-								{/if}
-								<!-- {#if diff.metadata_changes.includes('only_in_source')} -->
-								<!-- 	<Badge color="gray" size="xs">New</Badge> -->
-								<!-- {/if} -->
-								<!-- {#if diff.metadata_changes.includes('only_in_target')} -->
-								<!-- 	<Badge color="gray" size="xs">Deleted</Badge> -->
-								<!-- {/if} -->
-							</div>
-							<Button
-								size="xs"
-								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
-							>
-								<DiffIcon class="w-3 h-3" />
-								Show diff
-							</Button>
+								<div class="flex items-center gap-2">
+									{#if diff.ahead > 0}
+										<Badge color="green" size="xs">
+											<ArrowUpRight class="w-3 h-3 inline" />
+											{diff.ahead} ahead
+										</Badge>
+									{/if}
+									{#if diff.behind > 0}
+										<Badge color="blue" size="xs">
+											<ArrowDownRight class="w-3 h-3 inline" />
+											{diff.behind} behind
+										</Badge>
+									{/if}
+									{#if isConflict}
+										<Badge color="orange" size="xs">
+											<AlertTriangle class="w-3 h-3 inline" />
+											Conflict
+										</Badge>
+									{/if}
+									<!-- {#if diff.metadata_changes.includes('only_in_source')} -->
+									<!-- 	<Badge color="gray" size="xs">New</Badge> -->
+									<!-- {/if} -->
+									<!-- {#if diff.metadata_changes.includes('only_in_target')} -->
+									<!-- 	<Badge color="gray" size="xs">Deleted</Badge> -->
+									<!-- {/if} -->
+								</div>
+								<Button
+									size="xs"
+									variant="subtle"
+									onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								>
+									<DiffIcon class="w-3 h-3" />
+									Show diff
+								</Button>
 							{/if}
 							{#if deploymentStatus[key]}
 								{#if deploymentStatus[key].status == 'loading'}
@@ -934,6 +941,9 @@
 					>
 						{mergeIntoParent ? 'Deploy' : 'Update'}
 						{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+						{#if conflictingDiffs.length != 0}
+							({conflictingDiffs.length} conflicts!)
+						{/if}
 					</Button>
 				</div>
 			</div>
