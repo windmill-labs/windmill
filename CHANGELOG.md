@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.591.1](https://github.com/windmill-labs/windmill/compare/v1.591.0...v1.591.1) (2025-12-10)
+
+
+### Bug Fixes
+
+* update git sync to latest cli ([da65ddd](https://github.com/windmill-labs/windmill/commit/da65ddd8f82ae283557526d0e97b1057976ec2ff))
+
+## [1.591.0](https://github.com/windmill-labs/windmill/compare/v1.590.0...v1.591.0) (2025-12-10)
+
+
+### Features
+
+* **aichat:** add test pipeline ([#7321](https://github.com/windmill-labs/windmill/issues/7321)) ([36cb5bd](https://github.com/windmill-labs/windmill/commit/36cb5bde1a887effee2e2ba83a6ddd85f3e79775))
+* **aichat:** use single tool for flow chat ([#7326](https://github.com/windmill-labs/windmill/issues/7326)) ([888a6a4](https://github.com/windmill-labs/windmill/commit/888a6a4e607f814cd92f3f489b40ac886dbafc0d))
+* **mcp:** add documentation endpoint ([#7331](https://github.com/windmill-labs/windmill/issues/7331)) ([bd3271f](https://github.com/windmill-labs/windmill/commit/bd3271f967ed1996060c590bac0587a387b7869c))
+
+
+### Bug Fixes
+
+* alining group name normalization between scim and igroup api ([#7325](https://github.com/windmill-labs/windmill/issues/7325)) ([8159b8e](https://github.com/windmill-labs/windmill/commit/8159b8e017660f3b3aeed6beb97a42e3ee658824))
+* **backend:** add presigned url support for object storage ([#7328](https://github.com/windmill-labs/windmill/issues/7328)) ([651681b](https://github.com/windmill-labs/windmill/commit/651681b7efb6793d2939217aafcfb3e44f5b0e84))
+* **cli:** do not remove schema for normal apps ([3470c92](https://github.com/windmill-labs/windmill/commit/3470c927aeae1627984fff535ec36ece4349f329))
+* **frontend:** do not consider advanced module settings when testing ai agent step ([72a38f3](https://github.com/windmill-labs/windmill/commit/72a38f36fbaf3ceaec03612b9932187fa134755c))
+
 ## [1.590.0](https://github.com/windmill-labs/windmill/compare/v1.589.3...v1.590.0) (2025-12-08)
 
 
