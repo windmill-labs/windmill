@@ -31,7 +31,7 @@
 		dbSupportsSchemas
 	}: Props = $props()
 
-	let schemaKeys = $derived(Object.keys(dbSchema.schema))
+	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
 	let search = $state('')
 	let selected: {
 		schemaKey?: undefined | string
@@ -53,7 +53,7 @@
 			return []
 		}
 		if (!selected.schemaKey) return []
-		return Object.keys(dbSchema.schema[selected.schemaKey])
+		return Object.keys(dbSchema.schema[selected.schemaKey] ?? {})
 	})
 
 	$effect(() => {
