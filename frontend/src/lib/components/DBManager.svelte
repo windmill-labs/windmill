@@ -10,23 +10,24 @@
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Button from './common/button/Button.svelte'
-	import DbTableEditor, { type DBTableEditorProps } from './DBTableEditor.svelte'
+	import DbTableEditor from './DBTableEditor.svelte'
+	import type { DbType } from './dbTypes'
 
 	type Props = {
+		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
 		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
-		dbShemaOps: IDbSchemaOps
+		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
-		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
 	}
 	let {
+		dbType,
 		dbSchema,
 		dbTableOpsFactory,
-		dbShemaOps,
+		dbSchemaOps,
 		getColDefs,
-		dbTableEditorPropsFactory,
 		dbSupportsSchemas,
 		refresh
 	}: Props = $props()
@@ -79,10 +80,6 @@
 		| undefined = $state()
 
 	let dbTableEditorState: { open: boolean } = $state({ open: false })
-
-	let dbTableEditorProps = $derived(
-		dbTableEditorPropsFactory?.({ selectedSchemaKey: selected.schemaKey })
-	)
 </script>
 
 <Splitpanes>
@@ -124,7 +121,7 @@
 										onConfirm: async () => {
 											askingForConfirmation && (askingForConfirmation.loading = true)
 											try {
-												await dbShemaOps.onDelete({ tableKey })
+												await dbSchemaOps.onDelete({ tableKey })
 												refresh?.()
 												sendUserToast(`Table '${tableKey}' deleted successfully`)
 											} catch (e) {
@@ -175,25 +172,22 @@
 	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
 />
 
-{#if dbTableEditorProps}
-	<Drawer
-		size="600px"
-		open={dbTableEditorState.open}
-		on:close={() => (dbTableEditorState = { open: false })}
-	>
-		<DrawerContent
-			on:close={() => (dbTableEditorState = { open: false })}
-			title="Create a new table"
-		>
-			<DbTableEditor
-				{...dbTableEditorProps}
-				{dbSchema}
-				currentSchema={selected.schemaKey}
-				onConfirm={async (values) => {
-					await dbTableEditorProps.onConfirm(values)
-					dbTableEditorState = { open: false }
-				}}
-			/>
-		</DrawerContent>
-	</Drawer>
-{/if}
+<Drawer
+	size="600px"
+	open={dbTableEditorState.open}
+	on:close={() => (dbTableEditorState = { open: false })}
+>
+	<DrawerContent on:close={() => (dbTableEditorState = { open: false })} title="Create a new table">
+		<DbTableEditor
+			{dbSchema}
+			currentSchema={selected.schemaKey}
+			onConfirm={async (values) => {
+				await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+				refresh?.()
+				dbTableEditorState = { open: false }
+			}}
+			{dbType}
+			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
+		/>
+	</DrawerContent>
+</Drawer>

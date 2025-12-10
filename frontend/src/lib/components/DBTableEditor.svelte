@@ -36,14 +36,6 @@
 		if (Object.values(errs).every((v) => !v)) return undefined
 		return errs
 	}
-
-	export type DBTableEditorProps = {
-		onConfirm: (values: CreateTableValues) => void | Promise<void>
-		previewSql?: (values: CreateTableValues) => string
-		dbType: DbType
-		dbSchema?: DBSchema
-		currentSchema?: string
-	}
 </script>
 
 <script lang="ts">
@@ -72,7 +64,15 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import type { DbType } from './dbTypes'
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
+	type Props = {
+		onConfirm: (values: CreateTableValues) => void | Promise<void>
+		previewSql?: (values: CreateTableValues) => string
+		dbType: DbType
+		dbSchema?: DBSchema
+		currentSchema?: string
+	}
+
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (

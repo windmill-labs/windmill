@@ -11,6 +11,10 @@ import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
+import {
+	makeCreateTableQuery,
+	type CreateTableValues
+} from './apps/components/display/dbtable/queries/createTable'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -109,6 +113,8 @@ export function dbTableOpsWithPreviewScripts({
 
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string }) => Promise<void>
+	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
+	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -118,22 +124,27 @@ export function dbSchemaOpsWithPreviewScripts({
 	workspace: string
 	input: DbInput
 }): IDbSchemaOps {
+	const dbType = getDbType(input)
+	const dbArg = getDatabaseArg(input)
+	const language = getLanguageByResourceType(dbType)
 	return {
 		onDelete: async ({ tableKey }) => {
-			const dbArg = getDatabaseArg(input)
-			const dbType = getDbType(input)
-			const language = getLanguageByResourceType(dbType)
 			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args: { ...dbArg },
-					language,
-					content: deleteQuery
-				}
+				requestBody: { args: { ...dbArg }, language, content: deleteQuery }
 			})
-		}
+		},
+		onCreate: async ({ values, schema }) => {
+			let query = makeCreateTableQuery(values, dbType, schema)
+			if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema)
 	}
 }
 
