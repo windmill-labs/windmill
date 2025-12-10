@@ -28,6 +28,7 @@ use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use windmill_common::client::AuthedClient;
+use windmill_common::s3_helpers::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
