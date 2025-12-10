@@ -996,26 +996,12 @@ export async function parseOpenAICompletion(
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {
-			let messageToAdd: ChatCompletionMessageParam
-			if (malformedFunctionCallError) {
-				// Mark tool call as failed due to malformed function call
-				callbacks.setToolStatus(toolCall.id, {
-					isLoading: false,
-					error: 'Invalid input given to function call'
-				})
-				messageToAdd = {
-					role: 'tool' as const,
-					tool_call_id: toolCall.id,
-					content: 'Invalid input given to function call, MUST TRY WITH SIMPLER ARGUMENTS'
-				}
-			} else {
-				messageToAdd = await processToolCall({
-					tools,
-					toolCall,
-					helpers,
-					toolCallbacks: callbacks
-				})
-			}
+			const messageToAdd = await processToolCall({
+				tools,
+				toolCall,
+				helpers,
+				toolCallbacks: callbacks
+			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}

@@ -2,12 +2,14 @@
 
 set -e
 
-# Script to generate Zod schemas from OpenFlow OpenAPI schema
+# Script to generate minified OpenFlow JSON and Zod schemas
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_file="${script_dirpath}/../windmill-yaml-validator/src/gen/openflow.json"
-output_file="${script_dirpath}/src/lib/components/copilot/chat/flow/openFlowZod.ts"
+output_dirpath="${script_dirpath}/src/lib/components/copilot/chat/flow"
+json_output_file="${output_dirpath}/openFlow.json"
+zod_output_file="${output_dirpath}/openFlowZod.ts"
 
-echo "Generating OpenFlow Zod schemas..."
+echo "Generating OpenFlow JSON and Zod schemas..."
 
 if [ ! -f "${source_file}" ]; then
     echo "Error: Source file not found: ${source_file}"
@@ -15,13 +17,32 @@ if [ ! -f "${source_file}" ]; then
     exit 1
 fi
 
+# Create output directory if it doesn't exist
+mkdir -p "${output_dirpath}"
+
 node -e "
 const { jsonSchemaToZod } = require('json-schema-to-zod');
 const fs = require('fs');
 
-const openApiSchema = JSON.parse(fs.readFileSync('${source_file}', 'utf8'));
+const sourceFile = '${source_file}';
+const jsonOutputFile = '${json_output_file}';
+const zodOutputFile = '${zod_output_file}';
+
+const openApiSchema = JSON.parse(fs.readFileSync(sourceFile, 'utf8'));
 const definitions = openApiSchema.components?.schemas || {};
 
+// === 1. Generate minified OpenFlow JSON ===
+const minified = JSON.stringify(openApiSchema);
+fs.writeFileSync(jsonOutputFile, minified);
+
+const originalSize = fs.statSync(sourceFile).size;
+const minifiedSize = fs.statSync(jsonOutputFile).size;
+const savings = ((originalSize - minifiedSize) / originalSize * 100).toFixed(1);
+
+console.log('✓ Minified OpenFlow JSON generated');
+console.log('  Original: ' + (originalSize / 1024).toFixed(1) + ' KB → Minified: ' + (minifiedSize / 1024).toFixed(1) + ' KB (saved ' + savings + '%)');
+
+// === 2. Generate Zod schema ===
 // Inline \$refs, treating circular references as z.object({}).passthrough()
 function inlineRefs(obj, seenRefs = new Set()) {
     if (typeof obj !== 'object' || obj === null) return obj;
@@ -52,8 +73,8 @@ let zodCode = jsonSchemaToZod(inlinedSchema, { name: 'flowModuleSchema', module:
 zodCode = zodCode.replace('from \"zod\"', 'from \"zod/v3\"');
 zodCode += '\n\nexport const flowModulesSchema = z.array(flowModuleSchema)\n';
 
-fs.writeFileSync('${output_file}', zodCode);
-console.log('✓ Generated: ${output_file}');
+fs.writeFileSync(zodOutputFile, zodCode);
+console.log('✓ Generated Zod schema: ' + zodOutputFile);
 "
 
 echo "Done!"
