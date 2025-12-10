@@ -365,4 +365,33 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn test_ts_asset_parser_overriden_var_identifier() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                let sql = wmill.datatable('another1')
+            }
+            function g() {
+                let sql = wmill.ducklake()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "another1".to_string(),
+                    access_type: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::Ducklake,
+                    path: "main".to_string(),
+                    access_type: None
+                },
+            ])
+        );
+    }
 }
