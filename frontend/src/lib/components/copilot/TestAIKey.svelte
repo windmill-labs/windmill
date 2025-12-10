@@ -2,7 +2,6 @@
 	import type { AIProvider } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
-	import { ButtonType } from '../common/button/model'
 	import { testKey } from './lib'
 
 	interface Props {
@@ -11,7 +10,6 @@
 		resourcePath?: string | undefined
 		aiProvider: AIProvider
 		model: string
-		variant?: ButtonType.Variant
 	}
 
 	let {
@@ -19,8 +17,7 @@
 		apiKey = undefined,
 		resourcePath = undefined,
 		aiProvider,
-		model,
-		variant = 'accent'
+		model
 	}: Props = $props()
 
 	let loading = $state(false)
@@ -28,7 +25,7 @@
 
 <Button
 	size="xs"
-	{variant}
+	variant="default"
 	{disabled}
 	{loading}
 	on:click={async () => {
@@ -63,10 +60,5 @@
 			loading = false
 		}
 	}}
->
-	{#if apiKey}
-		Test key
-	{:else}
-		Test
-	{/if}
+	>Test key
 </Button>
