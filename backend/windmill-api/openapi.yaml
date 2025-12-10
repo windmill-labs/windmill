@@ -72,10 +72,10 @@ paths:
   /inkeep:
     post:
       summary: query Windmill AI documentation assistant (EE only)
-      operationId: queryInkeep
+      operationId: queryDocumentation
       x-mcp-tool: true
       tags:
-        - settings
+        - documentation
       requestBody:
         description: query to send to the AI documentation assistant
         required: true
@@ -8965,9 +8965,9 @@ paths:
         "200":
           description: confirmation message
           content:
-              application/json:
-                schema:
-                  type: string
+            application/json:
+              schema:
+                type: string
 
   /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_jobs/{trigger_path}:
     post:
@@ -16678,7 +16678,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16794,7 +16794,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16918,7 +16918,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         trigger:
           type: string
@@ -17066,7 +17066,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         trigger:
           type: string

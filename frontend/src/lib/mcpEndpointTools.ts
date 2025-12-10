@@ -14,7 +14,7 @@ export interface EndpointTool {
 
 export const mcpEndpointTools: EndpointTool[] = [
     {
-        name: "queryInkeep",
+        name: "queryDocumentation",
         description: "query Windmill AI documentation assistant (EE only)",
         instructions: "",
         path: "/inkeep",

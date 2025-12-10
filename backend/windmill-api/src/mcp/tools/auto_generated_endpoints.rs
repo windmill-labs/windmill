@@ -21,7 +21,7 @@ pub struct EndpointTool {
 pub fn all_tools() -> Vec<EndpointTool> {
     vec![
     EndpointTool {
-        name: Cow::Borrowed("queryInkeep"),
+        name: Cow::Borrowed("queryDocumentation"),
         description: Cow::Borrowed("query Windmill AI documentation assistant (EE only)"),
         instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/inkeep"),
