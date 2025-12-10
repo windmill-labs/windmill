@@ -32,7 +32,7 @@ use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use std::process::Stdio;
 use tokio::process::Command;
 use uuid::Uuid;
-use windmill_audit::audit_oss::{AuditAuthorable, audit_log};
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
@@ -444,13 +444,14 @@ async fn get_resource_value_interpolated(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
-    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     return get_resource_value_interpolated_internal(
         &db_with_opt_authed,
         w_id.as_str(),
         path,
         job_info.job_id,
-            Some(token.as_str()),
+        Some(token.as_str()),
         job_info.allow_cache.unwrap_or(false),
     )
     .await
@@ -508,7 +509,14 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        let r = transform_json_value(&db_with_opt_authed, workspace, value, &job_id, token_for_context).await?;
+        let r = transform_json_value(
+            &db_with_opt_authed,
+            workspace,
+            value,
+            &job_id,
+            token_for_context,
+        )
+        .await?;
         if allow_cache {
             cache_resource(&workspace, &path, r.clone());
         }
@@ -1367,13 +1375,11 @@ where
     T: serde::de::DeserializeOwned,
 {
     let resource = get_resource_value_interpolated_internal(
-        &authed,
-        user_db,
-        &db,
+        &DbWithOptAuthed::from_authed(authed, db.clone(), user_db),
         &w_id,
         &resource_path,
         None,
-        "",
+        None,
         false,
     )
     .await?;
@@ -1480,7 +1486,8 @@ async fn get_git_commit_hash(
 
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
-    let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     let git_repo_resource_value = get_resource_value_interpolated_internal(
         &db_with_opt_authed,
         &w_id,
