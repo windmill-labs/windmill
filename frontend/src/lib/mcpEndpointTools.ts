@@ -14,6 +14,27 @@ export interface EndpointTool {
 
 export const mcpEndpointTools: EndpointTool[] = [
     {
+        name: "queryInkeep",
+        description: "query Windmill AI documentation assistant (EE only)",
+        instructions: "",
+        path: "/inkeep",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "query": {
+                        "type": "string",
+                        "description": "The documentation query to send to the AI assistant"
+                }
+        },
+        "required": [
+                "query"
+        ]
+}
+    },
+    {
         name: "createVariable",
         description: "create variable",
         instructions: "",
@@ -440,6 +461,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "languages": {
                         "type": "string",
                         "description": "Filter to only include scripts written in the given languages.\nAccepts multiple values as a comma-separated list.\n"
+                },
+                "without_description": {
+                        "type": "boolean",
+                        "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
                 }
         },
         "required": []
@@ -523,6 +548,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "with_deployment_msg": {
                         "type": "boolean",
                         "description": "(default false)\ninclude deployment message\n"
+                },
+                "without_description": {
+                        "type": "boolean",
+                        "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
                 }
         },
         "required": []
@@ -676,6 +705,28 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "mask to filter by schedule path"
                 },
+                "trigger_path": {
+                        "type": "string",
+                        "description": "mask to filter by trigger path"
+                },
+                "trigger_kind": {
+                        "description": "trigger kind (schedule, http, websocket...)",
+                        "type": "string",
+                        "enum": [
+                                "webhook",
+                                "default_email",
+                                "email",
+                                "schedule",
+                                "http",
+                                "websocket",
+                                "postgres",
+                                "kafka",
+                                "nats",
+                                "mqtt",
+                                "sqs",
+                                "gcp"
+                        ]
+                },
                 "script_hash": {
                         "type": "string",
                         "description": "mask to filter exact matching path"
@@ -810,10 +861,25 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "format": "date-time",
                         "description": "filter on created after (exclusive) timestamp"
                 },
-                "created_or_started_before": {
+                "completed_before": {
                         "type": "string",
                         "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise before (inclusive) timestamp"
+                        "description": "filter on started before (inclusive) timestamp"
+                },
+                "completed_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started after (exclusive) timestamp"
+                },
+                "created_before_queue": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on jobs created before X for jobs in the queue only"
+                },
+                "created_after_queue": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on jobs created after X for jobs in the queue only"
                 },
                 "running": {
                         "type": "boolean",
@@ -822,16 +888,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "scheduled_for_before_now": {
                         "type": "boolean",
                         "description": "filter on jobs scheduled_for before now (hence waitinf for a worker)"
-                },
-                "created_or_started_after": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp"
-                },
-                "created_or_started_after_completed_jobs": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp but only for the completed jobs"
                 },
                 "job_kinds": {
                         "type": "string",
@@ -857,13 +913,27 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "boolean",
                         "description": "allow wildcards (*) in the filter of label, tag, worker"
                 },
-                "page": {
-                        "type": "integer",
-                        "description": "which page to return (start at 1, default 1)"
-                },
                 "per_page": {
                         "type": "integer",
                         "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "trigger_kind": {
+                        "description": "trigger kind (schedule, http, websocket...)",
+                        "type": "string",
+                        "enum": [
+                                "webhook",
+                                "default_email",
+                                "email",
+                                "schedule",
+                                "http",
+                                "websocket",
+                                "postgres",
+                                "kafka",
+                                "nats",
+                                "mqtt",
+                                "sqs",
+                                "gcp"
+                        ]
                 },
                 "is_skipped": {
                         "type": "boolean",
