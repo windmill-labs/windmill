@@ -12,7 +12,7 @@
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
-		dbDeleteTableActionWithPreviewScript,
+		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
 		getDatabaseArg,
 		getDucklakeSchema
@@ -197,9 +197,10 @@
 								input: _input,
 								workspace: $workspaceStore
 							})}
-						dbTableActionsFactory={[
-							dbDeleteTableActionWithPreviewScript({ input: _input, workspace: $workspaceStore })
-						]}
+						dbShemaOps={dbSchemaOpsWithPreviewScripts({
+							input: _input,
+							workspace: $workspaceStore
+						})}
 						{refresh}
 						dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
 							dbType,

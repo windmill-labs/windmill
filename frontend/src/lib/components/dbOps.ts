@@ -5,7 +5,6 @@ import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
-import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
@@ -108,36 +107,20 @@ export function dbTableOpsWithPreviewScripts({
 	}
 }
 
-export type DbTableAction = {
-	action: () => void | Promise<void>
-	displayName: string
-	confirmTitle?: string
-	confirmBtnText?: string
-	icon?: any
-	successText?: string
+export type IDbSchemaOps = {
+	onDelete: (params: { tableKey: string }) => Promise<void>
 }
 
-export type DbTableActionFactory = (params: {
-	tableKey: string
-	refresh: () => void
-}) => DbTableAction
-
-export function dbDeleteTableActionWithPreviewScript({
+export function dbSchemaOpsWithPreviewScripts({
 	workspace,
 	input
 }: {
 	workspace: string
 	input: DbInput
-}): DbTableActionFactory {
-	const dbArg = getDatabaseArg(input)
-
-	return ({ tableKey, refresh }) => ({
-		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
-		displayName: 'Delete',
-		confirmBtnText: `Delete permanently`,
-		icon: Trash2,
-		successText: `Table '${tableKey}' deleted successfully`,
-		action: async () => {
+}): IDbSchemaOps {
+	return {
+		onDelete: async ({ tableKey }) => {
+			const dbArg = getDatabaseArg(input)
 			const dbType = getDbType(input)
 			const language = getLanguageByResourceType(dbType)
 			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
@@ -150,9 +133,8 @@ export function dbDeleteTableActionWithPreviewScript({
 					content: deleteQuery
 				}
 			})
-			refresh()
 		}
-	})
+	}
 }
 
 export async function getDucklakeSchema({
