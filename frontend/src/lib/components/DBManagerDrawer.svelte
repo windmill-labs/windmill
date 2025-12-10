@@ -231,8 +231,8 @@
 										? 'public'
 										: 'dbo' in dbSchema?.schema
 											? 'dbo'
-											: Object.keys(dbSchema?.schema)?.[0]
-								]
+											: Object.keys(dbSchema?.schema ?? {})?.[0]
+								] ?? {}
 							)
 						)?.[0]}
 					/>
