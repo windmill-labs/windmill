@@ -14,3 +14,4 @@ static/tsdocs/
 static/ui_builder/
 ui_builder.tar.gz
 ui_builder_serve/
+src/lib/components/copilot/chat/flow/__tests__/eval/results/
