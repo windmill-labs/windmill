@@ -546,6 +546,8 @@ impl BundleFormat {
     }
 }
 
+pub const DEFAULT_STORAGE: &str = "_default_";
+
 pub async fn upload_artifact_to_store(
     path: &str,
     data: bytes::Bytes,

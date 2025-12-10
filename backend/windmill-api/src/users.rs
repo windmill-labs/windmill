@@ -43,8 +43,9 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
@@ -574,17 +575,14 @@ async fn get_tutorial_progress(
     )
     .fetch_optional(&db)
     .await?;
-    
+
     if let Some(row) = row {
         Ok(Json(Progress {
             progress: row.progress.unwrap_or_default() as u64,
             skipped_all: row.skipped_all,
         }))
     } else {
-        Ok(Json(Progress {
-            progress: 0,
-            skipped_all: false,
-        }))
+        Ok(Json(Progress { progress: 0, skipped_all: false }))
     }
 }
 
