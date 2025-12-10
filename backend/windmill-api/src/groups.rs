@@ -55,6 +55,12 @@ pub fn global_service() -> Router {
         .route("/overwrite", post(overwrite_igroups))
 }
 
+/// Normalize group names: replace spaces with underscores and convert to lowercase
+/// Used when manually creating groups and SCIM-managed groups
+pub fn convert_name(name: &str) -> String {
+    name.replace(" ", "_").to_lowercase()
+}
+
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct Group {
     pub workspace_id: String,
@@ -291,10 +297,12 @@ async fn create_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let normalized_name = convert_name(&ng.name);
+
     let id = Uuid::new_v4().to_string();
     sqlx::query!(
         "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-        ng.name,
+        normalized_name,
         ng.summary,
         id,
     )
@@ -307,13 +315,13 @@ async fn create_igroup(
         "igroup.create",
         ActionKind::Create,
         "global",
-        Some(&ng.name.to_string()),
+        Some(&normalized_name),
         None,
     )
     .await?;
 
     tx.commit().await?;
-    Ok(format!("Created group {}", ng.name))
+    Ok(format!("Created group {}", normalized_name))
 }
 
 #[derive(Deserialize)]
