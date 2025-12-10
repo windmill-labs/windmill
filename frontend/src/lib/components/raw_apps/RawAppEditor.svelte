@@ -21,7 +21,9 @@
 	import { rawAppLintStore } from './lintStore'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import RawAppHistorySidebar from './RawAppHistorySidebar.svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, displayDate } from '$lib/utils'
+	import Button from '../common/button/Button.svelte'
+	import { Eye, X, RotateCcw } from 'lucide-svelte'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -77,6 +79,7 @@
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
 	let historyDrawerOpen = $state(false)
+	let previewIndex = $state<number | undefined>(undefined)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -459,6 +462,10 @@
 			setFilesInIframe(files)
 			populateRunnables()
 
+			// Clear preview mode after restore
+			previewIndex = undefined
+			historyManager.clearPreview()
+
 			sendUserToast('Snapshot restored successfully')
 		} catch (error) {
 			console.error('Failed to restore snapshot:', error)
@@ -501,6 +508,38 @@
 				console.error('Failed to redo:', error)
 				sendUserToast('Failed to redo: ' + (error as Error).message, true)
 			}
+		}
+	}
+
+	function handlePreviewSelect(index: number) {
+		const entry = historyManager.getEntry(index)
+		if (entry) {
+			previewIndex = index
+			historyManager.setPreview(index)
+
+			// Apply preview state to editor
+			files = entry.files
+			runnables = entry.runnables
+			summary = entry.summary
+
+			setFilesInIframe(entry.files)
+			populateRunnables()
+		}
+	}
+
+	function handleClearPreview() {
+		previewIndex = undefined
+		historyManager.clearPreview()
+
+		// Restore to latest state (last entry in history)
+		const latestEntry = historyManager.getEntry(historyManager.entryCount - 1)
+		if (latestEntry) {
+			files = latestEntry.files
+			runnables = latestEntry.runnables
+			summary = latestEntry.summary
+
+			setFilesInIframe(latestEntry.files)
+			populateRunnables()
 		}
 	}
 
@@ -555,7 +594,8 @@
 			<Pane size={20} minSize={15} maxSize={30}>
 				<RawAppHistorySidebar
 					{historyManager}
-					onRestore={handleRestoreSnapshot}
+					selectedIndex={previewIndex}
+					onSelect={handlePreviewSelect}
 					onManualSnapshot={() => {
 						historyManager.manualSnapshot(files ?? {}, runnables, summary)
 						sendUserToast('Snapshot created')
@@ -580,24 +620,66 @@
 			></RawAppSidebar>
 		</Pane>
 		<Pane>
-			<iframe
-				bind:this={iframe}
-				title="UI builder"
-				style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
-				src="/ui_builder/index.html?dark={darkMode}"
-				class="w-full h-full"
-			></iframe>
-			{#if selectedRunnable !== undefined}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="flex h-full w-full">
-					<RawAppInlineScriptsPanel
-						appPath={path}
-						{selectedRunnable}
-						{initRunnablesContent}
-						{runnables}
-					/>
-				</div>
+			<!-- Preview Mode Banner -->
+			{#if historyManager.isPreviewMode && previewIndex !== undefined}
+				{@const previewEntry = historyManager.getEntry(previewIndex)}
+				{#if previewEntry}
+					<div
+						class="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 px-4 py-3"
+					>
+						<div class="flex items-center justify-between gap-4">
+							<div class="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+								<Eye size={16} class="flex-shrink-0" />
+								<div class="flex flex-col gap-0.5">
+									<span class="font-medium text-sm">Preview Mode - Read Only</span>
+									<span class="text-xs opacity-80">
+										Viewing snapshot from {displayDate(previewEntry.timestamp.toISOString())}
+									</span>
+								</div>
+							</div>
+							<div class="flex gap-2">
+								<Button
+									size="xs"
+									color="light"
+									startIcon={{ icon: X }}
+									on:click={handleClearPreview}
+								>
+									Exit Preview
+								</Button>
+								<Button
+									size="xs"
+									color="dark"
+									startIcon={{ icon: RotateCcw }}
+									on:click={() => previewIndex !== undefined && handleRestoreSnapshot(previewIndex)}
+								>
+									Restore This Version
+								</Button>
+							</div>
+						</div>
+					</div>
+				{/if}
 			{/if}
+
+			<div class="h-full w-full" style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}">
+				<iframe
+					bind:this={iframe}
+					title="UI builder"
+					style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
+					src="/ui_builder/index.html?dark={darkMode}"
+					class="w-full h-full"
+				></iframe>
+				{#if selectedRunnable !== undefined}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="flex h-full w-full">
+						<RawAppInlineScriptsPanel
+							appPath={path}
+							{selectedRunnable}
+							{initRunnablesContent}
+							{runnables}
+						/>
+					</div>
+				{/if}
+			</div>
 
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>
