@@ -857,7 +857,6 @@ export async function parseOpenAICompletion(
 	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-	const streamingTools: Record<number, boolean> = {} // Track which tools should stream
 	let malformedFunctionCallError = false
 
 	let answer = ''
@@ -927,17 +926,11 @@ export async function parseOpenAICompletion(
 				} = finalToolCall
 				if (funcName && toolCallId) {
 					const tool = tools.find((t) => t.def.function.name === funcName)
-
-					// Track if this tool should stream (only set once per tool)
-					if (streamingTools[index] === undefined) {
-						streamingTools[index] = tool?.streamArguments ?? false
-					}
-
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
 
-					const shouldStream = streamingTools[index]
+					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
 					let parameters: any = undefined
 					if (accumulatedArgs) {

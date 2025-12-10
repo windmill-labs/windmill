@@ -334,7 +334,6 @@ export async function parseOpenAIResponsesCompletion(
 
 		// Process each tool call
 		for (const toolCall of toolCallsToProcess) {
-			console.log('toolCall', toolCall)
 			const messageToAdd = await processToolCall({
 				tools,
 				toolCall,
