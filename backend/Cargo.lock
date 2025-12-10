@@ -15643,6 +15643,7 @@ dependencies = [
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
+ "windmill-parser-sql",
 ]
 
 [[package]]
@@ -15730,6 +15731,7 @@ dependencies = [
  "triomphe",
  "wasm-bindgen",
  "windmill-parser",
+ "windmill-parser-sql",
 ]
 
 [[package]]
