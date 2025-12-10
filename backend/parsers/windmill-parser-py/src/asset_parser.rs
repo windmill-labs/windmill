@@ -37,37 +37,27 @@ impl Visitor for AssetsFinder {
     // Handle assignment statements like: x = wmill.datatable('name')
     fn visit_stmt_assign(&mut self, node: rustpython_ast::StmtAssign) {
         // Check if the value is a call to a tracked function
-        if let Some((kind, name)) = self.extract_asset_from_call(&node.value) {
-            // Track all target variables
-            for target in &node.targets {
-                if let Expr::Name(name_expr) = target {
-                    let Ok(var_name) = name_expr.id.parse::<String>();
-                    self.var_identifiers
-                        .insert(var_name, (kind.clone(), name.clone()));
-                }
-            }
-        } else {
-            // If not wmill.datatable or similar, remove any tracked variables
-            // It means the identifier is no longer refering to an asset
-            for target in &node.targets {
-                if let Expr::Name(name_expr) = target {
-                    let Ok(var_name) = name_expr.id.parse::<String>();
-                    let removed = self.var_identifiers.remove(&var_name);
-                    // if a db = wmill.datatable() or similar was removed, but never used (e.g db.query(...)),
-                    // we still want to register the asset as unknown access type
-                    match removed {
-                        Some((kind, path)) => {
-                            if !asset_was_used(&self.assets, (kind, &path)) {
-                                self.assets.push(ParseAssetsResult {
-                                    kind,
-                                    access_type: None,
-                                    path,
-                                });
-                            }
-                        }
-                        None => {}
+        if let Some(Expr::Name(expr_name)) = node.targets.first() {
+            // Remove any tracked variables with that name in case of reassignment
+            let Ok(var_name) = expr_name.id.parse::<String>();
+            let removed = self.var_identifiers.remove(&var_name);
+            // if a db = wmill.datatable() or similar was removed, but never used (e.g db.query(...)),
+            // we still want to register the asset as unknown access type
+            match removed {
+                Some((kind, path)) => {
+                    if !asset_was_used(&self.assets, (kind, &path)) {
+                        self.assets
+                            .push(ParseAssetsResult { kind, access_type: None, path });
                     }
                 }
+                None => {}
+            }
+
+            if let Some((kind, name)) = self.extract_asset_from_call(&node.value) {
+                // Track target variable
+                let Ok(var_name) = expr_name.id.parse::<String>();
+                self.var_identifiers
+                    .insert(var_name, (kind.clone(), name.clone()));
             }
         }
         // Continue with generic visit to catch any other assets in the expression
@@ -176,8 +166,8 @@ impl AssetsFinder {
             value, ..
         }) = node.func.as_ref()
         {
-            if let Expr::Name(name_expr) = value.as_ref() {
-                name_expr.id.parse().map_err(|_| ())?
+            if let Expr::Name(expr_name) = value.as_ref() {
+                expr_name.id.parse().map_err(|_| ())?
             } else {
                 return Err(());
             }
@@ -189,13 +179,13 @@ impl AssetsFinder {
             // Continue
         } else if let Some((kind, ref path)) = self.var_identifiers.get(&obj_name) {
             if ident == "query" {
-                let name_expr = node.args.get(0).or_else(|| {
+                let expr_name = node.args.get(0).or_else(|| {
                     node.keywords
                         .iter()
                         .find(|kw| kw.arg.as_deref() == Some("name"))
                         .map(|kw| &kw.value)
                 });
-                let sql = match name_expr {
+                let sql = match expr_name {
                     Some(Expr::Constant(ExprConstant { value: Constant::Str(sql), .. })) => sql,
                     _ => return Err(()),
                 };
@@ -266,7 +256,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ts_asset_parser_load_s3() {
+    fn test_py_asset_parser_load_s3() {
         let input = r#"
 import wmill
 def main():
@@ -284,7 +274,7 @@ def main():
     }
 
     #[test]
-    fn test_ts_asset_parser_unused_sql() {
+    fn test_py_asset_parser_unused_sql() {
         let input = r#"
 import wmill
 def main():
@@ -302,7 +292,7 @@ def main():
     }
 
     #[test]
-    fn test_ts_asset_parser_sql_read() {
+    fn test_py_asset_parser_sql_read() {
         let input = r#"
 import wmill
 def main(x: int):
@@ -321,7 +311,7 @@ def main(x: int):
     }
 
     #[test]
-    fn test_ts_asset_parser_sql_read_write() {
+    fn test_py_asset_parser_sql_read_write() {
         let input = r#"
 import wmill
 def main(x: int):
@@ -349,7 +339,7 @@ def main(x: int):
     }
 
     #[test]
-    fn test_ts_asset_parser_multiple_sql_scopes() {
+    fn test_py_asset_parser_multiple_sql_scopes() {
         let input = r#"
 import wmill
 def main():
@@ -361,7 +351,7 @@ def main():
 
 def g():
     db = wmill.ducklake('another2')
-        "#;
+"#;
         let s = parse_assets(input);
         assert_eq!(
             s.map_err(|e| e.to_string()),
@@ -380,6 +370,33 @@ def g():
                     kind: AssetKind::DataTable,
                     path: "main/friends".to_string(),
                     access_type: Some(R)
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_overriden_var_identifier() {
+        let input = r#"
+import wmill
+def main():
+    db = wmill.datatable('another1')
+def g():
+    db = wmill.ducklake()
+"#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "another1".to_string(),
+                    access_type: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::Ducklake,
+                    path: "main".to_string(),
+                    access_type: None
                 },
             ])
         );
