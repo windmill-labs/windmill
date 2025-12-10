@@ -52,7 +52,10 @@ function inlineRefs(obj, seenRefs = new Set()) {
         const match = obj['\$ref'].match(/#\\/components\\/schemas\\/(.+)\$/);
         if (match) {
             const refName = match[1];
-            if (seenRefs.has(refName)) return { type: 'object' }; // Circular ref
+            if (seenRefs.has(refName)) {
+                // Mark circular ref with placeholder for z.lazy() replacement
+                return { type: 'string', const: '__CIRCULAR_REF_FLOWMODULE__' };
+            }
             if (definitions[refName]) {
                 return inlineRefs(definitions[refName], new Set([...seenRefs, refName]));
             }
@@ -70,6 +73,10 @@ function inlineRefs(obj, seenRefs = new Set()) {
 const inlinedSchema = inlineRefs(definitions.FlowModule, new Set(['FlowModule']));
 
 let zodCode = jsonSchemaToZod(inlinedSchema, { name: 'flowModuleSchema', module: 'esm' });
+
+// Replace circular reference placeholders with z.lazy() for proper recursive typing
+zodCode = zodCode.replace(/z\.literal\(\"__CIRCULAR_REF_FLOWMODULE__\"\)/g, 'z.lazy(() => flowModuleSchema)');
+
 zodCode = zodCode.replace('from \"zod\"', 'from \"zod/v3\"');
 zodCode += '\n\nexport const flowModulesSchema = z.array(flowModuleSchema)\n';
 
