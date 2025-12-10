@@ -19,6 +19,9 @@
 	import { onMount } from 'svelte'
 	import type { LintResult } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
+	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
+	import RawAppHistorySidebar from './RawAppHistorySidebar.svelte'
+	import { sendUserToast } from '$lib/utils'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -67,6 +70,13 @@
 	)
 
 	let files: Record<string, string> | undefined = $state(initFiles)
+
+	// Initialize history manager
+	const historyManager = new RawAppHistoryManager({
+		maxEntries: 50,
+		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
+	})
+	let historyDrawerOpen = $state(false)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -177,8 +187,16 @@
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 
+		// Start auto-snapshot
+		historyManager.startAutoSnapshot(() => ({
+			files: files ?? {},
+			runnables,
+			summary
+		}))
+
 		return () => {
 			rawAppLintStore.disable()
+			historyManager.destroy()
 		}
 	})
 
@@ -411,9 +429,92 @@
 			'*'
 		)
 	}
+
+	function handleRestoreSnapshot(index: number) {
+		const entry = historyManager.getEntry(index)
+		if (!entry) {
+			sendUserToast('Failed to restore snapshot: entry not found', true)
+			return
+		}
+
+		// Validate snapshot integrity
+		if (!entry.files || typeof entry.files !== 'object') {
+			sendUserToast('Failed to restore snapshot: invalid files data', true)
+			return
+		}
+		if (!entry.runnables || typeof entry.runnables !== 'object') {
+			sendUserToast('Failed to restore snapshot: invalid runnables data', true)
+			return
+		}
+
+		try {
+			// Auto-save current state before restoring
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+
+			// Restore from snapshot
+			files = entry.files
+			runnables = entry.runnables
+			summary = entry.summary
+
+			setFilesInIframe(files)
+			populateRunnables()
+
+			sendUserToast('Snapshot restored successfully')
+		} catch (error) {
+			console.error('Failed to restore snapshot:', error)
+			sendUserToast('Failed to restore snapshot: ' + (error as Error).message, true)
+		}
+	}
+
+	function handleUndo() {
+		const entry = historyManager.undo()
+		if (entry) {
+			try {
+				files = entry.files
+				runnables = entry.runnables
+				summary = entry.summary
+
+				setFilesInIframe(entry.files)
+				populateRunnables()
+
+				sendUserToast('Undo successful')
+			} catch (error) {
+				console.error('Failed to undo:', error)
+				sendUserToast('Failed to undo: ' + (error as Error).message, true)
+			}
+		}
+	}
+
+	function handleRedo() {
+		const entry = historyManager.redo()
+		if (entry) {
+			try {
+				files = entry.files
+				runnables = entry.runnables
+				summary = entry.summary
+
+				setFilesInIframe(entry.files)
+				populateRunnables()
+
+				sendUserToast('Redo successful')
+			} catch (error) {
+				console.error('Failed to redo:', error)
+				sendUserToast('Failed to redo: ' + (error as Error).message, true)
+			}
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + Shift + H for manual snapshot
+		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
+			e.preventDefault()
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			sendUserToast('Snapshot created')
+		}
+	}
 </script>
 
-<svelte:window onmessage={listener} />
+<svelte:window onmessage={listener} onkeydown={handleKeydown} />
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
@@ -441,9 +542,27 @@
 		{files}
 		{runnables}
 		{getBundle}
+		bind:historyDrawerOpen
+		hasHistoryEntries={historyManager.hasEntries}
+		canUndo={historyManager.canUndo}
+		canRedo={historyManager.canRedo}
+		onUndo={handleUndo}
+		onRedo={handleRedo}
 	/>
 
 	<Splitpanes id="o2" class="grow">
+		{#if historyDrawerOpen}
+			<Pane size={20} minSize={15} maxSize={30}>
+				<RawAppHistorySidebar
+					{historyManager}
+					onRestore={handleRestoreSnapshot}
+					onManualSnapshot={() => {
+						historyManager.manualSnapshot(files ?? {}, runnables, summary)
+						sendUserToast('Snapshot created')
+					}}
+				/>
+			</Pane>
+		{/if}
 		<Pane bind:size={sidebarPanelSize} maxSize={20}>
 			<RawAppSidebar
 				bind:files={

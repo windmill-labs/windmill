@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -79,6 +80,12 @@
 			js: string
 			css: string
 		}>
+		historyDrawerOpen?: boolean
+		hasHistoryEntries?: boolean
+		canUndo?: boolean
+		canRedo?: boolean
+		onUndo?: () => void
+		onRedo?: () => void
 	}
 
 	let {
@@ -94,7 +101,13 @@
 		files,
 		jobs = $bindable(),
 		jobsById = $bindable(),
-		getBundle
+		getBundle,
+		historyDrawerOpen = $bindable(false),
+		hasHistoryEntries = false,
+		canUndo = false,
+		canRedo = false,
+		onUndo = undefined,
+		onRedo = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -747,6 +760,30 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+		<UndoRedo
+			undoProps={{ disabled: !canUndo }}
+			redoProps={{ disabled: !canRedo }}
+			on:undo={() => onUndo?.()}
+			on:redo={() => onRedo?.()}
+		/>
+
+		<Button
+			size="xs"
+			color="light"
+			startIcon={{ icon: History }}
+			on:click={() => (historyDrawerOpen = !historyDrawerOpen)}
+			btnClasses={hasHistoryEntries ? 'relative' : ''}
+		>
+			History
+			{#if hasHistoryEntries}
+				<span class="absolute -top-1 -right-1 flex h-2 w-2">
+					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"
+					></span>
+					<span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+				</span>
+			{/if}
+		</Button>
+
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
 				<Button nonCaptureEvent size="xs" color="light">
