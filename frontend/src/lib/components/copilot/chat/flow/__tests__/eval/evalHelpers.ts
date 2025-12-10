@@ -49,18 +49,19 @@ export function createEvalHelpers(
 			inlineScriptStore.set(id, code)
 		},
 
-		setFlowJson: async (json: string) => {
-			const parsed = JSON.parse(json)
-
-			// Restore inline script references back to full content (mirrors FlowAIChat.svelte)
-			if (parsed.modules && Array.isArray(parsed.modules)) {
-				parsed.modules = restoreInlineScriptReferences(parsed.modules)
+		setFlowJson: async (
+			modules: FlowModule[] | undefined,
+			schema: Record<string, any> | undefined
+		) => {
+			if (modules) {
+				// Restore inline script references back to full content
+				const restoredModules = restoreInlineScriptReferences(modules)
+				flow.value.modules = restoredModules
 			}
 
-			flow.value = { ...flow.value, ...parsed }
-			// Also update schema if provided
-			if (parsed.schema !== undefined) {
-				flow.schema = parsed.schema
+			// Update schema if provided
+			if (schema !== undefined) {
+				flow.schema = schema
 			}
 		},
 

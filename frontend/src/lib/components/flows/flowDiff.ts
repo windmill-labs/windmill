@@ -30,18 +30,41 @@ export type ModuleActionInfo = {
  * Normalizes a FlowModule for comparison by removing properties that
  * should be ignored when determining if a module has changed.
  * Specifically, removes empty `assets` arrays since their presence/absence
- * is not a meaningful difference.
+ * is not a meaningful difference. Recursively normalizes nested modules
+ * within container types (branchone, branchall, forloopflow, whileloopflow, aiagent).
  */
 function normalizeModuleForComparison(module: FlowModule): FlowModule {
-	const normalized = { ...module }
-	if ('value' in normalized && normalized.value && typeof normalized.value === 'object') {
-		const value = { ...normalized.value } as Record<string, unknown>
-		// Remove empty assets array - it's not a meaningful difference
+	// Deep clone to avoid mutating the original and to handle nested structures
+	const normalized = JSON.parse(JSON.stringify(module)) as FlowModule
+
+	// Helper to remove empty assets from a value object
+	function removeEmptyAssets(value: Record<string, unknown>): void {
 		if (Array.isArray(value.assets) && value.assets.length === 0) {
 			delete value.assets
 		}
-		normalized.value = value as FlowModule['value']
 	}
+
+	if ('value' in normalized && normalized.value && typeof normalized.value === 'object') {
+		removeEmptyAssets(normalized.value as Record<string, unknown>)
+
+		// Recursively normalize nested modules based on type
+		const value = normalized.value
+		if (value.type === 'forloopflow' || value.type === 'whileloopflow') {
+			value.modules = value.modules.map((m) => normalizeModuleForComparison(m))
+		} else if (value.type === 'branchone') {
+			value.default = value.default.map((m) => normalizeModuleForComparison(m))
+			value.branches = value.branches.map((branch) => ({
+				...branch,
+				modules: branch.modules.map((m) => normalizeModuleForComparison(m))
+			}))
+		} else if (value.type === 'branchall') {
+			value.branches = value.branches.map((branch) => ({
+				...branch,
+				modules: branch.modules.map((m) => normalizeModuleForComparison(m))
+			}))
+		}
+	}
+
 	return normalized
 }
 
@@ -201,7 +224,10 @@ function getAllModulesWithLocation(flow: FlowValue): Map<string, ModuleWithLocat
  * Two locations are equal if they refer to the same parent container.
  * Index within the container is not considered (modules can be reordered).
  */
-export function locationsEqual(a: ModuleParentLocation | null, b: ModuleParentLocation | null): boolean {
+export function locationsEqual(
+	a: ModuleParentLocation | null,
+	b: ModuleParentLocation | null
+): boolean {
 	if (!a || !b) return a === b
 	if (a.type !== b.type) return false
 

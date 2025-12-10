@@ -126,8 +126,8 @@
 		maximizeSubflow = undefined
 	}: Props = $props()
 
-	// Execution state takes priority over AI action colors
-	let effectiveState = $derived(nodeState ?? aiActionToNodeState(moduleAction?.action))
+	// AI action colors take priority over execution state
+	let effectiveState = $derived(aiActionToNodeState(moduleAction?.action) ?? nodeState)
 	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')

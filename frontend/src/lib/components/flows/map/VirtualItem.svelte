@@ -86,8 +86,8 @@
 					: undefined
 			: undefined
 	)
-	// Execution state takes priority over AI action colors, fallback to _VirtualItem
-	const effectiveState = $derived(outputType ?? aiActionToNodeState(action) ?? '_VirtualItem')
+	// AI action colors take priority over execution state, fallback to _VirtualItem
+	const effectiveState = $derived(aiActionToNodeState(action) ?? outputType ?? '_VirtualItem')
 	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 </script>
 

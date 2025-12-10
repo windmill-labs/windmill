@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { runVariantComparison, type ExpectedFlow } from './evalRunner'
 import { writeComparisonResults } from './evalResultsWriter'
-import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT, NO_FULL_SCHEMA_VARIANT } from './variants'
+import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
 // @ts-ignore - JSON import
 import expectedTest1 from './expected/test1.json'
 // @ts-ignore - JSON import
@@ -40,11 +40,6 @@ const VARIANTS = [
 		...BASELINE_VARIANT,
 		model,
 		name: `baseline-${model.replace('/', '-')}`
-	})),
-	...MODELS.map((model) => ({
-		...NO_FULL_SCHEMA_VARIANT,
-		model,
-		name: `no-full-schema-${model.replace('/', '-')}`
 	})),
 	...MODELS.map((model) => ({
 		...MINIMAL_SINGLE_TOOL_VARIANT,
