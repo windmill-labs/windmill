@@ -31,7 +31,7 @@
 		dbSupportsSchemas
 	}: Props = $props()
 
-	let schemaKeys = $derived(Object.keys(dbSchema.schema))
+	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
 	let search = $state('')
 	let selected: {
 		schemaKey?: undefined | string
@@ -53,7 +53,7 @@
 			return []
 		}
 		if (!selected.schemaKey) return []
-		return Object.keys(dbSchema.schema[selected.schemaKey])
+		return Object.keys(dbSchema.schema[selected.schemaKey] ?? {})
 	})
 
 	$effect(() => {
@@ -159,6 +159,7 @@
 			on:click={() => (dbTableEditorState = { open: true })}
 			wrapperClasses="mx-2 my-2 text-sm"
 			startIcon={{ icon: Plus }}
+			variant={tableKeys.length === 0 ? 'accent' : 'default'}
 		>
 			New table
 		</Button>
