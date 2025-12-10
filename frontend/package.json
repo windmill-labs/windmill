@@ -47,6 +47,8 @@
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.45.1",
+		"json-refs": "^3.0.15",
+		"json-schema-to-zod": "^2.7.0",
 		"path-browserify": "^1.0.1",
 		"playwright": "^1.56.1",
 		"postcss": "^8.4.49",
