@@ -2563,6 +2563,7 @@ struct AppS3FileQuery {
     s3: String,
     storage: Option<String>,
     sig: Option<String>,
+    #[cfg(feature = "private")]
     exp: Option<String>,
 }
 
