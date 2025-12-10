@@ -69,6 +69,41 @@ paths:
               schema:
                 type: string
 
+  /inkeep:
+    post:
+      summary: query Windmill AI documentation assistant (EE only)
+      operationId: queryInkeep
+      x-mcp-tool: true
+      tags:
+        - settings
+      requestBody:
+        description: query to send to the AI documentation assistant
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: The documentation query to send to the AI assistant
+              required:
+                - query
+      responses:
+        "200":
+          description: AI documentation assistant response
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response from Inkeep service
+        "403":
+          description: Enterprise Edition required
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /openapi.yaml:
     get:
       summary: get openapi yaml spec
