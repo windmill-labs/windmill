@@ -7,5 +7,7 @@ CREATE TABLE workspace_diff (
     ahead INTEGER NOT NULL DEFAULT 0,
     behind INTEGER NOT NULL DEFAULT 0,
     has_changes BOOLEAN DEFAULT NULL,
+    exists_in_source BOOLEAN DEFAULT NULL,
+    exists_in_fork BOOLEAN DEFAULT NULL,
     PRIMARY KEY (source_workspace_id, fork_workspace_id, path, kind)
 );
