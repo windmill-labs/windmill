@@ -301,7 +301,8 @@ export function extractInlineScriptsForApps(
   key: string | undefined,
   rec: any,
   pathAssigner: PathAssigner,
-  toId: (key: string, val: any) => string
+  toId: (key: string, val: any) => string,
+  removeSchema: boolean
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -331,10 +332,18 @@ export function extractInlineScriptsForApps(
             content: lock,
           });
         }
-        o.schema = undefined;
+        if (removeSchema) {
+          o.schema = undefined;
+        }
         return r;
       } else {
-        return extractInlineScriptsForApps(k, v, pathAssigner, toId);
+        return extractInlineScriptsForApps(
+          k,
+          v,
+          pathAssigner,
+          toId,
+          removeSchema
+        );
       }
     });
   }
@@ -453,7 +462,8 @@ function ZipFSElement(
                 undefined,
                 app?.["value"],
                 newPathAssigner(defaultTs),
-                (_, val) => val["name"]
+                (_, val) => val["name"],
+                false
               );
             } catch (error) {
               log.error(
@@ -510,7 +520,8 @@ function ZipFSElement(
                 undefined,
                 value,
                 newRawAppPathAssigner(defaultTs),
-                (key, val_) => key
+                (key, val_) => key,
+                true
               );
             } catch (error) {
               log.error(
@@ -578,8 +589,12 @@ function ZipFSElement(
                 // For path-based runnables, convert from API format to file format
                 // { type: "path", runType: "script" } -> { type: "script" }
                 // Also remove schema field
-                const { type: _type, runType, schema: _schema, ...rest } =
-                  runnableObj;
+                const {
+                  type: _type,
+                  runType,
+                  schema: _schema,
+                  ...rest
+                } = runnableObj;
                 simplifiedRunnable = {
                   type: runType,
                   ...rest,
