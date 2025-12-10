@@ -49,8 +49,8 @@
 		try {
 			// Compare with parent workspace
 			const result = await WorkspaceService.compareWorkspaces({
-				workspace: $workspaceStore,
-				targetWorkspaceId: parentWorkspaceId
+				workspace: parentWorkspaceId,
+				targetWorkspaceId: $workspaceStore
 			})
 
 			comparison = result

@@ -20690,6 +20690,8 @@ components:
         - ahead
         - behind
         - has_changes
+        - exists_in_source
+        - exists_in_fork
       properties:
         kind:
           type: string
@@ -20707,6 +20709,12 @@ components:
         has_changes:
           type: boolean
           description: Whether the item has any differences
+        exists_in_source:
+          type: boolean
+          description: If the item exists in the source workspace
+        exists_in_fork:
+          type: boolean
+          description: If the item exists in the fork workspace
 
     CompareSummary:
       type: object

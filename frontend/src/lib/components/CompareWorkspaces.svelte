@@ -770,7 +770,7 @@
 							{comparison.summary.total_diffs} total items
 						</Badge>
 						<Badge color="transparent">
-							{selectableDiffs.length} deployable
+							{selectableDiffs.length} {mergeIntoParent ? 'deployable' : 'updateable'}
 						</Badge>
 						{#if conflictingDiffs.length > 0}
 							<Badge color="orange">
@@ -794,25 +794,6 @@
 				</span>
 			</Alert>
 		{/if}
-
-		<!-- <Tabs bind:selected={activeTab} class="px-4 pt-4"> -->
-		<!-- 	<Tab value="all" label="All ({comparison.summary.total_diffs})" /> -->
-		<!-- 	{#if comparison.summary.scripts_changed > 0} -->
-		<!-- 		<Tab value="scripts" label="Scripts ({comparison.summary.scripts_changed})" /> -->
-		<!-- 	{/if} -->
-		<!-- 	{#if comparison.summary.flows_changed > 0} -->
-		<!-- 		<Tab value="flows" label="Flows ({comparison.summary.flows_changed})" /> -->
-		<!-- 	{/if} -->
-		<!-- 	{#if comparison.summary.apps_changed > 0} -->
-		<!-- 		<Tab value="apps" label="Apps ({comparison.summary.apps_changed})" /> -->
-		<!-- 	{/if} -->
-		<!-- 	{#if comparison.summary.resources_changed > 0} -->
-		<!-- 		<Tab value="resources" label="Resources ({comparison.summary.resources_changed})" /> -->
-		<!-- 	{/if} -->
-		<!-- 	{#if comparison.summary.variables_changed > 0} -->
-		<!-- 		<Tab value="variables" label="Variables ({comparison.summary.variables_changed})" /> -->
-		<!-- 	{/if} -->
-		<!-- </Tabs> -->
 
 		<div class="px-4 py-2 flex items-center justify-between">
 			<div
@@ -842,6 +823,7 @@
 					{@const newSummary = mergeIntoParent
 						? summaryCache[key]?.current
 						: summaryCache[key]?.parent}
+					{@const existsInBothWorkspaces = !((diff.exists_in_fork && !diff.exists_in_source) || (!diff.exists_in_fork && diff.exists_in_source))}
 
 					<Row
 						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
@@ -868,39 +850,50 @@
 							<!-- Status badges -->
 							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
 								<div class="flex items-center gap-2">
-									{#if diff.ahead > 0}
-										<Badge color="green" size="xs">
-											<ArrowUpRight class="w-3 h-3 inline" />
-											{diff.ahead} ahead
-										</Badge>
+									{#if isConflict || existsInBothWorkspaces}
+										{#if diff.ahead > 0}
+											<Badge color="green" size="xs">
+												<ArrowUpRight class="w-3 h-3 inline" />
+												{diff.ahead} ahead
+											</Badge>
+										{/if}
+										{#if diff.behind > 0}
+											<Badge color="blue" size="xs">
+												<ArrowDownRight class="w-3 h-3 inline" />
+												{diff.behind} behind
+											</Badge>
+										{/if}
+										{#if isConflict}
+											<Badge color="orange" size="xs">
+												<AlertTriangle class="w-3 h-3 inline" />
+												Conflict
+											</Badge>
+										{/if}
 									{/if}
-									{#if diff.behind > 0}
-										<Badge color="blue" size="xs">
-											<ArrowDownRight class="w-3 h-3 inline" />
-											{diff.behind} behind
-										</Badge>
+
+									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+										<Badge title="This item was newly created in the parent workspace {parentWorkspaceId}" color="indigo" size="xs">New</Badge>
 									{/if}
-									{#if isConflict}
-										<Badge color="orange" size="xs">
-											<AlertTriangle class="w-3 h-3 inline" />
-											Conflict
-										</Badge>
+									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+										<Badge title="This item was deleted in {currentWorkspaceId}" color="red" size="xs">Deleted</Badge>
 									{/if}
-									<!-- {#if diff.metadata_changes.includes('only_in_source')} -->
-									<!-- 	<Badge color="gray" size="xs">New</Badge> -->
-									<!-- {/if} -->
-									<!-- {#if diff.metadata_changes.includes('only_in_target')} -->
-									<!-- 	<Badge color="gray" size="xs">Deleted</Badge> -->
-									<!-- {/if} -->
+									{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+										<Badge title="This item was deleted in the parent workspace {parentWorkspaceId}" color="red" size="xs">Deleted</Badge>
+									{/if}
+									{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+										<Badge title="This item was newly created in {currentWorkspaceId}" color="indigo" size="xs">New</Badge>
+									{/if}
 								</div>
-								<Button
-									size="xs"
-									variant="subtle"
-									onclick={() => showDiff(diff.kind as Kind, diff.path)}
-								>
-									<DiffIcon class="w-3 h-3" />
-									Show diff
-								</Button>
+								<div class:invisible={!existsInBothWorkspaces}>
+									<Button
+										size="xs"
+										variant="subtle"
+										onclick={() => showDiff(diff.kind as Kind, diff.path)}
+									>
+										<DiffIcon class="w-3 h-3" />
+										Show diff
+									</Button>
+								</div>
 							{/if}
 							{#if deploymentStatus[key]}
 								{#if deploymentStatus[key].status == 'loading'}
