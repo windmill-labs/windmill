@@ -119,6 +119,7 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 	'Get instructions for code generation for a raw script step'
 )
 
+// Using string for modules and schema because Gemini-2.5-flash performs better with strings (MALFORMED_FUNCTION_CALL errors happens more often with objects)
 const setFlowJsonToolDef: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
