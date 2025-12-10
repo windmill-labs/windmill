@@ -12,6 +12,7 @@
 	import Button from './common/button/Button.svelte'
 	import DbTableEditor from './DBTableEditor.svelte'
 	import type { DbType } from './dbTypes'
+	import Portal from './Portal.svelte'
 
 	type Props = {
 		dbType: DbType
@@ -166,11 +167,13 @@
 	</Pane>
 </Splitpanes>
 
-<ConfirmationModal
-	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-	on:canceled={() => (askingForConfirmation = undefined)}
-	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
-/>
+<Portal>
+	<ConfirmationModal
+		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+		on:canceled={() => (askingForConfirmation = undefined)}
+		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+	/>
+</Portal>
 
 <Drawer
 	size="600px"
