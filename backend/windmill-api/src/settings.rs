@@ -810,7 +810,7 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
     logs.grant_permissions = "OK".to_string();
 
-    drop(client); // /!\ Drop before joining to avoid deadlock
+    drop(client); // /!\ Drop before joining to avoi d deadlock
     join_handle
         .await
         .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
