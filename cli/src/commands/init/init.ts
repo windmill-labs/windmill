@@ -5,6 +5,7 @@ import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
+import { CLI_COMMANDS } from "../../guidance/prompts.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -240,6 +241,7 @@ async function initAction(opts: InitOptions) {
   try {
     const scriptGuidanceContent = SCRIPT_GUIDANCE;
     const flowGuidanceContent = FLOW_GUIDANCE;
+    const cliCommandsContent = CLI_COMMANDS;
 
     // Create AGENTS.md file
     if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
@@ -253,19 +255,17 @@ ${scriptGuidanceContent}
 
 ## Flow Guidance
 ${flowGuidanceContent}
-                    `
+
+## CLI Commands
+${cliCommandsContent}
+`
       );
       log.info(colors.green("Created AGENTS.md"));
     }
 
     // Create CLAUDE.md file, referencing AGENTS.md
     if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
-      await Deno.writeTextFile(
-        "CLAUDE.md",
-        `
-Instructions are in @AGENTS.md
-        `
-      );
+      await Deno.writeTextFile("CLAUDE.md", "Instructions are in @AGENTS.md");
       log.info(colors.green("Created CLAUDE.md"));
     }
   } catch (error) {
