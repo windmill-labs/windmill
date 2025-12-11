@@ -91,7 +91,15 @@
 		}) ?? []
 	)
 
-	let hasBehindChangesInSelection = $derived(mergeIntoParent && itemsWithBehindChanges.length > 0)
+	let itemsWithAheadChanges = $derived(
+		comparison?.diffs.filter((diff) => {
+			const status = deploymentStatus[getItemKey(diff)]?.status
+			return diff && diff.ahead > 0 && !(status && status == 'deployed')
+		}) ?? []
+	)
+
+	let hasBehindChanges = $derived(mergeIntoParent && itemsWithBehindChanges.length > 0)
+	let hasAheadChanges = $derived(mergeIntoParent && itemsWithAheadChanges.length > 0)
 
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
@@ -735,23 +743,6 @@
 	})
 
 	async function deleteWorkspace() {
-		// if (!sourceWorkspace || comparison?.summary.total_diffs !== 0) return
-		//
-		// if (
-		// 	confirm(
-		// 		`Are you sure you want to delete the forked workspace "${sourceWorkspace}"? This action cannot be undone.`
-		// 	)
-		// ) {
-		// 	try {
-		// 		await WorkspaceService.deleteWorkspace({ workspace: sourceWorkspace })
-		// 		sendUserToast('Forked workspace deleted successfully', false)
-		// 		// Redirect to parent workspace
-		// 		window.location.href = `/w/${targetWorkspace}`
-		// 	} catch (error) {
-		// 		console.error('Failed to delete workspace:', error)
-		// 		sendUserToast('Failed to delete workspace', true)
-		// 	}
-		// }
 	}
 </script>
 
@@ -853,7 +844,7 @@
 				</span>
 			</Alert>
 		{/if}
-		{#if hasBehindChangesInSelection}
+		{#if hasBehindChanges && hasAheadChanges}
 			<Alert
 				title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
 				type="warning"
@@ -872,6 +863,19 @@
 						? 's'
 						: ''}
 				</span>
+			</Alert>
+		{/if}
+		{#if !comparison.all_ahead_items_visible || !comparison.all_behind_items_visible}
+			<Alert title="This fork has changes not visible to your user" type="warning" class="my-2">
+				{#if !comparison.all_ahead_items_visible && !comparison.all_behind_items_visible}
+					This fork is ahead and behind its parent
+				{:else if !comparison.all_behind_items_visible}
+					This fork is behind of its parent
+				{:else if !comparison.all_ahead_items_visible}
+					This fork is ahead of its parent
+				{/if}
+				and some of the changes are not visible by you. Only a user with access to the whole context
+				may deploy or update this fork. You can share the link to this page to someone with proper permissions to get it deployed.
 			</Alert>
 		{/if}
 
@@ -936,34 +940,34 @@
 							{/snippet}
 							{#snippet actions()}
 								<!-- Status badges -->
-										{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-											<Badge
-												title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
-												color="indigo"
-												size="xs">New</Badge
-											>
-										{/if}
-										{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-											<Badge
-												title="This item was deleted in '{currentWorkspaceId}'"
-												color="red"
-												size="xs">Deleted</Badge
-											>
-										{/if}
-										{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-											<Badge
-												title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-												color="red"
-												size="xs">Deleted</Badge
-											>
-										{/if}
-										{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-											<Badge
-												title="This item was newly created in '{currentWorkspaceId}'"
-												color="indigo"
-												size="xs">New</Badge
-											>
-										{/if}
+								{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+									<Badge
+										title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+										color="indigo"
+										size="xs">New</Badge
+									>
+								{/if}
+								{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+									<Badge
+										title="This item was deleted in '{currentWorkspaceId}'"
+										color="red"
+										size="xs">Deleted</Badge
+									>
+								{/if}
+								{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+									<Badge
+										title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+										color="red"
+										size="xs">Deleted</Badge
+									>
+								{/if}
+								{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+									<Badge
+										title="This item was newly created in '{currentWorkspaceId}'"
+										color="indigo"
+										size="xs">New</Badge
+									>
+								{/if}
 								{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
 									<div class="flex items-center gap-2">
 										{#if isConflict || existsInBothWorkspaces}
@@ -986,7 +990,6 @@
 												</Badge>
 											{/if}
 										{/if}
-
 									</div>
 									<div class:invisible={!existsInBothWorkspaces}>
 										<Button
@@ -1016,35 +1019,35 @@
 					{/if}
 				{/each}
 			</div>
-			<!-- 	</div> -->
-			<!-- {/each} -->
 		</div>
 
 		<div class="p-4 bg-surface">
 			<div class="flex items-center justify-between">
 				<div>
-					{#if comparison.summary.total_diffs === 0}
-						<Button color="red" variant="accent-secondary" on:click={deleteWorkspace}>
-							Delete Fork Workspace
-						</Button>
-					{/if}
+					<!-- {#if comparison.summary.total_diffs === 0} -->
+					<!-- 	<Button color="red" variant="accent-secondary" on:click={deleteWorkspace}> -->
+					<!-- 		Delete Fork Workspace -->
+					<!-- 	</Button> -->
+					<!-- {/if} -->
 				</div>
 
 				<div class="flex flex-col items-end gap-2">
-					<Button
-						color="blue"
-						disabled={selectedItems.length === 0 ||
-							deploying ||
-							(hasBehindChangesInSelection && !allowBehindChangesOverride)}
-						loading={deploying}
-						on:click={deployChanges}
-					>
-						{mergeIntoParent ? 'Deploy' : 'Update'}
-						{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-						{#if selectedConflicts != 0}
-							({selectedConflicts} conflicts)
-						{/if}
-					</Button>
+					{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
+						<Button
+							color="blue"
+							disabled={selectedItems.length === 0 ||
+								deploying ||
+								(hasBehindChanges && !allowBehindChangesOverride)}
+							loading={deploying}
+							on:click={deployChanges}
+						>
+							{mergeIntoParent ? 'Deploy' : 'Update'}
+							{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+							{#if selectedConflicts != 0}
+								({selectedConflicts} conflicts)
+							{/if}
+						</Button>
+					{/if}
 
 					{#if deploymentErrorMessage != ''}
 						<Alert

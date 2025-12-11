@@ -20658,10 +20658,18 @@ components:
     WorkspaceComparison:
       type: object
       required:
+        - all_ahead_items_visible
+        - all_behind_items_visible
         - skipped_comparison
         - diffs
         - summary
       properties:
+        all_ahead_items_visible:
+          type: boolean
+          description: All items with changes ahead are visible by the user of the request.
+        all_behind_items_visible:
+          type: boolean
+          description: All items with changes behind are visible by the user of the request.
         skipped_comparison:
           type: boolean
           description: Whether the comparison was skipped. This happens with old forks that where not being kept track of
