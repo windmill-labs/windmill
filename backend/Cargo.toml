@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.590.0"
+version = "1.591.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.590.0"
+version = "1.591.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -255,7 +255,7 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
-reqwest = { version = "^0.12", features = ["json", "stream", "gzip", "multipart"] }
+reqwest = { version = "=0.12.24", features = ["json", "stream", "gzip", "multipart"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"

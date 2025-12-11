@@ -5,26 +5,19 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast, sortArray } from '$lib/utils'
 	import { ArrowLeft, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
-	import {
-		dbSupportsSchemas,
-		getLanguageByResourceType,
-		type TableMetadata
-	} from './apps/components/display/dbtable/utils'
+	import { dbSupportsSchemas, type TableMetadata } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
-		dbDeleteTableActionWithPreviewScript,
+		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
-		getDatabaseArg,
+		getDbType,
 		getDucklakeSchema
 	} from './dbOps'
-	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
-	import { runScriptAndPollResult } from './jobs/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack } from 'svelte'
 	import type { DbInput } from './dbTypes'
-	import { wrapDucklakeQuery } from './ducklake'
 	import {
 		getDbSchemas,
 		loadAllTablesMetaData,
@@ -163,7 +156,7 @@
 	>
 		{#if dbSchema && $workspaceStore && input}
 			{@const _input = input}
-			{@const dbType = input.type == 'database' ? input.resourceType : 'duckdb'}
+			{@const dbType = getDbType(_input)}
 			<Splitpanes horizontal>
 				<Pane class="relative">
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -197,26 +190,13 @@
 								input: _input,
 								workspace: $workspaceStore
 							})}
-						dbTableActionsFactory={[
-							dbDeleteTableActionWithPreviewScript({ input: _input, workspace: $workspaceStore })
-						]}
-						{refresh}
-						dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
-							dbType,
-							previewSql: (values) => makeCreateTableQuery(values, dbType, selectedSchemaKey),
-							async onConfirm(values) {
-								const dbArg = getDatabaseArg(input)
-								const language = getLanguageByResourceType(dbType)
-								let query = makeCreateTableQuery(values, dbType, selectedSchemaKey)
-								if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
-								await runScriptAndPollResult({
-									workspace: $workspaceStore,
-									requestBody: { args: dbArg, content: query, language }
-								})
-								refresh()
-							}
+						dbSchemaOps={dbSchemaOpsWithPreviewScripts({
+							input: _input,
+							workspace: $workspaceStore
 						})}
 						initialTableKey={input.specificTable}
+						{dbType}
+						{refresh}
 					/>
 				</Pane>
 				<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
@@ -232,8 +212,8 @@
 										? 'public'
 										: 'dbo' in dbSchema?.schema
 											? 'dbo'
-											: Object.keys(dbSchema?.schema)?.[0]
-								]
+											: Object.keys(dbSchema?.schema ?? {})?.[0]
+								] ?? {}
 							)
 						)?.[0]}
 					/>

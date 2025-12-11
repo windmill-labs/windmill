@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { ScriptService, type AiAgent, type FlowModule, type JavascriptTransform, type Job } from '$lib/gen'
+	import {
+		ScriptService,
+		type AiAgent,
+		type FlowModule,
+		type JavascriptTransform,
+		type Job
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 	import { getContext } from 'svelte'
@@ -107,7 +113,7 @@
 					value: {
 						modules: [
 							{
-								...mod,
+								id: mod.id,
 								value: {
 									type: 'aiagent',
 									tools: mod.value.type == 'aiagent' ? mod.value.tools : [],
