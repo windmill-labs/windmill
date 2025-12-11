@@ -12,7 +12,6 @@ export function getScriptPrompt(language: string): string {
   return [
     prompts.SCRIPT_BASE,
     langPrompt,
-    prompts.RESOURCE_TYPES,
     prompts.S3_OBJECTS,
     language === 'typescript' || language === 'bun' || language === 'deno'
       ? prompts.SDK_TYPESCRIPT
