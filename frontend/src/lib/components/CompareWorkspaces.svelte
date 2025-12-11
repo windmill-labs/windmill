@@ -84,6 +84,15 @@
 
 	let groupedDiffs = $derived(groupDiffsByKind(comparison?.diffs ?? []))
 
+	let itemsWithBehindChanges = $derived(
+		comparison?.diffs.filter((diff) => {
+			const status = deploymentStatus[getItemKey(diff)]?.status
+			return diff && diff.behind > 0 && diff.ahead == 0 && !(status && status == 'deployed')
+		}) ?? []
+	)
+
+	let hasBehindChangesInSelection = $derived(mergeIntoParent && itemsWithBehindChanges.length > 0)
+
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
@@ -291,7 +300,9 @@
 	let allSelected = $derived(selectedItems.length == selectableDiffs.length)
 
 	async function selectAll() {
-		selectedItems = selectableDiffs.map((d) => getItemKey(d))
+		selectedItems = selectableDiffs
+			.map((d) => getItemKey(d))
+			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
 
 	function deselectAll() {
@@ -302,6 +313,7 @@
 		selectedItems = selectableDiffs
 			.filter((d) => !(d.ahead > 0 && d.behind > 0))
 			.map((d) => getItemKey(d))
+			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
 
 	async function checkAlreadyExists(kind: Kind, path: string, workspace: string): Promise<boolean> {
@@ -614,14 +626,22 @@
 	let allowBehindChangesOverride = $state(false)
 
 	async function isComparisonUpToDate(): Promise<boolean> {
+		if (!comparison) {
+			return false
+		}
+
 		try {
 			const result = await WorkspaceService.compareWorkspaces({
 				workspace: parentWorkspaceId,
 				targetWorkspaceId: currentWorkspaceId
 			})
 
-			if (!deepEqual(comparison, result)) {
-				deploymentErrorMessage = 'New changes detected. Please reload the page and review these before deploying'
+			const nonDeployedChanges = comparison.diffs.filter(
+				(e) => !(deploymentStatus[getItemKey(e)]?.status == 'deployed')
+			)
+
+			if (!deepEqual(nonDeployedChanges, result.diffs)) {
+				deploymentErrorMessage = `New changes detected. Please reload the page and review the new changes before ${mergeIntoParent ? 'deploying' : 'updating'}`
 				return false
 			}
 		} catch (e) {
@@ -706,6 +726,12 @@
 			selectDefault()
 			hasAutoSelected = true
 		}
+	})
+
+	// Reset override when selection or direction changes
+	$effect(() => {
+		;[selectedItems, mergeIntoParent]
+		allowBehindChangesOverride = false
 	})
 
 	async function deleteWorkspace() {
@@ -813,7 +839,6 @@
 							</Badge>
 						{/if}
 					</div>
-					<!-- {/if} -->
 				</div>
 			</div>
 		</div>
@@ -825,6 +850,27 @@
 					{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's have' : ' has'} conflicting
 					changes, it was modified on the original workspace while changes were made on this fork. Make
 					sure to resolve these before merging.
+				</span>
+			</Alert>
+		{/if}
+		{#if hasBehindChangesInSelection}
+			<Alert
+				title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
+				type="warning"
+				class="my-2"
+			>
+				You have items behind '{parentWorkspaceId}'. You need to update and test your changes before
+				being able to deploy.
+				<span class="font-medium flex flex-row gap-1 text-red-500">
+					<input
+						type="checkbox"
+						bind:checked={allowBehindChangesOverride}
+						class="rounded max-w-4"
+					/>
+					Override: Deploy despite {itemsWithBehindChanges.length} outdated item{itemsWithBehindChanges.length !==
+					1
+						? 's'
+						: ''}
 				</span>
 			</Alert>
 		{/if}
@@ -861,109 +907,113 @@
 						(diff.exists_in_fork && !diff.exists_in_source) ||
 						(!diff.exists_in_fork && diff.exists_in_source)
 					)}
+					{@const isDeployedAndIrrelevant =
+						deploymentStatus[key]?.status == 'deployed' && !isSelectable}
 
-					<Row
-						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
-						alignWithSelectable={true}
-						disabled={!isSelectable}
-						selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
-						onSelect={() => toggleItem(diff)}
-						path={diff.kind != 'resource' && diff.kind != 'variable' ? diff.path : ''}
-						marked={undefined}
-						kind={diff.kind}
-						canFavorite={false}
-						workspaceId=""
-						starred={false}
-					>
-						{#snippet customSummary()}
-							{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
-								<span class="line-through text-secondary">{oldSummary || diff.path}</span>
-								{newSummary || diff.path}
-							{:else if !existsInBothWorkspaces}
-								{newSummary || oldSummary || diff.path}
-							{:else}
-								{newSummary || diff.path}
-							{/if}
-						{/snippet}
-						{#snippet actions()}
-							<!-- Status badges -->
-							{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-								<div class="flex items-center gap-2">
-									{#if isConflict || existsInBothWorkspaces}
-										{#if diff.ahead > 0}
-											<Badge color="green" size="xs">
-												<ArrowUpRight class="w-3 h-3 inline" />
-												{diff.ahead} ahead
-											</Badge>
-										{/if}
-										{#if diff.behind > 0}
-											<Badge color="blue" size="xs">
-												<ArrowDownRight class="w-3 h-3 inline" />
-												{diff.behind} behind
-											</Badge>
-										{/if}
-										{#if isConflict}
-											<Badge color="orange" size="xs">
-												<AlertTriangle class="w-3 h-3 inline" />
-												Conflict
-											</Badge>
-										{/if}
-									{/if}
-
-									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-										<Badge
-											title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
-											color="indigo"
-											size="xs">New</Badge
-										>
-									{/if}
-									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-										<Badge
-											title="This item was deleted in '{currentWorkspaceId}'"
-											color="red"
-											size="xs">Deleted</Badge
-										>
-									{/if}
-									{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-										<Badge
-											title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-											color="red"
-											size="xs">Deleted</Badge
-										>
-									{/if}
-									{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-										<Badge
-											title="This item was newly created in '{currentWorkspaceId}'"
-											color="indigo"
-											size="xs">New</Badge
-										>
-									{/if}
-								</div>
-								<div class:invisible={!existsInBothWorkspaces}>
-									<Button
-										size="xs"
-										variant="subtle"
-										onclick={() => showDiff(diff.kind as Kind, diff.path)}
-									>
-										<DiffIcon class="w-3 h-3" />
-										Show diff
-									</Button>
-								</div>
-							{/if}
-							{#if deploymentStatus[key]}
-								{#if deploymentStatus[key].status == 'loading'}
-									<Loader2 class="animate-spin" />
-								{:else if deploymentStatus[key].status == 'deployed'}
-									<Badge color="green">Deployed</Badge>
-								{:else if deploymentStatus[key].status == 'failed'}
-									<div class="inline-flex gap-1">
-										<Badge color="red">Failed</Badge>
-										<Tooltip>{deploymentStatus[key].error}</Tooltip></div
-									>
+					{#if !isDeployedAndIrrelevant}
+						<Row
+							isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
+							alignWithSelectable={true}
+							disabled={!isSelectable}
+							selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
+							onSelect={() => toggleItem(diff)}
+							path={diff.kind != 'resource' && diff.kind != 'variable' ? diff.path : ''}
+							marked={undefined}
+							kind={diff.kind}
+							canFavorite={false}
+							workspaceId=""
+							starred={false}
+						>
+							{#snippet customSummary()}
+								{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+									<span class="line-through text-secondary">{oldSummary || diff.path}</span>
+									{newSummary || diff.path}
+								{:else if !existsInBothWorkspaces}
+									{newSummary || oldSummary || diff.path}
+								{:else}
+									{newSummary || diff.path}
 								{/if}
-							{/if}
-						{/snippet}
-					</Row>
+							{/snippet}
+							{#snippet actions()}
+								<!-- Status badges -->
+										{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+											<Badge
+												title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+												color="indigo"
+												size="xs">New</Badge
+											>
+										{/if}
+										{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+											<Badge
+												title="This item was deleted in '{currentWorkspaceId}'"
+												color="red"
+												size="xs">Deleted</Badge
+											>
+										{/if}
+										{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+											<Badge
+												title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+												color="red"
+												size="xs">Deleted</Badge
+											>
+										{/if}
+										{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+											<Badge
+												title="This item was newly created in '{currentWorkspaceId}'"
+												color="indigo"
+												size="xs">New</Badge
+											>
+										{/if}
+								{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+									<div class="flex items-center gap-2">
+										{#if isConflict || existsInBothWorkspaces}
+											{#if diff.ahead > 0}
+												<Badge color="green" size="xs">
+													<ArrowUpRight class="w-3 h-3 inline" />
+													{diff.ahead} ahead
+												</Badge>
+											{/if}
+											{#if diff.behind > 0}
+												<Badge color="blue" size="xs">
+													<ArrowDownRight class="w-3 h-3 inline" />
+													{diff.behind} behind
+												</Badge>
+											{/if}
+											{#if isConflict}
+												<Badge color="orange" size="xs">
+													<AlertTriangle class="w-3 h-3 inline" />
+													Conflict
+												</Badge>
+											{/if}
+										{/if}
+
+									</div>
+									<div class:invisible={!existsInBothWorkspaces}>
+										<Button
+											size="xs"
+											variant="subtle"
+											onclick={() => showDiff(diff.kind as Kind, diff.path)}
+										>
+											<DiffIcon class="w-3 h-3" />
+											Show diff
+										</Button>
+									</div>
+								{/if}
+								{#if deploymentStatus[key]}
+									{#if deploymentStatus[key].status == 'loading'}
+										<Loader2 class="animate-spin" />
+									{:else if deploymentStatus[key].status == 'deployed'}
+										<Badge color="green">Deployed</Badge>
+									{:else if deploymentStatus[key].status == 'failed'}
+										<div class="inline-flex gap-1">
+											<Badge color="red">Failed</Badge>
+											<Tooltip>{deploymentStatus[key].error}</Tooltip></div
+										>
+									{/if}
+								{/if}
+							{/snippet}
+						</Row>
+					{/if}
 				{/each}
 			</div>
 			<!-- 	</div> -->
@@ -980,10 +1030,12 @@
 					{/if}
 				</div>
 
-				<div class="flex flex-col items-right gap-2">
+				<div class="flex flex-col items-end gap-2">
 					<Button
 						color="blue"
-						disabled={selectedItems.length === 0 || deploying}
+						disabled={selectedItems.length === 0 ||
+							deploying ||
+							(hasBehindChangesInSelection && !allowBehindChangesOverride)}
 						loading={deploying}
 						on:click={deployChanges}
 					>
@@ -994,17 +1046,19 @@
 						{/if}
 					</Button>
 
+					{#if deploymentErrorMessage != ''}
+						<Alert
+							title="Cannot {mergeIntoParent ? 'deploy these changes' : 'update these items'}"
+							type="error"
+							class="my-2 max-w-80"
+						>
+							<span>
+								{deploymentErrorMessage}
+							</span>
+						</Alert>
+					{/if}
 				</div>
 			</div>
-					{#if deploymentErrorMessage != ''}
-					<div class="max-w-80 mr-0">
-					<Alert title="Cannot deploy these changes" type="error" class="my-2">
-						<span>
-							{deploymentErrorMessage}
-						</span>
-					</Alert>
-					</div>
-					{/if}
 		</div>
 		<DiffDrawer bind:this={diffDrawer} {isFlow} />
 	{:else}
