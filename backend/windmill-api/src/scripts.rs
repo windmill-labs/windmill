@@ -43,8 +43,9 @@ use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDep
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    runnable_settings::{RunnableSettings, RunnableSettingsTrait},
     s3_helpers::upload_artifact_to_store,
-    scripts::hash_script,
+    scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
     worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
@@ -589,7 +590,7 @@ async fn create_script_internal<'c>(
                 .to_owned(),
         ));
     };
-    let clashing_script = sqlx::query_as::<_, Script>(
+    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
     )
     .bind(&ns.path)
@@ -790,6 +791,13 @@ async fn create_script_internal<'c>(
         }
     };
 
+    let runnable_settings_handle = RunnableSettings {
+        debouncing_settings: ns.debouncing_settings.set(&db).await?,
+        concurrency_settings: ns.concurrency_settings.set(&db).await?,
+    }
+    .insert_cached(&db)
+    .await?;
+
     // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
     tokio::time::timeout(
         core::time::Duration::from_secs(60),
@@ -803,8 +811,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)",
         &w_id,
         &hash.0,
         ns.path,
@@ -822,8 +830,8 @@ async fn create_script_internal<'c>(
         ns.tag,
         ns.draft_only,
         envs,
-        ns.concurrent_limit,
-        ns.concurrency_time_window_s,
+        ns.concurrency_settings.concurrent_limit,
+        ns.concurrency_settings.concurrency_time_window_s,
         ns.cache_ttl,
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
@@ -831,7 +839,7 @@ async fn create_script_internal<'c>(
         ns.restart_unless_cancelled,
         ns.delete_after_use,
         ns.timeout,
-        ns.concurrency_key,
+        ns.concurrency_settings.concurrency_key,
         ns.visible_to_runner_only,
         no_main_func.filter(|x| *x), // should be Some(true) or None
         codebase,
@@ -843,9 +851,10 @@ async fn create_script_internal<'c>(
         },
         validate_schema,
         ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
-        ns.debounce_key,
-        ns.debounce_delay_s,
+        ns.debouncing_settings.debounce_key,
+        ns.debouncing_settings.debounce_delay_s,
         ns.cache_ignore_s3_path,
+        runnable_settings_handle
     )
     .execute(&mut *tx)
     .await?;
@@ -1173,18 +1182,20 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+#[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred> {
+) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = if query.with_starred_info.unwrap_or(false) {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
             LEFT JOIN favorite
@@ -1202,7 +1213,7 @@ async fn get_script_by_path(
         .fetch_optional(&mut *tx)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(path)
@@ -1212,7 +1223,10 @@ async fn get_script_by_path(
     };
     tx.commit().await?;
 
-    let script = not_found_if_none(script_o, "Script", path)?;
+    let script = not_found_if_none(script_o, "Script", path)?
+        .prefetch_cached(&db)
+        .await?;
+
     Ok(Json(script))
 }
 
@@ -1686,9 +1700,9 @@ async fn get_script_by_hash_internal<'c>(
     workspace_id: &str,
     hash: &ScriptHash,
     with_starred_info_for_username: Option<&str>,
-) -> Result<ScriptWithStarred> {
+) -> Result<ScriptWithStarred<ScriptRunnableSettingsHandle>> {
     let script_o = if let Some(username) = with_starred_info_for_username {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
             LEFT JOIN favorite 
@@ -1704,7 +1718,7 @@ async fn get_script_by_hash_internal<'c>(
         .fetch_optional(&mut **db)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
         )
         .bind(hash)
@@ -1728,7 +1742,7 @@ async fn get_script_by_hash(
     Query(query): Query<WithStarredInfoQuery>,
     Query(query_auth): Query<GetScriptByHashQuery>,
     Extension(authed): Extension<ApiAuthed>,
-) -> JsonResult<ScriptWithStarred> {
+) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
     let mut tx = if query_auth.authed.is_some_and(|x| x) {
         user_db.begin(&authed).await?
     } else {
@@ -1752,7 +1766,7 @@ async fn get_script_by_hash(
 
     tx.commit().await?;
 
-    Ok(Json(r))
+    Ok(Json(r.prefetch_cached(&db).await?))
 }
 
 async fn raw_script_by_hash(
@@ -1887,12 +1901,13 @@ async fn archive_script_by_path(
 async fn archive_script_by_hash(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let script = sqlx::query_as::<_, Script>(
+    let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
@@ -1931,7 +1946,7 @@ async fn archive_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script))
+    Ok(Json(script.prefetch_cached(&db).await?))
 }
 
 async fn delete_script_by_hash(
@@ -1940,11 +1955,11 @@ async fn delete_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;
-    let script = sqlx::query_as::<_, Script>(
+    let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
          workspace_id = $2 RETURNING *",
     )
@@ -1980,7 +1995,7 @@ async fn delete_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script))
+    Ok(Json(script.prefetch_cached(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -2219,11 +2234,13 @@ async fn delete_scripts_bulk(
     Ok(Json(deleted_paths))
 }
 
+// TODO: Proper handling + reuse existing logic
 /// Validates that script debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
-        && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
+        && (ns.debouncing_settings.debounce_key.is_some()
+            || ns.debouncing_settings.debounce_delay_s.is_some())
     {
         tracing::warn!(
             "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"

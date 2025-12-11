@@ -43,10 +43,10 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
-    JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::ScriptHash;
+use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -69,10 +69,10 @@ use windmill_queue::{
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
-
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
@@ -4749,13 +4749,14 @@ pub async fn script_to_payload(
             timeout,
             on_behalf_of_email,
             created_by,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            runnable_settings:
+                ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
             ..
-        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
+        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
         } else {
@@ -4769,16 +4770,8 @@ pub async fn script_to_payload(
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
-                concurrency_settings: ConcurrencySettings {
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                },
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 cache_ignore_s3_path: module.cache_ignore_s3_path,
                 language,
