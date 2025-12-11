@@ -43,7 +43,9 @@ use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDep
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
-    runnable_settings::{RunnableSettings, RunnableSettingsTrait},
+    runnable_settings::{
+        min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
+    },
     s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
@@ -798,6 +800,24 @@ async fn create_script_internal<'c>(
     .insert_cached(&db)
     .await?;
 
+    let (
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
+        guarded_concurrency_key,
+        guarded_debounce_key,
+        guarded_debounce_delay_s,
+    ) = if min_version_supports_runnable_settings_v0().await {
+        Default::default()
+    } else {
+        (
+            ns.concurrency_settings.concurrent_limit.clone(),
+            ns.concurrency_settings.concurrency_time_window_s.clone(),
+            ns.concurrency_settings.concurrency_key.clone(),
+            ns.debouncing_settings.debounce_key.clone(),
+            ns.debouncing_settings.debounce_delay_s.clone(),
+        )
+    };
+
     // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
     tokio::time::timeout(
         core::time::Duration::from_secs(60),
@@ -830,8 +850,8 @@ async fn create_script_internal<'c>(
         ns.tag,
         ns.draft_only,
         envs,
-        ns.concurrency_settings.concurrent_limit,
-        ns.concurrency_settings.concurrency_time_window_s,
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
         ns.cache_ttl,
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
@@ -839,7 +859,7 @@ async fn create_script_internal<'c>(
         ns.restart_unless_cancelled,
         ns.delete_after_use,
         ns.timeout,
-        ns.concurrency_settings.concurrency_key,
+        guarded_concurrency_key,
         ns.visible_to_runner_only,
         no_main_func.filter(|x| *x), // should be Some(true) or None
         codebase,
@@ -851,8 +871,8 @@ async fn create_script_internal<'c>(
         },
         validate_schema,
         ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
-        ns.debouncing_settings.debounce_key,
-        ns.debouncing_settings.debounce_delay_s,
+        guarded_debounce_key,
+        guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
         runnable_settings_handle
     )
