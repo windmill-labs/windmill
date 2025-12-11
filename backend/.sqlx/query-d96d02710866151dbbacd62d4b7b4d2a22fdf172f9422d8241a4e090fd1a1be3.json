@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO runnable_settings (debouncing_settings, concurrency_settings)\n                VALUES ($1, $2)\n                ON CONFLICT (debouncing_settings, concurrency_settings)\n                DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d96d02710866151dbbacd62d4b7b4d2a22fdf172f9422d8241a4e090fd1a1be3"
+}
