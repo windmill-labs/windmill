@@ -86,11 +86,6 @@
 	}
 </script>
 
-{#if loading}
-	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
-		<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
-	</div>
-{/if}
 {#if isFork}
 	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
 		<div class="px-4 py-2">
