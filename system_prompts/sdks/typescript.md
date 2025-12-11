@@ -30,6 +30,8 @@ async getResumeUrls(approver?: string): Promise< - Get URLs needed for resuming 
 getResumeEndpoints(approver?: string): Promise< - @deprecated use getResumeUrls instead
 async getIdToken(audience: string, expiresIn?: number): Promise<string> - Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
 async usernameToEmail(username: string): Promise<string> - Get email from workspace username
+datatable(name: string = "main"): SqlTemplateFunction - @example
+ducklake(name: string = "main"): SqlTemplateFunction - @example
 setClient(token?: string, baseUrl?: string): void
 async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
 async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>

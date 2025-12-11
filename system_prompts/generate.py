@@ -25,7 +25,7 @@ import yaml
 SCRIPT_DIR = Path(__file__).parent
 ROOT_DIR = SCRIPT_DIR.parent
 
-TS_SDK_PATH = ROOT_DIR / "typescript-client" / "client.ts"
+TS_SDK_DIR = ROOT_DIR / "typescript-client"
 PY_SDK_PATH = ROOT_DIR / "python-client" / "wmill" / "wmill" / "client.py"
 OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 
@@ -301,7 +301,11 @@ def main():
     OUTPUT_GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 
     # Read SDK files
-    ts_content = TS_SDK_PATH.read_text() if TS_SDK_PATH.exists() else ''
+    ts_content = ''
+    if TS_SDK_DIR.exists():
+        for ts_file in TS_SDK_DIR.glob('*.ts'):
+            if not ts_file.name.endswith('.d.ts'):
+                ts_content += ts_file.read_text() + '\n'
     py_content = PY_SDK_PATH.read_text() if PY_SDK_PATH.exists() else ''
     openflow_raw = OPENFLOW_SCHEMA_PATH.read_text() if OPENFLOW_SCHEMA_PATH.exists() else ''
 
