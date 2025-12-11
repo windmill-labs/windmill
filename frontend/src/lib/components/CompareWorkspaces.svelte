@@ -780,7 +780,7 @@
 									icon={ArrowUp}
 									{item}
 								/>
-								<ToggleButton value="update" label="Update" icon={ArrowDown} {item} />
+								<ToggleButton value="update" label="Update current" icon={ArrowDown} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 						{#if currentWorkspaceInfo && parentWorkspaceInfo}

@@ -57,7 +57,7 @@
 <CenteredPage>
 
 <PageHeader
-	title="Compare and deploy workspace"
+	title="Merge workspaces"
 />
 	{#if currentWorkspaceId && parentWorkspaceId}
 		<!-- <WorkspaceComparisonDrawer -->
