@@ -70,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.590.0";
+export const VERSION = "1.591.2";
 
 export const WM_FORK_PREFIX = "wm-fork";
 

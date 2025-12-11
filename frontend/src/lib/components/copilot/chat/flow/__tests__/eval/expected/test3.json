@@ -1,0 +1,204 @@
+{
+    "summary": "Data Pipeline with Quality-Based Routing",
+    "value": {
+        "modules": [
+            {
+                "id": "fetch_data_sources",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main() {\n  return [\n    { id: 'source_1', url: 'https://api.example.com/data1' },\n    { id: 'source_2', url: 'https://api.example.com/data2' },\n    { id: 'source_3', url: 'https://api.example.com/data3' }\n  ];\n}",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "process_sources",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {
+                        "type": "javascript",
+                        "expr": "results.fetch_data_sources"
+                    },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [
+                        {
+                            "id": "fetch_raw_data",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(source: { id: string; url: string }) {\n  // Mock fetch returning sample records\n  return {\n    source_id: source.id,\n    records: [\n      { id: 1, value: 'data_a', valid: true },\n      { id: 2, value: '', valid: false },\n      { id: 3, value: 'data_c', valid: true },\n      { id: 4, value: 'data_d', valid: true }\n    ]\n  };\n}",
+                                "input_transforms": {
+                                    "source": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "id": "transform_data",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(raw_data: { source_id: string; records: any[] }) {\n  // Filter out invalid entries\n  const cleaned = raw_data.records.filter(r => r.valid && r.value);\n  return {\n    source_id: raw_data.source_id,\n    original_count: raw_data.records.length,\n    cleaned_count: cleaned.length,\n    records: cleaned\n  };\n}",
+                                "input_transforms": {
+                                    "raw_data": {
+                                        "type": "javascript",
+                                        "expr": "results.fetch_raw_data"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "id": "validate_data",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(transformed: { source_id: string; original_count: number; cleaned_count: number; records: any[] }) {\n  // Calculate validation score based on data quality\n  const score = Math.round((transformed.cleaned_count / transformed.original_count) * 100);\n  return {\n    source_id: transformed.source_id,\n    records: transformed.records,\n    validation_score: score,\n    record_count: transformed.cleaned_count\n  };\n}",
+                                "input_transforms": {
+                                    "transformed": {
+                                        "type": "javascript",
+                                        "expr": "results.transform_data"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "aggregate_data",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(processed_sources: any[]) {\n  const all_records = processed_sources.flatMap(s => s.records);\n  const total_count = all_records.length;\n  return {\n    combined_records: all_records,\n    total_record_count: total_count,\n    sources_processed: processed_sources.length\n  };\n}",
+                    "input_transforms": {
+                        "processed_sources": {
+                            "type": "javascript",
+                            "expr": "results.process_sources"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "calculate_quality_score",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(processed_sources: any[]) {\n  const scores = processed_sources.map(s => s.validation_score);\n  const average = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);\n  return { quality_score: average, individual_scores: scores };\n}",
+                    "input_transforms": {
+                        "processed_sources": {
+                            "type": "javascript",
+                            "expr": "results.process_sources"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "route_by_quality",
+                "value": {
+                    "type": "branchone",
+                    "branches": [
+                        {
+                            "summary": "High quality - store in primary database",
+                            "expr": "results.calculate_quality_score.quality_score >= 90",
+                            "modules": [
+                                {
+                                    "id": "store_primary",
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "bun",
+                                        "content": "export async function main(data: any, score: number) {\n  return {\n    destination: 'primary_database',\n    status: 'success',\n    records_stored: data.total_record_count,\n    quality_score: score\n  };\n}",
+                                        "input_transforms": {
+                                            "data": {
+                                                "type": "javascript",
+                                                "expr": "results.aggregate_data"
+                                            },
+                                            "score": {
+                                                "type": "javascript",
+                                                "expr": "results.calculate_quality_score.quality_score"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "summary": "Medium quality - store in secondary with warning",
+                            "expr": "results.calculate_quality_score.quality_score >= 70",
+                            "modules": [
+                                {
+                                    "id": "store_secondary",
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "bun",
+                                        "content": "export async function main(data: any, score: number) {\n  return {\n    destination: 'secondary_database',\n    status: 'warning',\n    warning_message: 'Data quality below optimal threshold',\n    records_stored: data.total_record_count,\n    quality_score: score\n  };\n}",
+                                        "input_transforms": {
+                                            "data": {
+                                                "type": "javascript",
+                                                "expr": "results.aggregate_data"
+                                            },
+                                            "score": {
+                                                "type": "javascript",
+                                                "expr": "results.calculate_quality_score.quality_score"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "default": [
+                        {
+                            "id": "store_quarantine",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(data: any, score: number) {\n  return {\n    destination: 'quarantine',\n    status: 'alert',\n    alert_message: 'Data quality critically low - requires review',\n    records_quarantined: data.total_record_count,\n    quality_score: score\n  };\n}",
+                                "input_transforms": {
+                                    "data": {
+                                        "type": "javascript",
+                                        "expr": "results.aggregate_data"
+                                    },
+                                    "score": {
+                                        "type": "javascript",
+                                        "expr": "results.calculate_quality_score.quality_score"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "generate_report",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(aggregated: any, quality: any, storage_result: any) {\n  return {\n    report: {\n      total_records: aggregated.total_record_count,\n      sources_processed: aggregated.sources_processed,\n      quality_score: quality.quality_score,\n      individual_scores: quality.individual_scores,\n      destination: storage_result.destination,\n      status: storage_result.status,\n      processed_at: new Date().toISOString()\n    }\n  };\n}",
+                    "input_transforms": {
+                        "aggregated": {
+                            "type": "javascript",
+                            "expr": "results.aggregate_data"
+                        },
+                        "quality": {
+                            "type": "javascript",
+                            "expr": "results.calculate_quality_score"
+                        },
+                        "storage_result": {
+                            "type": "javascript",
+                            "expr": "results.route_by_quality"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+}

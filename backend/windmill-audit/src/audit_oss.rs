@@ -1,4 +1,4 @@
-pub use windmill_common::{
+use windmill_common::{
     audit::AuditAuthor,
     db::{Authable, DbWithOptAuthed},
 };

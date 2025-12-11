@@ -2,6 +2,8 @@ use sqlx::{Acquire, PgConnection, PgExecutor, Pool, Postgres, Transaction};
 
 use crate::audit::AuditAuthor;
 
+use crate::audit::AuditAuthor;
+
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]

@@ -235,13 +235,15 @@ async function getDocumentation(args: { request: string }): Promise<string> {
 			'Content-Type': 'application/json'
 		},
 		body: JSON.stringify({
-			model: 'inkeep-rag',
-			messages: [{ role: 'user', content: args.request }],
-			response_format: {
-				type: 'json_object'
-			}
+			query: args.request
 		})
 	})
+
+	if (!retrieval.ok) {
+		const errorText = await retrieval.text()
+		throw new Error(errorText)
+	}
+
 	const data = await retrieval.json()
 	if (!data.choices?.[0]?.message?.content) {
 		return 'No documentation found for this request'
@@ -291,11 +293,11 @@ const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
-			content: 'Scanning the page...',
+			content: 'Scanning the page...'
 		})
 		const components = getTriggerableComponents()
 		toolCallbacks.setToolStatus(toolId, {
-			content: 'Scanned the page',
+			content: 'Scanned the page'
 		})
 		return components
 	}
@@ -319,9 +321,14 @@ export const getDocumentationTool: Tool<{}> = {
 			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved documentation' })
 			return docResult
 		} catch (error) {
-			toolCallbacks.setToolStatus(toolId, { content: 'Error getting documentation', error: 'Error getting documentation' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Error getting documentation',
+				error: 'Error getting documentation'
+			})
 			console.error('Error getting documentation:', error)
-			return 'Failed to get documentation, pursuing with the user request...'
+			const errorMessage =
+				error instanceof Error ? error.message : 'An error occurred while getting documentation'
+			return `Failed to get documentation: ${errorMessage}, pursuing with the user request...`
 		}
 	}
 }
@@ -335,7 +342,10 @@ const getAvailableResourcesTool: Tool<{}> = {
 			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved available resources' })
 			return resources
 		} catch (error) {
-			toolCallbacks.setToolStatus(toolId, { content: 'Error getting available resources', error: 'Error getting available resources' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Error getting available resources',
+				error: 'Error getting available resources'
+			})
 			console.error('Error getting available resources:', error)
 			return 'Failed to get available resources, pursuing with the user request...'
 		}
@@ -350,7 +360,9 @@ export const navigatorTools: Tool<{}>[] = [
 	getAvailableResourcesTool
 ]
 
-export function prepareNavigatorSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
+export function prepareNavigatorSystemMessage(
+	customPrompt?: string
+): ChatCompletionSystemMessageParam {
 	let content = CHAT_SYSTEM_PROMPT
 
 	// If there's a custom prompt, append it to the system prompt
