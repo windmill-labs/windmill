@@ -22,6 +22,7 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
+		initialTableKey?: string
 	}
 	let {
 		dbType,
@@ -30,7 +31,8 @@
 		dbSchemaOps,
 		getColDefs,
 		dbSupportsSchemas,
-		refresh
+		refresh,
+		initialTableKey
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
@@ -42,10 +44,13 @@
 
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
-			selected = {
-				schemaKey:
-					'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
-			}
+			let schemaKey =
+				'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
+			let tableKey =
+				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
+					? initialTableKey
+					: undefined
+			selected = { schemaKey, tableKey }
 		}
 	})
 
@@ -122,7 +127,7 @@
 										onConfirm: async () => {
 											askingForConfirmation && (askingForConfirmation.loading = true)
 											try {
-												await dbSchemaOps.onDelete({ tableKey })
+												await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
 												refresh?.()
 												sendUserToast(`Table '${tableKey}' deleted successfully`)
 											} catch (e) {

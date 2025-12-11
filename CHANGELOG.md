@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.591.2](https://github.com/windmill-labs/windmill/compare/v1.591.1...v1.591.2) (2025-12-11)
+
+
+### Bug Fixes
+
+* **backend:** pin reqwest to 0.12.24 for better handling of redirects ([#7336](https://github.com/windmill-labs/windmill/issues/7336)) ([99bf866](https://github.com/windmill-labs/windmill/commit/99bf866f90d96f706a517b7626df999bce9e36ac))
+
 ## [1.591.1](https://github.com/windmill-labs/windmill/compare/v1.591.0...v1.591.1) (2025-12-10)
 
 
