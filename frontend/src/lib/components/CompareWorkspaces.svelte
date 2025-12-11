@@ -7,22 +7,18 @@
 		ArrowUp,
 		ArrowUpRight,
 		Building,
-		Database,
 		DiffIcon,
-		FileCode,
-		FileText,
 		GitFork,
-		Key,
-		Layout,
-		Loader2,
-		Workflow
+		Loader2
 	} from 'lucide-svelte'
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
 		FlowService,
 		FolderService,
+		RawAppService,
 		ResourceService,
+		ScheduleService,
 		ScriptService,
 		VariableService,
 		WorkspaceService,
@@ -34,20 +30,12 @@
 	import { getAllModules } from './flows/flowExplorer'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
-	import {
-		existsTrigger,
-		getTriggerDependency,
-		getTriggersDeployData,
-		getTriggerValue,
-		type AdditionalInformation,
-		type Kind
-	} from '$lib/utils_deployable'
+	import type { Kind } from '$lib/utils_deployable'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Row from './common/table/Row.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
-	import { sleep } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 
 	interface Props {
@@ -61,7 +49,6 @@
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
-	let activeTab = $state<'all' | 'scripts' | 'flows' | 'apps' | 'resources' | 'variables'>('all')
 	let mergeIntoParent = $state(true)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
@@ -81,8 +68,6 @@
 	let conflictingDiffs = $derived(
 		comparison?.diffs.filter((diff) => diff.ahead > 0 && diff.behind > 0) ?? []
 	)
-
-	let groupedDiffs = $derived(groupDiffsByKind(comparison?.diffs ?? []))
 
 	let itemsWithBehindChanges = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -107,23 +92,6 @@
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
-	}
-
-	function getItemIcon(kind: string) {
-		switch (kind) {
-			case 'script':
-				return FileCode
-			case 'flow':
-				return Workflow
-			case 'app':
-				return Layout
-			case 'resource':
-				return Database
-			case 'variable':
-				return Key
-			default:
-				return FileText
-		}
 	}
 
 	async function fetchSummary(
@@ -172,27 +140,6 @@
 				parent: parentSummary,
 				loading: false
 			}
-		}
-	}
-
-	function getSummaryDisplay(key: string): { summary: string; isDifferent: boolean } {
-		const cached = summaryCache[key]
-
-		if (!cached || cached.loading) {
-			return { summary: '', isDifferent: false }
-		}
-
-		const currentSummary = cached.current || ''
-		const parentSummary = cached.parent || ''
-
-		const isDifferent =
-			currentSummary !== parentSummary && (currentSummary.length > 0 || parentSummary.length > 0)
-
-		// Return the summary from the current workspace by default
-		// The visual indicator will show if they're different
-		return {
-			summary: currentSummary || parentSummary || '',
-			isDifferent
 		}
 	}
 
@@ -371,33 +318,33 @@
 				workspace: workspace,
 				name: path
 			})
-		} else if (kind === 'trigger') {
-			const triggersKind: TriggerKind[] = [
-				'kafka',
-				'mqtt',
-				'nats',
-				'postgres',
-				'routes',
-				'schedules',
-				'sqs',
-				'websockets',
-				'gcp'
-			]
-			if (
-				additionalInformation?.triggers &&
-				triggersKind.includes(additionalInformation.triggers.kind)
-			) {
-				exists = await existsTrigger(
-					{ workspace: workspace, path },
-					additionalInformation.triggers.kind
-				)
-			} else {
-				throw new Error(
-					`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
-						additionalInformation?.triggers?.kind
-					}`
-				)
-			}
+		// } else if (kind === 'trigger') {
+		// 	const triggersKind: TriggerKind[] = [
+		// 		'kafka',
+		// 		'mqtt',
+		// 		'nats',
+		// 		'postgres',
+		// 		'routes',
+		// 		'schedules',
+		// 		'sqs',
+		// 		'websockets',
+		// 		'gcp'
+		// 	]
+		// 	if (
+		// 		additionalInformation?.triggers &&
+		// 		triggersKind.includes(additionalInformation.triggers.kind)
+		// 	) {
+		// 		exists = await existsTrigger(
+		// 			{ workspace: workspace, path },
+		// 			additionalInformation.triggers.kind
+		// 		)
+		// 	} else {
+		// 		throw new Error(
+		// 			`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+		// 				additionalInformation?.triggers?.kind
+		// 			}`
+		// 		)
+		// 	}
 		} else {
 			throw new Error(`Unknown kind ${kind}`)
 		}
@@ -687,17 +634,6 @@
 		deselectAll()
 	}
 
-	function groupDiffsByKind(diffs: WorkspaceItemDiff[]) {
-		const grouped: Record<string, WorkspaceItemDiff[]> = {}
-		for (const diff of diffs) {
-			if (!grouped[diff.kind]) {
-				grouped[diff.kind] = []
-			}
-			grouped[diff.kind].push(diff)
-		}
-		return grouped
-	}
-
 	function toggleItem(diff: WorkspaceItemDiff) {
 		const key = getItemKey(diff)
 		if (selectedItems.includes(key)) {
@@ -741,9 +677,6 @@
 		;[selectedItems, mergeIntoParent]
 		allowBehindChangesOverride = false
 	})
-
-	async function deleteWorkspace() {
-	}
 </script>
 
 <div class="flex flex-col h-full">

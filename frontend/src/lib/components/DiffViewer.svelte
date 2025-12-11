@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Button } from './common'
-	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import Modal from './common/modal/Modal.svelte'
 	import { diffLines } from 'diff'
-	import { FileText, X } from 'lucide-svelte'
+	import { FileText } from 'lucide-svelte'
 	import type { WorkspaceItemDiff } from '$lib/gen'
 
 	export let open = false
@@ -34,7 +34,7 @@
 	}
 </script>
 
-<CenteredModal bind:open title="Diff Viewer">
+<Modal bind:open title="Diff Viewer">
 	<div class="flex flex-col h-full max-h-[80vh]">
 		{#if item}
 			<div class="flex items-center gap-2 px-4 py-2 border-b">
@@ -75,9 +75,9 @@
 		{/if}
 		
 		<div class="p-4 border-t flex justify-end">
-			<Button variant="secondary" on:click={() => open = false}>
+			<Button variant="default" on:click={() => open = false}>
 				Close
 			</Button>
 		</div>
 	</div>
-</CenteredModal>
+</Modal>

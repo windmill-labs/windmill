@@ -1,10 +1,8 @@
 <script lang="ts">
-	import WorkspaceComparisonDrawer from "$lib/components/WorkspaceComparisonDrawer.svelte"
 	import CompareWorkspaces from "$lib/components/CompareWorkspaces.svelte"
 	import { WorkspaceService, type WorkspaceComparison } from "$lib/gen"
 	import { page } from '$app/state'
-	import { sendUserToast } from "$lib/toast"
-	import { workspaceStore, userWorkspaces } from "$lib/stores"
+	import { userWorkspaces } from "$lib/stores"
 	import { untrack } from "svelte"
 	import CenteredPage from "$lib/components/CenteredPage.svelte"
 	import PageHeader from "$lib/components/PageHeader.svelte"

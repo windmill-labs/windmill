@@ -3,10 +3,9 @@
 	import { WorkspaceService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { Button } from './common'
-	import { GitBranch, AlertTriangle, GitFork } from 'lucide-svelte'
+	import { AlertTriangle, GitFork } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
-	import { switchWorkspace } from '$lib/storeUtils'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
@@ -62,7 +61,7 @@
 	}
 
 	function openComparisonDrawer() {
-		if (parentWorkspaceId) {
+		if (parentWorkspaceId && $workspaceStore) {
 			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
 				replaceState: true
 			})

@@ -108,7 +108,7 @@
 		</div>
 	{/if}
 
-	{#if canFavorite}
+	{#if canFavorite && kind !== 'resource' && kind !== 'variable'}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
 			<Star
 				{kind}
