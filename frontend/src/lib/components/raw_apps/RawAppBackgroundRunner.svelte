@@ -5,6 +5,7 @@
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
+	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
@@ -60,15 +61,17 @@
 					runnable_id,
 					{
 						component: runnable_id,
-						args: data.v,
+						args: data.v ?? {},
 						force_viewer_allow_user_resources: editor
-							? Object.keys(runnable?.fields ?? {}).filter(
-									(k) =>
-										runnable?.fields?.[k]?.type == 'user' &&
-										runnable?.fields?.[k]?.allowUserResources
+							? undefinedIfEmpty(
+									Object.keys(runnable?.fields ?? {}).filter(
+										(k) =>
+											runnable?.fields?.[k]?.type == 'user' &&
+											runnable?.fields?.[k]?.allowUserResources
+									)
 								)
 							: undefined,
-						force_viewer_one_of_fields: editor ? {} : undefined,
+						force_viewer_one_of_fields: undefined,
 						force_viewer_static_fields: editor
 							? Object.fromEntries(
 									Object.entries(runnable?.fields ?? {})

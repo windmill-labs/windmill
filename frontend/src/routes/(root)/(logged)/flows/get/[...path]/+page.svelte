@@ -75,6 +75,7 @@
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 
 	let intervalId: number | undefined = undefined
 
@@ -166,8 +167,11 @@
 			})
 			if (status.lock_error_logs == undefined || status.lock_error_logs != '') {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				flow.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -466,9 +470,7 @@
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
-					if (flow?.ws_error_handler_muted) {
-						flow.ws_error_handler_muted = v
-					}
+					if (flow !== undefined) flow.ws_error_handler_muted = v
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
@@ -541,6 +543,13 @@
 						<HeaderBadge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</HeaderBadge>
 					{/if}
 					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
@@ -660,6 +669,9 @@
 			on:selected_args={(e) => {
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+				}
 			}}
 		/>
 	{/snippet}

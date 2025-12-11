@@ -12,16 +12,25 @@
 	export let css: any = {}
 	export let target: string = ''
 	export let isOpen = false
-	export let fixedSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
+	export let fixedWidth: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
+	export let fixedHeight: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
+	export let contentClasses: string = ''
 
-	// Add size mapping with custom pixel values
-	const sizeStyles = {
-		xs: { width: '400px', height: '250px' },
-		sm: { width: '600px', height: '400px' },
-		md: { width: '800px', height: '500px' },
-		lg: { width: '1400px', height: '720px' },
-		xl: { width: '1600px', height: '800px' },
-		xxl: { width: '1600px', height: '1000px' }
+	const widthMap = {
+		xs: '400px',
+		sm: '600px',
+		md: '800px',
+		lg: '1400px',
+		xl: '1600px',
+		xxl: '1600px'
+	}
+	const heightMap = {
+		xs: '250px',
+		sm: '400px',
+		md: '500px',
+		lg: '720px',
+		xl: '800px',
+		xxl: '1000px'
 	}
 
 	export function close() {
@@ -50,16 +59,16 @@
 {#if isOpen}
 	<Portal name="always-mounted" {target}>
 		<div
-			class={'fixed top-0 bottom-0 left-0 right-0 transition-all overflow-auto z-[1100] bg-black bg-opacity-60 w-full h-full'}
+			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1110] overflow-auto bg-black bg-opacity-60 w-full h-full'}
 			transition:fadeFast|local
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
 				<div
-					style={`width: ${sizeStyles[fixedSize].width}; height: ${sizeStyles[fixedSize].height}; ${
+					style={`width: ${widthMap[fixedWidth]}; height: ${heightMap[fixedHeight]}; ${
 						css?.popup?.style || ''
 					}`}
 					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface pt-2 px-4 pb-4',
+						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface p-4',
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
@@ -83,7 +92,7 @@
 												<div class="w-8">
 													<button
 														on:click={() => {
-															isOpen = false
+															close()
 														}}
 														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
 													>
@@ -99,7 +108,10 @@
 
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div class="w-full flex grow min-h-0" on:click|stopPropagation={() => {}}>
+						<div
+							class="w-full flex grow min-h-0 {contentClasses}"
+							on:click|stopPropagation={() => {}}
+						>
 							<slot />
 						</div>
 					</List>

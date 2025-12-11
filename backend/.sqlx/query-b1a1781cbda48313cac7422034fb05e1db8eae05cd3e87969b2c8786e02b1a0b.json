@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b1a1781cbda48313cac7422034fb05e1db8eae05cd3e87969b2c8786e02b1a0b"
+}

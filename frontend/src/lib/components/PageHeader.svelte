@@ -5,6 +5,7 @@
 	export let tooltip: string = ''
 	export let documentationLink: string | undefined = undefined
 	export let primary: boolean = true
+	export let childrenWrapperDivClasses: string = ''
 </script>
 
 <div class="flex flex-row flex-wrap justify-between pb-2 my-4 mr-2">
@@ -31,7 +32,7 @@
 	{/if}
 
 	{#if $$slots.default}
-		<div class="my-2">
+		<div class="my-2 {childrenWrapperDivClasses}">
 			<slot />
 		</div>
 	{/if}

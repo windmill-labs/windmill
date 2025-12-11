@@ -10,10 +10,11 @@
 		type ErrorHandler,
 		type EmailTrigger,
 		type NewEmailTrigger,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -25,6 +26,9 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
 	let {
 		useDrawer = true,
@@ -65,18 +69,28 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let enabled = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	// Component references
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<NewEmailTrigger | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
-		drawerLoading || !can_write || pathError != '' || !isValid || emptyString(script_path)
+		drawerLoading ||
+			!can_write ||
+			pathError != '' ||
+			!isValid ||
+			emptyString(script_path) ||
+			!hasChanged
 	)
 
 	$effect(() => {
@@ -101,6 +115,7 @@
 			dirtyPath = false
 			dirtyLocalPart = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
 		} finally {
@@ -142,7 +157,8 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-			enabled = defaultValues?.enabled ?? false
+			mode = defaultValues?.mode ?? 'enabled'
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -163,7 +179,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
-		enabled = cfg?.enabled ?? false
+		mode = cfg?.mode ?? 'enabled'
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -197,7 +213,12 @@
 			)
 			if (isSaved) {
 				onUpdate(saveCfg.path)
-				drawer?.closeDrawer()
+				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+				initialPath = saveCfg.path
+				initialScriptPath = saveCfg.script_path
+				if (mode !== 'suspended') {
+					drawer?.closeDrawer()
+				}
 			}
 			deploymentLoading = false
 		}
@@ -214,21 +235,26 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			enabled
+			mode
 		}
 
 		return nCfg
 	}
 
-	async function handleToggleEnabled(newEnabled: boolean) {
-		enabled = newEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await EmailTriggerService.setEmailTriggerEnabled({
+			await EmailTriggerService.setEmailTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: newEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} email trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)
+
+			onUpdate(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -254,6 +280,23 @@
 	})
 </script>
 
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="email"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
+
 {#snippet config()}
 	{#if drawerLoading}
 		{#if showLoader}
@@ -261,6 +304,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-12">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
@@ -354,15 +400,16 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			{enabled}
 			{allowDraft}
-			onToggleEnabled={handleToggleEnabled}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}
 			{onReset}
 			{onDelete}
 			{isDeployed}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}

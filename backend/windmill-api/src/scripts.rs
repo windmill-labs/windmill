@@ -94,6 +94,8 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
@@ -801,8 +803,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)",
         &w_id,
         &hash.0,
         ns.path,
@@ -843,6 +845,7 @@ async fn create_script_internal<'c>(
         ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
         ns.debounce_key,
         ns.debounce_delay_s,
+        ns.cache_ignore_s3_path,
     )
     .execute(&mut *tx)
     .await?;
@@ -998,14 +1001,14 @@ async fn create_script_internal<'c>(
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
-        let (_, new_tx) = windmill_queue::push(
+        let (job_id, mut new_tx) = windmill_queue::push(
             &db,
             tx,
             &w_id,
             JobPayload::Dependencies {
                 hash,
                 language: ns.language,
-                path: ns.path,
+                path: ns.path.clone(),
                 dedicated_worker: ns.dedicated_worker,
             },
             windmill_queue::PushArgs::from(&args),
@@ -1032,8 +1035,24 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
+
+        // Store the job_id in deployment_metadata for this script deployment
+        sqlx::query!(
+            "INSERT INTO deployment_metadata (workspace_id, path, script_hash, job_id)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
+             DO UPDATE SET job_id = EXCLUDED.job_id",
+            w_id,
+            ns.path,
+            hash.0,
+            job_id
+        )
+        .execute(&mut *new_tx)
+        .await?;
+
         Ok((hash, new_tx, None))
     } else {
         if codebase.is_none() {
@@ -1223,7 +1242,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -1750,19 +1769,22 @@ async fn raw_script_by_hash(
     Ok(r.script.content)
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock: Option<String>,
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT s.lock, s.lock_error_logs, dm.job_id
+         FROM script s
+         LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id
+         WHERE s.hash = $1 AND s.workspace_id = $2",
         hash.0,
         w_id,
     )
@@ -1771,8 +1793,14 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
 
+    let deployment_status = DeploymentStatus {
+        lock: status.lock,
+        lock_error_logs: status.lock_error_logs,
+        job_id: status.job_id,
+    };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {

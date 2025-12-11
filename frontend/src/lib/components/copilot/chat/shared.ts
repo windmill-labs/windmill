@@ -3,16 +3,26 @@ import type {
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
+
+/**
+ * Special module IDs used throughout the flow system
+ */
+export const SPECIAL_MODULE_IDS = {
+	/** The flow input schema node */
+	INPUT: 'Input',
+	/** The preprocessor module that runs before the flow */
+	PREPROCESSOR: 'preprocessor',
+	/** The failure handler module */
+	FAILURE: 'failure'
+} as const
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
-import YAML from 'yaml'
 import { getCurrentModel } from '$lib/aiStore'
 
 // Prettify function for code arguments - extracts and formats code from JSON
@@ -46,9 +56,91 @@ function prettifyCodeArguments(content: string): string {
 	return codeContent
 }
 
+// Prettify function for set_module_code - extracts code from moduleId/code JSON
+function prettifySetModuleCode(content: string): string {
+	let codeContent = content
+
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (parsed.code) {
+				codeContent = parsed.code
+			}
+		} catch {
+			// If JSON is incomplete during streaming, try to extract code property manually
+			const codeMatch = content.match(/"code"\s*:\s*"([\s\S]*?)(?:"\s*}?\s*$|$)/)
+			if (codeMatch) {
+				codeContent = codeMatch[1]
+			}
+		}
+	}
+
+	// Convert escape sequences
+	codeContent = codeContent.replace(/\\n/g, '\n')
+	codeContent = codeContent.replace(/\\t/g, '\t')
+	codeContent = codeContent.replace(/\\"/g, '"')
+	codeContent = codeContent.replace(/\\\\/g, '\\')
+
+	return codeContent
+}
+
+// Prettify function for module value JSON - extracts the 'value' property and formats it
+function prettifyModuleValue(content: string): string {
+	try {
+		const parsed = JSON.parse(content)
+		// Extract just the 'value' property (the actual module definition)
+		if (parsed.value) {
+			return JSON.stringify(parsed.value, null, 2)
+		}
+		return JSON.stringify(parsed, null, 2)
+	} catch {
+		// If JSON is incomplete during streaming, try to extract the value property manually
+		const valueMatch = content.match(/"value"\s*:\s*(\{[\s\S]*)$/)
+		if (valueMatch) {
+			let valueContent = valueMatch[1]
+			// Try to parse and format the extracted value
+			try {
+				// Find the matching closing brace for the value object
+				let braceCount = 0
+				let endIndex = 0
+				for (let i = 0; i < valueContent.length; i++) {
+					if (valueContent[i] === '{') braceCount++
+					else if (valueContent[i] === '}') braceCount--
+					if (braceCount === 0) {
+						endIndex = i + 1
+						break
+					}
+				}
+				if (endIndex > 0) {
+					const valueJson = valueContent.substring(0, endIndex)
+					const parsed = JSON.parse(valueJson)
+					return JSON.stringify(parsed, null, 2)
+				}
+			} catch {
+				// If parsing fails, just unescape and return the extracted value content
+				valueContent = valueContent.replace(/\\n/g, '\n')
+				valueContent = valueContent.replace(/\\t/g, '\t')
+				valueContent = valueContent.replace(/\\"/g, '"')
+				valueContent = valueContent.replace(/\\\\/g, '\\')
+				return valueContent
+			}
+		}
+		// Fallback: just unescape and return
+		let result = content
+		result = result.replace(/\\n/g, '\n')
+		result = result.replace(/\\t/g, '\t')
+		result = result.replace(/\\"/g, '"')
+		result = result.replace(/\\\\/g, '\\')
+		return result
+	}
+}
+
 // Map of tool names to their prettify functions
 export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
-	edit_code: prettifyCodeArguments
+	edit_code: prettifyCodeArguments,
+	set_module_code: prettifySetModuleCode,
+	add_module: prettifyModuleValue,
+	modify_module: prettifyModuleValue
 }
 
 export interface ContextStringResult {
@@ -149,7 +241,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return YAML.stringify(modifiedModules)
+	return JSON.stringify(modifiedModules, null, 2)
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {
@@ -364,7 +456,11 @@ export async function processToolCall<T>({
 				error: 'An error occurred while calling the tool'
 			})
 			const errorMessage =
-				typeof err === 'string' ? err : 'An error occurred while calling the tool'
+				typeof err === 'object' && 'message' in err
+					? err.message
+					: typeof err === 'string'
+						? err
+						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
@@ -412,15 +508,10 @@ export function createToolDef(
 	name: string,
 	description: string
 ): ChatCompletionFunctionTool {
-	const schema = zodToJsonSchema(zodSchema, {
-		name,
-		target: 'openAi'
-	})
-	let parameters = schema.definitions![name] as FunctionParameters
-	parameters = {
-		...parameters,
-		required: parameters.required ?? []
-	}
+	// console.log('creating tool def for', name, zodSchema)
+	let parameters = z.toJSONSchema(zodSchema)
+	delete parameters.$schema
+	if (!parameters.required) parameters.required = []
 
 	return {
 		type: 'function',

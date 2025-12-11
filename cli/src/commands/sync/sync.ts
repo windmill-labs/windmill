@@ -36,6 +36,7 @@ import {
 import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
+  fetchRemoteVersion,
   isFileResource,
   isRawAppFile,
   isWorkspaceDependencies,
@@ -69,13 +70,16 @@ import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
+  newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/apps.ts";
-import { generateAppLocksInternal } from "../app/app_metadata.ts";
-import { updateGlobalVersions } from "./global.ts";
+import {
+  APP_BACKEND_FOLDER,
+  generateAppLocksInternal,
+} from "../app/app_metadata.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -281,10 +285,6 @@ function extractFields(fields: Record<string, any>) {
         fields[k] = undefined;
       }
     }
-    // if (k == 'runType') {
-    //   fields["type"] = undefined
-    //   fields["schema"] = undefined
-    // }
   });
 }
 
@@ -301,18 +301,15 @@ export function extractInlineScriptsForApps(
   key: string | undefined,
   rec: any,
   pathAssigner: PathAssigner,
-  toId: (key: string, val: any) => string
+  toId: (key: string, val: any) => string,
+  removeSchema: boolean
 ): InlineScript[] {
   if (!rec) {
     return [];
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "runType") {
-        rec["type"] = undefined;
-        rec["schema"] = undefined;
-        return [];
-      } else if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
@@ -335,10 +332,18 @@ export function extractInlineScriptsForApps(
             content: lock,
           });
         }
-        o.schema = undefined;
+        if (removeSchema) {
+          o.schema = undefined;
+        }
         return r;
       } else {
-        return extractInlineScriptsForApps(k, v, pathAssigner, toId);
+        return extractInlineScriptsForApps(
+          k,
+          v,
+          pathAssigner,
+          toId,
+          removeSchema
+        );
       }
     });
   }
@@ -457,7 +462,8 @@ function ZipFSElement(
                 undefined,
                 app?.["value"],
                 newPathAssigner(defaultTs),
-                (_, val) => val["name"]
+                (_, val) => val["name"],
+                false
               );
             } catch (error) {
               log.error(
@@ -506,14 +512,16 @@ function ZipFSElement(
             rawApp.policy = undefined;
             let inlineScripts;
             const value = rawApp?.["value"];
+            const runnables = value?.["runnables"] ?? {};
             // console.log("FOOB", value?.["runnables"])
-            extractFieldsForRawApps(value?.["runnables"]);
+            extractFieldsForRawApps(runnables);
             try {
               inlineScripts = extractInlineScriptsForApps(
                 undefined,
                 value,
-                newPathAssigner(defaultTs),
-                (key, val_) => key
+                newRawAppPathAssigner(defaultTs),
+                (key, val_) => key,
+                true
               );
             } catch (error) {
               log.error(
@@ -546,10 +554,11 @@ function ZipFSElement(
               throw error;
             }
 
+            // Yield inline script content and lock files
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
-                path: path.join(finalPath, "runnables", s.path),
+                path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
                 async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
@@ -558,11 +567,61 @@ function ZipFSElement(
               };
             }
 
-            const runnables = value?.["runnables"];
-            if (runnables) {
-              rawApp.runnables = runnables;
-              delete rawApp?.["value"];
+            // Yield each runnable as a separate YAML file in the backend folder
+            // For inline scripts, simplify the YAML - inlineScript is not needed since
+            // content/lock/language can be derived from sibling files
+            for (const [runnableId, runnable] of Object.entries(runnables)) {
+              const runnableObj = runnable as Record<string, any>;
+              let simplifiedRunnable: Record<string, any>;
+
+              if (runnableObj.inlineScript) {
+                // For inline scripts, remove inlineScript and just keep type: 'inline'
+                // plus any other metadata (name, fields, etc.)
+                simplifiedRunnable = { type: "inline" };
+
+                // Copy over any other fields that aren't inlineScript or type
+                for (const [key, value] of Object.entries(runnableObj)) {
+                  if (key !== "inlineScript" && key !== "type") {
+                    simplifiedRunnable[key] = value;
+                  }
+                }
+              } else if (runnableObj.type === "path" && runnableObj.runType) {
+                // For path-based runnables, convert from API format to file format
+                // { type: "path", runType: "script" } -> { type: "script" }
+                // Also remove schema field
+                const {
+                  type: _type,
+                  runType,
+                  schema: _schema,
+                  ...rest
+                } = runnableObj;
+                simplifiedRunnable = {
+                  type: runType,
+                  ...rest,
+                };
+              } else {
+                // For other runnables, keep as-is
+                simplifiedRunnable = runnableObj;
+              }
+
+              yield {
+                isDirectory: false,
+                path: path.join(
+                  finalPath,
+                  APP_BACKEND_FOLDER,
+                  `${runnableId}.yaml`
+                ),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return yamlStringify(simplifiedRunnable, yamlOptions);
+                },
+              };
             }
+
+            // Remove runnables and value from raw_app.yaml - they are now in separate files
+            delete rawApp?.["value"];
+            // Don't include runnables in raw_app.yaml anymore
 
             yield {
               isDirectory: false,
@@ -1737,6 +1796,19 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         false,
+        true,
+        workspace,
+        opts,
+        true,
+        true
+      );
+    }
+    for (const change of tracker.apps) {
+      log.info(`Updating lock metadata for app ${change}`);
+      await generateAppLocksInternal(
+        change,
+        false,
+        false,
         workspace,
         opts,
         true,
@@ -1983,6 +2055,7 @@ export async function push(
 
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
+  const staleApps: string[] = [];
 
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
@@ -2036,16 +2109,51 @@ export async function push(
     log.info("");
   }
 
-  const version = await fetchVersion(workspace.remote);
-  if (version) {
-    updateGlobalVersions(version);
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
   }
-  log.info(colors.gray("Remote version: " + version));
+
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
+
+  if (staleApps.length > 0) {
+    log.warn(
+      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:"
+    );
+    for (const stale of staleApps) {
+      log.warn(stale);
+    }
+    log.info("");
+  }
+
+  await fetchRemoteVersion(workspace);
 
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
-
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {

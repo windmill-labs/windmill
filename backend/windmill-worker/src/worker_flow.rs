@@ -43,7 +43,8 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
+    JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
@@ -68,10 +69,10 @@ use windmill_queue::{
     MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
-
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
@@ -3338,6 +3339,7 @@ async fn push_next_flow_job(
             None,
             None,
             None,
+            None,
         )
         .warn_after_seconds(2)
         .await?;
@@ -3956,9 +3958,7 @@ async fn compute_next_flow_transform(
             language,
             lock,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => {
             let path = path.unwrap_or_else(|| get_path(flow_job, status, module));
@@ -3968,9 +3968,7 @@ async fn compute_next_flow_transform(
                 content,
                 language,
                 lock,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+                concurrency_settings,
                 module,
                 tag,
                 delete_after_use,
@@ -3984,9 +3982,7 @@ async fn compute_next_flow_transform(
             id, // flow_node(id).
             tag,
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => {
             let path = get_path(flow_job, status, module);
@@ -3995,10 +3991,9 @@ async fn compute_next_flow_transform(
                 payload: JobPayload::FlowScript {
                     id,
                     language,
-                    custom_concurrency_key: custom_concurrency_key.clone(),
-                    concurrent_limit,
-                    concurrency_time_window_s,
+                    concurrency_settings: concurrency_settings.into(),
                     cache_ttl: module.cache_ttl.map(|x| x as i32),
+                    cache_ignore_s3_path: module.cache_ignore_s3_path.clone(),
                     dedicated_worker: None,
                     path,
                 },
@@ -4625,18 +4620,14 @@ async fn payload_from_simple_module(
             language,
             lock,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => raw_script_to_payload(
             path.unwrap_or_else(|| inner_path),
             content,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             module,
             tag,
             delete_after_use,
@@ -4645,20 +4636,17 @@ async fn payload_from_simple_module(
             id, // flow_node(id).
             tag,
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
             ..
         } => JobPayloadWithTag {
             payload: JobPayload::FlowScript {
                 id,
                 language,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32),
+                cache_ignore_s3_path: module.cache_ignore_s3_path,
                 dedicated_worker: None,
                 path: inner_path,
+                concurrency_settings: concurrency_settings.into(),
             },
             tag,
             delete_after_use,
@@ -4674,9 +4662,7 @@ pub fn raw_script_to_payload(
     content: String,
     language: windmill_common::scripts::ScriptLang,
     lock: Option<String>,
-    custom_concurrency_key: Option<String>,
-    concurrent_limit: Option<i32>,
-    concurrency_time_window_s: Option<i32>,
+    concurrency_settings: ConcurrencySettingsWithCustom,
     module: &FlowModule,
     tag: Option<String>,
     delete_after_use: bool,
@@ -4688,13 +4674,12 @@ pub fn raw_script_to_payload(
             content,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
+            cache_ignore_s3_path: module.cache_ignore_s3_path,
             dedicated_worker: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings,
+            // TODO: Should this have debouncing?
+            debouncing_settings: DebouncingSettings::default(),
         }),
         tag,
         delete_after_use,
@@ -4756,11 +4741,6 @@ pub async fn script_to_payload(
 
         let ScriptHashInfo {
             tag,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -4769,6 +4749,11 @@ pub async fn script_to_payload(
             timeout,
             on_behalf_of_email,
             created_by,
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             ..
         } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
@@ -4784,12 +4769,18 @@ pub async fn script_to_payload(
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
-                custom_concurrency_key: concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
-                custom_debounce_key: debounce_key,
-                debounce_delay_s,
+                debouncing_settings: DebouncingSettings {
+                    custom_key: debounce_key,
+                    delay_s: debounce_delay_s,
+                    ..Default::default()
+                },
+                concurrency_settings: ConcurrencySettings {
+                    concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                },
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
+                cache_ignore_s3_path: module.cache_ignore_s3_path,
                 language,
                 dedicated_worker,
                 priority,

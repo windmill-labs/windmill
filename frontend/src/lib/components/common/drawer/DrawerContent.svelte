@@ -4,6 +4,8 @@
 	import CloseButton from '../CloseButton.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	interface Props {
 		aiId?: string | undefined
@@ -16,6 +18,7 @@
 		documentationLink?: string | undefined
 		CloseIcon?: any | undefined
 		fullScreen?: boolean
+		eeOnly?: boolean
 		actions?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 	}
@@ -31,6 +34,7 @@
 		documentationLink = undefined,
 		CloseIcon = undefined,
 		fullScreen = true,
+		eeOnly = false,
 		actions,
 		children
 	}: Props = $props()
@@ -39,7 +43,7 @@
 </script>
 
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
-	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
+	<div class="flex justify-between w-full items-center pl-2 pr-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
 			<div
 				use:triggerableByAI={{
@@ -58,6 +62,9 @@
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}</span
 			>
+			{#if eeOnly && !$enterpriseLicense}
+				<EEOnly />
+			{/if}
 		</div>
 		{#if actions}
 			<div class="flex gap-2 items-center justify-end shrink-0">

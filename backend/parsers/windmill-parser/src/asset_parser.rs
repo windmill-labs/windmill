@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetUsageAccessType {
     R,
@@ -10,18 +10,19 @@ pub enum AssetUsageAccessType {
 
 use AssetUsageAccessType::*;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetKind {
     S3Object,
     Resource,
     Ducklake,
+    DataTable,
 }
 
-#[derive(Serialize)]
-pub struct ParseAssetsResult<S: AsRef<str>> {
+#[derive(Serialize, Debug, PartialEq)]
+pub struct ParseAssetsResult {
     pub kind: AssetKind,
-    pub path: S,
+    pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
 }
@@ -33,13 +34,13 @@ pub struct DelegateToGitRepoDetails {
     pub commit: Option<String>,
 }
 
-pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<ParseAssetsResult<S>> {
-    let mut arr: Vec<ParseAssetsResult<S>> = vec![];
+pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
+    let mut arr: Vec<ParseAssetsResult> = vec![];
     for asset in assets {
         // Remove duplicates
         if let Some(existing) = arr
             .iter_mut()
-            .find(|x| x.path.as_ref() == asset.path.as_ref() && x.kind == asset.kind)
+            .find(|x| x.path == asset.path && x.kind == asset.kind)
         {
             // merge access types
             existing.access_type = match (asset.access_type, existing.access_type) {
@@ -53,12 +54,33 @@ pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<Par
             arr.push(asset);
         }
     }
-    arr.sort_by(|a, b| a.path.as_ref().cmp(b.path.as_ref()));
+    arr.sort_by(|a, b| a.path.cmp(&b.path));
     arr
 }
 
-pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
-    if s.starts_with("s3://") {
+// Will return false if the user assigned an asset to a variable like:
+//   let sql = wmill.datatable('main')
+// But never used it. In that case we don't know which table is being used,
+// but we still want to add the main datatable as an asset with unknown access type.
+//
+// This function takes care of the fact that assets can be suffixed (e.g. "main/users")
+pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind, &String)) -> bool {
+    assets.iter().any(|a| {
+        let a_path = a.path.as_str();
+        let has_same_path_base = a_path
+            .strip_prefix(path)
+            .map(|p| p.starts_with('/'))
+            .unwrap_or(false);
+        (has_same_path_base || a_path == path) && a.kind == kind
+    })
+}
+
+pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
+    if enable_default_syntax && s == "datatable" {
+        Some((AssetKind::DataTable, "main"))
+    } else if enable_default_syntax && s == "ducklake" {
+        Some((AssetKind::Ducklake, "main"))
+    } else if s.starts_with("s3://") {
         Some((AssetKind::S3Object, &s[5..]))
     } else if s.starts_with("res://") {
         Some((AssetKind::Resource, &s[6..]))
@@ -66,6 +88,8 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
         Some((AssetKind::Resource, &s[5..]))
     } else if s.starts_with("ducklake://") {
         Some((AssetKind::Ducklake, &s[11..]))
+    } else if s.starts_with("datatable://") {
+        Some((AssetKind::DataTable, &s[12..]))
     } else {
         None
     }

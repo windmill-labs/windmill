@@ -393,6 +393,8 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_use: Option<bool>,
@@ -495,6 +497,10 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    // NOTE: concurrency and debounce data is inline,
+    // bc it was this before refactor
+    // and rust seems to hash it differently
+    // for backwards compat we keep them inline
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
@@ -503,6 +509,7 @@ pub struct NewScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
@@ -853,6 +860,7 @@ pub async fn fetch_script_for_update<'a>(
             ws_error_handler_muted,
             priority,
             cache_ttl,
+            cache_ignore_s3_path,
             timeout,
             delete_after_use,
             restart_unless_cancelled,
@@ -910,6 +918,7 @@ pub async fn clone_script<'c>(
         concurrent_limit: s.concurrent_limit,
         concurrency_time_window_s: s.concurrency_time_window_s,
         cache_ttl: s.cache_ttl,
+        cache_ignore_s3_path: s.cache_ignore_s3_path,
         dedicated_worker: s.dedicated_worker,
         ws_error_handler_muted: s.ws_error_handler_muted,
         priority: s.priority,
@@ -941,14 +950,14 @@ pub async fn clone_script<'c>(
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s

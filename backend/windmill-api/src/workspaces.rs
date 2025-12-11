@@ -42,7 +42,9 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
-use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{
+    DataTable, DataTableCatalogResourceType, WorkspaceGitSyncSettings,
+};
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -129,6 +131,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
+        .route("/list_datatables", get(list_datatables))
+        .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -265,6 +269,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
@@ -335,12 +341,6 @@ struct LargeFileStorageWithSecondary {
     #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct DucklakeSettings {
-    pub ducklakes: HashMap<String, Ducklake>,
-}
-
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
@@ -349,6 +349,21 @@ struct EditLargeFileStorageConfig {
 #[derive(Deserialize, Debug)]
 struct EditDucklakeConfig {
     settings: DucklakeSettings,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDataTableConfig {
+    settings: DataTableSettings,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTableSettings {
+    pub datatables: HashMap<String, DataTable>,
 }
 
 #[derive(Deserialize)]
@@ -535,6 +550,7 @@ async fn get_settings(
             error_handler_extra_args,
             error_handler_muted_on_cancel,
             large_file_storage,
+            datatable,
             ducklake,
             git_sync,
             deploy_ui,
@@ -1159,6 +1175,28 @@ async fn list_ducklakes(
     Ok(Json(ducklakes))
 }
 
+async fn list_datatables(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let datatables = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(datatables))
+}
+
 async fn edit_ducklake_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1183,30 +1221,7 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    // Check that all ducklake catalog resources exist to prevent
-    // exploiting the shared property to see any resource
-    for dl in new_config.settings.ducklakes.values() {
-        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            continue;
-        }
-        let catalog_res = sqlx::query_scalar!(
-            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &dl.catalog.resource_path
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
-
-        if catalog_res.is_none() {
-            return Err(Error::BadRequest(format!(
-                "Ducklake catalog resource {} not found in workspace {}",
-                dl.catalog.resource_path, &w_id
-            )));
-        }
-    }
-
-    // Check that non-superadmins are not abusing Instance catalogs
+    // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
         let old_ducklakes = sqlx::query_scalar!(
             r#"
@@ -1230,7 +1245,7 @@ async fn edit_ducklake_config(
                     || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
                 {
                     return Err(Error::BadRequest(
-                        "Only superadmins can create or modify ducklakes with Instance catalogs"
+                        "Only superadmins can create or modify ducklakes with Instance databases"
                             .to_string(),
                     ));
                 }
@@ -1252,6 +1267,78 @@ async fn edit_ducklake_config(
     tx.commit().await?;
 
     Ok(format!("Edit ducklake config for workspace {}", &w_id))
+}
+
+async fn edit_datatable_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    Json(new_config): Json<EditDataTableConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_datatable_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("datatable", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that non-superadmins are not abusing Instance databases
+    if !is_superadmin {
+        let old_datatables = sqlx::query_scalar!(
+            r#"
+                SELECT ws.datatable->'datatables' AS datatable_name
+                FROM workspace_settings ws
+                WHERE ws.workspace_id = $1
+            "#,
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null);
+        let old_datatables: HashMap<String, DataTable> =
+            serde_json::from_value(old_datatables).unwrap_or_default();
+        for (name, dt) in new_config.settings.datatables.iter() {
+            if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+                let old_dt = old_datatables.get(name);
+                if old_dt.is_none()
+                    || old_dt.unwrap().database.resource_type
+                        != DataTableCatalogResourceType::Instance
+                    || old_dt.unwrap().database.resource_path != dt.database.resource_path
+                {
+                    return Err(Error::BadRequest(
+                        "Only superadmins can create or modify data tables with Instance databases"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit datatable config for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]
@@ -2591,6 +2678,8 @@ async fn update_workspace_settings(
             deploy_to = $1,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
+            ducklake = source_ws.ducklake,
+            datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1

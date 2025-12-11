@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH result_stream AS (\n                    SELECT \n                        string_agg(stream, '' order by idx asc) as stream, \n                        job_id, \n                        max(idx) + 1 as offset \n                    FROM job_result_stream_v2\n                    WHERE job_id = $3 AND idx >= $8\n                    GROUP BY job_id\n                )\n                SELECT\n                    c.id IS NOT NULL AS completed,\n                    CASE\n                        WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)\n                        ELSE false\n                    END AS running,\n                    CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,\n                    rs.stream AS new_result_stream,\n                    COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,\n                    COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n                    (COALESCE(c.flow_status, f.flow_status)->>'stream_job')::uuid AS stream_job,\n                    COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",\n                    CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,\n                    rs.offset AS stream_offset,\n                    created_by AS \"created_by!\",\n                    CASE WHEN $4::BOOLEAN THEN (\n                        SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'\n                    ) END AS progress,\n                    rs.stream AS \"result_stream: Option<String>\"\n                FROM v2_job j\n                    LEFT JOIN v2_job_queue q USING (id)\n                    LEFT JOIN v2_job_runtime r USING (id)\n                    LEFT JOIN v2_job_status f USING (id)\n                    LEFT JOIN v2_job_completed c USING (id)\n                    LEFT JOIN result_stream rs ON rs.job_id = $3\n                    LEFT JOIN job_logs ON job_logs.job_id =  $3\n                WHERE j.workspace_id = $2 AND j.id = $3\n                AND ($6::text[] IS NULL OR j.tag = ANY($6))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "completed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "running",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "new_result_stream",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "mem_peak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "flow_status: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "stream_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "workflow_as_code_status: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "log_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "stream_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "progress",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "result_stream: Option<String>",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Bool",
+        "TextArray",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "542b670194b802f09af8ecc4f339524b914fd1bbd620a6d529a0a96766591bc8"
+}

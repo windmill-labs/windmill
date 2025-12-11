@@ -14,7 +14,7 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
+use windmill_audit::audit_oss::AuditAuthorable;
 pub use windmill_common::db::DB;
 use windmill_common::{
     db::{Authable, Authed, AuthedRef},
@@ -305,17 +305,6 @@ impl From<Authed> for ApiAuthed {
             scopes: value.scopes,
             username_override: None, // Authed doesn't have this field, so default to None
             token_prefix: value.token_prefix,
-        }
-    }
-}
-
-impl From<&ApiAuthed> for AuditAuthor {
-    fn from(value: &ApiAuthed) -> Self {
-        Self {
-            email: value.email.clone(),
-            username: value.username.clone(),
-            username_override: value.username_override.clone(),
-            token_prefix: value.token_prefix.clone(),
         }
     }
 }

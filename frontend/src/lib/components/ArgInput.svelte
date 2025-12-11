@@ -782,11 +782,24 @@
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}
-					{#await import('$lib/components/JsonEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
-					{/await}
+					<div>
+						<div class="w-full">
+							{#await import('$lib/components/JsonEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+							{/await}
+						</div>
+						<div class="text-red-500 text-2xs">
+							Error loading json schema resource {format.substring('jsonschema-'.length)}, please
+							check if the resource exists and is a valid json schema.
+							<a
+								href="https://windmill.dev/docs/core_concepts/resources_and_types#json-schema-resources"
+								target="_blank"
+								class="text-blue-500 hover:text-blue-700 underline">See documentation</a
+							>
+						</div>
+					</div>
 				{:else}
 					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm

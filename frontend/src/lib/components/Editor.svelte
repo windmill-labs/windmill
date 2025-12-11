@@ -40,7 +40,13 @@
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
+	import {
+		type Preview,
+		ResourceService,
+		type ScriptLang,
+		UserService,
+		WorkspaceService
+	} from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -95,6 +101,9 @@
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
+	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
+	import { MarkerSeverity } from 'monaco-editor'
+	import { resource, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -126,6 +135,8 @@
 		class?: string | undefined
 		moduleId?: string
 		enablePreprocessorSnippet?: boolean
+		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
+		rawAppRunnableKey?: string | undefined
 	}
 
 	let {
@@ -153,7 +164,8 @@
 		key = undefined,
 		class: clazz = undefined,
 		moduleId = undefined,
-		enablePreprocessorSnippet = false
+		enablePreprocessorSnippet = false,
+		rawAppRunnableKey = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -346,6 +358,25 @@
 				editor.pushUndoStop()
 			}
 		}
+		// Update lint diagnostics after code change
+		updateRawAppLintDiagnostics()
+	}
+
+	/** Collect Monaco markers and update the raw app lint store */
+	function updateRawAppLintDiagnostics(): void {
+		if (!rawAppRunnableKey || !model) return
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const lintErrors: MonacoLintError[] = markers
+			.filter((m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+			.map((m) => ({
+				message: m.message,
+				severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
+				startLineNumber: m.startLineNumber,
+				startColumn: m.startColumn,
+				endLineNumber: m.endLineNumber,
+				endColumn: m.endColumn
+			}))
+		rawAppLintStore.setDiagnostics(rawAppRunnableKey, lintErrors)
 	}
 
 	function updateCode() {
@@ -1324,6 +1355,20 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
+		// Raw app lint collection: listen for marker changes and report to store
+		let markerChangeDisposable: IDisposable | undefined = undefined
+		if (rawAppRunnableKey && model) {
+			markerChangeDisposable = meditor.onDidChangeMarkers((uris) => {
+				if (!model || !rawAppRunnableKey) return
+				const modelUri = model.uri.toString()
+				if (uris.some((u) => u.toString() === modelUri)) {
+					updateRawAppLintDiagnostics()
+				}
+			})
+			// Initial lint diagnostics collection
+			updateRawAppLintDiagnostics()
+		}
+
 		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
@@ -1443,6 +1488,9 @@
 				closeWebsockets()
 				vimDisposable?.dispose()
 				closeAIInlineWidget()
+				markerChangeDisposable?.dispose()
+				// Note: We don't clear lint diagnostics on dispose - they persist across runnable switches
+				// Diagnostics are only updated when Monaco reports new markers for this runnable
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1455,6 +1503,42 @@
 
 	export async function fetchPackageDeps(deps: DepsToGet) {
 		ata?.(deps)
+	}
+
+	let customTsTypesData = resource([() => lang], async () => {
+		if (lang !== 'typescript') return undefined
+		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		return { datatables, ducklakes }
+	})
+	function setTypescriptCustomTypes() {
+		if (!customTsTypesData.current) return
+		if (lang !== 'typescript') return
+
+		const ducklakeNames = customTsTypesData.current.ducklakes
+		const datatableNames = customTsTypesData.current.datatables
+
+		const ducklakeNameType = ducklakeNames.length
+			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const datatableNameType = datatableNames.length
+			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const isDucklakeOptional = ducklakeNames.includes('main')
+		const isDataTableOptional = datatableNames.includes('main')
+
+		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
+			`export {};
+			declare module 'windmill-client' {
+				import { type SqlTemplateFunction } from 'windmill-client';
+				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
+			}`,
+			'file:///custom_wmill_types.d.ts'
+		)
+		return () => {
+			disposeTs.dispose()
+		}
 	}
 
 	async function setTypescriptRTNamespace() {
@@ -1483,6 +1567,7 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
+
 		if (
 			lang === 'typescript' &&
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
@@ -1763,6 +1848,8 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+
+	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

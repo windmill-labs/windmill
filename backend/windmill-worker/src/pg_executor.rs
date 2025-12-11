@@ -31,6 +31,7 @@ use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -38,6 +39,7 @@ use windmill_parser_sql::{
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
     build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
     OccupancyMetrics, S3ModeWorkerData,
@@ -197,6 +199,7 @@ pub async fn do_postgresql(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, conn).await?;
 
@@ -214,7 +217,22 @@ pub async fn do_postgresql(
                 .await?,
         )
     } else {
-        pg_args.get("database").cloned()
+        match pg_args.get("database").cloned() {
+            Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
+                let db_str = db_str.trim_start_matches("datatable://");
+                Some(match conn {
+                    Connection::Http(client) => {
+                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
+                            .await?
+                    }
+                    Connection::Sql(db) => {
+                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
+                            .await?
+                    }
+                })
+            }
+            database => database,
+        }
     };
 
     let database = if let Some(db) = db_arg {
@@ -359,6 +377,7 @@ pub async fn do_postgresql(
                 &param_idx_to_arg_and_value,
                 client,
                 if i == queries.len() - 1
+                    && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
                 {
@@ -379,19 +398,23 @@ pub async fn do_postgresql(
         collection_strategy.collect(results)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await?;
+    let result = if run_inline {
+        result_f.await?
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await?
+    };
 
     // drop the mtex to avoid holding the lock for too long, result has been returned
     drop(mtex);

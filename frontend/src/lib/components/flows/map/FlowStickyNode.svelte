@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
@@ -18,6 +19,7 @@
 		noteMode?: boolean
 		toggleNoteMode?: () => void
 		disableAi?: boolean
+		diffManager?: FlowDiffManager
 	}
 
 	let {
@@ -29,7 +31,8 @@
 		toggleAiChat,
 		noteMode,
 		toggleNoteMode,
-		disableAi
+		disableAi,
+		diffManager
 	}: Props = $props()
 
 	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -54,7 +57,7 @@
 		</Button>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} on:generateStep />
+		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {diffManager} on:generateStep />
 		{#snippet text()}
 			Error Handler
 		{/snippet}

@@ -276,6 +276,21 @@ class Windmill:
             cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
+    def run_inline_script_preview(
+        self,
+        content: str,
+        language: str,
+        args: dict = None,
+    ) -> Any:
+        """Run a script on the current worker without creating a job"""
+        endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        body = {
+            "content": content,
+            "language": language,
+            "args": args or {},
+        }
+        return self.post(endpoint, json=body).text
+
     def wait_job(
         self,
         job_id,
@@ -398,8 +413,11 @@ class Windmill:
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
-    def get_id_token(self, audience: str) -> str:
-        return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
+    def get_id_token(self, audience: str, expires_in: int | None = None) -> str:
+        params = {}
+        if expires_in is not None:
+            params["expires_in"] = expires_in
+        return self.post(f"/w/{self.workspace}/oidc/token/{audience}", params=params).text
 
     def get_job_status(self, job_id: str) -> JobStatus:
         job = self.get_job(job_id)
@@ -808,6 +826,81 @@ class Windmill:
             json={"s3_objects": [s3_object]},
         ).json()[0]
 
+    def get_presigned_s3_public_urls(
+        self,
+        s3_objects: list[S3Object | str],
+        base_url: str | None = None,
+    ) -> list[str]:
+        """
+        Generate presigned public URLs for an array of S3 objects.
+        If an S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_objects: List of S3 objects to sign
+            base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+        Returns:
+            List of signed public URLs
+
+        Example:
+            >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+            >>> urls = client.get_presigned_s3_public_urls(s3_objs)
+        """
+        base_url = base_url or self._get_public_base_url()
+
+        s3_objs = [parse_s3_object(s3_obj) for s3_obj in s3_objects]
+
+        # Sign all S3 objects that need to be signed in one go
+        s3_objs_to_sign: list[tuple[S3Object, int]] = [
+            (s3_obj, index)
+            for index, s3_obj in enumerate(s3_objs)
+            if s3_obj.get("presigned") is None
+        ]
+
+        if s3_objs_to_sign:
+            signed_s3_objs = self.sign_s3_objects(
+                [s3_obj for s3_obj, _ in s3_objs_to_sign]
+            )
+            for i, (_, original_index) in enumerate(s3_objs_to_sign):
+                s3_objs[original_index] = parse_s3_object(signed_s3_objs[i])
+
+        signed_urls: list[str] = []
+        for s3_obj in s3_objs:
+            s3 = s3_obj.get("s3", "")
+            presigned = s3_obj.get("presigned", "")
+            storage = s3_obj.get("storage", "_default_")
+            signed_url = f"{base_url}/api/w/{self.workspace}/s3_proxy/{storage}/{s3}?{presigned}"
+            signed_urls.append(signed_url)
+
+        return signed_urls
+
+    def get_presigned_s3_public_url(
+        self,
+        s3_object: S3Object | str,
+        base_url: str | None = None,
+    ) -> str:
+        """
+        Generate a presigned public URL for an S3 object.
+        If the S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_object: S3 object to sign
+            base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+        Returns:
+            Signed public URL
+
+        Example:
+            >>> s3_obj = S3Object(s3="/path/to/file.txt")
+            >>> url = client.get_presigned_s3_public_url(s3_obj)
+        """
+        urls = self.get_presigned_s3_public_urls([s3_object], base_url)
+        return urls[0]
+
+    def _get_public_base_url(self) -> str:
+        """Get the public base URL from environment or default to localhost"""
+        return os.environ.get("WM_BASE_URL", "http://localhost:3000")
+
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
         return Boto3ConnectionSettings(
@@ -999,6 +1092,13 @@ class Windmill:
                 "card_block": card_block,
             },
         )
+
+    def datatable(self, name: str = "main"):
+        return DataTableClient(self, name)
+
+    def ducklake(self, name: str = "main"):
+        return DucklakeClient(self, name)
+
 
 
 def init_global_client(f):
@@ -1256,6 +1356,56 @@ def sign_s3_object(s3_object: S3Object| str) -> S3Object:
     Returns a signed s3 object
     """
     return _client.sign_s3_object(s3_object)
+
+
+@init_global_client
+def get_presigned_s3_public_urls(
+    s3_objects: list[S3Object | str],
+    base_url: str | None = None,
+) -> list[str]:
+    """
+    Generate presigned public URLs for an array of S3 objects.
+    If an S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_objects: List of S3 objects to sign
+        base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+    Returns:
+        List of signed public URLs
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+        >>> urls = wmill.get_presigned_s3_public_urls(s3_objs)
+    """
+    return _client.get_presigned_s3_public_urls(s3_objects, base_url)
+
+
+@init_global_client
+def get_presigned_s3_public_url(
+    s3_object: S3Object | str,
+    base_url: str | None = None,
+) -> str:
+    """
+    Generate a presigned public URL for an S3 object.
+    If the S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_object: S3 object to sign
+        base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+    Returns:
+        Signed public URL
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_obj = S3Object(s3="/path/to/file.txt")
+        >>> url = wmill.get_presigned_s3_public_url(s3_obj)
+    """
+    return _client.get_presigned_s3_public_url(s3_object, base_url)
 
 
 @init_global_client
@@ -1527,6 +1677,18 @@ def run_script_by_hash(
         timeout=timeout,
     )
 
+@init_global_client
+def run_inline_script_preview(
+    content: str,
+    language: str,
+    args: dict = None,
+) -> Any:
+    """Run a script on the current worker without creating a job"""
+    return _client.run_inline_script_preview(
+        content=content,
+        language=language,
+        args=args,
+    )
 
 @init_global_client
 def username_to_email(username: str) -> str:
@@ -1537,6 +1699,14 @@ def username_to_email(username: str) -> str:
     """
     return _client.username_to_email(username)
 
+
+@init_global_client
+def datatable(name: str = "main") -> DataTableClient:
+    return _client.datatable(name)
+
+@init_global_client
+def ducklake(name: str = "main") -> DucklakeClient:
+    return _client.ducklake(name)
 
 def task(*args, **kwargs):
     from inspect import signature
@@ -1635,3 +1805,78 @@ def stream_result(stream) -> None:
     """
     for text in stream:
         append_to_result_stream(text)
+
+class DataTableClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def query(self, sql: str, *args):
+        args_dict = {}
+        args_def = ""
+        for i, arg in enumerate(args):
+            args_dict[f"arg{i+1}"] = arg
+            args_def += f"-- ${i+1} arg{i+1}\n"
+        sql = args_def + sql
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="postgresql",
+                args={"database": f"datatable://{self.name}", **args_dict},
+            )
+        )
+
+class DucklakeClient:
+    def __init__(self, client: Windmill, name: str):
+        self.client = client
+        self.name = name
+    def query(self, sql: str, **kwargs):
+        args_dict = {}
+        args_def = ""
+        for key, value in kwargs.items():
+            args_dict[key] = value
+            args_def += f"-- ${key} ({infer_sql_type(value)})\n"
+        attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
+        sql = args_def + attach + sql
+        return SqlQuery(
+            sql, 
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="duckdb",
+                args=args_dict,
+            )
+        )
+
+class SqlQuery:
+    def __init__(self, sql: str, fetch_fn):
+        self.sql = sql
+        self.fetch_fn = fetch_fn
+    def fetch(self, result_collection: str | None = None):
+        sql = self.sql
+        if result_collection is not None:
+            sql = f'-- result_collection={result_collection}\n{sql}'
+        return self.fetch_fn(sql)
+    def fetch_one(self):
+        return self.fetch(result_collection="last_statement_first_row")
+
+def infer_sql_type(value) -> str:
+    """
+    DuckDB executor requires explicit argument types at declaration
+    These types exist in both DuckDB and Postgres
+    Check that the types exist if you plan to extend this function for other SQL engines.
+    """
+    if isinstance(value, bool):
+        # Check bool before int since bool is a subclass of int in Python
+        return "BOOLEAN"
+    elif isinstance(value, int):
+        return "BIGINT"
+    elif isinstance(value, float):
+        return "DOUBLE PRECISION"
+    elif value is None:
+        return "TEXT"
+    elif isinstance(value, str):
+        return "TEXT"
+    elif isinstance(value, dict) or isinstance(value, list):
+        return "JSON"
+    else:
+        return "TEXT"

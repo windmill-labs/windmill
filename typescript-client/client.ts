@@ -18,6 +18,13 @@ import {
 } from "./s3Types";
 
 export {
+  type S3Object,
+  type S3ObjectRecord,
+  type S3ObjectURI,
+} from "./s3Types";
+export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
+
+export {
   AdminService,
   AuditService,
   FlowService,
@@ -56,6 +63,10 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
+}
+
+function getPublicBaseUrl(): string {
+  return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
 }
 
 const getEnv = (key: string) => {
@@ -138,7 +149,9 @@ export async function runScript(
   args: Record<string, any> | null = null,
   verbose: boolean = false
 ): Promise<any> {
-  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  console.warn(
+    "runScript is deprecated. Use runScriptByPath or runScriptByHash instead."
+  );
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
@@ -157,7 +170,10 @@ async function _runScriptInternal(
     if (path) {
       console.info(`running \`${path}\` synchronously with args:`, args);
     } else if (hash_) {
-      console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+      console.info(
+        `running script with hash \`${hash_}\` synchronously with args:`,
+        args
+      );
     }
   }
 
@@ -185,9 +201,7 @@ export async function runScriptByHash(
  * Append a text to the result stream
  * @param text text to append to the result stream
  */
-export function appendToResultStream(
-  text: string
-) {
+export function appendToResultStream(text: string) {
   console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
 }
 
@@ -195,9 +209,7 @@ export function appendToResultStream(
  * Stream to the result stream
  * @param stream stream to stream to the result stream
  */
-export async function streamResult(
-  stream: AsyncIterable<string>
-) {
+export async function streamResult(stream: AsyncIterable<string>) {
   for await (const text of stream) {
     appendToResultStream(text);
   }
@@ -310,7 +322,9 @@ export async function runScriptAsync(
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
-  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
+  console.warn(
+    "runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead."
+  );
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
@@ -815,7 +829,8 @@ export async function loadS3FileStream(
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
   const response = await fetch(
-    `${OpenAPI.BASE
+    `${
+      OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
@@ -894,7 +909,6 @@ export async function signS3Objects(
   });
   return signedKeys;
 }
-
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
@@ -903,6 +917,56 @@ export async function signS3Objects(
 export async function signS3Object(s3object: S3Object): Promise<S3Object> {
   const [signedObject] = await signS3Objects([s3object]);
   return signedObject;
+}
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+export async function getPresignedS3PublicUrls(
+  s3Objects: S3Object[],
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string[]> {
+  baseUrl ??= getPublicBaseUrl();
+
+  const s3Objs = s3Objects.map(parseS3Object);
+
+  // Sign all S3 objects that need to be signed in one go
+  const s3ObjsToSign: (readonly [S3ObjectRecord, number])[] = s3Objs
+    .map((s3Obj, index) => [s3Obj, index] as const)
+    .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
+  if (s3ObjsToSign.length > 0) {
+    const signedS3Objs = await signS3Objects(
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+    );
+    for (let i = 0; i < s3ObjsToSign.length; i++) {
+      const [_, originalIndex] = s3ObjsToSign[i];
+      s3Objs[originalIndex] = parseS3Object(signedS3Objs[i]);
+    }
+  }
+
+  const signedUrls: string[] = [];
+  for (const s3Obj of s3Objs) {
+    const { s3, presigned, storage = "_default_" } = s3Obj;
+    const signedUrl = `${baseUrl}/api/w/${getWorkspace()}/s3_proxy/${storage}/${s3}?${presigned}`;
+    signedUrls.push(signedUrl);
+  }
+  return signedUrls;
+}
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+export async function getPresignedS3PublicUrl(
+  s3Objects: S3Object,
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string> {
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
+  return s3Object;
 }
 
 /**
@@ -939,13 +1003,18 @@ export function getResumeEndpoints(approver?: string): Promise<{
 /**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
+ * @param expiresIn Optional number of seconds until the token expires
  * @returns jwt token
  */
-export async function getIdToken(audience: string): Promise<string> {
+export async function getIdToken(
+  audience: string,
+  expiresIn?: number
+): Promise<string> {
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
     audience,
+    expiresIn,
   });
 }
 

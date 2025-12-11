@@ -1,16 +1,7 @@
 <script lang="ts">
 	import { isCloudHosted } from '$lib/cloud'
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
-	import {
-		AlertCircle,
-		AlertTriangle,
-		BadgeCheck,
-		BadgeX,
-		Info,
-		Plus,
-		Slack,
-		X
-	} from 'lucide-svelte'
+	import { AlertCircle, BadgeCheck, BadgeX, Info, Plus, Slack, X } from 'lucide-svelte'
 	import type { Setting } from './instanceSettings'
 	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
@@ -38,6 +29,7 @@
 	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
 	import TeamSelector from './TeamSelector.svelte'
 	import ChannelSelector from './ChannelSelector.svelte'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		setting: Setting
@@ -195,16 +187,14 @@
 			}
 		}
 	}
-
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
 {#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
 	{#if setting.ee_only != undefined && !$enterpriseLicense}
-		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-			<AlertTriangle size={16} />
-			EE only {#if setting.ee_only != ''}<Tooltip>{setting.ee_only}</Tooltip>{/if}
-		</div>
+		<EEOnly>
+			{#if setting.ee_only != ''}{setting.ee_only}{/if}
+		</EEOnly>
 	{/if}
 	{#if setting.fieldType == 'select'}
 		<div>
@@ -571,13 +561,17 @@
 											{@const currentTeam = $values['critical_error_channels'][i]?.teams_channel
 												? {
 														team_id: $values['critical_error_channels'][i]?.teams_channel?.team_id,
-														team_name: $values['critical_error_channels'][i]?.teams_channel?.team_name
+														team_name:
+															$values['critical_error_channels'][i]?.teams_channel?.team_name
 													}
 												: undefined}
-											{@const currentChannel = $values['critical_error_channels'][i]?.teams_channel?.channel_id
+											{@const currentChannel = $values['critical_error_channels'][i]?.teams_channel
+												?.channel_id
 												? {
-														channel_id: $values['critical_error_channels'][i]?.teams_channel?.channel_id,
-														channel_name: $values['critical_error_channels'][i]?.teams_channel?.channel_name
+														channel_id:
+															$values['critical_error_channels'][i]?.teams_channel?.channel_id,
+														channel_name:
+															$values['critical_error_channels'][i]?.teams_channel?.channel_name
 													}
 												: undefined}
 											<div class="flex flex-row gap-2 w-full">

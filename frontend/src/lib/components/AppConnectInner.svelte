@@ -312,7 +312,8 @@
 			path: resourceType
 		})
 		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
-		const newArgsKeys = Object.keys(props) ?? []
+		const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
+
 		const passwords = newArgsKeys.filter((x) => {
 			return props?.[x]?.password
 		})
