@@ -9,6 +9,7 @@
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
 	import { assetEq } from '$lib/components/assets/lib'
+	import { getNodeColorClasses } from '../../util'
 
 	interface Props {
 		data: AssetsOverflowedN['data']
@@ -33,6 +34,7 @@
 			wasOpenedBecauseOfExternalSelected = false
 		}
 	})
+	const colors = $derived(getNodeColorClasses(undefined, includesSelected))
 </script>
 
 <NodeWrapper>
@@ -43,9 +45,11 @@
 			usePointerDownOutside
 			bind:isOpen
 			class={twMerge(
-				'!w-full text-2xs font-normal bg-surface h-6 pr-0.5 flex justify-center items-center rounded-sm text-primary border',
-				includesSelected ? 'bg-surface-secondary border-surface-inverse' : 'border-transparent',
-				'hover:bg-surface-secondary hover:border-surface-inverse active:opacity-55'
+				'!w-full text-2xs font-normal h-6 pr-0.5 flex justify-center items-center rounded-md text-primary drop-shadow-base',
+				'hover:bg-surface-hover active:bg-surface active:opacity-80',
+				colors.bg,
+				colors.outline,
+				colors.text
 			)}
 			placement="top"
 		>

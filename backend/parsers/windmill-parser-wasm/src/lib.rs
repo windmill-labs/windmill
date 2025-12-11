@@ -190,41 +190,36 @@ pub fn parse_ruby(code: &str) -> String {
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_sql(code: &str) -> String {
-    if let Ok(r) = windmill_parser_sql::parse_assets(code) {
-        return serde_json::to_string(&r).unwrap();
-    } else {
-        return "Invalid".to_string();
+    match windmill_parser_sql::parse_assets(code) {
+        Ok(r) => serde_json::to_string(&r).unwrap(),
+        Err(err) => format!("err: {:?}", err),
     }
 }
 
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_ts(code: &str) -> String {
-    if let Ok(r) = windmill_parser_ts::parse_assets(code) {
-        return serde_json::to_string(&r).unwrap();
-    } else {
-        return "Invalid".to_string();
+    match windmill_parser_ts::parse_assets(code) {
+        Ok(r) => serde_json::to_string(&r).unwrap(),
+        Err(err) => format!("err: {:?}", err),
     }
 }
 
 #[cfg(feature = "py-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_py(code: &str) -> String {
-    if let Ok(r) = windmill_parser_py::parse_assets(code) {
-        return serde_json::to_string(&r).unwrap();
-    } else {
-        return "Invalid".to_string();
+    match windmill_parser_py::parse_assets(code) {
+        Ok(r) => serde_json::to_string(&r).unwrap(),
+        Err(err) => format!("err: {:?}", err),
     }
 }
 
 #[cfg(feature = "ansible-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_ansible(code: &str) -> String {
-    let o = windmill_parser_yaml::parse_assets(code);
-    if let Ok(r) = o {
-        return serde_json::to_string(&r).unwrap();
-    } else {
-        return format!("err: {:?}", o.err().unwrap());
+    match windmill_parser_yaml::parse_assets(code) {
+        Ok(r) => serde_json::to_string(&r).unwrap(),
+        Err(err) => format!("err: {:?}", err),
     }
 }
 

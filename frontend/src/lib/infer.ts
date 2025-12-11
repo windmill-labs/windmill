@@ -89,33 +89,43 @@ async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
 }
 
+type InferAssetsResult =
+	| { status: 'ok'; assets: AssetWithAccessType[] }
+	| { status: 'error'; error: string }
+
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
-): Promise<AssetWithAccessType[]> {
+): Promise<InferAssetsResult> {
+	function wrap(raw_result: string): InferAssetsResult {
+		if (raw_result.startsWith('err:')) {
+			return { status: 'error', error: raw_result.slice(4).trim() }
+		}
+		return { status: 'ok', assets: JSON.parse(raw_result) as AssetWithAccessType[] }
+	}
+
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			let r = JSON.parse(parse_assets_sql(code))
-			return r
+			return wrap(parse_assets_sql(code))
 		}
 		if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()
-			return JSON.parse(parse_assets_ts(code))
+			return wrap(parse_assets_ts(code))
 		}
 		if (language === 'python3') {
 			await initWasmPython()
-			return JSON.parse(parse_assets_py(code))
+			return wrap(parse_assets_py(code))
 		}
 		if (language === 'ansible') {
 			await initWasmYaml()
-			return JSON.parse(parse_assets_ansible(code))
+			return wrap(parse_assets_ansible(code))
 		}
 	} catch (e) {
-		console.error('error parsing assets', e)
-		return []
+		return { status: 'error', error: (e as Error)?.message || JSON.stringify(e) }
 	}
-	return []
+
+	return { status: 'ok', assets: [] }
 }
 
 export async function inferAnsibleExecutionMode(code: string): Promise<any> {

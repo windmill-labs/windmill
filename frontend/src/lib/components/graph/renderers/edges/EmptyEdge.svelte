@@ -43,5 +43,6 @@
 <BaseEdge
 	path={edgePath}
 	{markerEnd}
-	class={twMerge($useDataflow ? 'hidden' : '', data.class ?? '')}
+	class={twMerge($useDataflow ? 'hidden' : '', 'pointer-events-none', data.class ?? '')}
+	interactionWidth={0}
 />

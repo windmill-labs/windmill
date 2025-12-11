@@ -73,13 +73,14 @@
 				(m) => getFlowModuleAssets(m, flowGraphAssetsCtx?.val.additionalAssetsMap) ?? []
 			) ?? []
 		for (const asset of assets) {
-			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
-			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type }))
-				.catch((err) => {
-					console.error("Couldn't fetch resource", asset.path, err)
-				})
+			if (asset.kind == 'resource') {
+				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				if (truncatedPath in resMetadataCache) continue
+				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					.then((r) => (resMetadataCache[truncatedPath] = { resource_type: r.resource_type }))
+					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+			}
 		}
 	})
 
@@ -119,14 +120,14 @@
 	})
 
 	async function parseAndUpdateRawScriptModule(v: RawScript) {
-		try {
-			let parsedAssets: AssetWithAltAccessType[] = await inferAssets(v.language, v.content)
-			for (const asset of parsedAssets) {
-				const old = v.assets?.find((a) => assetEq(a, asset))
-				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
-			}
-			if (!deepEqual(v.assets, parsedAssets)) v.assets = parsedAssets
-		} catch (e) {}
+		let inferAssetsResult = await inferAssets(v.language, v.content)
+		if (inferAssetsResult.status === 'error') return
+		let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
+		for (const asset of newAssets) {
+			const old = v.assets?.find((a) => assetEq(a, asset))
+			if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+		}
+		if (!deepEqual(v.assets, newAssets)) v.assets = newAssets
 	}
 
 	// Check for raw script modules whose assets were not parsed. Useful for flows created
