@@ -463,7 +463,7 @@
 		schedulePath = undefined
 		worker = null
 	}
-
+	//
 	function filterByTag(e: CustomEvent<string>) {
 		path = null
 		user = null
