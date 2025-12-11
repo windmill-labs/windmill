@@ -711,6 +711,7 @@
 		</Alert>
 	{/if}
 	{#if comparison}
+		{@const selectedConflicts = conflictingDiffs.filter((e) => selectedItems.includes(getItemKey(e))).length}
 		<div class="bg-surface">
 			<div class="flex items-center justify-between">
 				<div
@@ -839,9 +840,11 @@
 						starred={false}
 					>
 						{#snippet customSummary()}
-							{#if oldSummary != newSummary && isSelectable}
+							{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
 								<span class="line-through text-secondary">{oldSummary || diff.path}</span>
 								{newSummary || diff.path}
+							{:else if !existsInBothWorkspaces}
+								{newSummary || oldSummary || diff.path}
 							{:else}
 								{newSummary || diff.path}
 							{/if}
@@ -872,16 +875,16 @@
 									{/if}
 
 									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-										<Badge title="This item was newly created in the parent workspace {parentWorkspaceId}" color="indigo" size="xs">New</Badge>
+										<Badge title="This item was newly created in the parent workspace '{parentWorkspaceId}'" color="indigo" size="xs">New</Badge>
 									{/if}
 									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-										<Badge title="This item was deleted in {currentWorkspaceId}" color="red" size="xs">Deleted</Badge>
+										<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs">Deleted</Badge>
 									{/if}
 									{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-										<Badge title="This item was deleted in the parent workspace {parentWorkspaceId}" color="red" size="xs">Deleted</Badge>
+										<Badge title="This item was deleted in the parent workspace '{parentWorkspaceId}'" color="red" size="xs">Deleted</Badge>
 									{/if}
 									{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-										<Badge title="This item was newly created in {currentWorkspaceId}" color="indigo" size="xs">New</Badge>
+										<Badge title="This item was newly created in '{currentWorkspaceId}'" color="indigo" size="xs">New</Badge>
 									{/if}
 								</div>
 								<div class:invisible={!existsInBothWorkspaces}>
@@ -934,8 +937,8 @@
 					>
 						{mergeIntoParent ? 'Deploy' : 'Update'}
 						{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-						{#if conflictingDiffs.length != 0}
-							({conflictingDiffs.length} conflicts!)
+						{#if selectedConflicts != 0}
+							({selectedConflicts} conflicts)
 						{/if}
 					</Button>
 				</div>
