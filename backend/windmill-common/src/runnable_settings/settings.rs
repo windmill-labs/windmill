@@ -14,21 +14,6 @@ use crate::{
     DB,
 };
 
-#[derive(sqlx::Type, Clone, Copy)]
-#[sqlx(type_name = "SETTINGS_KIND", rename_all = "lowercase")]
-pub enum SettingsKind {
-    Debouncing,
-    Concurrency,
-}
-
-#[derive(sqlx::Type, Clone, Copy)]
-#[sqlx(type_name = "IMPORTER_KIND", rename_all = "lowercase")]
-pub enum RunnableKind {
-    Script,
-    Flow,
-    App,
-}
-
 #[derive(Deserialize, Clone, Copy, Serialize, Default, Hash)]
 pub struct RunnableSettings {
     pub debouncing_settings: Option<i64>,
@@ -202,7 +187,6 @@ impl ConcurrencySettings {
 }
 
 impl super::private_mod::RunnableSettingsTraitInternal for DebouncingSettings {
-    const SETTINGS_KIND: SettingsKind = SettingsKind::Debouncing;
     const SETTINGS_NAME: &str = "debouncing_settings";
     const INCLUDE_FIELDS: &[&str] = &[
         "debounce_key",
@@ -222,7 +206,6 @@ impl super::private_mod::RunnableSettingsTraitInternal for DebouncingSettings {
 
 impl super::RunnableSettingsTrait for DebouncingSettings {}
 impl super::private_mod::RunnableSettingsTraitInternal for ConcurrencySettings {
-    const SETTINGS_KIND: SettingsKind = SettingsKind::Concurrency;
     const SETTINGS_NAME: &str = "concurrency_settings";
     const INCLUDE_FIELDS: &[&str] = &[
         "concurrency_key",

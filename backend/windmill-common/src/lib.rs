@@ -1071,7 +1071,6 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
     Ok(version)
 }
 
-// TODO:
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
     w_id: &str,

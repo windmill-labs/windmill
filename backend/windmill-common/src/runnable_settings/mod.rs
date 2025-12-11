@@ -38,8 +38,6 @@ make_static! {
     static ref RUNNABLE_SETTINGS_REFERENCES: { i64 => RunnableSettings } in "runnable_settings_references" <= 1000;
 }
 
-// TODO: maybe better not to cache on fs.
-// could cause bugs.
 pub trait RunnableSettingsTrait:
     PartialEq
     + Default
@@ -137,12 +135,9 @@ pub trait RunnableSettingsTrait:
 mod private_mod {
     use sqlx::{query::Query, Database, Postgres};
 
-    use crate::runnable_settings::SettingsKind;
-
     pub type Q<'a> = Query<'a, Postgres, <Postgres as Database>::Arguments<'a>>;
 
     pub trait RunnableSettingsTraitInternal {
-        const SETTINGS_KIND: SettingsKind;
         const SETTINGS_NAME: &'static str;
         const INCLUDE_FIELDS: &'static [&'static str];
 
