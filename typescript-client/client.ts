@@ -925,19 +925,31 @@ export async function signS3Object(s3object: S3Object): Promise<S3Object> {
  * @param s3Objects s3 objects to sign
  * @returns list of signed public URLs
  */
-export async function getS3SignedPublicUrls(
+export async function getPresignedS3PublicUrls(
   s3Objects: S3Object[],
   { baseUrl }: { baseUrl?: string } = {}
 ): Promise<string[]> {
-  let s3Objs = s3Objects.map(parseS3Object);
-  const s3ObjsToSign: [S3Object, number][] = s3Objs
+  baseUrl ??= getPublicBaseUrl();
+
+  const s3Objs = s3Objects.map(parseS3Object);
+
+  // Sign all S3 objects that need to be signed in one go
+  const s3ObjsToSign: (readonly [S3ObjectRecord, number])[] = s3Objs
     .map((s3Obj, index) => [s3Obj, index] as const)
     .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
+  if (s3ObjsToSign.length > 0) {
+    const signedS3Objs = await signS3Objects(
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+    );
+    for (let i = 0; i < s3ObjsToSign.length; i++) {
+      const [_, originalIndex] = s3ObjsToSign[i];
+      s3Objs[originalIndex] = parseS3Object(signedS3Objs[i]);
+    }
+  }
 
   const signedUrls: string[] = [];
-  for (const s3Object of s3Objects) {
+  for (const s3Obj of s3Objs) {
     const { s3, presigned, storage = "_default_" } = s3Obj;
-    baseUrl ??= getPublicBaseUrl();
     const signedUrl = `${baseUrl}/api/w/${getWorkspace()}/s3_proxy/${storage}/${s3}?${presigned}`;
     signedUrls.push(signedUrl);
   }
@@ -949,11 +961,11 @@ export async function getS3SignedPublicUrls(
  * @param s3Object s3 object to sign
  * @returns signed public URL
  */
-export async function getS3SignedPublicUrl(
+export async function getPresignedS3PublicUrl(
   s3Objects: S3Object,
   { baseUrl }: { baseUrl?: string } = {}
 ): Promise<string> {
-  const [s3Object] = await getS3SignedPublicUrls([s3Objects], { baseUrl });
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
   return s3Object;
 }
 
