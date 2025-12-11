@@ -2677,7 +2677,6 @@ impl PulledJobResult {
                     "Creating new version for dependency job triggered by relative import"
                 );
 
-                // TODO: clone values from runnable settings as well.
                 let new_id = match kind {
                     JobKind::Dependencies => {
                         let deployment_message = pulled_job
