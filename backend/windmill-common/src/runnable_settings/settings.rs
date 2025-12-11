@@ -95,10 +95,11 @@ impl RunnableSettings {
         super::RUNNABLE_SETTINGS_REFERENCES
             .get_or_insert_async(hash, async {
                 sqlx::query!(
-                    "INSERT INTO runnable_settings (debouncing_settings, concurrency_settings)
-                VALUES ($1, $2)
-                ON CONFLICT (debouncing_settings, concurrency_settings)
+                    "INSERT INTO runnable_settings (hash, debouncing_settings, concurrency_settings)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (hash)
                 DO NOTHING",
+                    hash,
                     self.debouncing_settings,
                     self.concurrency_settings
                 )
@@ -172,30 +173,30 @@ pub struct ConcurrencySettingsWithCustom {
 }
 
 impl DebouncingSettings {
-    pub async fn maybe_fallback(
+    pub fn maybe_fallback(
         self,
         debounce_key: Option<String>,
         debounce_delay_s: Option<i32>,
     ) -> Self {
-        if min_version_supports_runnable_settings_v0().await {
-            self
-        } else {
-            Self { debounce_key, debounce_delay_s, ..Default::default() }
+        Self {
+            debounce_key: self.debounce_key.or(debounce_key),
+            debounce_delay_s: self.debounce_delay_s.or(debounce_delay_s),
+            ..self
         }
     }
 }
 
 impl ConcurrencySettings {
-    pub async fn maybe_fallback(
+    pub fn maybe_fallback(
         self,
         concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
     ) -> Self {
-        if min_version_supports_runnable_settings_v0().await {
-            self
-        } else {
-            Self { concurrency_key, concurrent_limit, concurrency_time_window_s }
+        Self {
+            concurrency_key: self.concurrency_key.or(concurrency_key),
+            concurrent_limit: self.concurrent_limit.or(concurrent_limit),
+            concurrency_time_window_s: self.concurrency_time_window_s.or(concurrency_time_window_s),
         }
     }
 }

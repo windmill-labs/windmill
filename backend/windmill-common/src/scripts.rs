@@ -484,19 +484,15 @@ impl Script<ScriptRunnableSettingsHandle> {
             on_behalf_of_email: self.on_behalf_of_email,
             assets: self.assets,
             runnable_settings: ScriptRunnableSettingsInline {
-                concurrency_settings: concurrency_settings
-                    .maybe_fallback(
-                        self.runnable_settings.concurrency_key,
-                        self.runnable_settings.concurrent_limit,
-                        self.runnable_settings.concurrency_time_window_s,
-                    )
-                    .await,
-                debouncing_settings: debouncing_settings
-                    .maybe_fallback(
-                        self.runnable_settings.debounce_key,
-                        self.runnable_settings.debounce_delay_s,
-                    )
-                    .await,
+                concurrency_settings: concurrency_settings.maybe_fallback(
+                    self.runnable_settings.concurrency_key,
+                    self.runnable_settings.concurrent_limit,
+                    self.runnable_settings.concurrency_time_window_s,
+                ),
+                debouncing_settings: debouncing_settings.maybe_fallback(
+                    self.runnable_settings.debounce_key,
+                    self.runnable_settings.debounce_delay_s,
+                ),
             },
         })
     }
@@ -1017,19 +1013,15 @@ pub async fn clone_script<'c>(
         tag: s.tag,
         draft_only: s.draft_only,
         envs: s.envs,
-        concurrency_settings: concurrency_settings
-            .maybe_fallback(
-                s.runnable_settings.concurrency_key,
-                s.runnable_settings.concurrent_limit,
-                s.runnable_settings.concurrency_time_window_s,
-            )
-            .await,
-        debouncing_settings: debouncing_settings
-            .maybe_fallback(
-                s.runnable_settings.debounce_key,
-                s.runnable_settings.debounce_delay_s,
-            )
-            .await,
+        concurrency_settings: concurrency_settings.maybe_fallback(
+            s.runnable_settings.concurrency_key,
+            s.runnable_settings.concurrent_limit,
+            s.runnable_settings.concurrency_time_window_s,
+        ),
+        debouncing_settings: debouncing_settings.maybe_fallback(
+            s.runnable_settings.debounce_key,
+            s.runnable_settings.debounce_delay_s,
+        ),
         cache_ttl: s.cache_ttl,
         cache_ignore_s3_path: s.cache_ignore_s3_path,
         dedicated_worker: s.dedicated_worker,

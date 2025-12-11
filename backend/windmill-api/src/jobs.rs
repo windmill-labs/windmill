@@ -4684,7 +4684,6 @@ pub async fn run_workflow_as_code(
                         job.concurrent_limit,
                         job.concurrency_time_window_s,
                     )
-                    .await
                     .into(),
                 cache_ttl: job.cache_ttl,
                 cache_ignore_s3_path: job.cache_ignore_s3_path,

@@ -17,8 +17,7 @@ CREATE TABLE IF NOT EXISTS debouncing_settings(
 CREATE TABLE IF NOT EXISTS runnable_settings(
     hash               BIGINT PRIMARY KEY,
     debouncing_settings BIGINT DEFAULT NULL,
-    concurrency_settings BIGINT DEFAULT NULL,
-    UNIQUE(debouncing_settings, concurrency_settings)
+    concurrency_settings BIGINT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS job_settings(

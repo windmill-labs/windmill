@@ -403,15 +403,12 @@ pub async fn push_scheduled_job<'c>(
                     priority,
                     apply_preprocessor: false,
                     debouncing_settings: debouncing_settings
-                        .maybe_fallback(debounce_key, debounce_delay_s)
-                        .await,
-                    concurrency_settings: concurrency_settings
-                        .maybe_fallback(
-                            concurrency_key,
-                            concurrent_limit,
-                            concurrency_time_window_s,
-                        )
-                        .await,
+                        .maybe_fallback(debounce_key, debounce_delay_s),
+                    concurrency_settings: concurrency_settings.maybe_fallback(
+                        concurrency_key,
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    ),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

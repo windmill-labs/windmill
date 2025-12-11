@@ -1997,7 +1997,6 @@ pub struct MiniPulledJob {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-
 pub struct MiniCompletedJob {
     pub id: Uuid,
     pub workspace_id: String,
@@ -2252,7 +2251,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
+#[derive(sqlx::FromRow, Debug, Clone)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -2514,7 +2513,7 @@ pub async fn get_queued_job_v2<'c>(
     Ok(job)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,

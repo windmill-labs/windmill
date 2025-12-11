@@ -704,11 +704,9 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
                     self.runnable_settings.concurrency_key,
                     self.runnable_settings.concurrent_limit,
                     self.runnable_settings.concurrency_time_window_s,
-                )
-                .await,
+                ),
             debouncing_settings: debouncing_settings
-                .maybe_fallback(self.runnable_settings.debounce_key, self.runnable_settings.debounce_delay_s)
-                .await,
+                .maybe_fallback(self.runnable_settings.debounce_key, self.runnable_settings.debounce_delay_s),
             },
                 
         })
