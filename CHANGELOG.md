@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.591.3](https://github.com/windmill-labs/windmill/compare/v1.591.2...v1.591.3) (2025-12-11)
+
+
+### Bug Fixes
+
+* fix test up to step ([#7348](https://github.com/windmill-labs/windmill/issues/7348)) ([4337a88](https://github.com/windmill-labs/windmill/commit/4337a8810e7db874cd75006aacf4e4a85bc33836))
+* S3 SDK nits + Presigned S3 Public URL function ([#7342](https://github.com/windmill-labs/windmill/issues/7342)) ([2ee00b3](https://github.com/windmill-labs/windmill/commit/2ee00b3c7b0f7ba9a5997ec4474949500ff2c67b))
+
 ## [1.591.2](https://github.com/windmill-labs/windmill/compare/v1.591.1...v1.591.2) (2025-12-11)
 
 
