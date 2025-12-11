@@ -508,8 +508,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			const fileCount = Object.keys(files).length
 			toolCallbacks.setToolStatus(toolId, { content: `Retrieved ${fileCount} frontend files` })
 			return JSON.stringify(files, null, 2)
-		},
-		streamArguments: true
+		}
 	},
 	{
 		def: getSetFrontendFileToolDef(),
