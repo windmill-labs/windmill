@@ -331,6 +331,14 @@ async function signS3Object(s3object: S3Object): Promise<S3Object>
 \`\`\`
 
 \`\`\`typescript
+async function getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+\`\`\`
+
+\`\`\`typescript
+async function getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+\`\`\`
+
+\`\`\`typescript
 async function getIdToken(audience: string, expiresIn?: number): Promise<string>
 \`\`\`
 

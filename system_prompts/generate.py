@@ -16,6 +16,7 @@ Usage:
 import ast
 import os
 import re
+import shutil
 import yaml
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,9 @@ OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "sdks"
 OUTPUT_SCHEMAS_DIR = SCRIPT_DIR / "schemas"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "generated"
+
+# CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
+CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
 
 
 def extract_ts_functions(content: str) -> list[dict]:
@@ -529,12 +533,21 @@ export function getFlowPrompt(): string {
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
+    # Copy generated files to CLI guidance directory
+    print("Copying to CLI guidance directory...")
+    CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy(OUTPUT_GENERATED_DIR / "prompts.ts", CLI_GUIDANCE_DIR / "prompts.ts")
+    shutil.copy(OUTPUT_GENERATED_DIR / "index.ts", CLI_GUIDANCE_DIR / "index.ts")
+
     print(f"\nGenerated files:")
     print(f"  - sdks/typescript.md")
     print(f"  - sdks/python.md")
     print(f"  - schemas/openflow.md")
     print(f"  - generated/prompts.ts")
     print(f"  - generated/index.ts")
+    print(f"\nCopied to CLI:")
+    print(f"  - cli/src/guidance/prompts.ts")
+    print(f"  - cli/src/guidance/index.ts")
     print("\nDone!")
 
 
