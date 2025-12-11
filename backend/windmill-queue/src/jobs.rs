@@ -5792,6 +5792,7 @@ pub async fn get_same_worker_job(
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
                     v2_job_queue.cache_ignore_s3_path,
+                    v2_job_queue.runnable_settings_handle,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,
