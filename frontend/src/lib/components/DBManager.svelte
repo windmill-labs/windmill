@@ -127,7 +127,7 @@
 										onConfirm: async () => {
 											askingForConfirmation && (askingForConfirmation.loading = true)
 											try {
-												await dbSchemaOps.onDelete({ tableKey })
+												await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
 												refresh?.()
 												sendUserToast(`Table '${tableKey}' deleted successfully`)
 											} catch (e) {
