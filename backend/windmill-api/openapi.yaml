@@ -20658,21 +20658,13 @@ components:
     WorkspaceComparison:
       type: object
       required:
-        - source_workspace_id
-        - target_workspace_id
-        - is_fork
+        - skipped_comparison
         - diffs
         - summary
       properties:
-        source_workspace_id:
-          type: string
-          description: The ID of the source workspace
-        target_workspace_id:
-          type: string
-          description: The ID of the target workspace
-        is_fork:
+        skipped_comparison:
           type: boolean
-          description: Whether the workspaces have a parent-child relationship
+          description: Whether the comparison was skipped. This happens with old forks that where not being kept track of
         diffs:
           type: array
           description: List of differences found between workspaces

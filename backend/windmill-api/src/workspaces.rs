@@ -3975,14 +3975,12 @@ pub struct WorkspaceItemDiff {
 
 #[derive(Serialize)]
 pub struct WorkspaceComparison {
-    pub source_workspace_id: String,
-    pub target_workspace_id: String,
-    pub is_fork: bool,
+    pub skipped_comparison: bool,
     pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct CompareSummary {
     pub total_diffs: usize,
     pub total_ahead: usize,
@@ -4038,8 +4036,25 @@ async fn compare_workspaces(
     Path((source_workspace_id, fork_workspace_id)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> JsonResult<WorkspaceComparison> {
-    // Check permissions for source workspace
     require_admin(authed.is_admin, &authed.username)?;
+
+    let skipped_comparison: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM skip_workspace_diff_tally
+            WHERE workspace_id = $1
+        )",
+    )
+    .bind(&fork_workspace_id)
+    .fetch_one(&db)
+    .await?;
+
+    if skipped_comparison {
+        return Ok(Json(WorkspaceComparison {
+            skipped_comparison,
+            diffs: vec![],
+            summary: Default::default(),
+        }));
+    }
 
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
@@ -4049,18 +4064,6 @@ async fn compare_workspaces(
         fork_workspace_id,
     )
     .fetch_all(&db)
-    .await?;
-
-    let is_fork: bool = sqlx::query_scalar(
-        "SELECT EXISTS(
-            SELECT 1 FROM workspace
-            WHERE (id = $1 AND parent_workspace_id = $2)
-               OR (id = $2 AND parent_workspace_id = $1)
-        )",
-    )
-    .bind(&fork_workspace_id)
-    .bind(&source_workspace_id)
-    .fetch_one(&db)
     .await?;
 
     let mut confirmed_diffs = vec![];
@@ -4073,17 +4076,25 @@ async fn compare_workspaces(
         }
 
         let item_comparison = match item.kind.as_str() {
-            "script" => {
-                Some(compare_two_scripts(&db,  &source_workspace_id, &fork_workspace_id, &item.path).await?)
-            }
-            "flow" => Some(compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?),
-            "app" => Some(compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?),
-            "resource" => {
-                Some(compare_two_resources(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?)
-            }
-            "variable" => {
-                Some(compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?)
-            }
+            "script" => Some(
+                compare_two_scripts(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "flow" => Some(
+                compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "app" => Some(
+                compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
+            ),
+            "resource" => Some(
+                compare_two_resources(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "variable" => Some(
+                compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 Some(ItemComparison {
@@ -4165,9 +4176,7 @@ async fn compare_workspaces(
     };
 
     return Ok(Json(WorkspaceComparison {
-        source_workspace_id: fork_workspace_id.to_string(),
-        target_workspace_id: source_workspace_id,
-        is_fork,
+        skipped_comparison: false,
         diffs: confirmed_diffs,
         summary,
     }));

@@ -3,7 +3,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { Button } from './common'
-	import { GitBranch, AlertTriangle } from 'lucide-svelte'
+	import { GitBranch, AlertTriangle, GitFork } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
@@ -11,11 +11,11 @@
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 	let error: string | undefined = $state(undefined)
-	let isVisible = $state(false)
 
 	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
+	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
 
 	$effect(() => {
 		;[$workspaceStore, parentWorkspaceId]
@@ -23,7 +23,6 @@
 			if (isFork && $workspaceStore) {
 				checkForChanges()
 			} else {
-				isVisible = false
 				comparison = undefined
 			}
 		})
@@ -33,7 +32,6 @@
 		if (isFork && $workspaceStore) {
 			checkForChanges()
 		} else {
-			isVisible = false
 			comparison = undefined
 		}
 	})
@@ -54,12 +52,10 @@
 			})
 
 			comparison = result
-			isVisible = result.summary.total_diffs > 0
 		} catch (e) {
 			console.error('Failed to compare workspaces:', e)
 			error = 'Failed to check for changes'
 			// Still show banner if there's an error, but with error message
-			isVisible = true
 		} finally {
 			loading = false
 		}
@@ -76,7 +72,6 @@
 	function forkAheadBehindMessage(
 		changesAhead: number,
 		changesBehind: number,
-		itemsChanged: number
 	) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
@@ -96,15 +91,15 @@
 		<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
 	</div>
 {/if}
-{#if isVisible && isFork}
+{#if isFork}
 	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
 		<div class="px-4 py-2">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
-					<GitBranch class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+					<GitFork class="w-4 h-4 text-blue-600 dark:text-blue-400" />
 					<div class="text-sm">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
-							Fork of {parentWorkspaceId}
+							Fork of <b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
 						</span>
 					</div>
 
@@ -121,7 +116,6 @@
 									{forkAheadBehindMessage(
 										comparison.summary.total_ahead,
 										comparison.summary.total_behind,
-										comparison.summary.total_diffs
 									)}
 									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison.summary
 										.total_diffs} items:
@@ -178,8 +172,10 @@
 										>
 									</div>
 								{/if}
+							{:else if comparison.skipped_comparison}
+								<span class="text-blue-600 dark:text-blue-400"> This fork was created before the addition of certain windmill features, and therefore the changes with its parent workspace cannot be displayed.</span>
 							{:else}
-								<span class="text-blue-600 dark:text-blue-400"> No changes to deploy </span>
+								<span class="text-blue-600 dark:text-blue-400"> Everything is up to date </span>
 							{/if}
 						</div>
 					{/if}
