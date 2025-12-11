@@ -80,7 +80,7 @@
 			js: string
 			css: string
 		}>
-		historyDrawerOpen?: boolean
+		historyPaneOpen?: boolean
 		hasHistoryEntries?: boolean
 		canUndo?: boolean
 		canRedo?: boolean
@@ -102,7 +102,7 @@
 		jobs = $bindable(),
 		jobsById = $bindable(),
 		getBundle,
-		historyDrawerOpen = $bindable(false),
+		historyPaneOpen = $bindable(false),
 		hasHistoryEntries = false,
 		canUndo = false,
 		canRedo = false,
@@ -721,6 +721,21 @@
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />
+		<div></div>
+		<Button
+			selected={historyPaneOpen}
+			size="xs"
+			color="light"
+			startIcon={{ icon: History }}
+			on:click={() => (historyPaneOpen = !historyPaneOpen)}
+			btnClasses={hasHistoryEntries ? 'relative' : ''}
+		></Button>
+		<UndoRedo
+			undoProps={{ disabled: !canUndo }}
+			redoProps={{ disabled: !canRedo }}
+			on:undo={() => onUndo?.()}
+			on:redo={() => onRedo?.()}
+		/>
 	</div>
 
 	<div class=" flex">
@@ -760,30 +775,6 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<UndoRedo
-			undoProps={{ disabled: !canUndo }}
-			redoProps={{ disabled: !canRedo }}
-			on:undo={() => onUndo?.()}
-			on:redo={() => onRedo?.()}
-		/>
-
-		<Button
-			size="xs"
-			color="light"
-			startIcon={{ icon: History }}
-			on:click={() => (historyDrawerOpen = !historyDrawerOpen)}
-			btnClasses={hasHistoryEntries ? 'relative' : ''}
-		>
-			History
-			{#if hasHistoryEntries}
-				<span class="absolute -top-1 -right-1 flex h-2 w-2">
-					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"
-					></span>
-					<span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-				</span>
-			{/if}
-		</Button>
-
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
 				<Button nonCaptureEvent size="xs" color="light">

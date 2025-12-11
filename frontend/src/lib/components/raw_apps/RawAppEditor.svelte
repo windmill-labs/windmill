@@ -78,7 +78,7 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
-	let historyDrawerOpen = $state(false)
+	let historyPaneOpen = $state(false)
 	let previewIndex = $state<number | undefined>(undefined)
 
 	let draftTimeout: number | undefined = undefined
@@ -581,7 +581,7 @@
 		{files}
 		{runnables}
 		{getBundle}
-		bind:historyDrawerOpen
+		bind:historyPaneOpen
 		hasHistoryEntries={historyManager.hasEntries}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
@@ -590,7 +590,7 @@
 	/>
 
 	<Splitpanes id="o2" class="grow">
-		{#if historyDrawerOpen}
+		{#if historyPaneOpen}
 			<Pane size={20} minSize={15} maxSize={30}>
 				<RawAppHistorySidebar
 					{historyManager}
@@ -660,7 +660,10 @@
 				{/if}
 			{/if}
 
-			<div class="h-full w-full" style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}">
+			<div
+				class="h-full w-full"
+				style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}"
+			>
 				<iframe
 					bind:this={iframe}
 					title="UI builder"
