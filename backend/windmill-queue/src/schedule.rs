@@ -321,10 +321,10 @@ pub async fn push_scheduled_job<'c>(
         let (
             hash,
             tag,
-            custom_concurrency_key,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
+            debounce_key,
             debounce_delay_s,
             cache_ttl,
             cache_ignore_s3_path,
@@ -403,11 +403,11 @@ pub async fn push_scheduled_job<'c>(
                     priority,
                     apply_preprocessor: false,
                     debouncing_settings: debouncing_settings
-                        .maybe_fallback(custom_debounce_key, debounce_delay_s)
+                        .maybe_fallback(debounce_key, debounce_delay_s)
                         .await,
                     concurrency_settings: concurrency_settings
                         .maybe_fallback(
-                            custom_concurrency_key,
+                            concurrency_key,
                             concurrent_limit,
                             concurrency_time_window_s,
                         )

@@ -13,7 +13,7 @@ use crate::{error, make_static};
 
 lazy_static::lazy_static! {
     static ref WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: bool = std::env::var("WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0").is_ok();
-    pub static ref MIN_VERSION_RUNNABLE_SETTINGS_V0: semver::Version = semver::Version::new(1, 591, 0);
+    pub static ref MIN_VERSION_RUNNABLE_SETTINGS_V0: semver::Version = semver::Version::new(1, 592, 0);
 }
 
 pub async fn min_version_supports_runnable_settings_v0() -> bool {
