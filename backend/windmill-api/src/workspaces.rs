@@ -4048,20 +4048,6 @@ async fn update_operator_settings(
     Ok("Operator settings updated successfully".to_string())
 }
 
-#[derive(Serialize, Debug, Clone, Default)]
-pub struct WorkspaceItemDiff {
-    pub kind: String,
-    pub path: String,
-    pub versions_ahead: i32,
-    pub versions_behind: i32,
-    pub has_changes: bool,
-    pub source_hash: Option<String>,
-    pub target_hash: Option<String>,
-    pub source_version: Option<i64>,
-    pub target_version: Option<i64>,
-    pub metadata_changes: Vec<String>,
-}
-
 #[derive(Serialize)]
 pub struct WorkspaceComparison {
     pub all_ahead_items_visible: bool,
