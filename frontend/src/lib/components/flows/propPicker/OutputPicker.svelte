@@ -122,7 +122,7 @@
 	}}
 >
 	<!-- Invisible hover area to maintain consistent height -->
-	<div class="absolute w-full h-[18px]"></div>
+	<div class="absolute w-full h-[20px]"></div>
 	<div
 		class={twMerge(
 			'absolute w-full top-1',

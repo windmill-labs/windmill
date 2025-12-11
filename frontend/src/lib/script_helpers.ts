@@ -323,7 +323,7 @@ const DUCKDB_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- SELECT * FROM db.public.friends;
 
 -- Click the +Ducklake button to use a ducklake
--- https://www.windmill.dev/docs/core_concepts/ducklake
+-- https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake
 --
 -- ATTACH 'ducklake' AS dl;
 -- USE dl;
