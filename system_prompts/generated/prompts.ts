@@ -31,6 +31,8 @@ The preprocessor receives a single parameter called \`event\`.
 
 export const FLOW_BASE = `# Windmill Flow Building Guide
 
+The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow structure. Refer to OPENFLOW_SCHEMA for the complete type definitions.
+
 ## Reserved Module IDs
 
 - \`failure\` - Reserved for failure handler module
@@ -61,852 +63,1185 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 
 Every rawscript module needs \`input_transforms\` to map function parameters to values:
 
-### Static Transform
-Fixed value passed directly:
-\`\`\`json
-{
-  "param_name": {
-    "type": "static",
-    "value": "fixed_string"
-  }
-}
-\`\`\`
+Static transform (fixed value):
+{"param_name": {"type": "static", "value": "fixed_string"}}
 
-### JavaScript Transform
-Dynamic expression evaluated at runtime:
-\`\`\`json
-{
-  "param_name": {
-    "type": "javascript",
-    "expr": "results.previous_step.data"
-  }
-}
-\`\`\`
-
-## Module Types
-
-### RawScript
-Inline script code with language specification:
-- Requires \`type: "rawscript"\`, \`language\`, \`content\`, and \`input_transforms\`
-
-### PathScript
-Reference to an existing script:
-- Requires \`type: "script"\` and \`path\`
-- Optionally \`hash\` for specific version
-
-### PathFlow
-Reference to a sub-workflow:
-- Requires \`type: "flow"\` and \`path\`
-
-### ForLoopFlow
-Iterate over an array:
-- Requires \`type: "forloopflow"\`, \`iterator\`, and \`modules\`
-- Access current item with \`flow_input.iter.value\`
-- Access current index with \`flow_input.iter.index\`
-- Optional: \`parallel\`, \`parallelism\`, \`skip_failures\`
-
-### WhileLoopFlow
-Loop until condition is false:
-- Requires \`type: "whileloopflow"\` and \`modules\`
-- Last step should return boolean to continue/stop
-
-### BranchOne
-Execute first matching branch (if/else):
-- Requires \`type: "branchone"\`, \`branches\` array, and optional \`default\`
-- Each branch has \`expr\` (JavaScript condition) and \`modules\`
-
-### BranchAll
-Execute all branches (parallel or sequential):
-- Requires \`type: "branchall"\` and \`branches\` array
-- Optional: \`parallel\` to run concurrently
-
-### Identity
-Pass-through module (no-op):
-- Requires \`type: "identity"\`
+JavaScript transform (dynamic expression):
+{"param_name": {"type": "javascript", "expr": "results.previous_step.data"}}
 
 ## Resource References
 
 - For flow inputs: Use type \`"object"\` with format \`"resource-{type}"\` (e.g., \`"resource-postgresql"\`)
 - For step inputs: Use static value \`"$res:path/to/resource"\`
 
-## Special Modules
+## Failure Handler
 
-### Failure Handler
 Executes when any step fails. Has access to error details:
 - \`error.message\` - Error message
 - \`error.step_id\` - ID of failed step
 - \`error.name\` - Error name
 - \`error.stack\` - Stack trace
-
-### Preprocessor Module
-Runs before the first step, transforms flow inputs.
 `;
 
 export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 
-Import: \`import * as wmill from 'windmill-client'\`
-
-## Functions
-
-### Scripts & Flows
-
-\`\`\`typescript
-async function runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function waitJob(jobId: string, verbose: boolean = false): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function getResult(jobId: string): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function getResultMaybe(jobId: string): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
-\`\`\`
-
-### Variables
-
-\`\`\`typescript
-async function getVariable(path: string): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
-\`\`\`
-
-### Resources
-
-\`\`\`typescript
-async function getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
-\`\`\`
-
-### State
-
-\`\`\`typescript
-async function setState(state: any): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function getState(): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-function getStatePath(): string
-\`\`\`
-
-### S3 Operations
-
-\`\`\`typescript
-async function loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
-\`\`\`
-
-\`\`\`typescript
-async function loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
-\`\`\`
-
-\`\`\`typescript
-async function writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
-\`\`\`
-
-### Progress & Logging
-
-\`\`\`typescript
-async function setProgress(percent: number, jobId?: any): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function getProgress(jobId?: any): Promise<number | null>
-\`\`\`
-
-### Approval & Resume
-
-\`\`\`typescript
-async function getResumeUrls(approver?: string): Promise<
-\`\`\`
-
-\`\`\`typescript
-function getResumeEndpoints(approver?: string): Promise<
-\`\`\`
-
-### Utilities
-
-\`\`\`typescript
-async function getRootJobId(jobId?: string): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-function getWorkspace(): string
-\`\`\`
-
-### Other
-
-\`\`\`typescript
-async function streamResult(stream: AsyncIterable<string>): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function resolveDefaultResource(obj: any): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function setInternalState(state: any): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function setSharedState(// state: any, // path = "state.json" //): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function getSharedState(path = "state.json"): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function getInternalState(): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function databaseUrlFromResource(path: string): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-\`\`\`
-
-\`\`\`typescript
-async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
-\`\`\`
-
-\`\`\`typescript
-async function signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
-\`\`\`
-
-\`\`\`typescript
-async function signS3Object(s3object: S3Object): Promise<S3Object>
-\`\`\`
-
-\`\`\`typescript
-async function getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
-\`\`\`
-
-\`\`\`typescript
-async function getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function getIdToken(audience: string, expiresIn?: number): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function usernameToEmail(username: string): Promise<string>
-\`\`\`
-
-\`\`\`typescript
-async function requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, }: SlackApprovalOptions): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-async function requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
-\`\`\`
-
-\`\`\`typescript
-function setClient(token?: string, baseUrl?: string): void
-\`\`\`
-
-\`\`\`typescript
-function appendToResultStream(text: string): void
-\`\`\`
-
-\`\`\`typescript
-function base64ToUint8Array(data: string): Uint8Array
-\`\`\`
-
-\`\`\`typescript
-function uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-\`\`\`
-
-\`\`\`typescript
-function parseS3Object(s3Object: S3Object): S3ObjectRecord
-\`\`\`
-
-## Types
-
-\`\`\`typescript
-type Sql = string
-\`\`\`
-
-\`\`\`typescript
-type Email = string
-\`\`\`
-
-\`\`\`typescript
-type Base64 = string
-\`\`\`
-
+Import: import * as wmill from 'windmill-client'
+
+async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
+async getRootJobId(jobId?: string): Promise<string>
+async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async streamResult(stream: AsyncIterable<string>): Promise<void>
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async waitJob(jobId: string, verbose: boolean = false): Promise<any>
+async getResult(jobId: string): Promise<any>
+async getResultMaybe(jobId: string): Promise<any>
+async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+async resolveDefaultResource(obj: any): Promise<any>
+async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
+async setInternalState(state: any): Promise<void>
+async setState(state: any): Promise<void>
+async setProgress(percent: number, jobId?: any): Promise<void>
+async getProgress(jobId?: any): Promise<number | null>
+async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
+async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
+async setSharedState(// state: any, // path = "state.json" //): Promise<void>
+async getSharedState(path = "state.json"): Promise<any>
+async getInternalState(): Promise<any>
+async getState(): Promise<any>
+async getVariable(path: string): Promise<string>
+async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
+async databaseUrlFromResource(path: string): Promise<string>
+async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Object(s3object: S3Object): Promise<S3Object>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getResumeUrls(approver?: string): Promise<
+async getIdToken(audience: string, expiresIn?: number): Promise<string>
+async usernameToEmail(username: string): Promise<string>
+async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, }: SlackApprovalOptions): Promise<void>
+async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
+setClient(token?: string, baseUrl?: string): void
+getWorkspace(): string
+appendToResultStream(text: string): void
+getStatePath(): string
+getResumeEndpoints(approver?: string): Promise<
+base64ToUint8Array(data: string): Uint8Array
+uint8ArrayToBase64(arrayBuffer: Uint8Array): string
+parseS3Object(s3Object: S3Object): S3ObjectRecord
 `;
 
 export const SDK_PYTHON = `# Python SDK (wmill)
 
-Import: \`import wmill\`
+Import: import wmill
 
-## Module Functions
-
-These functions use a global client instance automatically initialized from environment variables.
-
-\`\`\`python
+def init_global_client(f)
+def deprecate(in_favor_of: str)
+def get_workspace() -> str
+def get_root_job_id(job_id: str | None = None) -> str
+def get_version() -> str
 def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None) -> str
-\`\`\`
-
-\`\`\`python
 def run_flow_async(path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
-\`\`\`
-
-\`\`\`python
+def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_by_path_async(path: str, args: Dict[str, Any] = None, scheduled_in_secs: Union[None, int] = None) -> str
+def run_script_by_hash_async(hash_: str, args: Dict[str, Any] = None, scheduled_in_secs: Union[None, int] = None) -> str
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def get_id_token(audience: str) -> str
 def get_job_status(job_id: str) -> JobStatus
-\`\`\`
-
-\`\`\`python
 def get_result(job_id: str, assert_result_is_not_none = True) -> Dict[str, Any]
-\`\`\`
-
-\`\`\`python
 def duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings
-\`\`\`
-Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-
-\`\`\`python
 def polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
-\`\`\`
-Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-
-\`\`\`python
 def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
-\`\`\`
-Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-
-\`\`\`python
 def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes
-\`\`\`
-Load the entire content of a file stored in S3 as bytes
-
-\`\`\`python
 def load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None = None) -> BufferedReader
-\`\`\`
-Load the content of a file stored in S3
-
-\`\`\`python
 def write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None = None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object
-\`\`\`
-Upload a file to S3
-
-\`\`\`python
+def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
 def whoami() -> dict
-\`\`\`
-Returns the current user
-
-\`\`\`python
 def get_state() -> Any
-\`\`\`
-Get the state
-
-\`\`\`python
 def get_resource(path: str, none_if_undefined: bool = False) -> dict | None
-\`\`\`
-Get resource from Windmill
-
-\`\`\`python
 def set_resource(path: str, value: Any, resource_type: str = 'any') -> None
-\`\`\`
-Set the resource at a given path as a string, creating it if it does not exist
-
-\`\`\`python
 def list_resources(resource_type: str = None, page: int = None, per_page: int = None) -> list[dict]
-\`\`\`
-List resources from Windmill workspace.
-
-\`\`\`python
 def set_state(value: Any) -> None
-\`\`\`
-Set the state
-
-\`\`\`python
 def set_progress(value: int, job_id: Optional[str] = None) -> None
-\`\`\`
-Set the progress
-
-\`\`\`python
 def get_progress(job_id: Optional[str] = None) -> Any
-\`\`\`
-Get the progress
-
-\`\`\`python
+def set_shared_state_pickle(value: Any, path = 'state.pickle') -> None
+def get_shared_state_pickle(path = 'state.pickle') -> Any
+def set_shared_state(value: Any, path = 'state.json') -> None
+def get_shared_state(path = 'state.json') -> None
 def get_variable(path: str) -> str
-\`\`\`
-Returns the variable at a given path as a string
-
-\`\`\`python
 def set_variable(path: str, value: str, is_secret: bool = False) -> None
-\`\`\`
-Set the variable at a given path as a string, creating it if it does not exist
-
-\`\`\`python
 def get_flow_user_state(key: str) -> Any
-\`\`\`
-Get the user state of a flow at a given key
-
-\`\`\`python
 def set_flow_user_state(key: str, value: Any) -> None
-\`\`\`
-Set the user state of a flow at a given key
-
-\`\`\`python
+def get_state_path() -> str
 def get_resume_urls(approver: str = None) -> dict
-\`\`\`
-
-\`\`\`python
+def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
+def send_teams_message(conversation_id: str, text: str, success: bool, card_block: dict = None)
 def cancel_job(job_id: str, reason: str = None) -> str
-\`\`\`
-Cancel a specific job by ID.
-
-\`\`\`python
+def cancel_running() -> dict
+def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
-\`\`\`
-Run script by path synchronously and return its result.
-
-\`\`\`python
 def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
-\`\`\`
-Run script by hash synchronously and return its result.
-
-\`\`\`python
+def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 def username_to_email(username: str) -> str
-\`\`\`
-Get email from workspace username
-
-\`\`\`python
+def datatable(name: str = 'main') -> DataTableClient
+def ducklake(name: str = 'main') -> DucklakeClient
+def task(*args, **kwargs)
+def parse_resource_syntax(s: str) -> Optional[str]
+def parse_s3_object(s3_object: S3Object | str) -> S3Object
+def parse_variable_syntax(s: str) -> Optional[str]
+def append_to_result_stream(text: str) -> None
+def stream_result(stream) -> None
+def infer_sql_type(value) -> str
+def get_mocked_api() -> Optional[dict]
+def get_client() -> httpx.Client
+def get(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
+def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
+def create_token(duration = dt.timedelta(days=1)) -> str
 def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str
-\`\`\`
-Create a script job and return its job id.
-
-\`\`\`python
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None) -> str
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
-\`\`\`
-Create a flow job and return its job id.
-
-\`\`\`python
+def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
-\`\`\`
-Run script by path synchronously and return its result.
-
-\`\`\`python
 def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
-\`\`\`
-Run script by hash synchronously and return its result.
-
-\`\`\`python
+def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 def wait_job(job_id, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False)
-\`\`\`
-
-\`\`\`python
 def cancel_job(job_id: str, reason: str = None) -> str
-\`\`\`
-Cancel a specific job by ID.
-
-\`\`\`python
+def cancel_running() -> dict
+def get_job(job_id: str) -> dict
+def get_root_job_id(job_id: str | None = None) -> dict
+def get_id_token(audience: str, expires_in: int | None = None) -> str
 def get_job_status(job_id: str) -> JobStatus
-\`\`\`
-
-\`\`\`python
 def get_result(job_id: str, assert_result_is_not_none: bool = True) -> Any
-\`\`\`
-
-\`\`\`python
 def get_variable(path: str) -> str
-\`\`\`
-
-\`\`\`python
 def set_variable(path: str, value: str, is_secret: bool = False) -> None
-\`\`\`
-
-\`\`\`python
 def get_resource(path: str, none_if_undefined: bool = False) -> dict | None
-\`\`\`
-
-\`\`\`python
 def set_resource(value: Any, path: str, resource_type: str)
-\`\`\`
-
-\`\`\`python
 def list_resources(resource_type: str = None, page: int = None, per_page: int = None) -> list[dict]
-\`\`\`
-List resources from Windmill workspace.
-
-\`\`\`python
 def set_state(value: Any)
-\`\`\`
-
-\`\`\`python
 def set_progress(value: int, job_id: Optional[str] = None)
-\`\`\`
-
-\`\`\`python
 def get_progress(job_id: Optional[str] = None) -> Any
-\`\`\`
-
-\`\`\`python
 def set_flow_user_state(key: str, value: Any) -> None
-\`\`\`
-Set the user state of a flow at a given key
-
-\`\`\`python
 def get_flow_user_state(key: str) -> Any
-\`\`\`
-Get the user state of a flow at a given key
-
-\`\`\`python
+def version()
+def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
+def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
+def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None) -> bytes
-\`\`\`
-Load a file from the workspace s3 bucket and returns its content as bytes.
-
-\`\`\`python
 def load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None) -> BufferedReader
-\`\`\`
-Load a file from the workspace s3 bucket and returns the bytes stream.
-
-\`\`\`python
 def write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object
-\`\`\`
-Write a file to the workspace S3 bucket
-
-\`\`\`python
+def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
 def whoami() -> dict
-\`\`\`
-
-\`\`\`python
+def user() -> dict
+def state_path() -> str
+def state() -> Any
+def state(value: Any) -> None
+def set_shared_state_pickle(value: Any, path: str = 'state.pickle') -> None
+def get_shared_state_pickle(path: str = 'state.pickle') -> Any
+def set_shared_state(value: Any, path: str = 'state.json') -> None
+def get_shared_state(path: str = 'state.json') -> None
 def get_resume_urls(approver: str = None) -> dict
-\`\`\`
-
-\`\`\`python
+def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 def username_to_email(username: str) -> str
-\`\`\`
-Get email from workspace username
-
-\`\`\`python
+def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
+def datatable(name: str = 'main')
+def ducklake(name: str = 'main')
+def wrapper(*args, **kwargs)
+def decorator(f)
+def f(func, tag: str | None = None)
+def query(sql: str, *args)
+def query(sql: str, **kwargs)
+def fetch(result_collection: str | None = None)
+def fetch_one()
 def cancel_job()
-\`\`\`
-
-## Windmill Class
-
-For more control, instantiate the Windmill class directly:
-
-\`\`\`python
-from wmill import Windmill
-
-client = Windmill()
-\`\`\`
-
-### Key Methods
-
-- \`__init__()\` - 
-- \`get_mocked_api()\` - 
-- \`get_client()\` - 
-- \`get()\` - 
-- \`post()\` - 
-- \`create_token()\` - 
-- \`run_script_async()\` - Create a script job and return its job id.
-- \`run_script_by_path_async()\` - Create a script job by path and return its job id.
-- \`run_script_by_hash_async()\` - Create a script job by hash and return its job id.
-- \`run_flow_async()\` - Create a flow job and return its job id.
-- \`run_script()\` - Run script synchronously and return its result.
-- \`run_script_by_path()\` - Run script by path synchronously and return its result.
-- \`run_script_by_hash()\` - Run script by hash synchronously and return its result.
-- \`run_inline_script_preview()\` - Run a script on the current worker without creating a job
-- \`wait_job()\` - 
-- \`cancel_job()\` - Cancel a specific job by ID.
-- \`cancel_running()\` - Cancel currently running executions of the same script.
-- \`get_job()\` - 
-- \`get_root_job_id()\` - 
-- \`get_id_token()\` - 
-
-## Types
-
-\`\`\`python
-from wmill import S3Object
-
-# S3Object is a TypedDict with 's3' key for the path
-s3obj = S3Object(s3="path/to/file.txt")
-\`\`\`
-
+def wrapper(*args, **kwargs)
+def inner(*args, **kwargs)
+def inner(*args, **kwargs)
 `;
 
-export const OPENFLOW_SCHEMA = `# OpenFlow Schema
-
-The OpenFlow schema defines the structure of Windmill flows.
-
-## OpenFlow
-
-Top-level flow definition containing metadata, configuration, and the flow structure
-
-**Properties:**
-
-- \`summary\`: string (required) - Short description of what this flow does
-- \`description\`: string - Detailed documentation for this flow
-- \`value\`: FlowValue (required)
-- \`schema\`: object - JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
-
-## FlowValue
-
-The flow structure containing modules and optional preprocessor/failure handlers
-
-**Properties:**
-
-- \`modules\`: array (required) - Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch
-- \`failure_module\`: FlowModule - Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types
-- \`preprocessor_module\`: FlowModule - Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results
-- \`same_worker\`: boolean - If true, all steps run on the same worker for better performance
-- \`concurrent_limit\`: number - Maximum number of concurrent executions of this flow
-- \`concurrency_key\`: string - Expression to group concurrent executions (e.g., by user ID)
-- \`concurrency_time_window_s\`: number - Time window in seconds for concurrent_limit
-- \`debounce_delay_s\`: number - Delay in seconds to debounce flow executions
-- \`debounce_key\`: string - Expression to group debounced executions
-- \`skip_expr\`: string - JavaScript expression to conditionally skip the entire flow
-- \`cache_ttl\`: number - Cache duration in seconds for flow results
-- \`cache_ignore_s3_path\`: boolean
-- \`flow_env\`: object - Environment variables available to all steps
-- \`priority\`: number - Execution priority (higher numbers run first)
-- \`early_return\`: string - JavaScript expression to return early from the flow
-- \`chat_input_enabled\`: boolean - Whether this flow accepts chat-style input
-- \`notes\`: array - Sticky notes attached to the flow
-
-## FlowModule
-
-A single step in a flow. Can be a script, subflow, loop, or branch
-
-**Properties:**
-
-- \`id\`: string (required) - Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)
-- \`value\`: FlowModuleValue (required)
-- \`stop_after_if\`: StopAfterIf - Early termination condition evaluated after this step completes
-- \`stop_after_all_iters_if\`: StopAfterIf - For loops only - early termination condition evaluated after all iterations complete
-- \`skip_if\`: object - Conditionally skip this step based on previous results or flow inputs
-- \`sleep\`: InputTransform - Delay before executing this step (in seconds or as expression)
-- \`cache_ttl\`: number - Cache duration in seconds for this step's results
-- \`cache_ignore_s3_path\`: boolean
-- \`timeout\`: InputTransform - Maximum execution time in seconds (static value or expression)
-- \`delete_after_use\`: boolean - If true, this step's result is deleted after use to save memory
-- \`summary\`: string - Short description of what this step does
-- \`mock\`: object - Mock configuration for testing without executing the actual step
-- \`suspend\`: object - Configuration for approval/resume steps that wait for user input
-- \`priority\`: number - Execution priority for this step (higher numbers run first)
-- \`continue_on_error\`: boolean - If true, flow continues even if this step fails
-- \`retry\`: Retry - Retry configuration if this step fails
-
-## FlowModuleValue
-
-The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type
-
-**One of:**
-
-- RawScript
-- PathScript
-- PathFlow
-- ForloopFlow
-- WhileloopFlow
-- BranchOne
-- BranchAll
-- Identity
-- AiAgent
-
-## InputTransform
-
-Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs
-
-**One of:**
-
-- StaticTransform
-- JavascriptTransform
-
-## StaticTransform
-
-Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'
-
-**Properties:**
-
-- \`value\`:  - The static value. For resources, use format '$res:path/to/resource'
-- \`type\`: string (required)
-
-## JavascriptTransform
-
-JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value
-
-**Properties:**
-
-- \`expr\`: string (required) - JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)
-- \`type\`: string (required)
-
-## RawScript
-
-Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms
-
-**Properties:**
-
-- \`input_transforms\`: object (required) - Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
-- \`content\`: string (required) - The script source code. Should export a 'main' function
-- \`language\`: string (required) - Programming language for this script
-- \`path\`: string - Optional path for saving this script
-- \`lock\`: string - Lock file content for dependencies
-- \`type\`: string (required)
-- \`tag\`: string - Worker group tag for execution routing
-- \`concurrent_limit\`: number - Maximum concurrent executions of this script
-- \`concurrency_time_window_s\`: number - Time window for concurrent_limit
-- \`custom_concurrency_key\`: string - Custom key for grouping concurrent executions
-- \`is_trigger\`: boolean - If true, this script is a trigger that can start the flow
-- \`assets\`: array - External resources this script accesses (S3 objects, resources, etc.)
-
-## PathScript
-
-Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code
-
-**Properties:**
-
-- \`input_transforms\`: object (required) - Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
-- \`path\`: string (required) - Path to the script in the workspace (e.g., 'f/scripts/send_email')
-- \`hash\`: string - Optional specific version hash of the script to use
-- \`type\`: string (required)
-- \`tag_override\`: string - Override the script's default worker group tag
-- \`is_trigger\`: boolean - If true, this script is a trigger that can start the flow
-
-## PathFlow
-
-Reference to an existing flow by path. Use this to call another flow as a subflow
-
-**Properties:**
-
-- \`input_transforms\`: object (required) - Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments
-- \`path\`: string (required) - Path to the flow in the workspace (e.g., 'f/flows/process_user')
-- \`type\`: string (required)
-
-## ForloopFlow
-
-Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations
-
-**Properties:**
-
-- \`modules\`: array (required) - Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'
-- \`iterator\`: InputTransform (required) - JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'
-- \`skip_failures\`: boolean (required) - If true, iteration failures don't stop the loop. Failed iterations return null
-- \`type\`: string (required)
-- \`parallel\`: boolean - If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency
-- \`parallelism\`: InputTransform - Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression
-- \`squash\`: boolean
-
-## WhileloopFlow
-
-Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination
-
-**Properties:**
-
-- \`modules\`: array (required) - Steps to execute in each iteration. Use stop_after_if to control when the loop ends
-- \`skip_failures\`: boolean (required) - If true, iteration failures don't stop the loop. Failed iterations return null
-- \`type\`: string (required)
-- \`parallel\`: boolean - If true, iterations run concurrently (use with caution in while loops)
-- \`parallelism\`: InputTransform - Maximum number of concurrent iterations when parallel=true
-- \`squash\`: boolean
-
-## BranchOne
-
-Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes
-
-**Properties:**
-
-- \`branches\`: array (required) - Array of branches to evaluate in order. The first branch with expr evaluating to true executes
-- \`default\`: array (required) - Steps to execute if no branch expressions match
-- \`type\`: string (required)
-
-## BranchAll
-
-Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently
-
-**Properties:**
-
-- \`branches\`: array (required) - Array of branches that all execute (either in parallel or sequentially)
-- \`type\`: string (required)
-- \`parallel\`: boolean - If true, all branches execute concurrently. If false, they execute sequentially
-
-## Identity
-
-Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder
-
-**Properties:**
-
-- \`type\`: string (required)
-- \`flow\`: boolean - If true, marks this as a flow identity (special handling)
-
-## Retry
-
-Retry configuration for failed module executions
-
-**Properties:**
-
-- \`constant\`: object - Retry with constant delay between attempts
-- \`exponential\`: object - Retry with exponential backoff (delay doubles each time)
-- \`retry_if\`: RetryIf
-
-## StopAfterIf
-
-Early termination condition for a module
-
-**Properties:**
-
-- \`skip_if_stopped\`: boolean - If true, following steps are skipped when this condition triggers
-- \`expr\`: string (required) - JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop
-- \`error_message\`: string - Custom error message shown when stopping
-
+export const OPENFLOW_SCHEMA = `openapi: "3.0.3"
+
+info:
+  version: 1.591.2
+  title: OpenFlow Spec
+  contact:
+    name: Ruben Fiszel
+    email: ruben@windmill.dev
+    url: https://windmill.dev
+
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+paths: {}
+
+externalDocs:
+  description: documentation portal
+  url: https://windmill.dev
+
+components:
+  schemas:
+    OpenFlow:
+      type: object
+      description: Top-level flow definition containing metadata, configuration, and the flow structure
+      properties:
+        summary:
+          type: string
+          description: Short description of what this flow does
+        description:
+          type: string
+          description: Detailed documentation for this flow
+        value:
+          $ref: "#/components/schemas/FlowValue"
+        schema:
+          type: object
+          description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
+      required:
+        - summary
+        - value
+
+    FlowValue:
+      type: object
+      description: The flow structure containing modules and optional preprocessor/failure handlers
+      properties:
+        modules:
+          type: array
+          description: Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        failure_module:
+          description: Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types
+          $ref: "#/components/schemas/FlowModule"
+        preprocessor_module:
+          description: Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results
+          $ref: "#/components/schemas/FlowModule"
+        same_worker:
+          type: boolean
+          description: If true, all steps run on the same worker for better performance
+        concurrent_limit:
+          type: number
+          description: Maximum number of concurrent executions of this flow
+        concurrency_key:
+          type: string
+          description: Expression to group concurrent executions (e.g., by user ID)
+        concurrency_time_window_s:
+          type: number
+          description: Time window in seconds for concurrent_limit
+        debounce_delay_s:
+          type: number
+          description: Delay in seconds to debounce flow executions
+        debounce_key:
+          type: string
+          description: Expression to group debounced executions
+        skip_expr:
+          type: string
+          description: JavaScript expression to conditionally skip the entire flow
+        cache_ttl:
+          type: number
+          description: Cache duration in seconds for flow results
+        cache_ignore_s3_path:
+          type: boolean
+        flow_env:
+          type: object
+          description: Environment variables available to all steps
+          additionalProperties:
+            type: string
+        priority:
+          type: number
+          description: Execution priority (higher numbers run first)
+        early_return:
+          type: string
+          description: JavaScript expression to return early from the flow
+        chat_input_enabled:
+          type: boolean
+          description: Whether this flow accepts chat-style input
+        notes:
+          type: array
+          description: Sticky notes attached to the flow
+          items:
+            $ref: "#/components/schemas/FlowNote"
+      required:
+        - modules
+
+    Retry:
+      type: object
+      description: Retry configuration for failed module executions
+      properties:
+        constant:
+          type: object
+          description: Retry with constant delay between attempts
+          properties:
+            attempts:
+              type: integer
+              description: Number of retry attempts
+            seconds:
+              type: integer
+              description: Seconds to wait between retries
+        exponential:
+          type: object
+          description: Retry with exponential backoff (delay doubles each time)
+          properties:
+            attempts:
+              type: integer
+              description: Number of retry attempts
+            multiplier:
+              type: integer
+              description: Multiplier for exponential backoff
+            seconds:
+              type: integer
+              minimum: 1
+              description: Initial delay in seconds
+            random_factor:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: Random jitter percentage (0-100) to avoid thundering herd
+        retry_if:
+          $ref: "#/components/schemas/RetryIf"
+
+    FlowNote:
+      type: object
+      description: A sticky note attached to a flow for documentation and annotation
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the note
+        text:
+          type: string
+          description: Content of the note
+        position:
+          type: object
+          description: Position of the note in the flow editor
+          properties:
+            x:
+              type: number
+              description: X coordinate
+            y:
+              type: number
+              description: Y coordinate
+          required:
+            - x
+            - y
+        size:
+          type: object
+          description: Size of the note in the flow editor
+          properties:
+            width:
+              type: number
+              description: Width in pixels
+            height:
+              type: number
+              description: Height in pixels
+          required:
+            - width
+            - height
+        color:
+          type: string
+          description: Color of the note (e.g., "yellow", "#ffff00")
+        type:
+          type: string
+          enum: [free, group]
+          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+        locked:
+          type: boolean
+          default: false
+          description: Whether the note is locked and cannot be edited or moved
+        contained_node_ids:
+          type: array
+          items:
+            type: string
+          description: For group notes, the IDs of nodes contained within this group
+      required:
+        - id
+        - text
+        - color
+        - type
+
+    RetryIf:
+      type: object
+      description: Conditional retry based on error or result
+      properties:
+        expr:
+          type: string
+          description: JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables
+      required:
+        - expr
+
+    StopAfterIf:
+      type: object
+      description: Early termination condition for a module
+      properties:
+        skip_if_stopped:
+          type: boolean
+          description: If true, following steps are skipped when this condition triggers
+        expr:
+          type: string
+          description: JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop
+        error_message:
+          type: string
+          description: Custom error message shown when stopping
+      required:
+        - expr
+
+    FlowModule:
+      type: object
+      description: A single step in a flow. Can be a script, subflow, loop, or branch
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)
+        value:
+          $ref: "#/components/schemas/FlowModuleValue"
+        stop_after_if:
+          description: Early termination condition evaluated after this step completes
+          $ref: "#/components/schemas/StopAfterIf"
+        stop_after_all_iters_if:
+          description: For loops only - early termination condition evaluated after all iterations complete
+          $ref: "#/components/schemas/StopAfterIf"
+        skip_if:
+          type: object
+          description: Conditionally skip this step based on previous results or flow inputs
+          properties:
+            expr:
+              type: string
+              description: JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'
+          required:
+            - expr
+        sleep:
+          description: Delay before executing this step (in seconds or as expression)
+          $ref: "#/components/schemas/InputTransform"
+        cache_ttl:
+          type: number
+          description: Cache duration in seconds for this step's results
+        cache_ignore_s3_path:
+          type: boolean
+        timeout:
+          description: Maximum execution time in seconds (static value or expression)
+          $ref: "#/components/schemas/InputTransform"
+        delete_after_use:
+          type: boolean
+          description: If true, this step's result is deleted after use to save memory
+        summary:
+          type: string
+          description: Short description of what this step does
+        mock:
+          type: object
+          description: Mock configuration for testing without executing the actual step
+          properties:
+            enabled:
+              type: boolean
+              description: If true, return mock value instead of executing
+            return_value:
+              description: Value to return when mocked
+        suspend:
+          type: object
+          description: Configuration for approval/resume steps that wait for user input
+          properties:
+            required_events:
+              type: integer
+              description: Number of approvals required before continuing
+            timeout:
+              type: integer
+              description: Timeout in seconds before auto-continuing or canceling
+            resume_form:
+              type: object
+              description: Form schema for collecting input when resuming
+              properties:
+                schema:
+                  type: object
+                  description: JSON Schema for the resume form
+            user_auth_required:
+              type: boolean
+              description: If true, only authenticated users can approve
+            user_groups_required:
+              description: Expression or list of groups that can approve
+              $ref: "#/components/schemas/InputTransform"
+            self_approval_disabled:
+              type: boolean
+              description: If true, the user who started the flow cannot approve
+            hide_cancel:
+              type: boolean
+              description: If true, hide the cancel button on the approval form
+            continue_on_disapprove_timeout:
+              type: boolean
+              description: If true, continue flow on timeout instead of canceling
+        priority:
+          type: number
+          description: Execution priority for this step (higher numbers run first)
+        continue_on_error:
+          type: boolean
+          description: If true, flow continues even if this step fails
+        retry:
+          description: Retry configuration if this step fails
+          $ref: "#/components/schemas/Retry"
+      required:
+        - value
+        - id
+
+    InputTransform:
+      description: Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs
+      oneOf:
+        - $ref: "#/components/schemas/StaticTransform"
+        - $ref: "#/components/schemas/JavascriptTransform"
+      discriminator:
+        propertyName: type
+        mapping:
+          static: "#/components/schemas/StaticTransform"
+          javascript: "#/components/schemas/JavascriptTransform"
+
+    StaticTransform:
+      type: object
+      description: Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'
+      properties:
+        value:
+          description: The static value. For resources, use format '$res:path/to/resource'
+        type:
+          type: string
+          enum:
+            - static
+      required:
+        - type
+
+    JavascriptTransform:
+      type: object
+      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value
+      properties:
+        expr:
+          type: string
+          description: JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)
+        type:
+          type: string
+          enum:
+            - javascript
+      required:
+        - expr
+        - type
+
+    FlowModuleValue:
+      description: The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type
+      oneOf:
+        - $ref: "#/components/schemas/RawScript"
+        - $ref: "#/components/schemas/PathScript"
+        - $ref: "#/components/schemas/PathFlow"
+        - $ref: "#/components/schemas/ForloopFlow"
+        - $ref: "#/components/schemas/WhileloopFlow"
+        - $ref: "#/components/schemas/BranchOne"
+        - $ref: "#/components/schemas/BranchAll"
+        - $ref: "#/components/schemas/Identity"
+        - $ref: "#/components/schemas/AiAgent"
+      discriminator:
+        propertyName: type
+        mapping:
+          rawscript: "#/components/schemas/RawScript"
+          script: "#/components/schemas/PathScript"
+          flow: "#/components/schemas/PathFlow"
+          forloopflow: "#/components/schemas/ForloopFlow"
+          whileloopflow: "#/components/schemas/WhileloopFlow"
+          branchone: "#/components/schemas/BranchOne"
+          branchall: "#/components/schemas/BranchAll"
+          identity: "#/components/schemas/Identity"
+          aiagent: "#/components/schemas/AiAgent"
+
+    RawScript:
+      type: object
+      description: Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms
+      properties:
+        # to be made required once migration is over
+        input_transforms:
+          type: object
+          description: Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        content:
+          type: string
+          description: The script source code. Should export a 'main' function
+        language:
+          type: string
+          description: Programming language for this script
+          enum:
+            - deno
+            - bun
+            - python3
+            - go
+            - bash
+            - powershell
+            - postgresql
+            - mysql
+            - bigquery
+            - snowflake
+            - mssql
+            - oracledb
+            - graphql
+            - nativets
+            - php
+            # TODO: Add missing languages
+        path:
+          type: string
+          description: Optional path for saving this script
+        lock:
+          type: string
+          description: Lock file content for dependencies
+        type:
+          type: string
+          enum:
+            - rawscript
+        tag:
+          type: string
+          description: Worker group tag for execution routing
+        concurrent_limit:
+          type: number
+          description: Maximum concurrent executions of this script
+        concurrency_time_window_s:
+          type: number
+          description: Time window for concurrent_limit
+        custom_concurrency_key:
+          type: string
+          description: Custom key for grouping concurrent executions
+        is_trigger:
+          type: boolean
+          description: If true, this script is a trigger that can start the flow
+        assets:
+          type: array
+          description: External resources this script accesses (S3 objects, resources, etc.)
+          items:
+            type: object
+            required:
+              - path
+              - kind
+            properties:
+              path:
+                type: string
+                description: Path to the asset
+              kind:
+                type: string
+                description: Type of asset
+                enum:
+                  - s3object
+                  - resource
+                  - ducklake
+                  - datatable
+              access_type:
+                type: string
+                description: Access level for this asset
+                enum: [r, w, rw]
+              alt_access_type:
+                type: string
+                description: Alternative access level
+                enum: [r, w, rw]
+      required:
+        - type
+        - content
+        - language
+        - input_transforms
+
+    PathScript:
+      type: object
+      description: Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code
+      properties:
+        input_transforms:
+          type: object
+          description: Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        path:
+          type: string
+          description: Path to the script in the workspace (e.g., 'f/scripts/send_email')
+        hash:
+          type: string
+          description: Optional specific version hash of the script to use
+        type:
+          type: string
+          enum:
+            - script
+        tag_override:
+          type: string
+          description: Override the script's default worker group tag
+        is_trigger:
+          type: boolean
+          description: If true, this script is a trigger that can start the flow
+      required:
+        - type
+        - path
+        - input_transforms
+
+    PathFlow:
+      type: object
+      description: Reference to an existing flow by path. Use this to call another flow as a subflow
+      properties:
+        input_transforms:
+          type: object
+          description: Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        path:
+          type: string
+          description: Path to the flow in the workspace (e.g., 'f/flows/process_user')
+        type:
+          type: string
+          enum:
+            - flow
+      required:
+        - type
+        - path
+        - input_transforms
+
+    ForloopFlow:
+      type: object
+      description: Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations
+      properties:
+        modules:
+          type: array
+          description: Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        iterator:
+          description: JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'
+          $ref: "#/components/schemas/InputTransform"
+        skip_failures:
+          type: boolean
+          description: If true, iteration failures don't stop the loop. Failed iterations return null
+        type:
+          type: string
+          enum:
+            - forloopflow
+        parallel:
+          type: boolean
+          description: If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency
+        parallelism:
+          description: Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression
+          $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
+      required:
+        - modules
+        - iterator
+        - skip_failures
+        - type
+
+    WhileloopFlow:
+      type: object
+      description: Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination
+      properties:
+        modules:
+          type: array
+          description: Steps to execute in each iteration. Use stop_after_if to control when the loop ends
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        skip_failures:
+          type: boolean
+          description: If true, iteration failures don't stop the loop. Failed iterations return null
+        type:
+          type: string
+          enum:
+            - whileloopflow
+        parallel:
+          type: boolean
+          description: If true, iterations run concurrently (use with caution in while loops)
+        parallelism:
+          description: Maximum number of concurrent iterations when parallel=true
+          $ref: "#/components/schemas/InputTransform"
+        squash:
+          type: boolean
+      required:
+        - modules
+        - skip_failures
+        - type
+
+    BranchOne:
+      type: object
+      description: Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes
+      properties:
+        branches:
+          type: array
+          description: Array of branches to evaluate in order. The first branch with expr evaluating to true executes
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+                description: Short description of this branch condition
+              expr:
+                type: string
+                description: JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins
+              modules:
+                type: array
+                description: Steps to execute if this branch's expr is true
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        default:
+          type: array
+          description: Steps to execute if no branch expressions match
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        type:
+          type: string
+          enum:
+            - branchone
+      required:
+        - branches
+        - default
+        - type
+
+    BranchAll:
+      type: object
+      description: Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently
+      properties:
+        branches:
+          type: array
+          description: Array of branches that all execute (either in parallel or sequentially)
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+                description: Short description of this branch's purpose
+              skip_failure:
+                type: boolean
+                description: If true, failure in this branch doesn't fail the entire flow
+              modules:
+                type: array
+                description: Steps to execute in this branch
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+        type:
+          type: string
+          enum:
+            - branchall
+        parallel:
+          type: boolean
+          description: If true, all branches execute concurrently. If false, they execute sequentially
+      required:
+        - branches
+        - type
+
+    AgentTool:
+      type: object
+      description: A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
+        summary:
+          type: string
+          description: Short description of what this tool does (shown to the AI)
+        value:
+          $ref: "#/components/schemas/ToolValue"
+      required:
+        - id
+        - value
+
+    ToolValue:
+      description: The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference
+      oneOf:
+        - $ref: "#/components/schemas/FlowModuleTool"
+        - $ref: "#/components/schemas/McpToolValue"
+      discriminator:
+        propertyName: tool_type
+        mapping:
+          flowmodule: "#/components/schemas/FlowModuleTool"
+          mcp: "#/components/schemas/McpToolValue"
+
+    FlowModuleTool:
+      description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
+      allOf:
+        - type: object
+          properties:
+            tool_type:
+              type: string
+              enum:
+                - flowmodule
+          required:
+            - tool_type
+        - $ref: "#/components/schemas/FlowModuleValue"
+
+    McpToolValue:
+      type: object
+      description: Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - mcp
+        resource_path:
+          type: string
+          description: Path to the MCP resource/server configuration
+        include_tools:
+          type: array
+          description: Whitelist of specific tools to include from this MCP server
+          items:
+            type: string
+        exclude_tools:
+          type: array
+          description: Blacklist of tools to exclude from this MCP server
+          items:
+            type: string
+      required:
+        - tool_type
+        - resource_path
+
+    AiAgent:
+      type: object
+      description: AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the AI agent mapped to their values
+          properties:
+            provider:
+              $ref: "#/components/schemas/InputTransform"
+            output_type:
+              $ref: "#/components/schemas/InputTransform"
+            user_message:
+              $ref: "#/components/schemas/InputTransform"
+            system_prompt:
+              $ref: "#/components/schemas/InputTransform"
+            streaming:
+              $ref: "#/components/schemas/InputTransform"
+            messages_context_length:
+              $ref: "#/components/schemas/InputTransform"
+            output_schema:
+              $ref: "#/components/schemas/InputTransform"
+            user_images:
+              $ref: "#/components/schemas/InputTransform"
+            max_completion_tokens:
+              $ref: "#/components/schemas/InputTransform"
+            temperature:
+              $ref: "#/components/schemas/InputTransform"
+          required:
+            - provider
+            - user_message
+            - output_type
+        tools:
+          type: array
+          description: Array of tools the agent can use. The agent decides which tools to call based on the task
+          items:
+            $ref: "#/components/schemas/AgentTool"
+        type:
+          type: string
+          enum:
+            - aiagent
+        parallel:
+          type: boolean
+          description: If true, the agent can execute multiple tool calls in parallel
+      required:
+        - tools
+        - type
+        - input_transforms
+
+    Identity:
+      type: object
+      description: Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder
+      properties:
+        type:
+          type: string
+          enum:
+            - identity
+        flow:
+          type: boolean
+          description: If true, marks this as a flow identity (special handling)
+
+      required:
+        - type
+
+    FlowStatus:
+      type: object
+      properties:
+        step:
+          type: integer
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowStatusModule"
+        user_states:
+          additionalProperties: true
+        preprocessor_module:
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
+        failure_module:
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
+            - type: object
+              properties:
+                parent_module:
+                  type: string
+        retry:
+          type: object
+          properties:
+            fail_count:
+              type: integer
+            failed_jobs:
+              type: array
+              items:
+                type: string
+                format: uuid
+      required:
+        - step
+        - modules
+        - failure_module
+
+    FlowStatusModule:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - WaitingForPriorSteps
+            - WaitingForEvents
+            - WaitingForExecutor
+            - InProgress
+            - Success
+            - Failure
+        id:
+          type: string
+        job:
+          type: string
+          format: uuid
+        count:
+          type: integer
+        progress:
+          type: integer
+        iterator:
+          type: object
+          properties:
+            index:
+              type: integer
+            itered:
+              type: array
+              items: {}
+            args: {}
+        flow_jobs:
+          type: array
+          items:
+            type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
+        flow_jobs_duration:
+          type: object
+          properties:
+            started_at:
+              type: array
+              items:
+                type: string
+            duration_ms:
+              type: array
+              items:
+                type: integer
+        branch_chosen:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [branch, default]
+            branch:
+              type: integer
+          required:
+            - type
+        branchall:
+          type: object
+          properties:
+            branch:
+              type: integer
+            len:
+              type: integer
+          required:
+            - branch
+            - len
+        approvers:
+          type: array
+          items:
+            type: object
+            properties:
+              resume_id:
+                type: integer
+              approver:
+                type: string
+            required:
+              - resume_id
+              - approver
+        failed_retries:
+          type: array
+          items:
+            type: string
+            format: uuid
+        skipped:
+          type: boolean
+        agent_actions:
+          type: array
+          items:
+            type: object
+            oneOf:
+              - type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  type:
+                    type: string
+                    enum: [tool_call]
+                  module_id:
+                    type: string
+                required:
+                  - job_id
+                  - function_name
+                  - type
+                  - module_id
+              - type: object
+                properties:
+                  call_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  resource_path:
+                    type: string
+                  type:
+                    type: string
+                    enum: [mcp_tool_call]
+                  arguments:
+                    type: object
+                required:
+                  - call_id
+                  - function_name
+                  - resource_path
+                  - type
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [message]
+                required:
+                  - content
+                  - type
+        agent_actions_success:
+          type: array
+          items:
+            type: boolean
+      required: [type]
 `;
 
 export const RESOURCE_TYPES = `# Resource Types

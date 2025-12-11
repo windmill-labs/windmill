@@ -14,12 +14,9 @@ Usage:
 """
 
 import ast
-import os
 import re
 import shutil
-import yaml
 from pathlib import Path
-from typing import Any
 
 # Paths relative to this script
 SCRIPT_DIR = Path(__file__).parent
@@ -30,7 +27,6 @@ PY_SDK_PATH = ROOT_DIR / "python-client" / "wmill" / "wmill" / "client.py"
 OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "sdks"
-OUTPUT_SCHEMAS_DIR = SCRIPT_DIR / "schemas"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "generated"
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
@@ -232,161 +228,30 @@ def extract_py_classes(content: str) -> list[dict]:
     return classes
 
 
-def parse_openflow_schema(content: str) -> dict:
-    """Parse OpenFlow YAML schema."""
-    return yaml.safe_load(content)
-
-
 def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
-    """Generate markdown documentation for TypeScript SDK."""
+    """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
-    md += "Import: `import * as wmill from 'windmill-client'`\n\n"
+    md += "Import: import * as wmill from 'windmill-client'\n\n"
 
-    # Group functions by category
-    categories = {
-        'Scripts & Flows': ['runScript', 'runScriptAsync', 'runScriptByPath', 'runScriptByHash',
-                          'runFlow', 'runFlowAsync', 'waitJob', 'getResult', 'getJobStatus'],
-        'Variables': ['getVariable', 'setVariable'],
-        'Resources': ['getResource', 'setResource', 'getResourceValue'],
-        'State': ['getState', 'setState', 'setFlowUserState', 'getFlowUserState'],
-        'S3 Operations': ['loadS3File', 'loadS3FileStream', 'writeS3File'],
-        'Progress & Logging': ['setProgress', 'getProgress', 'appendLog'],
-        'Approval & Resume': ['getResumeUrls', 'resume', 'cancel'],
-        'Utilities': ['getWorkspace', 'getUser', 'getRootJobId']
-    }
-
-    md += "## Functions\n\n"
-
-    categorized = set()
-    for category, names in categories.items():
-        category_funcs = [f for f in functions if any(n.lower() in f['name'].lower() for n in names)]
-        if category_funcs:
-            md += f"### {category}\n\n"
-            for func in category_funcs:
-                categorized.add(func['name'])
-                async_prefix = 'async ' if func['async'] else ''
-                md += f"```typescript\n{async_prefix}function {func['name']}{func['generic']}({func['params']}): {func['return_type']}\n```\n\n"
-
-    # Uncategorized functions
-    uncategorized = [f for f in functions if f['name'] not in categorized]
-    if uncategorized:
-        md += "### Other\n\n"
-        for func in uncategorized:
-            async_prefix = 'async ' if func['async'] else ''
-            md += f"```typescript\n{async_prefix}function {func['name']}{func['generic']}({func['params']}): {func['return_type']}\n```\n\n"
-
-    # Types
-    if types:
-        md += "## Types\n\n"
-        for t in types[:10]:  # Limit to important types
-            if t['kind'] == 'type':
-                md += f"```typescript\ntype {t['name']} = {t['definition']}\n```\n\n"
-            else:
-                md += f"```typescript\ninterface {t['name']} {{\n  {t['definition']}\n}}\n```\n\n"
+    for func in functions:
+        async_prefix = 'async ' if func['async'] else ''
+        md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}\n"
 
     return md
 
 
 def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
-    """Generate markdown documentation for Python SDK."""
+    """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
-    md += "Import: `import wmill`\n\n"
-
-    # Module-level functions
-    md += "## Module Functions\n\n"
-    md += "These functions use a global client instance automatically initialized from environment variables.\n\n"
-
-    # Key functions to document
-    key_functions = [
-        'get_resource', 'set_resource', 'list_resources',
-        'get_variable', 'set_variable',
-        'get_state', 'set_state',
-        'run_script_async', 'run_script_by_path', 'run_script_by_hash',
-        'run_flow_async', 'wait_job', 'get_result', 'get_job_status',
-        'load_s3_file', 'load_s3_file_reader', 'write_s3_file',
-        'set_progress', 'get_progress',
-        'set_flow_user_state', 'get_flow_user_state',
-        'get_resume_urls', 'cancel_job',
-        'whoami', 'username_to_email',
-        'duckdb_connection_settings', 'polars_connection_settings', 'boto3_connection_settings'
-    ]
+    md += "Import: import wmill\n\n"
 
     for func in functions:
-        if func['name'] in key_functions:
-            async_prefix = 'async ' if func['async'] else ''
-            return_annotation = f" -> {func['return_type']}" if func['return_type'] else ''
-            md += f"```python\n{async_prefix}def {func['name']}({func['params']}){return_annotation}\n```\n"
-            if func['docstring']:
-                md += f"{func['docstring']}\n"
-            md += "\n"
-
-    # Windmill class
-    md += "## Windmill Class\n\n"
-    md += "For more control, instantiate the Windmill class directly:\n\n"
-    md += "```python\nfrom wmill import Windmill\n\nclient = Windmill()\n```\n\n"
-
-    for cls in classes:
-        if cls['name'] == 'Windmill':
-            md += "### Key Methods\n\n"
-            for method in cls['methods'][:20]:  # Limit methods shown
-                md += f"- `{method['name']}()` - {method['docstring']}\n"
-
-    # S3Object type
-    md += "\n## Types\n\n"
-    md += "```python\nfrom wmill import S3Object\n\n# S3Object is a TypedDict with 's3' key for the path\ns3obj = S3Object(s3=\"path/to/file.txt\")\n```\n\n"
-
-    return md
-
-
-def generate_openflow_markdown(schema: dict) -> str:
-    """Generate markdown documentation for OpenFlow schema."""
-    md = "# OpenFlow Schema\n\n"
-    md += "The OpenFlow schema defines the structure of Windmill flows.\n\n"
-
-    components = schema.get('components', {}).get('schemas', {})
-
-    # Document key schemas in order
-    key_schemas = [
-        'OpenFlow', 'FlowValue', 'FlowModule', 'FlowModuleValue',
-        'InputTransform', 'StaticTransform', 'JavascriptTransform',
-        'RawScript', 'PathScript', 'PathFlow',
-        'ForloopFlow', 'WhileloopFlow', 'BranchOne', 'BranchAll',
-        'Identity', 'Retry', 'StopAfterIf'
-    ]
-
-    for schema_name in key_schemas:
-        if schema_name in components:
-            schema_def = components[schema_name]
-            md += f"## {schema_name}\n\n"
-
-            if 'description' in schema_def:
-                md += f"{schema_def['description']}\n\n"
-
-            if schema_def.get('type') == 'object' and 'properties' in schema_def:
-                md += "**Properties:**\n\n"
-                for prop_name, prop_def in schema_def['properties'].items():
-                    prop_type = prop_def.get('type', '')
-                    if '$ref' in prop_def:
-                        prop_type = prop_def['$ref'].split('/')[-1]
-                    desc = prop_def.get('description', '')
-                    required = prop_name in schema_def.get('required', [])
-                    req_marker = ' (required)' if required else ''
-                    md += f"- `{prop_name}`: {prop_type}{req_marker}"
-                    if desc:
-                        md += f" - {desc}"
-                    md += "\n"
-                md += "\n"
-
-            if 'oneOf' in schema_def:
-                md += "**One of:**\n\n"
-                for option in schema_def['oneOf']:
-                    if '$ref' in option:
-                        ref_name = option['$ref'].split('/')[-1]
-                        md += f"- {ref_name}\n"
-                md += "\n"
-
-            if 'enum' in schema_def:
-                md += f"**Values:** {', '.join(f'`{v}`' for v in schema_def['enum'])}\n\n"
+        # Skip private functions
+        if func['name'].startswith('_'):
+            continue
+        async_prefix = 'async ' if func['async'] else ''
+        return_annotation = f" -> {func['return_type']}" if func['return_type'] else ''
+        md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}\n"
 
     return md
 
@@ -420,7 +285,6 @@ def main():
 
     # Ensure output directories exist
     OUTPUT_SDKS_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 
     # Read SDK files
@@ -443,15 +307,6 @@ def main():
     py_sdk_md = generate_py_sdk_markdown(py_functions, py_classes)
     (OUTPUT_SDKS_DIR / "python.md").write_text(py_sdk_md)
     print(f"  Found {len(py_functions)} functions, {len(py_classes)} classes")
-
-    # Parse OpenFlow schema
-    print("Parsing OpenFlow schema...")
-    if openflow_content:
-        openflow_schema = parse_openflow_schema(openflow_content)
-        openflow_md = generate_openflow_markdown(openflow_schema)
-        (OUTPUT_SCHEMAS_DIR / "openflow.md").write_text(openflow_md)
-        num_schemas = len(openflow_schema.get('components', {}).get('schemas', {}))
-        print(f"  Found {num_schemas} schema definitions")
 
     # Read base prompts
     print("Assembling complete prompts...")
@@ -481,8 +336,8 @@ def main():
         'SDK_TYPESCRIPT': ts_sdk_md,
         'SDK_PYTHON': py_sdk_md,
 
-        # Schema
-        'OPENFLOW_SCHEMA': openflow_md if openflow_content else '',
+        # Schema (raw YAML content)
+        'OPENFLOW_SCHEMA': openflow_content,
 
         # Resources
         'RESOURCE_TYPES': resource_types,
@@ -548,7 +403,6 @@ export function getFlowPrompt(): string {
     print(f"\nGenerated files:")
     print(f"  - sdks/typescript.md")
     print(f"  - sdks/python.md")
-    print(f"  - schemas/openflow.md")
     print(f"  - generated/prompts.ts")
     print(f"  - generated/index.ts")
     print(f"\nCopied to CLI:")
