@@ -4035,6 +4035,7 @@ async fn compare_workspaces(
     authed: ApiAuthed,
     Path((source_workspace_id, fork_workspace_id)): Path<(String, String)>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceComparison> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -4145,6 +4146,15 @@ async fn compare_workspaces(
         }
     }
 
+    let mut tx = user_db.begin(&authed).await?;
+    let visible_diffs = filter_visible_diffs(
+        &confirmed_diffs,
+        &source_workspace_id,
+        &fork_workspace_id,
+        tx,
+    )
+    .await?;
+
     let summary = CompareSummary {
         total_diffs: confirmed_diffs.len(),
         total_ahead: confirmed_diffs
@@ -4182,6 +4192,16 @@ async fn compare_workspaces(
     }));
 }
 
+async fn filter_visible_diffs(
+    confirmed_diffs: &[WorkspaceDiffRow],
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    tx: Transaction<'static, Postgres>,
+) -> Vec<WorkspaceDiffRow> {
+
+}
+
+#[derive(Debug)]
 struct ItemComparison {
     has_changes: bool,
     exists_in_source: bool,
@@ -4296,14 +4316,16 @@ async fn compare_two_flows(
 async fn compare_two_apps(
     db: &DB,
     source_workspace_id: &str,
-    target_workspace_id: &str,
+    fork_workspace_id: &str,
     path: &str,
 ) -> Result<ItemComparison> {
-    // Get latest app metadata and version ID from each workspace
+    // Get app with its latest version data from source workspace
     let source_app = sqlx::query!(
-        "SELECT versions[array_length(versions, 1)] as latest_version, summary, policy
+        "SELECT app.summary, app.policy, app_version.value
          FROM app
-         WHERE workspace_id = $1 AND path = $2 AND draft_only = false",
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
         source_workspace_id,
         path
     )
@@ -4311,54 +4333,26 @@ async fn compare_two_apps(
     .await?;
 
     let target_app = sqlx::query!(
-        "SELECT versions[array_length(versions, 1)] as latest_version, summary, policy
+        "SELECT app.summary, app.policy, app_version.value
          FROM app
-         WHERE workspace_id = $1 AND path = $2 AND draft_only = false",
-        target_workspace_id,
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+        fork_workspace_id,
         path
     )
     .fetch_optional(db)
     .await?;
 
-    // Get actual app content from app_version table
-    let source_version_data = if let Some(app) = &source_app {
-        if let Some(version_id) = app.latest_version {
-            sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
-                .fetch_optional(db)
-                .await?
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let target_version_data = if let Some(app) = &target_app {
-        if let Some(version_id) = app.latest_version {
-            sqlx::query!("SELECT value FROM app_version WHERE id = $1", version_id)
-                .fetch_optional(db)
-                .await?
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
     let mut has_changes = false;
 
-    // Check metadata differences
+    // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
-        if source.summary != target.summary || source.policy != target.policy {
-            has_changes = true;
-        }
-
-        // Compare actual app content
-        if let (Some(source_data), Some(target_data)) = (&source_version_data, &target_version_data)
+        if source.summary != target.summary
+            || source.policy != target.policy
+            || source.value != target.value
         {
-            if source_data.value != target_data.value {
-                has_changes = true;
-            }
+            has_changes = true;
         }
     } else if source_app.is_some() || target_app.is_some() {
         // The app exists in one of source or target, but not the other, this is considered as a change
