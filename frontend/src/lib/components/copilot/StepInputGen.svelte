@@ -19,7 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copilotInfo } from '$lib/aiStore'
-	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -232,7 +232,7 @@ Only return the expression without any wrapper.`
 		size="xs"
 		variant="default"
 		btnClasses={twMerge(
-			flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
+			AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
 			btnClass
 		)}
 		on:click={() => {

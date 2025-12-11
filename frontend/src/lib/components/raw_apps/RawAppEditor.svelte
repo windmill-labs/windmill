@@ -78,8 +78,9 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
+	historyManager.addSnapshot()
 	let historyPaneOpen = $state(false)
-	let previewIndex = $state<number | undefined>(undefined)
+	let historyPreviewId = $state<number | undefined>(undefined)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -372,6 +373,17 @@
 					type: 'none',
 					content: ''
 				}
+			},
+			snapshot: () => {
+				return (
+					historyManager.manualSnapshot(files ?? {}, runnables, summary)?.id ??
+					historyManager.getId()
+				)
+			},
+			revertToSnapshot: (id: number) => {
+				console.log('reverting to snapshot', id)
+				handlePreviewSelect(id)
+				historyPaneOpen = true
 			}
 		})
 	})
@@ -433,8 +445,8 @@
 		)
 	}
 
-	function handleRestoreSnapshot(index: number) {
-		const entry = historyManager.getEntry(index)
+	function handleRestoreSnapshot(id: number) {
+		const entry = historyManager.getEntryById(id)
 		if (!entry) {
 			sendUserToast('Failed to restore snapshot: entry not found', true)
 			return
@@ -463,7 +475,7 @@
 			populateRunnables()
 
 			// Clear preview mode after restore
-			previewIndex = undefined
+			historyPreviewId = undefined
 			historyManager.clearPreview()
 
 			sendUserToast('Snapshot restored successfully')
@@ -511,11 +523,11 @@
 		}
 	}
 
-	function handlePreviewSelect(index: number) {
-		const entry = historyManager.getEntry(index)
+	function handlePreviewSelect(id: number) {
+		const entry = historyManager.getEntryById(id)
 		if (entry) {
-			previewIndex = index
-			historyManager.setPreview(index)
+			historyPreviewId = entry.id
+			historyManager.setPreview(id)
 
 			// Apply preview state to editor
 			files = entry.files
@@ -528,7 +540,7 @@
 	}
 
 	function handleClearPreview() {
-		previewIndex = undefined
+		historyPreviewId = undefined
 		historyManager.clearPreview()
 
 		// Restore to latest state (last entry in history)
@@ -594,7 +606,7 @@
 			<Pane size={20} minSize={15} maxSize={30}>
 				<RawAppHistorySidebar
 					{historyManager}
-					selectedIndex={previewIndex}
+					selectedId={historyPreviewId}
 					onSelect={handlePreviewSelect}
 					onManualSnapshot={() => {
 						historyManager.manualSnapshot(files ?? {}, runnables, summary)
@@ -621,8 +633,8 @@
 		</Pane>
 		<Pane>
 			<!-- Preview Mode Banner -->
-			{#if historyManager.isPreviewMode && previewIndex !== undefined}
-				{@const previewEntry = historyManager.getEntry(previewIndex)}
+			{#if historyManager.isPreviewMode && historyPreviewId !== undefined}
+				{@const previewEntry = historyManager.getEntryById(historyPreviewId)}
 				{#if previewEntry}
 					<div
 						class="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 px-4 py-3"
@@ -650,7 +662,8 @@
 									size="xs"
 									color="dark"
 									startIcon={{ icon: RotateCcw }}
-									on:click={() => previewIndex !== undefined && handleRestoreSnapshot(previewIndex)}
+									on:click={() =>
+										historyPreviewId !== undefined && handleRestoreSnapshot(historyPreviewId)}
 								>
 									Restore This Version
 								</Button>

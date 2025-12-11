@@ -6,12 +6,12 @@
 
 	interface Props {
 		entries: HistoryEntry[]
-		selectedIndex: number | undefined
+		selectedId: number | undefined
 		onSelect: (index: number) => void
 		onManualSnapshot: () => void
 	}
 
-	let { entries, selectedIndex, onSelect, onManualSnapshot }: Props = $props()
+	let { entries, selectedId, onSelect, onManualSnapshot }: Props = $props()
 
 	const reversedEntries = $derived(entries.slice().reverse())
 
@@ -54,7 +54,7 @@
 					{@const originalIndex = getOriginalIndex(reversedIndex)}
 					{@const fileCount = Object.keys(entry.files).length}
 					{@const runnableCount = Object.keys(entry.runnables).length}
-					{@const isSelected = selectedIndex === originalIndex}
+					{@const isSelected = selectedId === entry.id}
 
 					<button
 						onclick={() => onSelect(originalIndex)}
@@ -73,7 +73,7 @@
 							</span>
 						</div>
 						<div class="text-xs text-secondary truncate">
-							{entry.summary || 'Untitled App'} · {fileCount} files · {runnableCount} runnables
+							#{entry.id} · {fileCount} files · {runnableCount} runnables
 						</div>
 					</button>
 				{/each}

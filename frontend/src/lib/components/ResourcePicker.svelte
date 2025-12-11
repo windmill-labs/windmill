@@ -274,7 +274,7 @@
 			{/snippet}
 		</Select>
 		{#if value && hovering}
-			<div class="absolute right-2 z-20">
+			<div class="absolute {disabled ? 'right-2' : 'right-10'} z-20">
 				<Button
 					variant="subtle"
 					size="xs2"

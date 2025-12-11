@@ -606,10 +606,15 @@ class AIChatManager {
 				throw new Error('No flow helpers found')
 			}
 
-			let snapshot: ExtendedOpenFlow | undefined = undefined
+			let snapshot:
+				| { type: 'flow'; value: ExtendedOpenFlow }
+				| { type: 'app'; value: number }
+				| undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setSnapshot(snapshot)
+				snapshot = { type: 'flow', value: this.flowAiChatHelpers!.getFlowAndSelectedId().flow }
+				this.flowAiChatHelpers!.setSnapshot(snapshot.value)
+			} else if (this.mode === AIMode.APP) {
+				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
 			this.displayMessages = [

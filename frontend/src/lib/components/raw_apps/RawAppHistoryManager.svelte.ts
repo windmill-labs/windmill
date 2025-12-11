@@ -5,6 +5,7 @@ import { deepEqual } from 'fast-equals'
  * Snapshot entry containing raw app state at a point in time
  */
 export interface HistoryEntry {
+	id: number
 	timestamp: Date
 	files: Record<string, string>
 	runnables: Record<string, Runnable>
@@ -28,10 +29,16 @@ export class RawAppHistoryManager {
 	private entries = $state<HistoryEntry[]>([])
 	private previewEntry = $state<HistoryEntry | undefined>(undefined)
 	private autoSnapshotTimer: number | undefined = undefined
-	private getStateFn: (() => { files: Record<string, string>; runnables: Record<string, Runnable>; summary: string }) | undefined = undefined
+	private getStateFn:
+		| (() => {
+				files: Record<string, string>
+				runnables: Record<string, Runnable>
+				summary: string
+		  })
+		| undefined = undefined
 	private isCreatingSnapshot = $state(false) // Prevents concurrent snapshot operations
 	private currentIndex = $state(-1) // -1 means viewing latest, used for undo/redo
-
+	private id = $state(0)
 	// Derived state
 	public readonly hasEntries = $derived(this.entries.length > 0)
 	public readonly entryCount = $derived(this.entries.length)
@@ -39,10 +46,16 @@ export class RawAppHistoryManager {
 	public readonly allEntries = $derived(this.entries.slice())
 	public readonly currentPreview = $derived(this.previewEntry)
 	public readonly canSnapshot = $derived(!this.isCreatingSnapshot)
-	public readonly canUndo = $derived(this.currentIndex > 0 || (this.currentIndex === -1 && this.entries.length > 1))
-	public readonly canRedo = $derived(this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1)
+	public readonly canUndo = $derived(
+		this.currentIndex > 0 || (this.currentIndex === -1 && this.entries.length > 1)
+	)
+	public readonly canRedo = $derived(
+		this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1
+	)
 
-	constructor(private config: HistoryConfig) {}
+	constructor(private config: HistoryConfig) {
+		this.id = 0
+	}
 
 	/**
 	 * Create a snapshot from provided state
@@ -54,6 +67,7 @@ export class RawAppHistoryManager {
 		summary: string
 	): HistoryEntry {
 		return {
+			id: this.id++,
 			timestamp: new Date(),
 			files: structuredClone($state.snapshot(files)),
 			runnables: structuredClone($state.snapshot(runnables)),
@@ -104,6 +118,9 @@ export class RawAppHistoryManager {
 		}
 	}
 
+	getId(): number {
+		return this.id
+	}
 	/**
 	 * Manually create and add a snapshot
 	 * Only creates if state has changed
@@ -112,21 +129,27 @@ export class RawAppHistoryManager {
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
 		summary: string
-	): boolean {
+	): HistoryEntry | undefined {
 		if (!this.hasStateChanged(files, runnables, summary)) {
-			return false // No changes, don't create snapshot
+			return // No changes, don't create snapshot
 		}
 
 		const entry = this.createSnapshot(files, runnables, summary)
 		this.addSnapshot(entry)
-		return true
+		return entry
 	}
 
 	/**
 	 * Start automatic snapshot timer
 	 * Only creates snapshots when state has actually changed
 	 */
-	startAutoSnapshot(getState: () => { files: Record<string, string>; runnables: Record<string, Runnable>; summary: string }): void {
+	startAutoSnapshot(
+		getState: () => {
+			files: Record<string, string>
+			runnables: Record<string, Runnable>
+			summary: string
+		}
+	): void {
 		this.stopAutoSnapshot()
 		this.getStateFn = getState
 
@@ -154,9 +177,10 @@ export class RawAppHistoryManager {
 	/**
 	 * Set preview mode to view a specific entry
 	 */
-	setPreview(index: number): void {
-		if (index >= 0 && index < this.entries.length) {
-			this.previewEntry = this.entries[index]
+	setPreview(id: number): void {
+		const entry = this.getEntryById(id)
+		if (entry) {
+			this.previewEntry = entry
 		}
 	}
 
@@ -172,6 +196,21 @@ export class RawAppHistoryManager {
 	 */
 	getEntry(index: number): HistoryEntry | undefined {
 		return this.entries[index]
+	}
+
+	getEntryById(id: number): HistoryEntry | undefined {
+		return this.entries.find((e) => e.id === id)
+	}
+
+	setSelectedEntry(id: number): HistoryEntry | undefined {
+		console.log('setting selected entry', id)
+		const index = this.entries.findIndex((e) => e.id === id)
+		if (index === -1) {
+			return
+		}
+		this.currentIndex = index
+		this.previewEntry = this.entries[index]
+		return this.previewEntry
 	}
 
 	/**

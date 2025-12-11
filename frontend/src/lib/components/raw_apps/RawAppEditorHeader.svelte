@@ -5,7 +5,17 @@
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Bug, DiffIcon, FileJson, FileUp, History, MoreVertical, Pen, Save } from 'lucide-svelte'
+	import {
+		Bug,
+		DiffIcon,
+		FileJson,
+		FileUp,
+		History,
+		MoreVertical,
+		Pen,
+		Save,
+		WandSparkles
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import {
 		cleanValueProperties,
@@ -35,6 +45,8 @@
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 
 	// async function hash(message) {
 	// 	try {
@@ -736,6 +748,19 @@
 			on:undo={() => onUndo?.()}
 			on:redo={() => onRedo?.()}
 		/>
+		<div class="px-1"></div>
+
+		<Button
+			unifiedSized="sm"
+			color="light"
+			variant="default"
+			onClick={() => aiChatManager.toggleOpen()}
+			startIcon={{ icon: WandSparkles }}
+			iconOnly
+			btnClasses={AIBtnClasses(aiChatManager.open ? 'selected' : 'default')}
+		>
+			AI
+		</Button>
 	</div>
 
 	<div class=" flex">
@@ -797,7 +822,7 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
-					<div>Debug runs</div>
+					<div>Jobs</div>
 
 					<div class="text-2xs text-primary"
 						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
