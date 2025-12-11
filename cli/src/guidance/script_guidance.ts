@@ -34,10 +34,6 @@ const LANGUAGE_PROMPTS = [
 
 // Assemble complete script guidance
 export const SCRIPT_GUIDANCE = `
----
-alwaysApply: true
----
-
 ${CLI_INTRO}
 
 ${prompts.SCRIPT_BASE}

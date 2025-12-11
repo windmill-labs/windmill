@@ -1,5 +1,5 @@
 // CLI Flow Guidance - Uses centralized prompts from system_prompts/
-import * as prompts from './prompts.ts';
+import * as prompts from "./prompts.ts";
 
 // CLI-specific introduction
 const CLI_INTRO = `You are an expert at creating OpenFlow YAML specifications for Windmill workflows.
@@ -12,10 +12,6 @@ After writing the flow, you can ask the user if he wants to push the flow with \
 
 // Assemble complete flow guidance
 export const FLOW_GUIDANCE = `
----
-alwaysApply: true
----
-
 ${CLI_INTRO}
 
 ${prompts.FLOW_BASE}
