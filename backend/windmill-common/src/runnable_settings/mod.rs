@@ -106,7 +106,7 @@ pub trait RunnableSettingsTrait:
                     // If it is not in cache
                     // this means we don't know if it is in db
                     // in that case, we INSERT to be sure
-                    let sql = dbg!(format!(
+                    let sql = format!(
                         "INSERT INTO {} (hash, {})
              VALUES ($1, {})
              ON CONFLICT (hash) DO NOTHING",
@@ -116,7 +116,7 @@ pub trait RunnableSettingsTrait:
                             .into_iter()
                             .map(|i| format!("${}", i + 1))
                             .join(",")
-                    ));
+                    );
 
                     self.bind_arguments(sqlx::query(&sql).bind(hash) /* First bind hash */) /* Then bind user settings */
                         .execute(db)
