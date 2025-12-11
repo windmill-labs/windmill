@@ -1,10 +1,6 @@
-# TypeScript (Bun/Deno/Native)
+# TypeScript (Bun Native)
 
-## Variants
-
-- `bun`: Bun runtime, full npm ecosystem, fastest execution
-- `deno`: Deno runtime, npm via `npm:{package}`, deno libraries supported
-- `nativets`, `bunnative`: Native TypeScript, fetch only, no external imports allowed
+Native TypeScript execution with fetch only - no external imports allowed.
 
 ## Structure
 
@@ -35,22 +31,8 @@ Only use resource types if you need them to satisfy the instructions. Always use
 
 ## Imports
 
-### Bun Runtime
-```typescript
-import Stripe from 'stripe'
-import { someFunction } from 'some-package'
-```
+**No imports allowed.** Use the globally available `fetch` function:
 
-### Deno Runtime
-```typescript
-import Stripe from 'npm:stripe'
-import { someFunction } from 'npm:some-package'
-// Or deno libraries:
-import { serve } from 'https://deno.land/std/http/server.ts'
-```
-
-### Native TypeScript (nativets, bunnative)
-No imports allowed. Use the globally available `fetch` function:
 ```typescript
 export async function main(url: string) {
   const response = await fetch(url);
@@ -60,13 +42,7 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-Import the windmill client for platform interactions:
-
-```typescript
-import * as wmill from 'windmill-client'
-```
-
-See the SDK documentation for available methods.
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
 
 ## Preprocessor Scripts
 
@@ -85,13 +61,12 @@ type Event = {
     | "sqs"
     | "mqtt"
     | "gcp";
-  body: any; // Raw body of the request
+  body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
 };
 
 export async function preprocessor(event: Event) {
-  // Transform the event into flow input parameters
   return {
     param1: event.body.field1,
     param2: event.query.id

@@ -240,12 +240,14 @@ def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
 
-    for func in functions:
+    for i, func in enumerate(functions):
+        if func.get('docstring'):
+            md += f"// {func['docstring']}\n"
         async_prefix = 'async ' if func['async'] else ''
         md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}"
-        if func.get('docstring'):
-            md += f" - {func['docstring']}"
         md += "\n"
+        if i < len(functions) - 1:
+            md += "\n"
 
     return md
 
@@ -259,11 +261,12 @@ def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
         # Skip private functions
         if func['name'].startswith('_'):
             continue
+        docstring = func.get('docstring')
+        if docstring:
+            md += f"# {docstring}\n"
         async_prefix = 'async ' if func['async'] else ''
         return_annotation = f" -> {func['return_type']}" if func['return_type'] else ''
-        md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}"
-        if func.get('docstring'):
-            md += f" - {func['docstring']}"
+        md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}\n"
         md += "\n"
 
     return md
@@ -396,20 +399,30 @@ export * from './prompts';
 
 import * as prompts from './prompts';
 
+// Languages that use the TypeScript SDK
+const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
+
+// Languages that use the Python SDK
+const PY_SDK_LANGUAGES = ['python3'];
+
 // Helper to combine prompts for scripts
 export function getScriptPrompt(language: string): string {
   const langKey = `LANG_${language.toUpperCase()}` as keyof typeof prompts;
   const langPrompt = (prompts as Record<string, string>)[langKey] || '';
 
+  // Determine which SDK to include based on language
+  let sdkPrompt = '';
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.SDK_TYPESCRIPT;
+  } else if (PY_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.SDK_PYTHON;
+  }
+
   return [
     prompts.SCRIPT_BASE,
     langPrompt,
     prompts.S3_OBJECTS,
-    language === 'typescript' || language === 'bun' || language === 'deno'
-      ? prompts.SDK_TYPESCRIPT
-      : language === 'python3'
-        ? prompts.SDK_PYTHON
-        : ''
+    sdkPrompt
   ].filter(Boolean).join('\\n\\n');
 }
 

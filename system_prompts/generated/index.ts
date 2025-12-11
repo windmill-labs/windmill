@@ -4,20 +4,30 @@ export * from './prompts';
 
 import * as prompts from './prompts';
 
+// Languages that use the TypeScript SDK
+const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
+
+// Languages that use the Python SDK
+const PY_SDK_LANGUAGES = ['python3'];
+
 // Helper to combine prompts for scripts
 export function getScriptPrompt(language: string): string {
   const langKey = `LANG_${language.toUpperCase()}` as keyof typeof prompts;
   const langPrompt = (prompts as Record<string, string>)[langKey] || '';
 
+  // Determine which SDK to include based on language
+  let sdkPrompt = '';
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.SDK_TYPESCRIPT;
+  } else if (PY_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.SDK_PYTHON;
+  }
+
   return [
     prompts.SCRIPT_BASE,
     langPrompt,
     prompts.S3_OBJECTS,
-    language === 'typescript' || language === 'bun' || language === 'deno'
-      ? prompts.SDK_TYPESCRIPT
-      : language === 'python3'
-        ? prompts.SDK_PYTHON
-        : ''
+    sdkPrompt
   ].filter(Boolean).join('\n\n');
 }
 
