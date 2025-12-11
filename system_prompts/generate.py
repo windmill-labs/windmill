@@ -352,6 +352,10 @@ def main():
     resource_types = read_markdown_file(resources_dir / "resource-types.md")
     s3_objects = read_markdown_file(resources_dir / "s3-objects.md")
 
+    # Read CLI files
+    cli_dir = SCRIPT_DIR / "cli"
+    cli_commands = read_markdown_file(cli_dir / "cli-commands.md")
+
     # Assemble prompts for export
     prompts = {
         # Base prompts
@@ -368,6 +372,9 @@ def main():
         # Resources
         'RESOURCE_TYPES': resource_types,
         'S3_OBJECTS': s3_objects,
+
+        # CLI
+        'CLI_COMMANDS': cli_commands,
     }
 
     # Add language prompts
