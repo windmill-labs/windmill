@@ -518,7 +518,10 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				content: `Setting frontend file '${parsedArgs.path}'...`
 			})
 			const lintResult = helpers.setFrontendFile(parsedArgs.path, parsedArgs.content)
-			toolCallbacks.setToolStatus(toolId, { content: `Frontend file '${parsedArgs.path}' updated` })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Frontend file '${parsedArgs.path}' updated`,
+				result: 'Success'
+			})
 			return formatLintResultResponse(
 				`Frontend file '${parsedArgs.path}' has been set successfully.`,
 				lintResult
@@ -526,7 +529,10 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting frontend file...' })
-		}
+		},
+		streamArguments: true,
+		showDetails: true,
+		showFade: true
 	},
 	{
 		def: getDeleteFrontendFileToolDef(),
@@ -608,7 +614,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			})
 			const lintResult = await helpers.setBackendRunnable(parsedArgs.key, runnable)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Backend runnable '${parsedArgs.key}' analyzed`
+				content: `Backend runnable '${parsedArgs.key}' analyzed`,
+				result: 'Success'
 			})
 			return formatLintResultResponse(
 				`Backend runnable '${parsedArgs.key}' has been set successfully.`,
@@ -617,7 +624,10 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		},
 		preAction: ({ toolCallbacks, toolId }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Setting backend runnable...' })
-		}
+		},
+		streamArguments: true,
+		showDetails: true,
+		showFade: true
 	},
 	{
 		def: getDeleteBackendRunnableToolDef(),
