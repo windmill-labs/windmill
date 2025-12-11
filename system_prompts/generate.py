@@ -37,45 +37,49 @@ def extract_ts_functions(content: str) -> list[dict]:
     """Extract exported function signatures from TypeScript SDK."""
     functions = []
 
-    # Pattern for exported async functions
-    # Matches: export async function name(params): ReturnType {
-    async_pattern = re.compile(
-        r'export\s+async\s+function\s+(\w+)\s*'  # function name
+    # Pattern for JSDoc comment followed by exported function
+    # Captures: /** docstring */ export [async] function name(params): ReturnType {
+    jsdoc_pattern = re.compile(
+        r'/\*\*\s*\n\s*\*\s*([^\n]*?)(?:\n\s*\*[^/]*)?\s*\*/\s*'  # JSDoc comment (first line)
+        r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
         r'(<[^>]+>)?\s*'  # optional generic
         r'\(([^)]*)\)\s*'  # parameters
         r'(?::\s*([^{]+))?\s*\{',  # return type
         re.MULTILINE | re.DOTALL
     )
 
-    # Pattern for exported sync functions
-    sync_pattern = re.compile(
-        r'export\s+function\s+(\w+)\s*'  # function name
+    # Pattern for exported functions without JSDoc
+    func_pattern = re.compile(
+        r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
         r'(<[^>]+>)?\s*'  # optional generic
         r'\(([^)]*)\)\s*'  # parameters
         r'(?::\s*([^{]+))?\s*\{',  # return type
         re.MULTILINE | re.DOTALL
     )
 
-    for match in async_pattern.finditer(content):
-        name, generic, params, return_type = match.groups()
+    # First, find all functions with JSDoc
+    for match in jsdoc_pattern.finditer(content):
+        docstring, is_async, name, generic, params, return_type = match.groups()
         functions.append({
             'name': name,
             'generic': generic or '',
             'params': clean_params(params),
-            'return_type': (return_type or 'Promise<void>').strip(),
-            'async': True
+            'return_type': (return_type or ('Promise<void>' if is_async else 'void')).strip(),
+            'async': bool(is_async),
+            'docstring': docstring.strip() if docstring else ''
         })
 
-    for match in sync_pattern.finditer(content):
-        name, generic, params, return_type = match.groups()
-        # Skip if already captured as async
+    # Then find functions without JSDoc (that weren't already captured)
+    for match in func_pattern.finditer(content):
+        is_async, name, generic, params, return_type = match.groups()
         if not any(f['name'] == name for f in functions):
             functions.append({
                 'name': name,
                 'generic': generic or '',
                 'params': clean_params(params),
-                'return_type': (return_type or 'void').strip(),
-                'async': False
+                'return_type': (return_type or ('Promise<void>' if is_async else 'void')).strip(),
+                'async': bool(is_async),
+                'docstring': ''
             })
 
     return functions
@@ -235,7 +239,10 @@ def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
 
     for func in functions:
         async_prefix = 'async ' if func['async'] else ''
-        md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}\n"
+        md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}"
+        if func.get('docstring'):
+            md += f" - {func['docstring']}"
+        md += "\n"
 
     return md
 
@@ -251,7 +258,10 @@ def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
             continue
         async_prefix = 'async ' if func['async'] else ''
         return_annotation = f" -> {func['return_type']}" if func['return_type'] else ''
-        md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}\n"
+        md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}"
+        if func.get('docstring'):
+            md += f" - {func['docstring']}"
+        md += "\n"
 
     return md
 
