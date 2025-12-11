@@ -23,6 +23,7 @@ import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { getScriptPrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -480,12 +481,15 @@ export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
-	let content = buildChatSystemPrompt(currentModel)
+	// let content = buildChatSystemPrompt(currentModel)
 
-	// If there's a custom prompt, prepend it to the system prompt
-	if (customPrompt?.trim()) {
-		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
-	}
+	// // If there's a custom prompt, prepend it to the system prompt
+	// if (customPrompt?.trim()) {
+	// 	content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	// }
+
+	let content = getScriptPrompt('typescript')
+	console.log(content)
 
 	return {
 		role: 'system',
