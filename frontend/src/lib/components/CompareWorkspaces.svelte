@@ -25,6 +25,7 @@
 		ResourceService,
 		ScriptService,
 		VariableService,
+		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
@@ -47,6 +48,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import { sleep } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -607,8 +609,36 @@
 			sendUserToast(`Failed to deploy ${statusPath}: ${e.body || e.message}`)
 		}
 	}
+
+	let deploymentErrorMessage = $state('')
+	let allowBehindChangesOverride = $state(false)
+
+	async function isComparisonUpToDate(): Promise<boolean> {
+		try {
+			const result = await WorkspaceService.compareWorkspaces({
+				workspace: parentWorkspaceId,
+				targetWorkspaceId: currentWorkspaceId
+			})
+
+			if (!deepEqual(comparison, result)) {
+				deploymentErrorMessage = 'New changes detected. Please reload the page and review these before deploying'
+				return false
+			}
+		} catch (e) {
+			deploymentErrorMessage = `Failed to check for new changes before deployment: ${e}`
+			console.error('Failed to compare workspaces:', e)
+			return false
+		}
+		return true
+	}
+
 	async function deployChanges() {
 		deploying = true
+		if (!(await isComparisonUpToDate())) {
+			deploying = false
+			return
+		}
+
 		const parent = parentWorkspaceId
 		const current = currentWorkspaceId
 		for (const itemKey of selectedItems) {
@@ -711,7 +741,9 @@
 		</Alert>
 	{/if}
 	{#if comparison}
-		{@const selectedConflicts = conflictingDiffs.filter((e) => selectedItems.includes(getItemKey(e))).length}
+		{@const selectedConflicts = conflictingDiffs.filter((e) =>
+			selectedItems.includes(getItemKey(e))
+		).length}
 		<div class="bg-surface">
 			<div class="flex items-center justify-between">
 				<div
@@ -771,7 +803,8 @@
 							{comparison.summary.total_diffs} total items
 						</Badge>
 						<Badge color="transparent">
-							{selectableDiffs.length} {mergeIntoParent ? 'deployable' : 'updateable'}
+							{selectableDiffs.length}
+							{mergeIntoParent ? 'deployable' : 'updateable'}
 						</Badge>
 						{#if conflictingDiffs.length > 0}
 							<Badge color="orange">
@@ -824,7 +857,10 @@
 					{@const newSummary = mergeIntoParent
 						? summaryCache[key]?.current
 						: summaryCache[key]?.parent}
-					{@const existsInBothWorkspaces = !((diff.exists_in_fork && !diff.exists_in_source) || (!diff.exists_in_fork && diff.exists_in_source))}
+					{@const existsInBothWorkspaces = !(
+						(diff.exists_in_fork && !diff.exists_in_source) ||
+						(!diff.exists_in_fork && diff.exists_in_source)
+					)}
 
 					<Row
 						isSelectable={isSelectable && !(deploymentStatus[key]?.status == 'deployed')}
@@ -875,16 +911,32 @@
 									{/if}
 
 									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-										<Badge title="This item was newly created in the parent workspace '{parentWorkspaceId}'" color="indigo" size="xs">New</Badge>
+										<Badge
+											title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+											color="indigo"
+											size="xs">New</Badge
+										>
 									{/if}
 									{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-										<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs">Deleted</Badge>
+										<Badge
+											title="This item was deleted in '{currentWorkspaceId}'"
+											color="red"
+											size="xs">Deleted</Badge
+										>
 									{/if}
 									{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-										<Badge title="This item was deleted in the parent workspace '{parentWorkspaceId}'" color="red" size="xs">Deleted</Badge>
+										<Badge
+											title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+											color="red"
+											size="xs">Deleted</Badge
+										>
 									{/if}
 									{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-										<Badge title="This item was newly created in '{currentWorkspaceId}'" color="indigo" size="xs">New</Badge>
+										<Badge
+											title="This item was newly created in '{currentWorkspaceId}'"
+											color="indigo"
+											size="xs">New</Badge
+										>
 									{/if}
 								</div>
 								<div class:invisible={!existsInBothWorkspaces}>
@@ -928,7 +980,7 @@
 					{/if}
 				</div>
 
-				<div class="flex items-center gap-2">
+				<div class="flex flex-col items-right gap-2">
 					<Button
 						color="blue"
 						disabled={selectedItems.length === 0 || deploying}
@@ -941,8 +993,18 @@
 							({selectedConflicts} conflicts)
 						{/if}
 					</Button>
+
 				</div>
 			</div>
+					{#if deploymentErrorMessage != ''}
+					<div class="max-w-80 mr-0">
+					<Alert title="Cannot deploy these changes" type="error" class="my-2">
+						<span>
+							{deploymentErrorMessage}
+						</span>
+					</Alert>
+					</div>
+					{/if}
 		</div>
 		<DiffDrawer bind:this={diffDrawer} {isFlow} />
 	{:else}
