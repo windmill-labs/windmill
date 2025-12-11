@@ -29,7 +29,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -3975,6 +3975,8 @@ pub struct WorkspaceItemDiff {
 
 #[derive(Serialize)]
 pub struct WorkspaceComparison {
+    pub all_ahead_items_visible: bool,
+    pub all_behind_items_visible: bool,
     pub skipped_comparison: bool,
     pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
@@ -3997,12 +3999,14 @@ async fn reset_workspace_diffs(
     authed: ApiAuthed,
     Path((w_id, target_workspace_id)): Path<(String, String)>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<()> {
     // Needed to compute the has_changes: Option<bool>. Otherwise it will be None, and the query will not hit the items
     let _ = compare_workspaces(
         authed,
         Path((w_id.clone(), target_workspace_id.clone())),
         Extension(db.clone()),
+        Extension(user_db),
     )
     .await?;
 
@@ -4037,7 +4041,7 @@ async fn compare_workspaces(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceComparison> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // require_admin(authed.is_admin, &authed.username)?;
 
     let skipped_comparison: bool = sqlx::query_scalar(
         "SELECT EXISTS(
@@ -4051,6 +4055,8 @@ async fn compare_workspaces(
 
     if skipped_comparison {
         return Ok(Json(WorkspaceComparison {
+            all_ahead_items_visible: true,
+            all_behind_items_visible: true,
             skipped_comparison,
             diffs: vec![],
             summary: Default::default(),
@@ -4098,11 +4104,12 @@ async fn compare_workspaces(
             ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
-                Some(ItemComparison {
-                    has_changes: true,
-                    exists_in_source: true,
-                    exists_in_fork: true,
-                })
+                None
+                // Some(ItemComparison {
+                //     has_changes: true,
+                //     exists_in_source: true,
+                //     exists_in_fork: true,
+                // })
             }
         };
 
@@ -4146,48 +4153,57 @@ async fn compare_workspaces(
         }
     }
 
-    let mut tx = user_db.begin(&authed).await?;
     let visible_diffs = filter_visible_diffs(
         &confirmed_diffs,
         &source_workspace_id,
         &fork_workspace_id,
-        tx,
+        user_db.begin(&authed).await?,
     )
     .await?;
 
     let summary = CompareSummary {
-        total_diffs: confirmed_diffs.len(),
-        total_ahead: confirmed_diffs
+        total_diffs: visible_diffs.len(),
+        total_ahead: visible_diffs
             .iter()
             .map(|s| s.ahead)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
-        total_behind: confirmed_diffs
+        total_behind: visible_diffs
             .iter()
             .map(|s| s.behind)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
-        scripts_changed: confirmed_diffs
-            .iter()
-            .filter(|s| s.kind == "script")
-            .count(),
-        flows_changed: confirmed_diffs.iter().filter(|s| s.kind == "flow").count(),
-        apps_changed: confirmed_diffs.iter().filter(|s| s.kind == "app").count(),
-        resources_changed: confirmed_diffs
+        scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
+        flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
+        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        resources_changed: visible_diffs
             .iter()
             .filter(|s| s.kind == "resource")
             .count(),
-        variables_changed: confirmed_diffs
+        variables_changed: visible_diffs
             .iter()
             .filter(|s| s.kind == "variable")
             .count(),
-        conflicts: confirmed_diffs
+        conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
             .count(),
     };
 
+    let all_ahead_items_visible = summary.total_ahead
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+    let all_behind_items_visible = summary.total_behind
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+
     return Ok(Json(WorkspaceComparison {
+        all_ahead_items_visible,
+        all_behind_items_visible,
         skipped_comparison: false,
-        diffs: confirmed_diffs,
+        diffs: visible_diffs,
         summary,
     }));
 }
@@ -4196,9 +4212,110 @@ async fn filter_visible_diffs(
     confirmed_diffs: &[WorkspaceDiffRow],
     source_workspace_id: &str,
     fork_workspace_id: &str,
-    tx: Transaction<'static, Postgres>,
-) -> Vec<WorkspaceDiffRow> {
+    mut tx: Transaction<'static, Postgres>,
+) -> Result<Vec<WorkspaceDiffRow>> {
+    // Step 1: Group paths by (workspace, kind)
+    let mut source_items: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut fork_items: HashMap<&str, Vec<&str>> = HashMap::new();
 
+    for diff in confirmed_diffs {
+        if diff.exists_in_source.unwrap_or(false) {
+            source_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+        if diff.exists_in_fork.unwrap_or(false) {
+            fork_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+    }
+
+    // Step 2: Batch query for each (workspace, kind) combination
+    let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
+    let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+
+    // Step 3: Filter diffs based on visibility
+    let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs
+        .iter()
+        .filter(|diff| {
+            let v = (diff.kind.to_string(), diff.path.to_string());
+            let source_ok = !diff.exists_in_source.unwrap_or(false) || source_visible.contains(&v);
+            let fork_ok = !diff.exists_in_fork.unwrap_or(false) || fork_visible.contains(&v);
+            source_ok && fork_ok
+        })
+        .cloned()
+        .collect();
+
+    Ok(visible_diffs)
+}
+
+async fn query_visible_items<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    workspace_id: &str,
+    items_by_kind: &HashMap<&str, Vec<&str>>,
+) -> Result<HashSet<(String, String)>> {
+    let mut visible = HashSet::new();
+
+    for (kind, paths) in items_by_kind {
+        let paths_vec: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+
+        let results = match *kind {
+            "script" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM script
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "flow" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM flow
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "app" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM app
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "resource" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM resource
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "variable" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM variable
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            _ => vec![], // Unknown kind
+        };
+
+        for path in results {
+            visible.insert((kind.to_string(), path));
+        }
+    }
+
+    Ok(visible)
 }
 
 #[derive(Debug)]

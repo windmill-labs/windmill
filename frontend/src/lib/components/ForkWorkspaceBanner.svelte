@@ -54,7 +54,7 @@
 			comparison = result
 		} catch (e) {
 			console.error('Failed to compare workspaces:', e)
-			error = 'Failed to check for changes'
+			error = `Failed to check for changes: ${e}`
 			// Still show banner if there's an error, but with error message
 		} finally {
 			loading = false
