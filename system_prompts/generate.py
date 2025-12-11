@@ -539,6 +539,12 @@ export function getFlowPrompt(): string {
     shutil.copy(OUTPUT_GENERATED_DIR / "prompts.ts", CLI_GUIDANCE_DIR / "prompts.ts")
     shutil.copy(OUTPUT_GENERATED_DIR / "index.ts", CLI_GUIDANCE_DIR / "index.ts")
 
+    # Fix imports for Deno (add .ts extensions to CLI copy only)
+    cli_index_path = CLI_GUIDANCE_DIR / "index.ts"
+    cli_index_content = cli_index_path.read_text()
+    cli_index_content = cli_index_content.replace("from './prompts'", "from './prompts.ts'")
+    cli_index_path.write_text(cli_index_content)
+
     print(f"\nGenerated files:")
     print(f"  - sdks/typescript.md")
     print(f"  - sdks/python.md")

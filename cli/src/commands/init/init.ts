@@ -1,7 +1,8 @@
 import { colors, Command, log, yamlStringify, Confirm } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
-import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
+// import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
+import { getScriptPrompt } from "../../guidance/index.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
@@ -238,7 +239,7 @@ async function initAction(opts: InitOptions) {
 
   // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
   try {
-    const scriptGuidanceContent = SCRIPT_GUIDANCE;
+    const scriptGuidanceContent = getScriptPrompt("typescript");
     const flowGuidanceContent = FLOW_GUIDANCE;
 
     // Create .cursor/rules directory
