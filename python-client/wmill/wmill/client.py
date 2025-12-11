@@ -826,6 +826,81 @@ class Windmill:
             json={"s3_objects": [s3_object]},
         ).json()[0]
 
+    def get_presigned_s3_public_urls(
+        self,
+        s3_objects: list[S3Object | str],
+        base_url: str | None = None,
+    ) -> list[str]:
+        """
+        Generate presigned public URLs for an array of S3 objects.
+        If an S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_objects: List of S3 objects to sign
+            base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+        Returns:
+            List of signed public URLs
+
+        Example:
+            >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+            >>> urls = client.get_presigned_s3_public_urls(s3_objs)
+        """
+        base_url = base_url or self._get_public_base_url()
+
+        s3_objs = [parse_s3_object(s3_obj) for s3_obj in s3_objects]
+
+        # Sign all S3 objects that need to be signed in one go
+        s3_objs_to_sign: list[tuple[S3Object, int]] = [
+            (s3_obj, index)
+            for index, s3_obj in enumerate(s3_objs)
+            if s3_obj.get("presigned") is None
+        ]
+
+        if s3_objs_to_sign:
+            signed_s3_objs = self.sign_s3_objects(
+                [s3_obj for s3_obj, _ in s3_objs_to_sign]
+            )
+            for i, (_, original_index) in enumerate(s3_objs_to_sign):
+                s3_objs[original_index] = parse_s3_object(signed_s3_objs[i])
+
+        signed_urls: list[str] = []
+        for s3_obj in s3_objs:
+            s3 = s3_obj.get("s3", "")
+            presigned = s3_obj.get("presigned", "")
+            storage = s3_obj.get("storage", "_default_")
+            signed_url = f"{base_url}/api/w/{self.workspace}/s3_proxy/{storage}/{s3}?{presigned}"
+            signed_urls.append(signed_url)
+
+        return signed_urls
+
+    def get_presigned_s3_public_url(
+        self,
+        s3_object: S3Object | str,
+        base_url: str | None = None,
+    ) -> str:
+        """
+        Generate a presigned public URL for an S3 object.
+        If the S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_object: S3 object to sign
+            base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+        Returns:
+            Signed public URL
+
+        Example:
+            >>> s3_obj = S3Object(s3="/path/to/file.txt")
+            >>> url = client.get_presigned_s3_public_url(s3_obj)
+        """
+        urls = self.get_presigned_s3_public_urls([s3_object], base_url)
+        return urls[0]
+
+    def _get_public_base_url(self) -> str:
+        """Get the public base URL from environment or default to localhost"""
+        return os.environ.get("WM_BASE_URL", "http://localhost:3000")
+
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
         return Boto3ConnectionSettings(
@@ -1281,6 +1356,56 @@ def sign_s3_object(s3_object: S3Object| str) -> S3Object:
     Returns a signed s3 object
     """
     return _client.sign_s3_object(s3_object)
+
+
+@init_global_client
+def get_presigned_s3_public_urls(
+    s3_objects: list[S3Object | str],
+    base_url: str | None = None,
+) -> list[str]:
+    """
+    Generate presigned public URLs for an array of S3 objects.
+    If an S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_objects: List of S3 objects to sign
+        base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+    Returns:
+        List of signed public URLs
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+        >>> urls = wmill.get_presigned_s3_public_urls(s3_objs)
+    """
+    return _client.get_presigned_s3_public_urls(s3_objects, base_url)
+
+
+@init_global_client
+def get_presigned_s3_public_url(
+    s3_object: S3Object | str,
+    base_url: str | None = None,
+) -> str:
+    """
+    Generate a presigned public URL for an S3 object.
+    If the S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_object: S3 object to sign
+        base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+    Returns:
+        Signed public URL
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_obj = S3Object(s3="/path/to/file.txt")
+        >>> url = wmill.get_presigned_s3_public_url(s3_obj)
+    """
+    return _client.get_presigned_s3_public_url(s3_object, base_url)
 
 
 @init_global_client
