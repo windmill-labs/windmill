@@ -10,7 +10,6 @@ import type {
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
 import type { ContextElement } from '../context'
-import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
@@ -74,119 +73,6 @@ async function getResourceTypes(prompt: string, workspace: string) {
 	return resourceTypes
 }
 
-const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
-
-const TS_WINDMILL_CLIENT_CONTEXT = `
-
-The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "windmill-client"\`. Key functions include:
-
-// Resource operations
-wmill.getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any> // Get resource value by path
-wmill.setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void> // Set resource value
-
-// State management (persistent across executions)  
-wmill.getState(): Promise<any> // Get shared state
-wmill.setState(state: any): Promise<void> // Set shared state
-
-// Variables
-wmill.getVariable(path: string): Promise<string> // Get variable value
-wmill.setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void> // Set variable value
-
-// Script execution
-wmill.runScript(path?: string | null, hash_?: string | null, args?: Record<string, any> | null, verbose?: boolean): Promise<any> // Run script synchronously
-wmill.runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds?: number | null): Promise<string> // Run script async, returns job ID
-wmill.waitJob(jobId: string, verbose?: boolean): Promise<any> // Wait for job completion and get result
-wmill.getResult(jobId: string): Promise<any> // Get job result by ID
-wmill.getResultMaybe(jobId: string): Promise<any> // Get job result by ID, returns undefined if not found
-wmill.getRootJobId(jobId?: string): Promise<string> // Get root job ID from job ID
-
-// S3 file operations (if S3 is configured)
-wmill.loadS3File(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Uint8Array | undefined> // Load file content from S3
-wmill.loadS3FileStream(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Blob | undefined> // Load file content from S3 as stream
-wmill.writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath?: string | undefined): Promise<S3Object> // Write file to S3
-
-// Flow operations
-wmill.setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void> // Set flow user state
-wmill.getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any> // Get flow user state
-wmill.getResumeUrls(approver?: string): Promise<{approvalPage: string, resume: string, cancel: string}> // Get approval URLs
-
-`
-
-const PYTHON_WINDMILL_CLIENT_CONTEXT = `
-
-The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import wmill\`. Key functions include:
-
-// Resource operations
-wmill.get_resource(path: str, none_if_undefined: bool = False) -> dict | None  // Get resource value by path
-wmill.set_resource(path: str, value: Any, resource_type: str = "any") -> None  // Set resource value
-
-// State management (persistent across executions)
-wmill.get_state() -> Any  // Get shared state (deprecated, use flow user state)
-wmill.set_state(value: Any) -> None  // Set shared state
-wmill.get_state_path() -> str  // Get state path
-wmill.get_flow_user_state(key: str) -> Any  // Get flow user state 
-wmill.set_flow_user_state(key: str, value: Any) -> None  // Set flow user state
-
-// Variables
-wmill.get_variable(path: str) -> str  // Get variable value
-wmill.set_variable(path: str, value: str, is_secret: bool = False) -> None  // Set variable value
-
-// Script execution
-wmill.run_script(path: str = None, hash_: str = None, args: dict = None, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any  // Run script synchronously
-wmill.run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str  // Run script async, returns job ID
-wmill.wait_job(job_id: str, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any  // Wait for job completion and get result
-wmill.get_result(job_id: str, assert_result_is_not_none: bool = True) -> Any  // Get job result by ID
-wmill.get_root_job_id(job_id: str | None = None) -> str  // Get root job ID from job ID
-
-// S3 file operations (if S3 is configured)
-wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes  // Load file content from S3
-wmill.load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None = None) -> BufferedReader  // Load S3 file as stream reader
-wmill.write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None = None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object  // Write file to S3
-
-// Flow operations  
-wmill.run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str  // Run flow asynchronously
-wmill.get_resume_urls(approver: str = None) -> dict  // Get approval URLs for flow steps
-
-// Utilities
-wmill.get_workspace() -> str  // Get current workspace
-wmill.whoami() -> dict  // Get current user information
-wmill.get_job_status(job_id: str) -> str  // Get job status ("RUNNING" | "WAITING" | "COMPLETED")
-wmill.set_progress(value: int, job_id: Optional[str] = None) -> None  // Set job progress (0-100)
-wmill.get_progress(job_id: Optional[str] = None) -> Any  // Get job progress`
-
-const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
-You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
-The resource type name has to be exactly as specified (has to be IN LOWERCASE).
-If an import conflicts with a resource type name, **you have to rename the imported object, not the type name**.
-Make sure to import TypedDict from typing **if you're using it**`
-
-const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type
-You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
-Before defining each type, check if the class already exists using class_exists.
-The resource type name has to be exactly as specified.`
-
-const PREPROCESSOR_INSTRUCTION_BASE = `The current script is a preprocessor. It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-The preprocessor receives a single parameter called event.
-Here's a sample script which includes the event object definition:\n`
-
-const TS_PREPROCESSOR_INSTRUCTION =
-	PREPROCESSOR_INSTRUCTION_BASE +
-	`\`\`\`typescript
-${TS_PREPROCESSOR_MODULE_CODE}
-\`\`\`\n`
-
-const PYTHON_PREPROCESSOR_INSTRUCTION =
-	PREPROCESSOR_INSTRUCTION_BASE +
-	`\`\`\`python
-${PYTHON_PREPROCESSOR_MODULE_CODE}
-\`\`\``
-
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'bunnative',
 	'nativets',
@@ -215,108 +101,23 @@ export function getLangContext(
 		allowResourcesFetch = false,
 		isPreprocessor = false
 	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
-) {
-	const tsContext =
-		(isPreprocessor
-			? TS_PREPROCESSOR_INSTRUCTION
-			: TS_RESOURCE_TYPE_SYSTEM +
-				(allowResourcesFetch
-					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) + TS_WINDMILL_CLIENT_CONTEXT
+): string {
+	// Get base language context from centralized prompts
+	let context = getScriptPrompt(lang)
 
-	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
-
-	switch (lang) {
-		case 'bunnative':
-		case 'nativets':
-			return (
-				`The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n` +
-				tsContext
-			)
-		case 'bun':
-			return (
-				`The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
-				tsContext
-			)
-		case 'deno':
-			return (
-				`The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
-				tsContext +
-				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
-			)
-		case 'python3':
-			return (
-				`The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
-				(isPreprocessor
-					? PYTHON_PREPROCESSOR_INSTRUCTION
-					: PYTHON_RESOURCE_TYPE_SYSTEM +
-						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
-				PYTHON_WINDMILL_CLIENT_CONTEXT
-			)
-		case 'php':
-			return (
-				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
-				PHP_RESOURCE_TYPE_SYSTEM +
-				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}` +
-				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
-					\`\`\`
-					// require:
-					// mylibrary/mylibrary
-					// myotherlibrary/myotherlibrary@optionalversion
-					\`\`\`
-					Make sure to have one per line.
-					No need to require autoload, it is already done.`
-			)
-		case 'rust':
-			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
-				\`\`\`rust
-				use anyhow::anyhow;
-				use serde::Serialize;
-
-				#[derive(Serialize, Debug)]
-				struct ReturnType {
-					// ...
-				}
-
-				fn main(...) -> anyhow::Result<ReturnType>
-				\`\`\`
-				Arguments should be owned. Make sure the return type is serializable.
-
-				Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
-				//! \`\`\`cargo
-				//! [dependencies]
-				//! anyhow = "1.0.86"
-				//! \`\`\'
-				Serde is already included, no need to add it again.
-
-				If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.`
-		case 'go':
-			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
-		case 'bash':
-			return `The user is coding in Bash. Do not include "#!/bin/bash". On Windmill, arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc..`
-		case 'postgresql':
-			return `The user is coding in PostgreSQL. On Windmill, arguments can be obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc... Name the parameters (without specifying the type) by adding comments at the beginning of the script before the statement like that: \`-- $1 name1\` or \`-- $2 name = default\` (one per row)`
-		case 'mysql':
-			return 'The user is coding in MySQL. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
-		case 'bigquery':
-			return 'The user is coding in BigQuery. On Windmill, arguments can be obtained by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....'
-		case 'snowflake':
-			return 'The user is coding in Snowflake. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
-		case 'mssql':
-			return 'The user is coding in Microsoft SQL Server. On Windmill, arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)'
-		case 'graphql':
-			return 'The user is coding in GraphQL. If needed, add the needed arguments as query parameters.'
-		case 'powershell':
-			return 'The user is coding in PowerShell. On Windmill, arguments can be obtained by calling the param function on the first line of the script like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`'
-		case 'csharp':
-			return 'The user is coding in C#. On Windmill, it is expected the script contains a public static Main method inside a class. The class name is irrelevant. NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script. The Main method signature should be: public static ReturnType Main(parameter types...)'
-		case 'java':
-			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
-		case 'duckdb':
-			return "The user is coding in DuckDB. On Windmill, arguments are defined with comments like `-- $name (text) = default` or `-- $name (text)` (one per line) and used in the statement with $age, $name, etc. To use Ducklake, attach it with `ATTACH 'ducklake' AS dl;` (for main ducklake) or `ATTACH 'ducklake://name' AS dl;` for named ducklakes, then perform CRUD operations. To connect to external databases, use `ATTACH '$res:path/to/resource' AS db (TYPE postgres);` and query with `SELECT * FROM db.schema.table;`. To read S3 files, use `SELECT * FROM read_csv('s3:///path/to/file.csv');` for default storage or `SELECT * FROM read_csv('s3://secondary_storage_name/path/to/file.csv');` for named storage"
-		default:
-			return ''
+	// Add tool usage instructions for applicable languages
+	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
+		if (allowResourcesFetch) {
+			context += '\n\nTo query available resource types, use the `search_resource_types` tool.'
+		}
 	}
+
+	// Note preprocessor function naming if applicable
+	if (isPreprocessor) {
+		context += '\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
+	}
+
+	return context
 }
 
 export async function getFormattedResourceTypes(
@@ -481,15 +282,12 @@ export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
-	// let content = buildChatSystemPrompt(currentModel)
+	let content = buildChatSystemPrompt(currentModel)
 
-	// // If there's a custom prompt, prepend it to the system prompt
-	// if (customPrompt?.trim()) {
-	// 	content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
-	// }
-
-	let content = getScriptPrompt('typescript')
-	console.log(content)
+	// If there's a custom prompt, prepend it to the system prompt
+	if (customPrompt?.trim()) {
+		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	}
 
 	return {
 		role: 'system',
