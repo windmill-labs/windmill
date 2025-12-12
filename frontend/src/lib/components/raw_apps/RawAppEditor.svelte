@@ -78,7 +78,7 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
-	historyManager.addSnapshot()
+	historyManager.manualSnapshot(files ?? {}, runnables, summary)
 	let historyPaneOpen = $state(false)
 	let historyPreviewId = $state<number | undefined>(undefined)
 
@@ -525,15 +525,16 @@
 
 	function handlePreviewSelect(id: number) {
 		const entry = historyManager.getEntryById(id)
+		console.log('entry', entry)
 		if (entry) {
 			historyPreviewId = entry.id
 			historyManager.setPreview(id)
 
 			// Apply preview state to editor
-			files = entry.files
-			runnables = entry.runnables
+			files = structuredClone($state.snapshot(entry.files))
+			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-
+			console.log('files', files['/index.css'])
 			setFilesInIframe(entry.files)
 			populateRunnables()
 		}
@@ -563,6 +564,8 @@
 			sendUserToast('Snapshot created')
 		}
 	}
+
+	const debugFiles = true
 </script>
 
 <svelte:window onmessage={listener} onkeydown={handleKeydown} />
@@ -677,6 +680,11 @@
 				class="h-full w-full"
 				style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}"
 			>
+				{#if debugFiles}
+					<div class="w-full text-xs">
+						<pre>{JSON.stringify(files, null, 2)}</pre>
+					</div>
+				{/if}
 				<iframe
 					bind:this={iframe}
 					title="UI builder"
