@@ -27,6 +27,7 @@ use windmill_common::{
     client::AuthedClient,
     s3_helpers::BundleFormat,
     scripts::{id_to_codebase_info, CodebaseInfo},
+    utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
 
@@ -367,6 +368,7 @@ pub async fn install_bun_lockfile(
             None,
             None,
         )
+        .warn_after_seconds(10)
         .await?;
     } else {
         Box::into_pin(child_process.wait()).await?;
