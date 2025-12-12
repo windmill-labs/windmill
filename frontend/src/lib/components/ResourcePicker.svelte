@@ -200,7 +200,6 @@
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
-			itemButtonWrapperClasses="flex items-center"
 		>
 			{#snippet endSnippet({ item, close })}
 				<Button

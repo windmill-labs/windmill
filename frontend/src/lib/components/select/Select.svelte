@@ -42,6 +42,7 @@
 		itemLabelWrapperClasses,
 		itemButtonWrapperClasses,
 		size = 'md',
+		showPlaceholderOnOpen = false,
 		transformInputSelectedText,
 		groupBy,
 		sortBy,
@@ -75,6 +76,7 @@
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
 		size?: 'sm' | 'md' | 'lg'
+		showPlaceholderOnOpen?: boolean
 		transformInputSelectedText?: (text: string) => string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
@@ -159,7 +161,11 @@
 		{disabled}
 		type="text"
 		bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
-		placeholder={loading && !value ? 'Loading...' : value ? inputText : placeholder}
+		placeholder={loading && !value
+			? 'Loading...'
+			: value && !showPlaceholderOnOpen
+				? inputText
+				: placeholder}
 		style={containerStyle}
 		class={twMerge(
 			inputBaseClass,

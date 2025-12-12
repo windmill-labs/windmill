@@ -4,6 +4,7 @@
 	import { untrack, type Snippet } from 'svelte'
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { PlusIcon } from 'lucide-svelte'
 
 	let {
 		processedItems: _processedItems,
@@ -195,6 +196,7 @@
 											: item.value === value
 												? 'bg-surface-secondary'
 												: 'hover:bg-surface-hover',
+										endSnippet || item.__is_create ? 'flex items-center justify-between gap-2' : '',
 										itemButtonWrapperClasses,
 										item.disabled ? 'cursor-not-allowed text-disabled' : ''
 									)}
@@ -207,7 +209,11 @@
 									<span class={itemLabelWrapperClasses}>
 										{item.label || '\xa0'}
 									</span>
-									{@render endSnippet?.({ item, close: () => (open = false) })}
+									{#if item.__is_create}
+										<PlusIcon class="inline ml-auto" size={16} />
+									{:else}
+										{@render endSnippet?.({ item, close: () => (open = false) })}
+									{/if}
 									{#if item.subtitle}
 										<div class="text-2xs text-secondary">{item.subtitle}</div>
 									{/if}

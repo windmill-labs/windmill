@@ -99,6 +99,8 @@
 					items={safeSelectItems(schemaKeys)}
 					transformInputSelectedText={(s) => `Schema: ${s}`}
 					RightIcon={ChevronDownIcon}
+					placeholder="Search or create schema..."
+					showPlaceholderOnOpen
 					onCreateItem={(schema) => {
 						schema = schema
 							.trim()
