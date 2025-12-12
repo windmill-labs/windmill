@@ -156,6 +156,37 @@ impl Visit for AssetsFinder {
         }
     }
 
+    fn visit_assign_expr(&mut self, node: &swc_ecma_ast::AssignExpr) {
+        // Handle reassignments like: sql = wmill.datatable('main')
+        // Extract the variable name from the left side
+        let var_name = match &node.left {
+            swc_ecma_ast::AssignTarget::Simple(simple_target) => match simple_target {
+                swc_ecma_ast::SimpleAssignTarget::Ident(ident_binding) => {
+                    ident_binding.id.sym.as_str().to_string()
+                }
+                _ => {
+                    node.visit_children_with(self);
+                    return;
+                }
+            },
+            _ => {
+                node.visit_children_with(self);
+                return;
+            }
+        };
+
+        // Check if right side is a wmill.datatable() or wmill.ducklake() call
+        if let Some((kind, asset_name, schema)) = extract_wmill_datatable_call(node.right.as_ref())
+        {
+            self.var_identifiers
+                .insert(var_name, (kind, asset_name, schema));
+            return;
+        }
+
+        // Default: visit children
+        node.visit_children_with(self);
+    }
+
     fn visit_block_stmt(&mut self, node: &swc_ecma_ast::BlockStmt) {
         // Save current state before entering the block
         let saved_var_identifiers = self.var_identifiers.clone();
@@ -529,6 +560,48 @@ mod tests {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
                 access_type: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_reassignment() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql;
+                sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/users".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_reassignment_with_schema() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql;
+                sql = wmill.datatable('dt').schema('public')
+                return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/public.users".to_string(),
+                access_type: Some(R)
             },])
         );
     }
