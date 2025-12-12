@@ -2832,10 +2832,14 @@ pub async fn handle_queued_job(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        if job.concurrency_settings.concurrent_limit.is_some() && !job.kind.is_dependency() {
-            logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
-            logs.push_str("---\n");
+        if let Connection::Sql(db) = conn {
+            if (job.concurrent_limit.is_some() ||
+                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit)
+                && !job.kind.is_dependency() {
+                logs.push_str("---\n");
+                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
+                logs.push_str("---\n");
+            }
         }
 
         // Only used for testing in tests/relative_imports.rs
