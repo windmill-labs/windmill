@@ -55,82 +55,51 @@ struct AssetsFinder {
 }
 
 /// Helper function to extract wmill.datatable() or wmill.ducklake() calls,
-/// optionally with a chained .schema() call.
 /// Returns (AssetKind, asset_name, optional_schema_name)
 fn extract_wmill_datatable_call(expr: &Expr) -> Option<(AssetKind, String, Option<String>)> {
-    // First, check if this is a .schema() call chained on a wmill call
-    if let Expr::Call(outer_call) = expr {
-        if let Some(Expr::Member(schema_member)) = outer_call.callee.as_expr().map(AsRef::as_ref) {
-            // Check if the property is "schema"
-            if let MemberProp::Ident(prop) = &schema_member.prop {
-                if prop.sym.as_str() == "schema" {
-                    // Extract the schema name from the outer call's first argument
-                    let schema_name =
-                        outer_call
-                            .args
-                            .first()
-                            .and_then(|arg| match arg.expr.as_ref() {
-                                Expr::Lit(Lit::Str(s)) => Some(s.value.to_string()),
-                                _ => None,
-                            });
+    if let Expr::Call(call_expr) = expr {
+        if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
+            // Check if object is "wmill"
+            let is_wmill = matches!(
+                member.obj.as_ref(),
+                Expr::Ident(ident) if ident.sym.as_str() == "wmill"
+            );
 
-                    // Now check if the object is a wmill.datatable() or wmill.ducklake() call
-                    if let Expr::Call(inner_call) = schema_member.obj.as_ref() {
-                        if let Some((kind, asset_name)) =
-                            extract_wmill_call_without_schema(inner_call)
-                        {
-                            return Some((kind, asset_name, schema_name));
-                        }
-                    }
+            if is_wmill {
+                if let MemberProp::Ident(prop) = &member.prop {
+                    // Get the asset name from first arg, default to "main"
+                    let asset_name = call_expr
+                        .args
+                        .first()
+                        .and_then(|arg| match arg.expr.as_ref() {
+                            Expr::Lit(Lit::Str(s)) => Some(s.value.to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| "main".to_string());
+
+                    let (asset_name, schema_name) = asset_name.split_once(':').map_or_else(
+                        || (asset_name.clone(), None),
+                        |(name, schema)| {
+                            (
+                                (if name.is_empty() { "main" } else { name }).to_string(),
+                                Some(schema.to_string()),
+                            )
+                        },
+                    );
+
+                    let kind = match prop.sym.as_str() {
+                        "datatable" => Some(AssetKind::DataTable),
+                        "ducklake" => Some(AssetKind::Ducklake),
+                        _ => None,
+                    };
+
+                    return kind.map(|k| (k, asset_name, schema_name));
                 }
             }
         }
     }
-
-    // If not a .schema() call, check if it's a plain wmill call
-    if let Expr::Call(call_expr) = expr {
-        if let Some((kind, asset_name)) = extract_wmill_call_without_schema(call_expr) {
-            return Some((kind, asset_name, None));
-        }
-    }
-
     None
 }
-
-/// Helper to extract just the wmill.datatable/ducklake call without schema
-fn extract_wmill_call_without_schema(call_expr: &CallExpr) -> Option<(AssetKind, String)> {
-    if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
-        // Check if object is "wmill"
-        let is_wmill = matches!(
-            member.obj.as_ref(),
-            Expr::Ident(ident) if ident.sym.as_str() == "wmill"
-        );
-
-        if is_wmill {
-            if let MemberProp::Ident(prop) = &member.prop {
-                // Get the asset name from first arg, default to "main"
-                let asset_name = call_expr
-                    .args
-                    .first()
-                    .and_then(|arg| match arg.expr.as_ref() {
-                        Expr::Lit(Lit::Str(s)) => Some(s.value.to_string()),
-                        _ => None,
-                    })
-                    .unwrap_or_else(|| "main".to_string());
-
-                let kind = match prop.sym.as_str() {
-                    "datatable" => Some(AssetKind::DataTable),
-                    "ducklake" => Some(AssetKind::Ducklake),
-                    _ => None,
-                };
-
-                return kind.map(|k| (k, asset_name));
-            }
-        }
-    }
-    None
-}
-
 impl Visit for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
@@ -489,7 +458,7 @@ mod tests {
         let input = r#"
             import * as wmill from "windmill-client"
             export async function main(x: number) {
-                let sql = wmill.datatable('dt').schema('public')
+                let sql = wmill.datatable(':myschema')
                 return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
             }
         "#;
@@ -498,27 +467,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
-                path: "dt/public.friends".to_string(),
-                access_type: Some(R)
-            },])
-        );
-    }
-
-    #[test]
-    fn test_ts_asset_parser_ducklake_with_schema() {
-        let input = r#"
-            import * as wmill from "windmill-client"
-            export async function main() {
-                let sql = wmill.ducklake('lake1').schema('analytics')
-                return await sql`SELECT * FROM metrics`.fetch()
-            }
-        "#;
-        let s = parse_assets(input);
-        assert_eq!(
-            s.map_err(|e| e.to_string()),
-            Ok(vec![ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                path: "lake1/analytics.metrics".to_string(),
+                path: "main/myschema.friends".to_string(),
                 access_type: Some(R)
             },])
         );
@@ -529,7 +478,7 @@ mod tests {
         let input = r#"
             import * as wmill from "windmill-client"
             export async function main(x: number) {
-                let sql = wmill.datatable('dt').schema('public')
+                let sql = wmill.datatable('dt:public')
                 await sql`INSERT INTO users VALUES (${x})`.fetch()
                 return await sql`SELECT * FROM users`.fetch()
             }
@@ -550,7 +499,7 @@ mod tests {
         let input = r#"
             import * as wmill from "windmill-client"
             export async function main() {
-                let sql = wmill.datatable('dt').schema('public')
+                let sql = wmill.datatable('dt:myschema')
             }
         "#;
         let s = parse_assets(input);
@@ -592,7 +541,7 @@ mod tests {
             export async function main(x: number) {
                 let sql = wmill.datatable('dt')
                 await sql`INSERT INTO test VALUES ('')`.fetch()
-                sql = wmill.datatable('dt').schema('private')
+                sql = wmill.datatable('dt:private')
                 return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
             }
         "#;

@@ -50,10 +50,6 @@ export type SqlStatement = {
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
-type SqlTemplateFunctionWithSchemaSetter = SqlTemplateFunction & {
-  schema: (schema: string) => SqlTemplateFunction;
-};
-
 /**
  * @example
  * let sql = wmill.datatable()
@@ -64,10 +60,8 @@ type SqlTemplateFunctionWithSchemaSetter = SqlTemplateFunction & {
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-export function datatable(
-  name: string = "main"
-): SqlTemplateFunctionWithSchemaSetter {
-  return sqlProviderImpl(name, "datatable");
+export function datatable(name: string = "main"): SqlTemplateFunction {
+  return sqlProviderImpl("datatable", parseName(name));
 }
 
 /**
@@ -81,14 +75,13 @@ export function datatable(
  * `.fetch()
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl(name, "ducklake");
+  return sqlProviderImpl("ducklake", { name });
 }
 
 function sqlProviderImpl(
-  name: string,
-  provider: "datatable" | "ducklake"
-): SqlTemplateFunctionWithSchemaSetter {
-  let state: { schema?: string | null } = {};
+  provider: "datatable" | "ducklake",
+  { name, schema }: { name: string; schema?: string }
+): SqlTemplateFunction {
   let sqlFn: SqlTemplateFunction = (
     strings: TemplateStringsArray,
     ...values: any[]
@@ -117,8 +110,8 @@ function sqlProviderImpl(
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
 
-    if (state.schema && provider === "datatable") {
-      content += `SET search_path TO "${state.schema}";\n`;
+    if (schema && provider === "datatable") {
+      content += `SET search_path TO "${schema}";\n`;
     }
 
     let contentBody = "";
@@ -176,9 +169,7 @@ function sqlProviderImpl(
     } satisfies SqlStatement;
   };
 
-  return Object.assign(sqlFn, {
-    schema: (schema: string) => ((state.schema = schema), sqlFn),
-  });
+  return sqlFn;
 }
 
 // DuckDB executor requires explicit argument types at declaration
@@ -227,5 +218,21 @@ function parseTypeAnnotation(
     nextTemplateString.toUpperCase().startsWith("AS ")
   ) {
     return nextTemplateString.substring(2).trimStart().split(/\s+/)[0];
+  }
+}
+
+function parseName(name: string | undefined): {
+  name: string;
+  schema?: string;
+} {
+  if (!name) return { name: "main" };
+  let [assetName, schemaName] = name.split(":");
+  if (schemaName) {
+    return {
+      name: assetName || "main",
+      schema: schemaName,
+    };
+  } else {
+    return { name };
   }
 }
