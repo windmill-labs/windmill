@@ -22,6 +22,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
+	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
 		idx = null,
@@ -51,6 +52,8 @@
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
+	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
+	let loadingResourceInfo = $state(false)
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -70,6 +73,95 @@
 					}
 				})
 		}
+
+		return () => {
+			abortController.abort()
+		}
+	})
+
+	// Load resource info when resource path is set and connection is saved (disabled)
+	$effect(() => {
+		const abortController = new AbortController()
+
+		async function loadResourceInfo() {
+			if (repo?.git_repo_resource_path && !repo.isUnsavedConnection && $workspaceStore) {
+				loadingResourceInfo = true
+				resourceInfo = null
+				try {
+					const resource = await ResourceService.getResource({
+						workspace: $workspaceStore,
+						path: repo.git_repo_resource_path
+					})
+
+					if (!abortController.signal.aborted && resource?.value) {
+						// Extract git URL from resource value
+						const value = resource.value as Record<string, any>
+						let gitUrl = value?.url || value?.git_url
+
+						if (gitUrl && typeof gitUrl === 'string') {
+							// Check if the URL is a variable reference ($var:path)
+							const varMatch = gitUrl.match(/^\$var:(.+)$/)
+
+							if (varMatch) {
+								const varPath = varMatch[1]
+								try {
+									// Attempt to fetch the variable value
+									const variable = await VariableService.getVariable({
+										workspace: $workspaceStore,
+										path: varPath,
+										decryptSecret: true
+									})
+
+									if (!abortController.signal.aborted && variable?.value) {
+										gitUrl = variable.value
+									} else {
+										// Variable doesn't have a value or couldn't be fetched
+										// Don't display anything
+										resourceInfo = null
+										return
+									}
+								} catch (error) {
+									// Failed to fetch variable (permissions, not found, etc.)
+									// Don't display anything
+									if (!abortController.signal.aborted) {
+										console.debug('Failed to fetch variable for git URL:', error)
+										resourceInfo = null
+									}
+									return
+								}
+							}
+
+							// Mask password in URL (supports https://user:password@host and https://token@host patterns)
+							const maskedUrl = gitUrl.replace(
+								/(https?:\/\/)([^:@]+)(:([^@]+))?@/,
+								(match, protocol, user, colonPassword, password) => {
+									if (password) {
+										return `${protocol}${user}:${'*'.repeat(8)}@`
+									}
+									return `${protocol}${'*'.repeat(8)}@`
+								}
+							)
+							resourceInfo = { url: maskedUrl }
+						} else {
+							resourceInfo = { error: 'Git URL not found in resource' }
+						}
+					}
+				} catch (error) {
+					if (!abortController.signal.aborted) {
+						console.error('Failed to load resource info:', error)
+						resourceInfo = { error: 'Failed to load resource info' }
+					}
+				} finally {
+					if (!abortController.signal.aborted) {
+						loadingResourceInfo = false
+					}
+				}
+			} else {
+				resourceInfo = null
+			}
+		}
+
+		loadResourceInfo()
 
 		return () => {
 			abortController.abort()
@@ -289,6 +381,25 @@
 				</Button>
 			{/if}
 		</div>
+
+		<!-- Display resource info when disabled (saved connection) -->
+		{#if !repo.isUnsavedConnection && repo.git_repo_resource_path}
+			<div class="ml-2 text-xs">
+				{#if loadingResourceInfo}
+					<div class="flex items-center gap-1 text-secondary">
+						<RotateCw size={12} class="animate-spin" />
+						<span>Loading resource info...</span>
+					</div>
+				{:else if resourceInfo?.url}
+					<div class="flex items-center gap-2 text-secondary">
+						<span class="font-medium">Git URL:</span>
+						<code class="bg-surface-secondary px-2 py-1 rounded text-primary">{resourceInfo.url}</code>
+					</div>
+				{:else if resourceInfo?.error}
+					<div class="text-red-600">{resourceInfo.error}</div>
+				{/if}
+			</div>
+		{/if}
 
 		{#if !emptyString(repo.git_repo_resource_path)}
 			<!-- Validation and Test Status -->
