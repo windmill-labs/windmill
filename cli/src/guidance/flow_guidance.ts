@@ -13,7 +13,5 @@ You do not need to create .lock and .yaml files manually. Instead, you should ru
 export const FLOW_GUIDANCE = `
 ${CLI_INTRO}
 
-${prompts.FLOW_BASE}
-
-${prompts.OPENFLOW_SCHEMA}
+${prompts.FLOW_PROMPT}
 `;

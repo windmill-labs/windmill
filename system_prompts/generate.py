@@ -16,7 +16,6 @@ Usage:
 import ast
 import json
 import re
-import shutil
 from pathlib import Path
 
 import yaml
@@ -464,17 +463,15 @@ export function getFlowPrompt(): string {
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
-    # Copy generated files to CLI guidance directory
-    print("Copying to CLI guidance directory...")
+    # Generate CLI-specific prompts.ts with only SCRIPT_PROMPT and FLOW_PROMPT
+    print("Generating CLI prompts...")
     CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy(OUTPUT_GENERATED_DIR / "prompts.ts", CLI_GUIDANCE_DIR / "prompts.ts")
-    shutil.copy(OUTPUT_GENERATED_DIR / "index.ts", CLI_GUIDANCE_DIR / "index.ts")
-
-    # Fix imports for Deno (add .ts extensions to CLI copy only)
-    cli_index_path = CLI_GUIDANCE_DIR / "index.ts"
-    cli_index_content = cli_index_path.read_text()
-    cli_index_content = cli_index_content.replace("from './prompts'", "from './prompts.ts'")
-    cli_index_path.write_text(cli_index_content)
+    cli_prompts = {
+        'SCRIPT_PROMPT': script_md,
+        'FLOW_PROMPT': flow_md,
+    }
+    cli_prompts_ts = generate_ts_exports(cli_prompts)
+    (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)
 
     print(f"\nGenerated files:")
     print(f"  - sdks/typescript.md")
@@ -483,9 +480,8 @@ export function getFlowPrompt(): string {
     print(f"  - generated/index.ts")
     print(f"  - generated/script.md")
     print(f"  - generated/flow.md")
-    print(f"\nCopied to CLI:")
+    print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/prompts.ts")
-    print(f"  - cli/src/guidance/index.ts")
     print("\nDone!")
 
 
