@@ -524,7 +524,7 @@
 		const requestBody: ExecuteComponentData['requestBody'] = {
 			args: nonStaticRunnableInputs,
 			component: id,
-			force_viewer_static_fields: !isEditor ? undefined : undefinedIfEmpty(staticRunnableInputs),
+			force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
 			force_viewer_one_of_fields: !isEditor ? undefined : undefinedIfEmpty(oneOfRunnableInputs),
 			force_viewer_allow_user_resources: !isEditor
 				? undefined
