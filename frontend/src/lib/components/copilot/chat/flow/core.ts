@@ -871,8 +871,6 @@ You have access to the following contexts:
 
 	let content = chatToolInstructions + '\n\n' + flowBaseContext
 
-	console.log('[FLOW] SYSTEM', content)
-
 	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
@@ -955,8 +953,6 @@ ${selectedId}`
 
 	flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`
-
-	console.log('[FLOW] USER', flowContent)
 
 	return {
 		role: 'user',

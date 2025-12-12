@@ -297,8 +297,6 @@ export function prepareScriptSystemMessage(
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
 
-	console.log('[SCRIPT] SYSTEM', content)
-
 	return {
 		role: 'system',
 		content
@@ -338,8 +336,6 @@ export function prepareScriptUserMessage(
 	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
 	const contextInstructions = buildContextString(selectedContext)
 	userMessage += contextInstructions
-
-	console.log('[SCRIPT] USER', userMessage)
 
 	return {
 		role: 'user',
