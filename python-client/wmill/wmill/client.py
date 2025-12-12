@@ -1809,11 +1809,14 @@ def stream_result(stream) -> None:
 class DataTableClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
-        self.name = name
-        self._schema = None
+        if ":" in name:
+            self.schema, self.name = name.split(":", 1)
+        else:
+            self.schema = None
+            self.name = name
     def query(self, sql: str, *args) -> SqlQuery:
-        if self._schema is not None:
-            sql = f'SET search_path TO "{self._schema}";\n' + sql
+        if self.schema is not None:
+            sql = f'SET search_path TO "{self.schema}";\n' + sql
 
         args_dict = {}
         args_def = ""
@@ -1829,11 +1832,6 @@ class DataTableClient:
                 args={"database": f"datatable://{self.name}", **args_dict},
             )
         )
-    def schema(self, schema: str) -> DataTableClient:
-        if self._schema is not None:
-            raise Exception(".schema() should only be called immediately after datatable()")
-        self._schema = schema
-        return self
 
 class DucklakeClient:
     def __init__(self, client: Windmill, name: str):

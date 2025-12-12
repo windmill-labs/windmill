@@ -36,7 +36,7 @@ struct AssetsFinder {
 }
 
 impl Visitor for AssetsFinder {
-    // Handle assignment statements like: x = wmill.datatable('name').schema('schema')
+    // Handle assignment statements like: x = wmill.datatable('name')
     fn visit_stmt_assign(&mut self, node: rustpython_ast::StmtAssign) {
         // Check if the value is a call to a tracked function
         if let Some(Expr::Name(expr_name)) = node.targets.first() {
@@ -55,7 +55,7 @@ impl Visitor for AssetsFinder {
                 None => {}
             }
 
-            if let Some((kind, name, schema)) = self.extract_wmill_datatable_call(&node.value) {
+            if let Some((kind, name, schema)) = self.extract_asset_from_call(&node.value) {
                 // Track target variable
                 let Ok(var_name) = expr_name.id.parse::<String>();
                 self.var_identifiers
@@ -108,48 +108,13 @@ impl Visitor for AssetsFinder {
 }
 
 impl AssetsFinder {
-    /// Extract asset info from calls like wmill.datatable('name').schema('schema')
-    /// Returns (AssetKind, asset_name, optional_schema_name)
-    fn extract_wmill_datatable_call(&self, expr: &Expr) -> Option<(AssetKind, String, Option<String>)> {
-        // First, check if this is a .schema() call chained on a wmill call
-        if let Some(outer_call) = expr.as_call_expr() {
-            if let Some(schema_attr) = outer_call.func.as_attribute_expr() {
-                // Check if the attribute is "schema"
-                if schema_attr.attr.as_str() == "schema" {
-                    // Extract the schema name from the outer call's first argument
-                    let schema_name = outer_call
-                        .args
-                        .first()
-                        .and_then(|arg| {
-                            if let Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) = arg {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        });
+    /// Extract asset info from calls like wmill.datatable('name'), wmill.ducklake('name'), etc.
+    fn extract_asset_from_call(
+        &self,
+        expr: &Expr,
+    ) -> Option<(AssetKind, VarAssetName, VarAssetSchema)> {
+        let call = expr.as_call_expr()?;
 
-                    // Now check if the object is a wmill.datatable() or wmill.ducklake() call
-                    if let Some(inner_call) = schema_attr.value.as_call_expr() {
-                        if let Some((kind, asset_name)) = self.extract_wmill_call_without_schema(inner_call) {
-                            return Some((kind, asset_name, schema_name));
-                        }
-                    }
-                }
-            }
-        }
-
-        // If not a .schema() call, check if it's a plain wmill call
-        if let Some(call) = expr.as_call_expr() {
-            if let Some((kind, asset_name)) = self.extract_wmill_call_without_schema(call) {
-                return Some((kind, asset_name, None));
-            }
-        }
-
-        None
-    }
-
-    /// Helper to extract just the wmill.datatable/ducklake call without schema
-    fn extract_wmill_call_without_schema(&self, call: &rustpython_ast::ExprCall) -> Option<(AssetKind, String)> {
         // Check for wmill.datatable, wmill.ducklake pattern
         let attr = call.func.as_attribute_expr()?;
 
@@ -183,10 +148,21 @@ impl AssetsFinder {
                 } else {
                     None
                 }
-            })
-            .unwrap_or_else(|| "main".to_string());
+            });
+        let (name, schema) = match name {
+            None => ("main".to_string(), None),
+            Some(name) => {
+                if let Some((name, s)) = name.split_once(':') {
+                    let schema = Some(s.to_string());
+                    let name = if name.is_empty() { "main" } else { name };
+                    (name.to_string(), schema)
+                } else {
+                    (name, None)
+                }
+            }
+        };
 
-        Some((kind, name))
+        Some((kind, name, schema))
     }
 
     fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
@@ -459,7 +435,7 @@ def g():
         let input = r#"
 import wmill
 def main(x: int):
-    db = wmill.datatable('dt').schema('public')
+    db = wmill.datatable('dt:public')
     return db.query('SELECT * FROM friends WHERE age = $1', x).fetch()
 "#;
         let s = parse_assets(input);
@@ -478,7 +454,7 @@ def main(x: int):
         let input = r#"
 import wmill
 def main():
-    db = wmill.ducklake('lake1').schema('analytics')
+    db = wmill.ducklake('lake1:analytics')
     return db.query('SELECT * FROM metrics').fetch()
 "#;
         let s = parse_assets(input);
@@ -497,7 +473,7 @@ def main():
         let input = r#"
 import wmill
 def main(x: int):
-    db = wmill.datatable('dt').schema('public')
+    db = wmill.datatable('dt:public')
     db.query('INSERT INTO users VALUES ($1)', x).fetch()
     return db.query('SELECT * FROM users').fetch()
 "#;
@@ -517,7 +493,7 @@ def main(x: int):
         let input = r#"
 import wmill
 def main():
-    db = wmill.datatable('dt').schema('public')
+    db = wmill.datatable('dt:public')
 "#;
         let s = parse_assets(input);
         assert_eq!(
