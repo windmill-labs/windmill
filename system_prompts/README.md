@@ -9,6 +9,7 @@ system_prompts/
 ├── base/              # Core instruction templates (manually written)
 ├── languages/         # Language-specific instructions (manually written)
 ├── sdks/              # Auto-generated SDK documentation
+├── cli/               # CLI command and option documentation (auto-generated)
 └── generated/         # Auto-generated TypeScript exports
 ```
 
@@ -26,8 +27,9 @@ This will:
 
 1. Parse TypeScript and Python SDK files to extract function signatures
 2. Parse the OpenFlow YAML schema
-3. Assemble complete prompts from markdown files
-4. Generate TypeScript exports in `generated/`
+3. Parse the CLI commands
+4. Assemble complete prompts from markdown files
+5. Generate TypeScript exports in `generated/`
 
 ### Scope
 

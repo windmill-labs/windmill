@@ -30,9 +30,15 @@ OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "sdks"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "generated"
+OUTPUT_CLI_DIR = SCRIPT_DIR / "cli"
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
+
+# CLI source paths for extracting command documentation
+CLI_DIR = ROOT_DIR / "cli"
+CLI_MAIN = CLI_DIR / "src" / "main.ts"
+CLI_COMMANDS_DIR = CLI_DIR / "src" / "commands"
 
 
 def clean_jsdoc(jsdoc: str) -> str:
@@ -263,6 +269,265 @@ def extract_py_classes(content: str) -> list[dict]:
     return classes
 
 
+def parse_command_block(content: str) -> dict:
+    """
+    Parse a Cliffy Command() definition block and extract metadata.
+    Returns a dict with: description, options, subcommands, arguments, alias
+    """
+    result = {
+        'description': '',
+        'options': [],
+        'subcommands': [],
+        'arguments': '',
+        'alias': ''
+    }
+
+    # Find the command block - starts with "new Command()" or "const command = new Command()"
+    # and ends with "export default"
+    command_match = re.search(
+        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
+        content
+    )
+    if not command_match:
+        return result
+
+    block = command_match.group(1)
+
+    # Extract main description (first one in the block, before any subcommand)
+    first_subcommand_pos = block.find('.command(')
+    if first_subcommand_pos == -1:
+        first_subcommand_pos = len(block)
+    top_section = block[:first_subcommand_pos]
+
+    # Handle multi-line descriptions with template literals or string concatenation
+    # Pattern: .description("text") or .description(\n  "text",\n)
+    desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', top_section, re.DOTALL)
+    if not desc_match:
+        # Try matching descriptions that use template literals
+        desc_match = re.search(r'\.description\(\s*`([^`]+)`\s*,?\s*\)', top_section, re.DOTALL)
+    if desc_match:
+        result['description'] = desc_match.group(1).strip()
+
+    # Extract alias
+    alias_match = re.search(r'\.alias\(\s*["\']([^"\']+)["\']\s*\)', top_section)
+    if alias_match:
+        result['alias'] = alias_match.group(1)
+
+    # Extract options pattern
+    option_pattern = re.compile(
+        r'\.option\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+        re.MULTILINE
+    )
+
+    # Extract top-level options (before any .command() or .action())
+    top_section_until_action = re.split(r'\.action\(', top_section)[0]
+    for match in option_pattern.finditer(top_section_until_action):
+        flag, desc = match.groups()
+        result['options'].append({'flag': flag, 'description': desc})
+
+    # Extract top-level arguments
+    args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', top_section)
+    if args_match:
+        result['arguments'] = args_match.group(1)
+
+    # Extract subcommands with their arguments, options, and descriptions
+    # Split by .command( to find subcommand boundaries
+    subcommand_sections = re.split(r'(?=\.command\()', block)
+
+    for section in subcommand_sections:
+        # Check if this starts a new subcommand
+        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*["\']([^"\']+)["\'])?\s*\)', section)
+        if cmd_match:
+            cmd_name = cmd_match.group(1)
+            cmd_desc = cmd_match.group(2) or ''
+
+            # Check for description in chained .description() call
+            # Handle multi-line descriptions
+            desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', section, re.DOTALL)
+            if desc_match:
+                cmd_desc = desc_match.group(1).strip()
+
+            # Check for arguments
+            args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', section)
+            cmd_args = args_match.group(1) if args_match else ''
+
+            # Check for options specific to this subcommand
+            # Only get options that appear before .action()
+            cmd_options = []
+            section_until_action = re.split(r'\.action\(', section)[0]
+            for opt_match in option_pattern.finditer(section_until_action):
+                flag, desc = opt_match.groups()
+                cmd_options.append({'flag': flag, 'description': desc})
+
+            result['subcommands'].append({
+                'name': cmd_name,
+                'description': cmd_desc,
+                'arguments': cmd_args,
+                'options': cmd_options
+            })
+
+    return result
+
+
+def find_command_file(cmd_name: str) -> Path | None:
+    """Find the command file for a given command name.
+
+    Convention: directory name should match main command file name.
+    E.g., flow/flow.ts, app/app.ts, worker-groups/worker-groups.ts
+    """
+    # Standard pattern: command-name/command-name.ts
+    standard_path = CLI_COMMANDS_DIR / cmd_name / f"{cmd_name}.ts"
+    if standard_path.exists():
+        return standard_path
+
+    return None
+
+
+def extract_cli_commands() -> dict:
+    """
+    Extract CLI command metadata from the CLI source files.
+    Returns a dict with global_options and commands.
+    """
+    result = {
+        'version': '',
+        'global_options': [],
+        'commands': []
+    }
+
+    if not CLI_MAIN.exists():
+        print(f"Warning: CLI main file not found at {CLI_MAIN}")
+        return result
+
+    main_content = CLI_MAIN.read_text()
+
+    # Extract version
+    version_match = re.search(r'export\s+const\s+VERSION\s*=\s*["\']([^"\']+)["\']', main_content)
+    if version_match:
+        result['version'] = version_match.group(1)
+
+    # Extract global options from main.ts
+    global_opt_pattern = re.compile(
+        r'\.globalOption\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+        re.MULTILINE
+    )
+    for match in global_opt_pattern.finditer(main_content):
+        flag, desc = match.groups()
+        result['global_options'].append({'flag': flag, 'description': desc})
+
+    # Extract command registrations from main.ts
+    # Pattern: .command("name", importedCommand) or .command("name with desc", ...)
+    cmd_reg_pattern = re.compile(
+        r'\.command\(\s*["\']([^"\']+)["\']\s*,\s*(\w+)\s*\)',
+        re.MULTILINE
+    )
+
+    # Also handle inline commands like .command("version --version", "description")
+    inline_cmd_pattern = re.compile(
+        r'\.command\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+        re.MULTILINE
+    )
+
+    registered_commands = []
+
+    for match in cmd_reg_pattern.finditer(main_content):
+        cmd_name = match.group(1).split()[0]  # Get just the name, not flags
+        registered_commands.append(cmd_name)
+
+    # Process each registered command
+    for cmd_name in registered_commands:
+        cmd_file = find_command_file(cmd_name)
+        if cmd_file:
+            try:
+                cmd_content = cmd_file.read_text()
+                cmd_data = parse_command_block(cmd_content)
+                cmd_data['name'] = cmd_name
+                result['commands'].append(cmd_data)
+            except Exception as e:
+                print(f"Warning: Could not parse command file for {cmd_name}: {e}")
+        else:
+            # Some commands might be inline (like 'version', 'upgrade', 'completions')
+            pass
+
+    # Handle special inline commands from main.ts
+    for match in inline_cmd_pattern.finditer(main_content):
+        cmd_name = match.group(1).split()[0]
+        cmd_desc = match.group(2)
+        if cmd_name not in [c['name'] for c in result['commands']]:
+            result['commands'].append({
+                'name': cmd_name,
+                'description': cmd_desc,
+                'options': [],
+                'subcommands': [],
+                'arguments': '',
+                'alias': ''
+            })
+
+    return result
+
+
+def generate_cli_commands_markdown(cli_data: dict) -> str:
+    """Generate markdown documentation from extracted CLI command data."""
+    md = "# Windmill CLI Commands\n\n"
+    md += "The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.\n\n"
+
+    if cli_data.get('version'):
+        md += f"Current version: {cli_data['version']}\n\n"
+
+    # Global options
+    if cli_data.get('global_options'):
+        md += "## Global Options\n\n"
+        for opt in cli_data['global_options']:
+            flag = opt['flag']
+            desc = opt['description']
+            md += f"- `{flag}` - {desc}\n"
+        md += "\n"
+
+    # Commands
+    if cli_data.get('commands'):
+        md += "## Commands\n\n"
+
+        for cmd in sorted(cli_data['commands'], key=lambda x: x['name']):
+            md += f"### {cmd['name']}\n\n"
+
+            if cmd.get('description'):
+                md += f"{cmd['description']}\n\n"
+
+            if cmd.get('alias'):
+                md += f"**Alias:** `{cmd['alias']}`\n\n"
+
+            if cmd.get('arguments'):
+                md += f"**Arguments:** `{cmd['arguments']}`\n\n"
+
+            # Top-level options for this command
+            if cmd.get('options'):
+                md += "**Options:**\n"
+                for opt in cmd['options']:
+                    md += f"- `{opt['flag']}` - {opt['description']}\n"
+                md += "\n"
+
+            # Subcommands
+            if cmd.get('subcommands'):
+                md += "**Subcommands:**\n\n"
+                for sub in cmd['subcommands']:
+                    sub_name = sub['name']
+                    sub_args = f" {sub['arguments']}" if sub.get('arguments') else ""
+                    sub_desc = sub.get('description', '')
+
+                    md += f"- `{cmd['name']} {sub_name}{sub_args}`"
+                    if sub_desc:
+                        md += f" - {sub_desc}"
+                    md += "\n"
+
+                    # Subcommand options
+                    if sub.get('options'):
+                        for opt in sub['options']:
+                            md += f"  - `{opt['flag']}` - {opt['description']}\n"
+
+                md += "\n"
+
+    return md
+
+
 def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
@@ -381,9 +646,13 @@ def main():
     for lang_file in languages_dir.glob("*.md"):
         languages[lang_file.stem] = lang_file.read_text()
 
-    # Read CLI files
-    cli_dir = SCRIPT_DIR / "cli"
-    cli_commands = read_markdown_file(cli_dir / "cli-commands.md")
+    # Extract and generate CLI commands documentation
+    print("Extracting CLI commands...")
+    cli_data = extract_cli_commands()
+    cli_commands = generate_cli_commands_markdown(cli_data)
+    OUTPUT_CLI_DIR.mkdir(parents=True, exist_ok=True)
+    (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
+    print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")
 
     # Assemble prompts for export
     prompts = {
@@ -480,6 +749,7 @@ export function getFlowPrompt(): string {
     print(f"\nGenerated files:")
     print(f"  - sdks/typescript.md")
     print(f"  - sdks/python.md")
+    print(f"  - cli/cli-commands.md (auto-generated from CLI source)")
     print(f"  - generated/prompts.ts")
     print(f"  - generated/index.ts")
     print(f"  - generated/script.md")
