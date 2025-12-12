@@ -27,23 +27,29 @@ export class LockfileGenerationError extends Error {
 
 export async function generateAllMetadata() {}
 
-export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
+export async function getRawWorkspaceDependencies(): Promise<
+  Record<string, string>
+> {
   const rawWorkspaceDeps: Record<string, string> = {};
-  
+
   try {
     for await (const entry of Deno.readDir("dependencies")) {
       if (entry.isDirectory) continue;
-      
+
       const filePath = `dependencies/${entry.name}`;
       const content = await Deno.readTextFile(filePath);
-      
+
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
         if (entry.name.endsWith(lang.filename)) {
           // Check if out of sync
           const contentHash = await generateHash(content + filePath);
-          const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
-          
+          const isUpToDate = await checkifMetadataUptodate(
+            filePath,
+            contentHash,
+            undefined
+          );
+
           if (!isUpToDate) {
             rawWorkspaceDeps[filePath] = content;
           }
@@ -54,19 +60,24 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   } catch {
     // dependencies directory doesn't exist
   }
-    return rawWorkspaceDeps;
+  return rawWorkspaceDeps;
 }
 
-export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-    const relativePath = path.replace("dependencies/", "");
-    for (const { filename, language } of workspaceDependenciesLanguages) {
-      if (relativePath.endsWith(filename)) {
-        return {
-          name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
-          language
-        };
-      }
+export function workspaceDependenciesPathToLanguageAndFilename(
+  path: string
+): { name: string | undefined; language: ScriptLanguage } | undefined {
+  const relativePath = path.replace("dependencies/", "");
+  for (const { filename, language } of workspaceDependenciesLanguages) {
+    if (relativePath.endsWith(filename)) {
+      return {
+        name:
+          relativePath === filename
+            ? undefined
+            : relativePath.replace("." + filename, ""),
+        language,
+      };
     }
+  }
 }
 
 // on windows, when using powershell, blue is not readable
@@ -97,24 +108,27 @@ export async function generateScriptMetadataInternal(
 
   // Filter workspace dependencies to only include those matching the script's language
   const filteredRawWorkspaceDependencies: Record<string, string> = {};
-  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+  for (const [depPath, depContent] of Object.entries(
+    rawWorkspaceDependencies
+  )) {
     const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
     if (depInfo && depInfo.language === language) {
       filteredRawWorkspaceDependencies[depPath] = depContent;
     }
   }
 
-  const metadataWithType = await parseMetadataFile(
-    remotePath,
-    undefined,
-  );
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
-  
+
   // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
-  let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
+  let hash = await generateScriptHash(
+    filteredRawWorkspaceDependencies,
+    scriptContent,
+    metadataContent
+  );
 
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
@@ -160,7 +174,7 @@ export async function generateScriptMetadataInternal(
     } else {
       metadataParsedContent.lock = "";
     }
-  } else {
+  } else if (!opts.schemaOnly || metadataParsedContent.lock != "") {
     metadataParsedContent.lock =
       "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
   }
@@ -230,12 +244,13 @@ async function updateScriptLock(
     return;
   }
 
-
   if (Object.keys(rawWorkspaceDependencies).length > 0) {
-    const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
-    log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
+    const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(", ");
+    log.info(
+      `Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`
+    );
   }
-  
+
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const extraHeaders = getHeaders();
@@ -256,8 +271,10 @@ async function updateScriptLock(
             script_path: remotePath,
           },
         ],
-        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
-          ? rawWorkspaceDependencies : null,
+        raw_workspace_dependencies:
+          Object.keys(rawWorkspaceDependencies).length > 0
+            ? rawWorkspaceDependencies
+            : null,
         entrypoint: remotePath,
       }),
     }
@@ -543,7 +560,7 @@ export async function parseMetadataFile(
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
         rawWorkspaceDependencies: Record<string, string>;
-        codebases: SyncCodebase[]
+        codebases: SyncCodebase[];
       })
     | undefined
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
@@ -577,7 +594,11 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
       const lockPath = scriptPath + ".script.lock";
-      scriptInitialMetadata.lock = "!inline " + lockPath;
+
+      if (generateMetadataIfMissing && !generateMetadataIfMissing?.schemaOnly) {
+        log.info(`Using inline lock for ${metadataFilePath}`);
+        scriptInitialMetadata.lock = "!inline " + lockPath;
+      }
       const scriptInitialMetadataYaml = yamlStringify(
         scriptInitialMetadata as Record<string, any>,
         yamlOptions
@@ -586,11 +607,14 @@ export async function parseMetadataFile(
       await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
         createNew: true,
       });
-      await Deno.writeTextFile(lockPath, "", {
-        createNew: true,
-      });
 
       if (generateMetadataIfMissing) {
+        if (!generateMetadataIfMissing.schemaOnly) {
+          await Deno.writeTextFile(lockPath, "", {
+            createNew: true,
+          });
+        }
+
         log.info(
           (await blueColor())(
             `Generating lockfile and schema for ${metadataFilePath}`
@@ -690,7 +714,9 @@ export async function generateScriptHash(
   newMetadataContent: string
 ) {
   return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
+    JSON.stringify(rawWorkspaceDependencies) +
+      scriptContent +
+      newMetadataContent
   );
 }
 
