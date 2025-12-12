@@ -125,8 +125,8 @@ Only use resource types if you need them to satisfy the instructions. Always use
 ## Imports
 
 ```typescript
-import Stripe from 'stripe'
-import { someFunction } from 'some-package'
+import Stripe from "stripe";
+import { someFunction } from "some-package";
 ```
 
 ## Windmill Client
@@ -134,7 +134,7 @@ import { someFunction } from 'some-package'
 Import the windmill client for platform interactions:
 
 ```typescript
-import * as wmill from 'windmill-client'
+import * as wmill from "windmill-client";
 ```
 
 See the SDK documentation for available methods.
@@ -164,9 +164,42 @@ type Event = {
 export async function preprocessor(event: Event) {
   return {
     param1: event.body.field1,
-    param2: event.query.id
+    param2: event.query.id,
   };
 }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+```typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+```
+
+## TypeScript Operations
+
+```typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
 ```
 
 
@@ -241,9 +274,42 @@ type Event = {
 export async function preprocessor(event: Event) {
   return {
     param1: event.body.field1,
-    param2: event.query.id
+    param2: event.query.id,
   };
 }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+```typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+```
+
+## TypeScript Operations
+
+```typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
 ```
 
 
@@ -325,11 +391,11 @@ Only use resource types if you need them to satisfy the instructions. Always use
 
 ```typescript
 // npm packages use npm: prefix
-import Stripe from 'npm:stripe'
-import { someFunction } from 'npm:some-package'
+import Stripe from "npm:stripe";
+import { someFunction } from "npm:some-package";
 
 // Deno standard library
-import { serve } from 'https://deno.land/std/http/server.ts'
+import { serve } from "https://deno.land/std/http/server.ts";
 ```
 
 ## Windmill Client
@@ -337,7 +403,7 @@ import { serve } from 'https://deno.land/std/http/server.ts'
 Import the windmill client for platform interactions:
 
 ```typescript
-import * as wmill from 'windmill-client'
+import * as wmill from "windmill-client";
 ```
 
 See the SDK documentation for available methods.
@@ -367,9 +433,42 @@ type Event = {
 export async function preprocessor(event: Event) {
   return {
     param1: event.body.field1,
-    param2: event.query.id
+    param2: event.query.id,
   };
 }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+```typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+```
+
+## TypeScript Operations
+
+```typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
 ```
 
 
@@ -841,6 +940,7 @@ def main(db: postgresql):
 ```
 
 **Important rules:**
+
 - The resource type name must be **IN LOWERCASE**
 - Only include resource types if they are actually needed
 - If an import conflicts with a resource type name, **rename the imported object, not the type name**
@@ -857,6 +957,7 @@ from datetime import datetime
 ```
 
 If an import name conflicts with a resource type:
+
 ```python
 # Wrong - don't rename the type
 import stripe as stripe_lib
@@ -897,6 +998,29 @@ def preprocessor(event: Event):
         "param1": event["body"]["field1"],
         "param2": event["query"]["id"]
     }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+```python
+import wmill
+
+# Load file content from S3
+content: bytes = wmill.load_s3_file(s3object)
+
+# Load file as stream reader
+reader: BufferedReader = wmill.load_s3_file_reader(s3object)
+
+# Write file to S3
+result: S3Object = wmill.write_s3_file(
+    s3object,           # Target path (or None to auto-generate)
+    file_content,       # bytes or BufferedReader
+    s3_resource_path,   # Optional: specific S3 resource
+    content_type,       # Optional: MIME type
+    content_disposition # Optional: Content-Disposition header
+)
 ```
 
 
@@ -990,230 +1114,531 @@ SELECT * FROM users WHERE name = ? AND age > ?;
 ```
 
 
-# S3 Object Operations
-
-Windmill provides built-in support for S3-compatible storage operations.
-
-## S3Object Type
-
-The S3Object type represents a file in S3 storage:
-
-```typescript
-type S3Object = {
-  s3: string;  // Path within the bucket
-}
-```
-
-## TypeScript Operations
-
-```typescript
-import * as wmill from 'windmill-client'
-
-// Load file content from S3
-const content: Uint8Array = await wmill.loadS3File(s3object)
-
-// Load file as stream
-const blob: Blob = await wmill.loadS3FileStream(s3object)
-
-// Write file to S3
-const result: S3Object = await wmill.writeS3File(
-  s3object,      // Target path (or undefined to auto-generate)
-  fileContent,   // string or Blob
-  s3ResourcePath // Optional: specific S3 resource to use
-)
-```
-
-## Python Operations
-
-```python
-import wmill
-
-# Load file content from S3
-content: bytes = wmill.load_s3_file(s3object)
-
-# Load file as stream reader
-reader: BufferedReader = wmill.load_s3_file_reader(s3object)
-
-# Write file to S3
-result: S3Object = wmill.write_s3_file(
-    s3object,           # Target path (or None to auto-generate)
-    file_content,       # bytes or BufferedReader
-    s3_resource_path,   # Optional: specific S3 resource
-    content_type,       # Optional: MIME type
-    content_disposition # Optional: Content-Disposition header
-)
-```
-
-## DuckDB S3 Operations
-
-Read files directly from S3 in DuckDB queries:
-
-```sql
--- Read CSV from default S3 storage
-SELECT * FROM read_csv('s3:///path/to/file.csv');
-
--- Read from named storage
-SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
-
--- Read Parquet files
-SELECT * FROM read_parquet('s3:///data/*.parquet');
-
--- Read JSON files
-SELECT * FROM read_json('s3:///path/to/file.json');
-```
-
-## Flow Input Schema
-
-To accept an S3 object as flow input:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "file": {
-      "type": "object",
-      "format": "resource-s3_object",
-      "description": "File to process"
-    }
-  }
-}
-```
-
-
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
 
+// S3 object representation, either as a URI string or a record object
+// /
+// export type S3Object = S3ObjectURI | S3ObjectRecord;
+// 
+// /**
+// S3 object URI in the format `s3://storage/key`
+// /
+// export type S3ObjectURI = `s3://${string}/${string}`;
+// 
+// /**
+// S3 object record with file key, optional storage identifier, and optional presigned token
+// /
+// export type S3ObjectRecord = {
+//   /** File key/path in S3 bucket */
+//   s3: string;
+//   /** Storage backend identifier */
+//   storage?: string;
+//   /** Presigned URL query string for public access */
+//   presigned?: string;
+// };
+// 
+// /**
+// S3 client configuration settings for Deno S3 light client
+// /
+// export type DenoS3LightClientSettings = {
+//   /** S3 endpoint URL */
+//   endPoint: string;
+//   /** AWS region */
+//   region: string;
+//   /** Bucket name */
+//   bucket?: string;
+//   /** Use HTTPS connection */
+//   useSSL?: boolean;
+//   /** AWS access key */
+//   accessKey?: string;
+//   /** AWS secret key */
+//   secretKey?: string;
+//   /** Use path-style URLs instead of virtual-hosted style */
+//   pathStyle?: boolean;
+// };
+// 
+// import {
+//   ResourceService,
+//   VariableService,
+//   JobService,
+//   HelpersService,
+//   AppService,
+//   MetricsService,
+//   OidcService,
+//   UserService,
+//   TeamsService,
+// } from "./index";
+// import { OpenAPI } from "./index";
+// // import type { DenoS3LightClientSettings } from "./index";
+// import {
+//   DenoS3LightClientSettings,
+//   S3ObjectRecord,
+//   type S3Object,
+// } from "./s3Types";
+// 
+// export {
+//   type S3Object,
+//   type S3ObjectRecord,
+//   type S3ObjectURI,
+// } from "./s3Types";
+// export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
+// 
+// export {
+//   AdminService,
+//   AuditService,
+//   FlowService,
+//   GranularAclService,
+//   GroupService,
+//   JobService,
+//   ResourceService,
+//   VariableService,
+//   ScriptService,
+//   ScheduleService,
+//   SettingsService,
+//   UserService,
+//   WorkspaceService,
+//   TeamsService,
+// } from "./index";
+// 
+// export type Sql = string;
+// export type Email = string;
+// export type Base64 = string;
+// export type Resource<S extends string> = any;
+// 
+// export const SHARED_FOLDER = "/shared";
+// 
+// let mockedApi: MockedApi | undefined = undefined;
+// 
+// /**
 // Initialize the Windmill client with authentication token and base URL
+// @param token - Authentication token (defaults to WM_TOKEN env variable)
+// @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
 setClient(token?: string, baseUrl?: string): void
 
 // Create a client configuration from env variables
+// @returns client configuration
 getWorkspace(): string
 
 // Get a resource value by path
+// @param path path of the resource,  default to internal state path
+// @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
+// @returns resource value
 async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
 
 // Get the true root job id
+// @param jobId job id to get the root job id from (default to current job)
+// @returns root job id
 async getRootJobId(jobId?: string): Promise<string>
 
 // @deprecated Use runScriptByPath or runScriptByHash instead
 async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
 
 // Run a script synchronously by its path and wait for the result
+// @param path - Script path in Windmill
+// @param args - Arguments to pass to the script
+// @param verbose - Enable verbose logging
+// @returns Script execution result
 async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
 
 // Run a script synchronously by its hash and wait for the result
+// @param hash_ - Script hash in Windmill
+// @param args - Arguments to pass to the script
+// @param verbose - Enable verbose logging
+// @returns Script execution result
 async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
 
 // Append a text to the result stream
+// @param text text to append to the result stream
 appendToResultStream(text: string): void
 
 // Stream to the result stream
+// @param stream stream to stream to the result stream
 async streamResult(stream: AsyncIterable<string>): Promise<void>
 
 // Run a flow synchronously by its path and wait for the result
+// @param path - Flow path in Windmill
+// @param args - Arguments to pass to the flow
+// @param verbose - Enable verbose logging
+// @returns Flow execution result
 async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
 
 // Wait for a job to complete and return its result
+// @param jobId - ID of the job to wait for
+// @param verbose - Enable verbose logging
+// @returns Job result when completed
 async waitJob(jobId: string, verbose: boolean = false): Promise<any>
 
 // Get the result of a completed job
+// @param jobId - ID of the completed job
+// @returns Job result
 async getResult(jobId: string): Promise<any>
 
 // Get the result of a job if completed, or its current status
+// @param jobId - ID of the job
+// @returns Object with started, completed, success, and result properties
 async getResultMaybe(jobId: string): Promise<any>
 
+// Wrap a function to execute as a Windmill task within a flow context
+// @param f - Function to wrap as a task
+// @returns Async wrapper function that executes as a Windmill job
+// /
+// export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
+//   return async (...y) => {
+//     const args: Record<string, any> = {};
+//     const paramNames = getParamNames(f);
+//     y.forEach((x, i) => (args[paramNames[i]] = x));
+//     let req = await fetch(
+//       `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+//         "WM_JOB_ID"
+//       )}/${f.name}`,
+//       {
+//         method: "POST",
+//         headers: {
+//           "Content-Type": "application/json",
+//           Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+//         },
+//         body: JSON.stringify({ args }),
+//       }
+//     );
+//     let jobId = await req.text();
+//     console.log(`Started task ${f.name} as job ${jobId}`);
+//     let r = await waitJob(jobId);
+//     console.log(`Task ${f.name} (${jobId}) completed`);
+//     return r;
+//   };
+// }
+// 
+// /**
 // @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
 async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
 
 // Run a script asynchronously by its path
+// @param path - Script path in Windmill
+// @param args - Arguments to pass to the script
+// @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+// @returns Job ID of the created job
 async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
 
 // Run a script asynchronously by its hash
+// @param hash_ - Script hash in Windmill
+// @param args - Arguments to pass to the script
+// @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+// @returns Job ID of the created job
 async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
 
 // Run a flow asynchronously by its path
+// @param path - Flow path in Windmill
+// @param args - Arguments to pass to the flow
+// @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+// @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+// @returns Job ID of the created job
 async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
 
 // Resolve a resource value in case the default value was picked because the input payload was undefined
+// @param obj resource value or path of the resource under the format `$res:path`
+// @returns resource value
 async resolveDefaultResource(obj: any): Promise<any>
 
 // Get the state file path from environment variables
+// @returns State path string
 getStatePath(): string
 
 // Set a resource value by path
+// @param path path of the resource to set, default to state path
+// @param value new value of the resource to set
+// @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
 async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
 
 // Set the state
+// @param state state to set
+// @deprecated use setState instead
 async setInternalState(state: any): Promise<void>
 
 // Set the state
+// @param state state to set
 async setState(state: any): Promise<void>
 
 // Set the progress
+// Progress cannot go back and limited to 0% to 99% range
+// @param percent Progress to set in %
+// @param jobId? Job to set progress for
 async setProgress(percent: number, jobId?: any): Promise<void>
 
 // Get the progress
+// @param jobId? Job to get progress from
+// @returns Optional clamped between 0 and 100 progress value
 async getProgress(jobId?: any): Promise<number | null>
 
 // Set a flow user state
+// @param key key of the state
+// @param value value of the state
 async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
 
 // Get a flow user state
+// @param path path of the variable
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
 
+// //  * Set the shared state
+// //  * @param state state to set
+// //  */
+// // export async function setSharedState(
+// //   state: any,
+// //   path = "state.json"
+// // ): Promise<void> {
+// //   await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
+// // }
+// 
+// // /**
+// //  * Get the shared state
+// //  * @param state state to set
+// //  */
+// // export async function getSharedState(path = "state.json"): Promise<any> {
+// //   return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
+// // }
+// 
+// /**
 // Get the internal state
+// @deprecated use getState instead
 async getInternalState(): Promise<any>
 
 // Get the state shared across executions
 async getState(): Promise<any>
 
 // Get a variable by path
+// @param path path of the variable
+// @returns variable value
 async getVariable(path: string): Promise<string>
 
 // Set a variable by path, create if not exist
+// @param path path of the variable
+// @param value value of the variable
+// @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
+// @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
 async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
 
 // Build a PostgreSQL connection URL from a database resource
+// @param path - Path to the database resource
+// @returns PostgreSQL connection URL string
 async databaseUrlFromResource(path: string): Promise<string>
 
 // Get S3 client settings from a resource or workspace default
+// @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+// @returns S3 client configuration settings
 async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
 
+// Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+// 
+// ```typescript
+// let fileContent = await wmill.loadS3FileContent(inputFile)
+// // if the file is a raw text file, it can be decoded and printed directly:
+// const text = new TextDecoder().decode(fileContentStream)
+// console.log(text);
+// ```
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+
+// Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+// 
+// ```typescript
+// let fileContentBlob = await wmill.loadS3FileStream(inputFile)
+// // if the content is plain text, the blob can be read directly:
+// console.log(await fileContentBlob.text());
+// ```
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+
 // Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+// 
+// ```typescript
+// const s3object = await writeS3File(s3Object, "Hello Windmill!")
+// const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
+// console.log(fileContentAsUtf8Str)
+// ```
 async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
 
 // Sign S3 objects to be used by anonymous users in public apps
+// @param s3objects s3 objects to sign
+// @returns signed s3 objects
 async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
 
 // Sign S3 object to be used by anonymous users in public apps
+// @param s3object s3 object to sign
+// @returns signed s3 object
 async signS3Object(s3object: S3Object): Promise<S3Object>
 
 // Generate a presigned public URL for an array of S3 objects.
+// If an S3 object is not signed yet, it will be signed first.
+// @param s3Objects s3 objects to sign
+// @returns list of signed public URLs
 async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
 
 // Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+// @param s3Object s3 object to sign
+// @returns signed public URL
 async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
 
 // Get URLs needed for resuming a flow after this step
+// @param approver approver name
+// @returns approval page UI URL, resume and cancel API URLs for resuming the flow
 async getResumeUrls(approver?: string): Promise<
 
 // @deprecated use getResumeUrls instead
 getResumeEndpoints(approver?: string): Promise<
 
 // Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
+// @param audience audience of the token
+// @param expiresIn Optional number of seconds until the token expires
+// @returns jwt token
 async getIdToken(audience: string, expiresIn?: number): Promise<string>
 
 // Convert a base64-encoded string to Uint8Array
+// @param data - Base64-encoded string
+// @returns Decoded Uint8Array
 base64ToUint8Array(data: string): Uint8Array
 
 // Convert a Uint8Array to base64-encoded string
+// @param arrayBuffer - Uint8Array to encode
+// @returns Base64-encoded string
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
 
 // Get email from workspace username
+// This method is particularly useful for apps that require the email address of the viewer.
+// Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+// @param username
+// @returns email address
 async usernameToEmail(username: string): Promise<string>
 
+// Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+// 
+// **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
+// and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+// 
+// @param {Object} options - The configuration options for the Slack approval request.
+// @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
+// @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
+// @param {string} [options.message] - Optional custom message to include in the Slack approval request.
+// @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+// @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+// @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+// 
+// @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
+// 
+// @throws {Error} If the function is not called within a flow or flow preview.
+// @throws {Error} If the `JobService.getSlackApprovalPayload` call fails.
+// 
+// **Usage Example:**
+// ```typescript
+// await requestInteractiveSlackApproval({
+//   slackResourcePath: "/u/alex/my_slack_resource",
+//   channelId: "admins-slack-channel",
+//   message: "Please approve this request",
+//   approver: "approver123",
+//   defaultArgsJson: { key1: "value1", key2: 42 },
+//   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+// });
+// ```
+// 
+// **Note:** This function requires execution within a Windmill flow or flow preview.
+async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, }: SlackApprovalOptions): Promise<void>
+
+// Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
+// 
+// **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
+// and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+// 
+// @param {Object} options - The configuration options for the Teams approval request.
+// @param {string} options.teamName - The Teams team name where the approval request will be sent.
+// @param {string} options.channelName - The Teams channel name where the approval request will be sent.
+// @param {string} [options.message] - Optional custom message to include in the Teams approval request.
+// @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+// @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+// @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+// 
+// @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
+// 
+// @throws {Error} If the function is not called within a flow or flow preview.
+// @throws {Error} If the `JobService.getTeamsApprovalPayload` call fails.
+// 
+// **Usage Example:**
+// ```typescript
+// await requestInteractiveTeamsApproval({
+//   teamName: "admins-teams",
+//   channelName: "admins-teams-channel",
+//   message: "Please approve this request",
+//   approver: "approver123",
+//   defaultArgsJson: { key1: "value1", key2: 42 },
+//   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+// });
+// ```
+// 
+// **Note:** This function requires execution within a Windmill flow or flow preview.
+async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
+
+// Parse an S3 object from URI string or record format
+// @param s3Object - S3 object as URI string (s3://storage/key) or record
+// @returns S3 object record with storage and s3 key
+parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+// SQL statement object with query content, arguments, and execution methods
+// /
+// export type SqlStatement = {
+//   /** Raw SQL content with formatted arguments */
+//   content: string;
+// 
+//   /** Argument values keyed by parameter name */
+//   args: Record<string, any>;
+// 
+//   /**
+// Execute the SQL query and return results
+// @param params - Optional parameters including result collection mode
+// @returns Query results based on the result collection mode
+// /
+//   fetch<ResultCollectionT extends ResultCollection = "last_statement_all_rows">(
+//     params?: FetchParams<ResultCollectionT | ResultCollection> // The union is for auto-completion
+//   ): Promise<SqlResult<ResultCollectionT>>;
+// 
+//   /**
+// Execute the SQL query and return only the first row
+// @param params - Optional parameters
+// @returns First row of the query result
+// /
+//   fetchOne(
+//     params?: Omit<FetchParams<"last_statement_first_row">, "resultCollection">
+//   ): Promise<SqlResult<"last_statement_first_row">>;
+// };
+// 
+// /**
+// Template tag function for creating SQL statements with parameterized values
+// /
+// export interface SqlTemplateFunction {
+//   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
+// }
+// 
+// /**
+// Create a SQL template function for PostgreSQL/datatable queries
+// @param name - Database/datatable name (default: "main")
+// @returns SQL template function for building parameterized queries
+// @example
+// let sql = wmill.datatable()
+// let name = 'Robin'
+// let age = 21
+// await sql`
+//   SELECT * FROM friends
+//     WHERE name = ${name} AND age = ${age}::int
+// `.fetch()
+datatable(name: string = "main"): SqlTemplateFunction
+
 // Create a SQL template function for DuckDB/ducklake queries
+// @param name - DuckDB database name (default: "main")
+// @returns SQL template function for building parameterized queries
+// @example
+// let sql = wmill.ducklake()
+// let name = 'Robin'
+// let age = 21
+// await sql`
+//   SELECT * FROM friends
+//     WHERE name = ${name} AND age = ${age}
+// `.fetch()
 ducklake(name: string = "main"): SqlTemplateFunction
 
 async setSharedState(// state: any, // path = "state.json" //): Promise<void>
@@ -1224,198 +1649,10 @@ async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<an
 
 async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
 
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
-
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
-
-async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, }: SlackApprovalOptions): Promise<void>
-
-async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
-
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
-datatable(name: string = "main"): SqlTemplateFunction
-
 
 # Python SDK (wmill)
 
 Import: import wmill
-
-def init_global_client(f)
-
-def deprecate(in_favor_of: str)
-
-# Get the current workspace ID.
-def get_workspace() -> str
-
-# Get the root job ID for a flow hierarchy.
-def get_root_job_id(job_id: str | None = None) -> str
-
-def get_version() -> str
-
-# Create a script job and return its job ID.
-def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None) -> str
-
-# Create a flow job and return its job ID.
-def run_flow_async(path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
-
-# Run a script synchronously by hash and return its result.
-def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
-
-# Create a script job by path and return its job ID.
-def run_script_by_path_async(path: str, args: Dict[str, Any] = None, scheduled_in_secs: Union[None, int] = None) -> str
-
-# Create a script job by hash and return its job ID.
-def run_script_by_hash_async(hash_: str, args: Dict[str, Any] = None, scheduled_in_secs: Union[None, int] = None) -> str
-
-# Run a script synchronously by path and return its result.
-def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
-
-# Get a JWT token for the given audience for OIDC purposes to login into third parties like AWS, Vault, GCP, etc.
-def get_id_token(audience: str) -> str
-
-# Get the status of a job.
-def get_job_status(job_id: str) -> JobStatus
-
-# Get the result of a completed job.
-def get_result(job_id: str, assert_result_is_not_none = True) -> Dict[str, Any]
-
-# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-def duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings
-
-# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-def polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
-
-# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
-
-# Load the entire content of a file stored in S3 as bytes
-def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes
-
-# Load the content of a file stored in S3
-def load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None = None) -> BufferedReader
-
-# Upload a file to S3
-def write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None = None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object
-
-# Sign S3 objects to be used by anonymous users in public apps
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
-
-# Sign S3 object to be used by anonymous users in public apps
-def sign_s3_object(s3_object: S3Object | str) -> S3Object
-
-# Generate presigned public URLs for an array of S3 objects.
-def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
-
-# Generate a presigned public URL for an S3 object.
-def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
-
-# Returns the current user
-def whoami() -> dict
-
-# Get the state
-def get_state() -> Any
-
-# Get resource from Windmill
-def get_resource(path: str, none_if_undefined: bool = False) -> dict | None
-
-# Set the resource at a given path as a string, creating it if it does not exist
-def set_resource(path: str, value: Any, resource_type: str = 'any') -> None
-
-# List resources from Windmill workspace.
-def list_resources(resource_type: str = None, page: int = None, per_page: int = None) -> list[dict]
-
-# Set the state
-def set_state(value: Any) -> None
-
-# Set the progress
-def set_progress(value: int, job_id: Optional[str] = None) -> None
-
-# Get the progress
-def get_progress(job_id: Optional[str] = None) -> Any
-
-# Set the state in the shared folder using pickle
-def set_shared_state_pickle(value: Any, path = 'state.pickle') -> None
-
-# Get the state in the shared folder using pickle
-def get_shared_state_pickle(path = 'state.pickle') -> Any
-
-# Set the state in the shared folder using pickle
-def set_shared_state(value: Any, path = 'state.json') -> None
-
-# Get the state in the shared folder using pickle
-def get_shared_state(path = 'state.json') -> None
-
-# Returns the variable at a given path as a string
-def get_variable(path: str) -> str
-
-# Set the variable at a given path as a string, creating it if it does not exist
-def set_variable(path: str, value: str, is_secret: bool = False) -> None
-
-# Get the user state of a flow at a given key
-def get_flow_user_state(key: str) -> Any
-
-# Set the user state of a flow at a given key
-def set_flow_user_state(key: str, value: Any) -> None
-
-# Get the state resource path from environment.
-def get_state_path() -> str
-
-# Get URLs needed for resuming a flow after suspension.
-def get_resume_urls(approver: str = None) -> dict
-
-def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
-
-# Send a message to a Microsoft Teams conversation.
-def send_teams_message(conversation_id: str, text: str, success: bool, card_block: dict = None)
-
-# Cancel a specific job by ID.
-def cancel_job(job_id: str, reason: str = None) -> str
-
-# Cancel currently running executions of the same script.
-def cancel_running() -> dict
-
-# Run script synchronously and return its result.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
-
-# Run script by path synchronously and return its result.
-def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
-
-# Run script by hash synchronously and return its result.
-def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any
-
-# Run a script on the current worker without creating a job
-def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
-
-# Get email from workspace username
-def username_to_email(username: str) -> str
-
-# Get a DataTable client for SQL queries.
-def datatable(name: str = 'main') -> DataTableClient
-
-# Get a DuckLake client for DuckDB queries.
-def ducklake(name: str = 'main') -> DucklakeClient
-
-# Decorator to mark a function as a workflow task.
-def task(*args, **kwargs)
-
-# Parse resource syntax from string.
-def parse_resource_syntax(s: str) -> Optional[str]
-
-# Parse S3 object from string or S3Object format.
-def parse_s3_object(s3_object: S3Object | str) -> S3Object
-
-# Parse variable syntax from string.
-def parse_variable_syntax(s: str) -> Optional[str]
-
-# Append a text to the result stream.
-def append_to_result_stream(text: str) -> None
-
-# Stream to the result stream.
-def stream_result(stream) -> None
-
-# DuckDB executor requires explicit argument types at declaration
-def infer_sql_type(value) -> str
 
 def get_mocked_api() -> Optional[dict]
 
@@ -1554,9 +1791,6 @@ def state_path() -> str
 # Get the workflow state.
 def state() -> Any
 
-# Set the workflow state.
-def state(value: Any) -> None
-
 # Set the state in the shared folder using pickle
 def set_shared_state_pickle(value: Any, path: str = 'state.pickle') -> None
 
@@ -1587,17 +1821,56 @@ def datatable(name: str = 'main')
 # Get a DuckLake client for DuckDB queries.
 def ducklake(name: str = 'main')
 
-def wrapper(*args, **kwargs)
+def init_global_client(f)
 
-def decorator(f)
+def deprecate(in_favor_of: str)
 
-def f(func, tag: str | None = None)
+# Get the current workspace ID.
+def get_workspace() -> str
+
+def get_version() -> str
+
+# Run a script synchronously by hash and return its result.
+def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+
+# Run a script synchronously by path and return its result.
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+
+# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+def duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings
+
+# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+def polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
+
+# Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
+
+# Get the state
+def get_state() -> Any
+
+# Get the state resource path from environment.
+def get_state_path() -> str
+
+# Decorator to mark a function as a workflow task.
+def task(*args, **kwargs)
+
+# Parse resource syntax from string.
+def parse_resource_syntax(s: str) -> Optional[str]
+
+# Parse S3 object from string or S3Object format.
+def parse_s3_object(s3_object: S3Object | str) -> S3Object
+
+# Parse variable syntax from string.
+def parse_variable_syntax(s: str) -> Optional[str]
+
+# Append a text to the result stream.
+def append_to_result_stream(text: str) -> None
+
+# Stream to the result stream.
+def stream_result(stream) -> None
 
 # Execute a SQL query against the DataTable.
 def query(sql: str, *args)
-
-# Execute a DuckDB query against the DuckLake database.
-def query(sql: str, **kwargs)
 
 # Execute query and fetch results.
 def fetch(result_collection: str | None = None)
@@ -1605,11 +1878,6 @@ def fetch(result_collection: str | None = None)
 # Execute query and fetch first row of results.
 def fetch_one()
 
-def cancel_job()
-
-def wrapper(*args, **kwargs)
-
-def inner(*args, **kwargs)
-
-def inner(*args, **kwargs)
+# DuckDB executor requires explicit argument types at declaration
+def infer_sql_type(value) -> str
 

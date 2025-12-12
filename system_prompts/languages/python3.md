@@ -34,6 +34,7 @@ def main(db: postgresql):
 ```
 
 **Important rules:**
+
 - The resource type name must be **IN LOWERCASE**
 - Only include resource types if they are actually needed
 - If an import conflicts with a resource type name, **rename the imported object, not the type name**
@@ -50,6 +51,7 @@ from datetime import datetime
 ```
 
 If an import name conflicts with a resource type:
+
 ```python
 # Wrong - don't rename the type
 import stripe as stripe_lib
@@ -90,4 +92,27 @@ def preprocessor(event: Event):
         "param1": event["body"]["field1"],
         "param2": event["query"]["id"]
     }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+```python
+import wmill
+
+# Load file content from S3
+content: bytes = wmill.load_s3_file(s3object)
+
+# Load file as stream reader
+reader: BufferedReader = wmill.load_s3_file_reader(s3object)
+
+# Write file to S3
+result: S3Object = wmill.write_s3_file(
+    s3object,           # Target path (or None to auto-generate)
+    file_content,       # bytes or BufferedReader
+    s3_resource_path,   # Optional: specific S3 resource
+    content_type,       # Optional: MIME type
+    content_disposition # Optional: Content-Disposition header
+)
 ```

@@ -26,7 +26,6 @@ export function getScriptPrompt(language: string): string {
   return [
     prompts.SCRIPT_BASE,
     langPrompt,
-    prompts.S3_OBJECTS,
     sdkPrompt
   ].filter(Boolean).join('\n\n');
 }
@@ -35,7 +34,6 @@ export function getScriptPrompt(language: string): string {
 export function getFlowPrompt(): string {
   return [
     prompts.FLOW_BASE,
-    prompts.OPENFLOW_SCHEMA,
-    prompts.RESOURCE_TYPES
+    prompts.OPENFLOW_SCHEMA
   ].filter(Boolean).join('\n\n');
 }

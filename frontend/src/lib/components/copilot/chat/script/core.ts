@@ -114,7 +114,8 @@ export function getLangContext(
 
 	// Note preprocessor function naming if applicable
 	if (isPreprocessor) {
-		context += '\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
+		context +=
+			'\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
 	}
 
 	return context
@@ -273,21 +274,26 @@ export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
 
-WINDMILL LANGUAGE CONTEXT:
-{lang_context}
-
 `
 
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
+	language: ScriptLang | 'bunnative',
+	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean } = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)
 
-	// If there's a custom prompt, prepend it to the system prompt
+	// Add language context to the system prompt
+	const langContext = getLangContext(language, { allowResourcesFetch: true, ...options })
+	content += `\n\nWINDMILL LANGUAGE CONTEXT:\n${langContext}`
+
+	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
+
+	console.log('[SCRIPT] SYSTEM', content)
 
 	return {
 		role: 'system',
@@ -323,18 +329,14 @@ export function prepareScriptTools(
 
 export function prepareScriptUserMessage(
 	instructions: string,
-	language: ScriptLang | 'bunnative',
-	selectedContext: ContextElement[],
-	options: {
-		isPreprocessor?: boolean
-	} = {}
+	selectedContext: ContextElement[]
 ): ChatCompletionUserMessageParam {
-	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
-		'{lang_context}',
-		getLangContext(language, { allowResourcesFetch: true, ...options })
-	)
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
 	const contextInstructions = buildContextString(selectedContext)
 	userMessage += contextInstructions
+
+	console.log('[SCRIPT] USER', userMessage)
+
 	return {
 		role: 'user',
 		content: userMessage

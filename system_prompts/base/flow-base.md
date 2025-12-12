@@ -46,7 +46,61 @@ JavaScript transform (dynamic expression):
 ## Failure Handler
 
 Executes when any step fails. Has access to error details:
+
 - `error.message` - Error message
 - `error.step_id` - ID of failed step
 - `error.name` - Error name
 - `error.stack` - Stack trace
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+To accept an S3 object as flow input:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file": {
+      "type": "object",
+      "format": "resource-s3_object",
+      "description": "File to process"
+    }
+  }
+}
+```
+
+## Using Resources in Flows
+
+On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
+
+### As Flow Input
+
+In the flow schema, set the property type to `"object"` with format `"resource-{type}"`:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "database": {
+      "type": "object",
+      "format": "resource-postgresql",
+      "description": "Database connection"
+    }
+  }
+}
+```
+
+### As Step Input (Static Reference)
+
+Reference a specific resource using `$res:` prefix:
+
+```json
+{
+  "database": {
+    "type": "static",
+    "value": "$res:f/folder/my_database"
+  }
+}
+```

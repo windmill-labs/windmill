@@ -36,19 +36,33 @@ OUTPUT_GENERATED_DIR = SCRIPT_DIR / "generated"
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
 
 
+def clean_jsdoc(jsdoc: str) -> str:
+    """Clean up JSDoc comment, removing delimiters and leading asterisks."""
+    # Remove /** and */
+    jsdoc = re.sub(r'^/\*\*\s*', '', jsdoc)
+    jsdoc = re.sub(r'\s*\*/$', '', jsdoc)
+    # Remove leading * from each line
+    lines = jsdoc.split('\n')
+    cleaned = []
+    for line in lines:
+        line = re.sub(r'^\s*\*\s?', '', line)
+        cleaned.append(line)
+    return '\n'.join(cleaned).strip()
+
+
 def extract_ts_functions(content: str) -> list[dict]:
     """Extract exported function signatures from TypeScript SDK."""
     functions = []
 
     # Pattern for JSDoc comment followed by exported function
-    # Captures: /** docstring */ export [async] function name(params): ReturnType {
+    # Captures: /** full docstring */ export [async] function name(params): ReturnType {
     jsdoc_pattern = re.compile(
-        r'/\*\*\s*\n\s*\*\s*([^\n]*?)(?:\n\s*\*[^/]*)?\s*\*/\s*'  # JSDoc comment (first line)
+        r'(/\*\*[\s\S]*?\*/)\s*'  # Capture entire JSDoc comment
         r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
         r'(<[^>]+>)?\s*'  # optional generic
         r'\(([^)]*)\)\s*'  # parameters
         r'(?::\s*([^{]+))?\s*\{',  # return type
-        re.MULTILINE | re.DOTALL
+        re.MULTILINE
     )
 
     # Pattern for exported functions without JSDoc
@@ -62,14 +76,15 @@ def extract_ts_functions(content: str) -> list[dict]:
 
     # First, find all functions with JSDoc
     for match in jsdoc_pattern.finditer(content):
-        docstring, is_async, name, generic, params, return_type = match.groups()
+        jsdoc_raw, is_async, name, generic, params, return_type = match.groups()
+        docstring = clean_jsdoc(jsdoc_raw)
         functions.append({
             'name': name,
             'generic': generic or '',
             'params': clean_params(params),
             'return_type': (return_type or ('Promise<void>' if is_async else 'void')).strip(),
             'async': bool(is_async),
-            'docstring': docstring.strip() if docstring else ''
+            'docstring': docstring
         })
 
     # Then find functions without JSDoc (that weren't already captured)
@@ -135,6 +150,7 @@ def extract_ts_types(content: str) -> list[dict]:
 def extract_py_functions(content: str) -> list[dict]:
     """Extract function signatures from Python SDK using AST."""
     functions = []
+    seen_names = set()
 
     try:
         tree = ast.parse(content)
@@ -142,65 +158,78 @@ def extract_py_functions(content: str) -> list[dict]:
         print(f"Warning: Could not parse Python SDK: {e}")
         return functions
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
-            # Skip private functions and class methods (handled separately)
-            if node.name.startswith('_') and not node.name.startswith('__'):
+    def process_function(node):
+        """Process a function node and add to functions list if not duplicate."""
+        # Skip private functions
+        if node.name.startswith('_') and not node.name.startswith('__'):
+            return
+        # Skip duplicates
+        if node.name in seen_names:
+            return
+
+        # Get docstring
+        docstring = ast.get_docstring(node) or ''
+
+        # Build parameter list
+        params = []
+        args = node.args
+
+        # Handle regular args
+        num_defaults = len(args.defaults)
+        num_args = len(args.args)
+
+        for i, arg in enumerate(args.args):
+            if arg.arg == 'self':
                 continue
+            param_str = arg.arg
+            if arg.annotation:
+                param_str += f": {ast.unparse(arg.annotation)}"
+            # Check if has default
+            default_idx = i - (num_args - num_defaults)
+            if default_idx >= 0:
+                default = args.defaults[default_idx]
+                param_str += f" = {ast.unparse(default)}"
+            params.append(param_str)
 
-            # Get docstring
-            docstring = ast.get_docstring(node) or ''
+        # Handle *args
+        if args.vararg:
+            params.append(f"*{args.vararg.arg}")
 
-            # Build parameter list
-            params = []
-            args = node.args
+        # Handle keyword-only args
+        for i, arg in enumerate(args.kwonlyargs):
+            param_str = arg.arg
+            if arg.annotation:
+                param_str += f": {ast.unparse(arg.annotation)}"
+            if args.kw_defaults[i]:
+                param_str += f" = {ast.unparse(args.kw_defaults[i])}"
+            params.append(param_str)
 
-            # Handle regular args
-            num_defaults = len(args.defaults)
-            num_args = len(args.args)
+        # Handle **kwargs
+        if args.kwarg:
+            params.append(f"**{args.kwarg.arg}")
 
-            for i, arg in enumerate(args.args):
-                if arg.arg == 'self':
-                    continue
-                param_str = arg.arg
-                if arg.annotation:
-                    param_str += f": {ast.unparse(arg.annotation)}"
-                # Check if has default
-                default_idx = i - (num_args - num_defaults)
-                if default_idx >= 0:
-                    default = args.defaults[default_idx]
-                    param_str += f" = {ast.unparse(default)}"
-                params.append(param_str)
+        # Get return type
+        return_type = ''
+        if node.returns:
+            return_type = ast.unparse(node.returns)
 
-            # Handle *args
-            if args.vararg:
-                params.append(f"*{args.vararg.arg}")
+        seen_names.add(node.name)
+        functions.append({
+            'name': node.name,
+            'params': ', '.join(params),
+            'return_type': return_type,
+            'docstring': docstring.split('\n')[0] if docstring else '',  # First line only
+            'async': isinstance(node, ast.AsyncFunctionDef)
+        })
 
-            # Handle keyword-only args
-            for i, arg in enumerate(args.kwonlyargs):
-                param_str = arg.arg
-                if arg.annotation:
-                    param_str += f": {ast.unparse(arg.annotation)}"
-                if args.kw_defaults[i]:
-                    param_str += f" = {ast.unparse(args.kw_defaults[i])}"
-                params.append(param_str)
-
-            # Handle **kwargs
-            if args.kwarg:
-                params.append(f"**{args.kwarg.arg}")
-
-            # Get return type
-            return_type = ''
-            if node.returns:
-                return_type = ast.unparse(node.returns)
-
-            functions.append({
-                'name': node.name,
-                'params': ', '.join(params),
-                'return_type': return_type,
-                'docstring': docstring.split('\n')[0] if docstring else '',  # First line only
-                'async': isinstance(node, ast.AsyncFunctionDef)
-            })
+    # Process top-level functions and class methods (but not nested functions)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            process_function(node)
+        elif isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    process_function(item)
 
     return functions
 
@@ -242,7 +271,10 @@ def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
-            md += f"// {func['docstring']}\n"
+            # Format multi-line docstrings with // prefix on each line
+            docstring_lines = func['docstring'].split('\n')
+            for line in docstring_lines:
+                md += f"// {line}\n"
         async_prefix = 'async ' if func['async'] else ''
         md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}"
         md += "\n"
@@ -338,7 +370,6 @@ def main():
     print("Assembling complete prompts...")
     base_dir = SCRIPT_DIR / "base"
     languages_dir = SCRIPT_DIR / "languages"
-    resources_dir = SCRIPT_DIR / "resources"
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
@@ -347,10 +378,6 @@ def main():
     languages = {}
     for lang_file in languages_dir.glob("*.md"):
         languages[lang_file.stem] = lang_file.read_text()
-
-    # Read resource files
-    resource_types = read_markdown_file(resources_dir / "resource-types.md")
-    s3_objects = read_markdown_file(resources_dir / "s3-objects.md")
 
     # Read CLI files
     cli_dir = SCRIPT_DIR / "cli"
@@ -369,10 +396,6 @@ def main():
         # Schema (raw YAML content)
         'OPENFLOW_SCHEMA': openflow_content,
 
-        # Resources
-        'RESOURCE_TYPES': resource_types,
-        'S3_OBJECTS': s3_objects,
-
         # CLI
         'CLI_COMMANDS': cli_commands,
     }
@@ -386,16 +409,15 @@ def main():
     (OUTPUT_GENERATED_DIR / "prompts.ts").write_text(ts_exports)
 
     # Generate complete script.md (all languages combined)
-    # Note: resource_types is not included here since each language file already has its own resource type instructions
     script_md_parts = [script_base]
     for lang_name in sorted(languages.keys()):
         script_md_parts.append(languages[lang_name])
-    script_md_parts.extend([s3_objects, ts_sdk_md, py_sdk_md])
+    script_md_parts.extend([ts_sdk_md, py_sdk_md])
     script_md = "\n\n".join(filter(None, script_md_parts))
     (OUTPUT_GENERATED_DIR / "script.md").write_text(script_md)
 
     # Generate complete flow.md
-    flow_md_parts = [flow_base, openflow_content, resource_types]
+    flow_md_parts = [flow_base, openflow_content]
     flow_md = "\n\n".join(filter(None, flow_md_parts))
     (OUTPUT_GENERATED_DIR / "flow.md").write_text(flow_md)
 
@@ -428,7 +450,6 @@ export function getScriptPrompt(language: string): string {
   return [
     prompts.SCRIPT_BASE,
     langPrompt,
-    prompts.S3_OBJECTS,
     sdkPrompt
   ].filter(Boolean).join('\\n\\n');
 }
@@ -437,8 +458,7 @@ export function getScriptPrompt(language: string): string {
 export function getFlowPrompt(): string {
   return [
     prompts.FLOW_BASE,
-    prompts.OPENFLOW_SCHEMA,
-    prompts.RESOURCE_TYPES
+    prompts.OPENFLOW_SCHEMA
   ].filter(Boolean).join('\\n\\n');
 }
 """
