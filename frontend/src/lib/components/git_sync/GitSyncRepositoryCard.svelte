@@ -22,7 +22,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
 		idx = null,
@@ -94,10 +94,43 @@
 					})
 
 					if (!abortController.signal.aborted && resource?.value) {
-						// Extract git URL from resource value and mask password
+						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
-						const gitUrl = value?.url || value?.git_url
+						let gitUrl = value?.url || value?.git_url
+
 						if (gitUrl && typeof gitUrl === 'string') {
+							// Check if the URL is a variable reference ($var:path)
+							const varMatch = gitUrl.match(/^\$var:(.+)$/)
+
+							if (varMatch) {
+								const varPath = varMatch[1]
+								try {
+									// Attempt to fetch the variable value
+									const variable = await VariableService.getVariable({
+										workspace: $workspaceStore,
+										path: varPath,
+										decryptSecret: true
+									})
+
+									if (!abortController.signal.aborted && variable?.value) {
+										gitUrl = variable.value
+									} else {
+										// Variable doesn't have a value or couldn't be fetched
+										// Don't display anything
+										resourceInfo = null
+										return
+									}
+								} catch (error) {
+									// Failed to fetch variable (permissions, not found, etc.)
+									// Don't display anything
+									if (!abortController.signal.aborted) {
+										console.debug('Failed to fetch variable for git URL:', error)
+										resourceInfo = null
+									}
+									return
+								}
+							}
+
 							// Mask password in URL (supports https://user:password@host and https://token@host patterns)
 							const maskedUrl = gitUrl.replace(
 								/(https?:\/\/)([^:@]+)(:([^@]+))?@/,
