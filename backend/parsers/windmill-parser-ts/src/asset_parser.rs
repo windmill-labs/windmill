@@ -40,6 +40,8 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     Ok(merge_assets(assets_finder.assets))
 }
 
+type VarAssetName = String;
+type VarAssetSchema = Option<String>;
 struct AssetsFinder {
     assets: Vec<ParseAssetsResult>,
 
@@ -49,7 +51,7 @@ struct AssetsFinder {
     // The goal is to remember that the identifier "sql" corresponds to the datatable "main"
     // so that when we see a tagged template expression with tag "sql" we know which datatable it
     // corresponds to. This allows us to infer if a datatable is Read or Write based on the SQL query.
-    var_identifiers: HashMap<String, (AssetKind, String)>,
+    var_identifiers: HashMap<String, (AssetKind, VarAssetName, VarAssetSchema)>,
 }
 
 impl Visit for AssetsFinder {
@@ -88,7 +90,7 @@ impl Visit for AssetsFinder {
             if saved_var_identifiers.contains_key(var) {
                 continue;
             }
-            let (kind, ref path) = self.var_identifiers[var];
+            let (kind, ref path, _) = self.var_identifiers[var];
             if asset_was_used(&self.assets, (kind, path)) {
                 continue;
             }
@@ -135,12 +137,12 @@ impl Visit for AssetsFinder {
                             match prop.sym.as_str() {
                                 "datatable" => {
                                     self.var_identifiers
-                                        .insert(var_name, (AssetKind::DataTable, asset_name));
+                                        .insert(var_name, (AssetKind::DataTable, asset_name, None));
                                     return;
                                 }
                                 "ducklake" => {
                                     self.var_identifiers
-                                        .insert(var_name, (AssetKind::Ducklake, asset_name));
+                                        .insert(var_name, (AssetKind::Ducklake, asset_name, None));
                                     return;
                                 }
                                 _ => {}
@@ -166,9 +168,7 @@ impl Visit for AssetsFinder {
         };
 
         // Check if it's a known identifier
-        let (kind, asset_name) = if let Some((kind, name)) = self.var_identifiers.get(tag_name) {
-            (*kind, name.clone())
-        } else {
+        let Some((kind, asset_name, schema)) = self.var_identifiers.get(tag_name) else {
             node.visit_children_with(self);
             return;
         };
@@ -191,7 +191,14 @@ impl Visit for AssetsFinder {
 
         // We use the SQL parser to detect if it's a read or write query
         match windmill_parser_sql::parse_assets(&sql) {
-            Ok(sql_assets) => {
+            Ok(mut sql_assets) => {
+                if let Some(schema) = schema {
+                    for asset in &mut sql_assets {
+                        if asset.kind == *kind && asset.path.starts_with(asset_name) {
+                            asset.path = format!("{}.{}", schema, asset.path);
+                        }
+                    }
+                }
                 self.assets.extend(sql_assets);
             }
             _ => {}
