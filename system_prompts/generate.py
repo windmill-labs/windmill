@@ -62,7 +62,7 @@ def extract_ts_functions(content: str) -> list[dict]:
     # Pattern for JSDoc comment followed by exported function
     # Captures: /** full docstring */ export [async] function name(params): ReturnType {
     jsdoc_pattern = re.compile(
-        r'(/\*\*[\s\S]*?\*/)\s*'  # Capture entire JSDoc comment
+        r'(/\*\*(?:[^*]|\*(?!/))*\*/)\s*'  # Capture single JSDoc comment (stops at first */)
         r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
         r'(<[^>]+>)?\s*'  # optional generic
         r'\(([^)]*)\)\s*'  # parameters
@@ -535,10 +535,12 @@ def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
-            # Format multi-line docstrings with // prefix on each line
+            # Format docstrings with JSDoc /** */ syntax
+            md += "/**\n"
             docstring_lines = func['docstring'].split('\n')
             for line in docstring_lines:
-                md += f"// {line}\n"
+                md += f" * {line}\n"
+            md += " */\n"
         async_prefix = 'async ' if func['async'] else ''
         md += f"{async_prefix}{func['name']}{func['generic']}({func['params']}): {func['return_type']}"
         md += "\n"
