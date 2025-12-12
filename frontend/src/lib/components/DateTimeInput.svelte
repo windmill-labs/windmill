@@ -12,7 +12,7 @@
 
 	interface Props {
 		// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-		value?: string | undefined
+		value?: string | null | undefined
 		clearable?: boolean
 		autofocus?: boolean | null
 		useDropdown?: boolean
@@ -44,7 +44,7 @@
 
 	// let format: 'local' | 'utc' = 'local'
 
-	function parseValue(value: string | undefined = undefined) {
+	function parseValue(value: string | null | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
 		if (!isValidDate(dateFromValue)) {
 			date = undefined
@@ -76,6 +76,13 @@
 	let initialTime = untrack(() => time)
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
+		// Handle cleared date - if date is empty string (user cleared) but value still has a value
+		if (date === '' && value) {
+			value = null
+			dispatchIfMounted('change', value)
+			return
+		}
+
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(timezone === 'local' ? `${date}T${time}` : `${date}T${time}Z`)
 			if (newDate.toString() === 'Invalid Date') return
@@ -178,7 +185,7 @@
 			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {
-				value = undefined
+				value = null
 				dispatch('clear')
 			}}
 		>

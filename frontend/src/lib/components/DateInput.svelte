@@ -3,7 +3,7 @@
 	import { format, isValid, parse } from 'date-fns'
 	import { sendUserToast } from '$lib/toast'
 
-	export let value: string | undefined = undefined
+	export let value: string | null | undefined = undefined
 	export let autofocus: boolean | null = false
 	export let minDate: string | undefined = undefined
 	export let maxDate: string | undefined = undefined
@@ -17,7 +17,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	function computeDate(value: string | undefined) {
+	function computeDate(value: string | null | undefined) {
 		if (dateFormat === undefined) {
 			dateFormat = defaultDateFormat
 		}
@@ -83,6 +83,9 @@
 		on:change={() => {
 			if (date) {
 				updateValue(date)
+			} else {
+				value = null
+				dispatch('change', value)
 			}
 		}}
 	/>
