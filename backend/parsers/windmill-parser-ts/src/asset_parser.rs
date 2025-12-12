@@ -40,6 +40,8 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     Ok(merge_assets(assets_finder.assets))
 }
 
+type VarAssetName = String;
+type VarAssetSchema = Option<String>;
 struct AssetsFinder {
     assets: Vec<ParseAssetsResult>,
 
@@ -49,9 +51,55 @@ struct AssetsFinder {
     // The goal is to remember that the identifier "sql" corresponds to the datatable "main"
     // so that when we see a tagged template expression with tag "sql" we know which datatable it
     // corresponds to. This allows us to infer if a datatable is Read or Write based on the SQL query.
-    var_identifiers: HashMap<String, (AssetKind, String)>,
+    var_identifiers: HashMap<String, (AssetKind, VarAssetName, VarAssetSchema)>,
 }
 
+/// Helper function to extract wmill.datatable() or wmill.ducklake() calls,
+/// Returns (AssetKind, asset_name, optional_schema_name)
+fn extract_wmill_datatable_call(expr: &Expr) -> Option<(AssetKind, String, Option<String>)> {
+    if let Expr::Call(call_expr) = expr {
+        if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
+            // Check if object is "wmill"
+            let is_wmill = matches!(
+                member.obj.as_ref(),
+                Expr::Ident(ident) if ident.sym.as_str() == "wmill"
+            );
+
+            if is_wmill {
+                if let MemberProp::Ident(prop) = &member.prop {
+                    // Get the asset name from first arg, default to "main"
+                    let asset_name = call_expr
+                        .args
+                        .first()
+                        .and_then(|arg| match arg.expr.as_ref() {
+                            Expr::Lit(Lit::Str(s)) => Some(s.value.to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| "main".to_string());
+
+                    let (asset_name, schema_name) = asset_name.split_once(':').map_or_else(
+                        || (asset_name.clone(), None),
+                        |(name, schema)| {
+                            (
+                                (if name.is_empty() { "main" } else { name }).to_string(),
+                                Some(schema.to_string()),
+                            )
+                        },
+                    );
+
+                    let kind = match prop.sym.as_str() {
+                        "datatable" => Some(AssetKind::DataTable),
+                        "ducklake" => Some(AssetKind::Ducklake),
+                        _ => None,
+                    };
+
+                    return kind.map(|k| (k, asset_name, schema_name));
+                }
+            }
+        }
+    }
+    None
+}
 impl Visit for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
@@ -77,6 +125,37 @@ impl Visit for AssetsFinder {
         }
     }
 
+    fn visit_assign_expr(&mut self, node: &swc_ecma_ast::AssignExpr) {
+        // Handle reassignments like: sql = wmill.datatable('main')
+        // Extract the variable name from the left side
+        let var_name = match &node.left {
+            swc_ecma_ast::AssignTarget::Simple(simple_target) => match simple_target {
+                swc_ecma_ast::SimpleAssignTarget::Ident(ident_binding) => {
+                    ident_binding.id.sym.as_str().to_string()
+                }
+                _ => {
+                    node.visit_children_with(self);
+                    return;
+                }
+            },
+            _ => {
+                node.visit_children_with(self);
+                return;
+            }
+        };
+
+        // Check if right side is a wmill.datatable() or wmill.ducklake() call
+        if let Some((kind, asset_name, schema)) = extract_wmill_datatable_call(node.right.as_ref())
+        {
+            self.var_identifiers
+                .insert(var_name, (kind, asset_name, schema));
+            return;
+        }
+
+        // Default: visit children
+        node.visit_children_with(self);
+    }
+
     fn visit_block_stmt(&mut self, node: &swc_ecma_ast::BlockStmt) {
         // Save current state before entering the block
         let saved_var_identifiers = self.var_identifiers.clone();
@@ -88,7 +167,7 @@ impl Visit for AssetsFinder {
             if saved_var_identifiers.contains_key(var) {
                 continue;
             }
-            let (kind, ref path) = self.var_identifiers[var];
+            let (kind, ref path, _) = self.var_identifiers[var];
             if asset_was_used(&self.assets, (kind, path)) {
                 continue;
             }
@@ -111,43 +190,12 @@ impl Visit for AssetsFinder {
         };
 
         // Check if init is a call to wmill.datatable(...) or wmill.ducklake(...)
+        // optionally with .schema() chained
         if let Some(init) = &node.init {
-            if let Expr::Call(call_expr) = init.as_ref() {
-                if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
-                    // Check if object is "wmill"
-                    let is_wmill = matches!(
-                        member.obj.as_ref(),
-                        Expr::Ident(ident) if ident.sym.as_str() == "wmill"
-                    );
-
-                    if is_wmill {
-                        if let MemberProp::Ident(prop) = &member.prop {
-                            // Get the asset name from first arg, default to "main"
-                            let asset_name = call_expr
-                                .args
-                                .first()
-                                .and_then(|arg| match arg.expr.as_ref() {
-                                    Expr::Lit(Lit::Str(s)) => Some(s.value.to_string()),
-                                    _ => None,
-                                })
-                                .unwrap_or_else(|| "main".to_string());
-
-                            match prop.sym.as_str() {
-                                "datatable" => {
-                                    self.var_identifiers
-                                        .insert(var_name, (AssetKind::DataTable, asset_name));
-                                    return;
-                                }
-                                "ducklake" => {
-                                    self.var_identifiers
-                                        .insert(var_name, (AssetKind::Ducklake, asset_name));
-                                    return;
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
+            if let Some((kind, asset_name, schema)) = extract_wmill_datatable_call(init.as_ref()) {
+                self.var_identifiers
+                    .insert(var_name, (kind, asset_name, schema));
+                return;
             }
         }
 
@@ -166,9 +214,7 @@ impl Visit for AssetsFinder {
         };
 
         // Check if it's a known identifier
-        let (kind, asset_name) = if let Some((kind, name)) = self.var_identifiers.get(tag_name) {
-            (*kind, name.clone())
-        } else {
+        let Some((kind, asset_name, schema)) = self.var_identifiers.get(tag_name) else {
             node.visit_children_with(self);
             return;
         };
@@ -191,7 +237,19 @@ impl Visit for AssetsFinder {
 
         // We use the SQL parser to detect if it's a read or write query
         match windmill_parser_sql::parse_assets(&sql) {
-            Ok(sql_assets) => {
+            Ok(mut sql_assets) => {
+                if let Some(schema) = schema {
+                    for asset in &mut sql_assets {
+                        if asset.kind == *kind && asset.path.starts_with(asset_name) {
+                            asset.path = format!(
+                                "{}/{}.{}",
+                                asset_name,
+                                schema,
+                                &asset.path[asset_name.len() + 1..]
+                            );
+                        }
+                    }
+                }
                 self.assets.extend(sql_assets);
             }
             _ => {}
@@ -390,6 +448,116 @@ mod tests {
                     kind: AssetKind::Ducklake,
                     path: "main".to_string(),
                     access_type: None
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_datatable_with_schema() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable(':myschema')
+                return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "main/myschema.friends".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_schema_with_write() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt:public')
+                await sql`INSERT INTO users VALUES (${x})`.fetch()
+                return await sql`SELECT * FROM users`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/public.users".to_string(),
+                access_type: Some(RW)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_unused_datatable_with_schema() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                let sql = wmill.datatable('dt:myschema')
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt".to_string(),
+                access_type: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_reassignment() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql;
+                sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/users".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_reassignment_with_schema() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                await sql`INSERT INTO test VALUES ('')`.fetch()
+                sql = wmill.datatable('dt:private')
+                return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/private.users".to_string(),
+                    access_type: Some(R)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/test".to_string(),
+                    access_type: Some(W)
                 },
             ])
         );

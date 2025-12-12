@@ -769,7 +769,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		pickCallback={async (_, name) => {
 			if (lang === 'duckdb') {
 				const connStr = name == 'main' ? 'datatable' : `datatable://${name}`
-				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt;\n`)
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt; USE dt;\n`)
 			} else if (lang === 'python3') {
 				if (!editor?.getCode().includes('import wmill')) {
 					editor?.insertAtBeginning('import wmill\n')

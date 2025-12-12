@@ -1810,7 +1810,15 @@ class DataTableClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
         self.name = name
-    def query(self, sql: str, *args):
+        self.schema = None
+        if ":" in name:
+            self.name, self.schema = name.split(":", 1) 
+        if not self.name:
+            self.name = "main"
+    def query(self, sql: str, *args) -> SqlQuery:
+        if self.schema is not None:
+            sql = f'SET search_path TO "{self.schema}";\n' + sql
+
         args_dict = {}
         args_def = ""
         for i, arg in enumerate(args):
@@ -1818,7 +1826,7 @@ class DataTableClient:
             args_def += f"-- ${i+1} arg{i+1}\n"
         sql = args_def + sql
         return SqlQuery(
-            sql, 
+            sql,
             lambda sql: self.client.run_inline_script_preview(
                 content=sql,
                 language="postgresql",

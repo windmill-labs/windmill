@@ -195,6 +195,7 @@
 							workspace: $workspaceStore
 						})}
 						initialTableKey={input.specificTable}
+						initialSchemaKey={input.type == 'database' ? input.specificSchema : undefined}
 						{dbType}
 						{refresh}
 					/>
