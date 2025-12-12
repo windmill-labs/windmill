@@ -1810,7 +1810,11 @@ class DataTableClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
         self.name = name
-    def query(self, sql: str, *args):
+        self._schema = None
+    def query(self, sql: str, *args) -> SqlQuery:
+        if self._schema is not None:
+            sql = f'SET search_path TO "{self._schema}";\n' + sql
+
         args_dict = {}
         args_def = ""
         for i, arg in enumerate(args):
@@ -1818,13 +1822,18 @@ class DataTableClient:
             args_def += f"-- ${i+1} arg{i+1}\n"
         sql = args_def + sql
         return SqlQuery(
-            sql, 
+            sql,
             lambda sql: self.client.run_inline_script_preview(
                 content=sql,
                 language="postgresql",
                 args={"database": f"datatable://{self.name}", **args_dict},
             )
         )
+    def schema(self, schema: str) -> DataTableClient:
+        if self._schema is not None:
+            raise Exception(".schema() should only be called immediately after datatable()")
+        self._schema = schema
+        return self
 
 class DucklakeClient:
     def __init__(self, client: Windmill, name: str):

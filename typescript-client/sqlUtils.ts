@@ -50,6 +50,9 @@ export type SqlStatement = {
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
+type SqlTemplateFunctionWithSchemaSetter = SqlTemplateFunction & {
+  schema: (schema: string) => SqlTemplateFunction;
+};
 
 /**
  * @example
@@ -61,7 +64,9 @@ export interface SqlTemplateFunction {
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-export function datatable(name: string = "main"): SqlTemplateFunction {
+export function datatable(
+  name: string = "main"
+): SqlTemplateFunctionWithSchemaSetter {
   return sqlProviderImpl(name, "datatable");
 }
 
@@ -82,8 +87,9 @@ export function ducklake(name: string = "main"): SqlTemplateFunction {
 function sqlProviderImpl(
   name: string,
   provider: "datatable" | "ducklake"
-): SqlTemplateFunction {
-  let sql: SqlTemplateFunction = (
+): SqlTemplateFunctionWithSchemaSetter {
+  let state: { schema?: string | null } = {};
+  let sqlFn: SqlTemplateFunction = (
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
@@ -110,6 +116,10 @@ function sqlProviderImpl(
     let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+
+    if (state.schema && provider === "datatable") {
+      content += `SET search_path TO "${state.schema}";\n`;
+    }
 
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
@@ -165,7 +175,10 @@ function sqlProviderImpl(
         fetch({ ...params, resultCollection: "last_statement_first_row" }),
     } satisfies SqlStatement;
   };
-  return sql;
+
+  return Object.assign(sqlFn, {
+    schema: (schema: string) => ((state.schema = schema), sqlFn),
+  });
 }
 
 // DuckDB executor requires explicit argument types at declaration
