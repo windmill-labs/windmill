@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.592.1](https://github.com/windmill-labs/windmill/compare/v1.592.0...v1.592.1) (2025-12-12)
+
+
+### Bug Fixes
+
+* **ai:** improve share system prompts ([490114d](https://github.com/windmill-labs/windmill/commit/490114d133a08ef7f61ed216796b01fbec32a677))
+
 ## [1.592.0](https://github.com/windmill-labs/windmill/compare/v1.591.4...v1.592.0) (2025-12-12)
 
 
