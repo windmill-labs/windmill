@@ -567,8 +567,7 @@ pub async fn handle_receive_completed_job(
                 #[cfg(feature = "benchmark")]
                 bench,
             )
-            .await
-            .warn_after_seconds(10);
+            .await;
             None
         }
         Ok(r) => r,
