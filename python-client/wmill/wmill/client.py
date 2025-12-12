@@ -1809,11 +1809,12 @@ def stream_result(stream) -> None:
 class DataTableClient:
     def __init__(self, client: Windmill, name: str):
         self.client = client
+        self.name = name
+        self.schema = None
         if ":" in name:
-            self.schema, self.name = name.split(":", 1)
-        else:
-            self.schema = None
-            self.name = name
+            self.name, self.schema = name.split(":", 1) 
+        if not self.name:
+            self.name = "main"
     def query(self, sql: str, *args) -> SqlQuery:
         if self.schema is not None:
             sql = f'SET search_path TO "{self.schema}";\n' + sql
