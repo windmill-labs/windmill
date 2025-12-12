@@ -28,7 +28,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
-import { replaceInlineScripts } from "./apps.ts";
+import { replaceInlineScripts } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,

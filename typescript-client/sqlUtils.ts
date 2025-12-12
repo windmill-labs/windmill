@@ -33,25 +33,46 @@ type SqlResult<ResultCollectionT extends ResultCollection> =
     : ResultCollectionT extends "all_statements_first_row_scalar"
     ? any[]
     : unknown;
+/**
+ * SQL statement object with query content, arguments, and execution methods
+ */
 export type SqlStatement = {
+  /** Raw SQL content with formatted arguments */
   content: string;
 
+  /** Argument values keyed by parameter name */
   args: Record<string, any>;
 
+  /**
+   * Execute the SQL query and return results
+   * @param params - Optional parameters including result collection mode
+   * @returns Query results based on the result collection mode
+   */
   fetch<ResultCollectionT extends ResultCollection = "last_statement_all_rows">(
     params?: FetchParams<ResultCollectionT | ResultCollection> // The union is for auto-completion
   ): Promise<SqlResult<ResultCollectionT>>;
 
+  /**
+   * Execute the SQL query and return only the first row
+   * @param params - Optional parameters
+   * @returns First row of the query result
+   */
   fetchOne(
     params?: Omit<FetchParams<"last_statement_first_row">, "resultCollection">
   ): Promise<SqlResult<"last_statement_first_row">>;
 };
 
+/**
+ * Template tag function for creating SQL statements with parameterized values
+ */
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
 
 /**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
  * let name = 'Robin'
@@ -66,6 +87,9 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
 }
 
 /**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
  * let name = 'Robin'

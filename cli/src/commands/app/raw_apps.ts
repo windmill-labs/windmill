@@ -15,7 +15,7 @@ import path from "node:path";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 
-import { replaceInlineScripts, repopulateFields } from "./apps.ts";
+import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
