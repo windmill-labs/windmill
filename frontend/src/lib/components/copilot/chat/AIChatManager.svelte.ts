@@ -26,7 +26,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import {
-	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
@@ -503,7 +503,7 @@ class AIChatManager {
 
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
-			content: INLINE_CHAT_SYSTEM_PROMPT
+			content: prepareInlineChatSystemPrompt(lang)
 		}
 
 		let reply = ''

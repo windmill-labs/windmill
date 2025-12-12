@@ -217,7 +217,7 @@ def extract_py_functions(content: str) -> list[dict]:
             'name': node.name,
             'params': ', '.join(params),
             'return_type': return_type,
-            'docstring': docstring.split('\n')[0] if docstring else '',  # First line only
+            'docstring': docstring,
             'async': isinstance(node, ast.AsyncFunctionDef)
         })
 
@@ -251,7 +251,7 @@ def extract_py_classes(content: str) -> list[dict]:
                         docstring = ast.get_docstring(item) or ''
                         methods.append({
                             'name': item.name,
-                            'docstring': docstring.split('\n')[0] if docstring else ''
+                            'docstring': docstring
                         })
 
             classes.append({
@@ -294,7 +294,10 @@ def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
             continue
         docstring = func.get('docstring')
         if docstring:
-            md += f"# {docstring}\n"
+            # Format multi-line docstrings with # prefix on each line
+            docstring_lines = docstring.split('\n')
+            for line in docstring_lines:
+                md += f"# {line}\n"
         async_prefix = 'async ' if func['async'] else ''
         return_annotation = f" -> {func['return_type']}" if func['return_type'] else ''
         md += f"{async_prefix}def {func['name']}({func['params']}){return_annotation}\n"
@@ -469,6 +472,7 @@ export function getFlowPrompt(): string {
     cli_prompts = {
         'SCRIPT_PROMPT': script_md,
         'FLOW_PROMPT': flow_md,
+        'CLI_COMMANDS': cli_commands,
     }
     cli_prompts_ts = generate_ts_exports(cli_prompts)
     (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)

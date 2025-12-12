@@ -1659,18 +1659,45 @@ Import: import wmill
 def get_mocked_api() -> Optional[dict]
 
 # Get the HTTP client instance.
+# 
+# Returns:
+#     Configured httpx.Client for API requests
 def get_client() -> httpx.Client
 
 # Make an HTTP GET request to the Windmill API.
+# 
+# Args:
+#     endpoint: API endpoint path
+#     raise_for_status: Whether to raise an exception on HTTP errors
+#     **kwargs: Additional arguments passed to httpx.get
+# 
+# Returns:
+#     HTTP response object
 def get(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 
 # Make an HTTP POST request to the Windmill API.
+# 
+# Args:
+#     endpoint: API endpoint path
+#     raise_for_status: Whether to raise an exception on HTTP errors
+#     **kwargs: Additional arguments passed to httpx.post
+# 
+# Returns:
+#     HTTP response object
 def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 
 # Create a new authentication token.
+# 
+# Args:
+#     duration: Token validity duration (default: 1 day)
+# 
+# Returns:
+#     New authentication token string
 def create_token(duration = dt.timedelta(days=1)) -> str
 
 # Create a script job and return its job id.
+# 
+# .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
 def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str
 
 # Create a script job by path and return its job id.
@@ -1683,6 +1710,8 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
 
 # Run script synchronously and return its result.
+# 
+# .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
 def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
 
 # Run script by path synchronously and return its result.
@@ -1695,51 +1724,148 @@ def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | in
 def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 
 # Wait for a job to complete and return its result.
+# 
+# Args:
+#     job_id: ID of the job to wait for
+#     timeout: Maximum time to wait (seconds or timedelta)
+#     verbose: Enable verbose logging
+#     cleanup: Register cleanup handler to cancel job on exit
+#     assert_result_is_not_none: Raise exception if result is None
+# 
+# Returns:
+#     Job result when completed
+# 
+# Raises:
+#     TimeoutError: If timeout is reached
+#     Exception: If job fails
 def wait_job(job_id, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False)
 
 # Cancel a specific job by ID.
+# 
+# Args:
+#     job_id: UUID of the job to cancel
+#     reason: Optional reason for cancellation
+# 
+# Returns:
+#     Response message from the cancel endpoint
 def cancel_job(job_id: str, reason: str = None) -> str
 
 # Cancel currently running executions of the same script.
 def cancel_running() -> dict
 
 # Get job details by ID.
+# 
+# Args:
+#     job_id: UUID of the job
+# 
+# Returns:
+#     Job details dictionary
 def get_job(job_id: str) -> dict
 
 # Get the root job ID for a flow hierarchy.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     Root job ID
 def get_root_job_id(job_id: str | None = None) -> dict
 
 # Get an OIDC JWT token for authentication to external services.
+# 
+# Args:
+#     audience: Token audience (e.g., "vault", "aws")
+#     expires_in: Optional expiration time in seconds
+# 
+# Returns:
+#     JWT token string
 def get_id_token(audience: str, expires_in: int | None = None) -> str
 
 # Get the status of a job.
+# 
+# Args:
+#     job_id: UUID of the job
+# 
+# Returns:
+#     Job status: "RUNNING", "WAITING", or "COMPLETED"
 def get_job_status(job_id: str) -> JobStatus
 
 # Get the result of a completed job.
+# 
+# Args:
+#     job_id: UUID of the completed job
+#     assert_result_is_not_none: Raise exception if result is None
+# 
+# Returns:
+#     Job result
 def get_result(job_id: str, assert_result_is_not_none: bool = True) -> Any
 
 # Get a variable value by path.
+# 
+# Args:
+#     path: Variable path in Windmill
+# 
+# Returns:
+#     Variable value as string
 def get_variable(path: str) -> str
 
 # Set a variable value by path, creating it if it doesn't exist.
+# 
+# Args:
+#     path: Variable path in Windmill
+#     value: Variable value to set
+#     is_secret: Whether the variable should be secret (default: False)
 def set_variable(path: str, value: str, is_secret: bool = False) -> None
 
 # Get a resource value by path.
+# 
+# Args:
+#     path: Resource path in Windmill
+#     none_if_undefined: Return None instead of raising if not found
+# 
+# Returns:
+#     Resource value dictionary or None
 def get_resource(path: str, none_if_undefined: bool = False) -> dict | None
 
 # Set a resource value by path, creating it if it doesn't exist.
+# 
+# Args:
+#     value: Resource value to set
+#     path: Resource path in Windmill
+#     resource_type: Resource type for creation
 def set_resource(value: Any, path: str, resource_type: str)
 
 # List resources from Windmill workspace.
+# 
+# Args:
+#     resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+#     page: Optional page number for pagination
+#     per_page: Optional number of results per page
+#     
+# Returns:
+#     List of resource dictionaries
 def list_resources(resource_type: str = None, page: int = None, per_page: int = None) -> list[dict]
 
 # Set the workflow state.
+# 
+# Args:
+#     value: State value to set
 def set_state(value: Any)
 
 # Set job progress percentage (0-99).
+# 
+# Args:
+#     value: Progress percentage
+#     job_id: Job ID (defaults to current WM_JOB_ID)
 def set_progress(value: int, job_id: Optional[str] = None)
 
 # Get job progress percentage.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
 
 # Set the user state of a flow at a given key
@@ -1749,48 +1875,132 @@ def set_flow_user_state(key: str, value: Any) -> None
 def get_flow_user_state(key: str) -> Any
 
 # Get the Windmill server version.
+# 
+# Returns:
+#     Version string
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection from DuckDB
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection from Polars
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection using boto3
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.
+# 
+# '''python
+# from wmill import S3Object
+# 
+# s3_obj = S3Object(s3="/path/to/my_file.txt")
+# my_obj_content = client.load_s3_file(s3_obj)
+# file_content = my_obj_content.decode("utf-8")
+# '''
 def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None) -> bytes
 
 # Load a file from the workspace s3 bucket and returns the bytes stream.
+# 
+# '''python
+# from wmill import S3Object
+# 
+# s3_obj = S3Object(s3="/path/to/my_file.txt")
+# with wmill.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
+#     print(file_reader.read())
+# '''
 def load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None) -> BufferedReader
 
 # Write a file to the workspace S3 bucket
+# 
+# '''python
+# from wmill import S3Object
+# 
+# s3_obj = S3Object(s3="/path/to/my_file.txt")
+# 
+# # for an in memory bytes array:
+# file_content = b'Hello Windmill!'
+# client.write_s3_file(s3_obj, file_content)
+# 
+# # for a file:
+# with open("my_file.txt", "rb") as my_file:
+#     client.write_s3_file(s3_obj, my_file)
+# '''
 def write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object
 
 # Sign S3 objects for use by anonymous users in public apps.
+# 
+# Args:
+#     s3_objects: List of S3 objects to sign
+# 
+# Returns:
+#     List of signed S3 objects
 def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
 
 # Sign a single S3 object for use by anonymous users in public apps.
+# 
+# Args:
+#     s3_object: S3 object to sign
+# 
+# Returns:
+#     Signed S3 object
 def sign_s3_object(s3_object: S3Object | str) -> S3Object
 
 # Generate presigned public URLs for an array of S3 objects.
+# If an S3 object is not signed yet, it will be signed first.
+# 
+# Args:
+#     s3_objects: List of S3 objects to sign
+#     base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+# 
+# Returns:
+#     List of signed public URLs
+# 
+# Example:
+#     >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+#     >>> urls = client.get_presigned_s3_public_urls(s3_objs)
 def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
 
 # Generate a presigned public URL for an S3 object.
+# If the S3 object is not signed yet, it will be signed first.
+# 
+# Args:
+#     s3_object: S3 object to sign
+#     base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+# 
+# Returns:
+#     Signed public URL
+# 
+# Example:
+#     >>> s3_obj = S3Object(s3="/path/to/file.txt")
+#     >>> url = client.get_presigned_s3_public_url(s3_obj)
 def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
 
 # Get the current user information.
+# 
+# Returns:
+#     User details dictionary
 def whoami() -> dict
 
 # Get the current user information (alias for whoami).
+# 
+# Returns:
+#     User details dictionary
 def user() -> dict
 
 # Get the state resource path from environment.
+# 
+# Returns:
+#     State path string
 def state_path() -> str
 
 # Get the workflow state.
+# 
+# Returns:
+#     State value or None if not set
 def state() -> Any
 
 # Set the state in the shared folder using pickle
@@ -1806,21 +2016,76 @@ def set_shared_state(value: Any, path: str = 'state.json') -> None
 def get_shared_state(path: str = 'state.json') -> None
 
 # Get URLs needed for resuming a flow after suspension.
+# 
+# Args:
+#     approver: Optional approver name
+# 
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
 def get_resume_urls(approver: str = None) -> dict
 
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+# 
+# **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
+# Learn more at: https://www.windmill.dev/docs/flows/flow_approval#form
+# 
+# :param slack_resource_path: The path to the Slack resource in Windmill.
+# :type slack_resource_path: str
+# :param channel_id: The Slack channel ID where the approval request will be sent.
+# :type channel_id: str
+# :param message: Optional custom message to include in the Slack approval request.
+# :type message: str, optional
+# :param approver: Optional user ID or name of the approver for the request.
+# :type approver: str, optional
+# :param default_args_json: Optional dictionary defining or overriding the default arguments for form fields.
+# :type default_args_json: dict, optional
+# :param dynamic_enums_json: Optional dictionary overriding the enum default values of enum form fields.
+# :type dynamic_enums_json: dict, optional
+# 
+# :raises Exception: If the function is not called within a flow or flow preview.
+# :raises Exception: If the required flow job or flow step environment variables are not set.
+# 
+# :return: None
+# 
+# **Usage Example:**
+#     >>> client.request_interactive_slack_approval(
+#     ...     slack_resource_path="/u/alex/my_slack_resource",
+#     ...     channel_id="admins-slack-channel",
+#     ...     message="Please approve this request",
+#     ...     approver="approver123",
+#     ...     default_args_json={"key1": "value1", "key2": 42},
+#     ...     dynamic_enums_json={"foo": ["choice1", "choice2"], "bar": ["optionA", "optionB"]},
+#     ... )
+# 
+# **Notes:**
+# - This function must be executed within a Windmill flow or flow preview.
+# - The function checks for required environment variables (\`WM_FLOW_JOB_ID\`, \`WM_FLOW_STEP_ID\`) to ensure it is run in the appropriate context.
 def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 
 # Get email from workspace username
+# This method is particularly useful for apps that require the email address of the viewer.
+# Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
 def username_to_email(username: str) -> str
 
 # Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
 def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
 
 # Get a DataTable client for SQL queries.
+# 
+# Args:
+#     name: Database name (default: "main")
+# 
+# Returns:
+#     DataTableClient instance
 def datatable(name: str = 'main')
 
 # Get a DuckLake client for DuckDB queries.
+# 
+# Args:
+#     name: Database name (default: "main")
+# 
+# Returns:
+#     DucklakeClient instance
 def ducklake(name: str = 'main')
 
 def init_global_client(f)
@@ -1828,32 +2093,72 @@ def init_global_client(f)
 def deprecate(in_favor_of: str)
 
 # Get the current workspace ID.
+# 
+# Returns:
+#     Workspace ID string
 def get_workspace() -> str
 
 def get_version() -> str
 
 # Run a script synchronously by hash and return its result.
+# 
+# Args:
+#     hash: Script hash
+#     args: Script arguments
+#     verbose: Enable verbose logging
+#     assert_result_is_not_none: Raise exception if result is None
+#     cleanup: Register cleanup handler to cancel job on exit
+#     timeout: Maximum time to wait
+# 
+# Returns:
+#     Script result
 def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
 
 # Run a script synchronously by path and return its result.
+# 
+# Args:
+#     path: Script path
+#     args: Script arguments
+#     verbose: Enable verbose logging
+#     assert_result_is_not_none: Raise exception if result is None
+#     cleanup: Register cleanup handler to cancel job on exit
+#     timeout: Maximum time to wait
+# 
+# Returns:
+#     Script result
 def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection from DuckDB
 def duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection from Polars
 def polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+# initiate an S3 connection using boto3
 def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Get the state
 def get_state() -> Any
 
 # Get the state resource path from environment.
+# 
+# Returns:
+#     State path string
 def get_state_path() -> str
 
 # Decorator to mark a function as a workflow task.
+# 
+# When executed inside a Windmill job, the decorated function runs as a
+# separate workflow step. Outside Windmill, it executes normally.
+# 
+# Args:
+#     tag: Optional worker tag for execution
+# 
+# Returns:
+#     Decorated function
 def task(*args, **kwargs)
 
 # Parse resource syntax from string.
@@ -1866,21 +2171,45 @@ def parse_s3_object(s3_object: S3Object | str) -> S3Object
 def parse_variable_syntax(s: str) -> Optional[str]
 
 # Append a text to the result stream.
+# 
+# Args:
+#     text: text to append to the result stream
 def append_to_result_stream(text: str) -> None
 
 # Stream to the result stream.
+# 
+# Args:
+#     stream: stream to stream to the result stream
 def stream_result(stream) -> None
 
 # Execute a SQL query against the DataTable.
+# 
+# Args:
+#     sql: SQL query string with $1, $2, etc. placeholders
+#     *args: Positional arguments to bind to query placeholders
+# 
+# Returns:
+#     SqlQuery instance for fetching results
 def query(sql: str, *args)
 
 # Execute query and fetch results.
+# 
+# Args:
+#     result_collection: Optional result collection mode
+# 
+# Returns:
+#     Query results
 def fetch(result_collection: str | None = None)
 
 # Execute query and fetch first row of results.
+# 
+# Returns:
+#     First row of query results
 def fetch_one()
 
 # DuckDB executor requires explicit argument types at declaration
+# These types exist in both DuckDB and Postgres
+# Check that the types exist if you plan to extend this function for other SQL engines.
 def infer_sql_type(value) -> str
 
 `;
@@ -1996,4 +2325,140 @@ Reference a specific resource using \`$res:\` prefix:
 ## OpenFlow Schema
 
 {"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"number","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"flow_env":{"type":"object","description":"Environment variables available to all steps","additionalProperties":{"type":"string"}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","description":"Custom error message shown when stopping"}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_use":{"type":"boolean","description":"If true, this step's result is deleted after use to save memory"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable"]},"access_type":{"type":"string","description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/InputTransform"},"output_type":{"$ref":"#/components/schemas/InputTransform"},"user_message":{"$ref":"#/components/schemas/InputTransform"},"system_prompt":{"$ref":"#/components/schemas/InputTransform"},"streaming":{"$ref":"#/components/schemas/InputTransform"},"messages_context_length":{"$ref":"#/components/schemas/InputTransform"},"output_schema":{"$ref":"#/components/schemas/InputTransform"},"user_images":{"$ref":"#/components/schemas/InputTransform"},"max_completion_tokens":{"$ref":"#/components/schemas/InputTransform"},"temperature":{"$ref":"#/components/schemas/InputTransform"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`;
+
+export const CLI_COMMANDS = `# Windmill CLI Commands
+
+The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
+
+## Global Options
+
+- \`--workspace <workspace>\` - Specify target workspace (overrides default)
+- \`--token <token>\` - Specify API token (overrides stored token)
+- \`--base-url <url>\` - Specify API base URL
+- \`--debug\` / \`--verbose\` - Show debug logs
+- \`--show-diffs\` - Show diff information when syncing
+
+## Core Commands
+
+### Project Setup
+
+- \`wmill init\` - Bootstrap a windmill project with wmill.yaml
+  - \`--use-default\` - Use default settings without checking backend
+  - \`--use-backend\` - Use backend git-sync settings if available
+  - \`--bind-profile\` - Bind workspace profile to current Git branch
+
+### Workspace Management
+
+- \`wmill workspace\` - Manage workspaces
+  - \`wmill workspace add\` - Add a new workspace
+  - \`wmill workspace switch\` - Switch active workspace
+  - \`wmill workspace list\` - List configured workspaces
+
+### Sync Operations
+
+- \`wmill sync pull\` - Pull remote changes to local
+  - \`--raw\` - Pull without converting to local format
+  - \`--yes\` - Skip confirmation prompts
+  - \`--include-schedules\` - Include schedules in sync
+  - \`--include-triggers\` - Include triggers in sync
+
+- \`wmill sync push\` - Push local changes to remote
+  - \`--dry-run\` - Preview changes without applying
+  - \`--yes\` - Skip confirmation prompts
+  - \`--fail-conflicts\` - Fail on conflicts instead of prompting
+
+### Scripts
+
+- \`wmill script\` - Manage scripts
+  - \`wmill script push <path>\` - Push a script to remote
+  - \`wmill script generate-metadata\` - Generate script metadata from code
+    - Analyzes script code and creates/updates the \`.script.yaml\` metadata file
+    - Infers parameter types, descriptions, and schema from code annotations
+
+### Flows
+
+- \`wmill flow\` - Manage flows
+  - \`wmill flow push <path>\` - Push a flow to remote
+  - \`wmill flow generate-locks\` - Generate lock files for flow dependencies
+    - \`--yes\` - Skip confirmation prompts
+
+### Apps
+
+- \`wmill app\` - Manage apps
+  - \`wmill app push <path>\` - Push an app to remote
+  - \`wmill app generate-locks\` - Generate lock files for app dependencies
+
+### Resources
+
+- \`wmill resource\` - Manage resources
+  - \`wmill resource push\` - Push resources to remote
+  - \`wmill resource pull\` - Pull resources from remote
+
+- \`wmill resource-type\` - Manage resource types
+  - \`wmill resource-type push\` - Push resource types
+  - \`wmill resource-type pull\` - Pull resource types
+
+### Variables
+
+- \`wmill variable\` - Manage variables
+  - \`wmill variable push\` - Push variables to remote
+  - \`wmill variable pull\` - Pull variables from remote
+
+### Hub
+
+- \`wmill hub\` - Interact with Windmill Hub
+  - \`wmill hub pull <path>\` - Pull a script/flow from the hub
+
+### Development
+
+- \`wmill dev\` - Start development mode with file watching
+
+### Other Commands
+
+- \`wmill folder\` - Manage folders
+- \`wmill schedule\` - Manage schedules
+- \`wmill trigger\` - Manage triggers
+- \`wmill user\` - Manage users
+- \`wmill jobs\` - Manage jobs
+- \`wmill workers\` - View worker status
+- \`wmill queues\` - View queue status
+- \`wmill dependencies\` - Manage dependencies
+- \`wmill instance\` - Instance-level operations
+- \`wmill worker-groups\` - Manage worker groups
+- \`wmill gitsync-settings\` - Manage git-sync settings
+- \`wmill upgrade\` - Upgrade CLI to latest version
+- \`wmill completions\` - Generate shell completions
+
+## Workflow Instructions
+
+### After Writing a Script
+
+After creating or modifying a script, run:
+\`\`\`bash
+wmill script generate-metadata <path>
+\`\`\`
+
+This will analyze your script code and generate/update the \`.script.yaml\` metadata file with inferred types and schema.
+
+### After Writing a Flow
+
+After creating or modifying a flow, run:
+\`\`\`bash
+wmill flow generate-locks --yes
+\`\`\`
+
+This generates lock files for all flow dependencies.
+
+### Syncing Changes
+
+To push all local changes to the remote workspace:
+\`\`\`bash
+wmill sync push
+\`\`\`
+
+To pull remote changes to local:
+\`\`\`bash
+wmill sync pull
+\`\`\`
+`;
 

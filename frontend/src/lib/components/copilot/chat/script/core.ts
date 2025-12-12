@@ -270,6 +270,10 @@ export async function main() {
 \`\`\`
 `
 
+export function prepareInlineChatSystemPrompt(lang: ScriptLang | 'bunnative') {
+	return INLINE_CHAT_SYSTEM_PROMPT + getLangContext(lang, { allowResourcesFetch: true })
+}
+
 export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}

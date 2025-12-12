@@ -46,7 +46,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: selectedId
+				selectedId: selectedId === 'settings-metadata' ? '' : selectedId
 			}
 		},
 		getModules: (id?: string) => {
