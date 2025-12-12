@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.591.4](https://github.com/windmill-labs/windmill/compare/v1.591.3...v1.591.4) (2025-12-12)
+
+
+### Bug Fixes
+
+* **app:** fix raw scripts forbidden by policy if no args ([857adf5](https://github.com/windmill-labs/windmill/commit/857adf5b63fe243736366c38a7e573678552a99b))
+
 ## [1.591.3](https://github.com/windmill-labs/windmill/compare/v1.591.2...v1.591.3) (2025-12-11)
 
 
