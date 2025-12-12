@@ -34,10 +34,10 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import openFlowSchema from './openFlow.json'
 import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
 import { flowModulesSchema } from './openFlowZod'
 import { collectAllModuleIdsFromArray } from './utils'
+import { getFlowPrompt } from '$system_prompts'
 
 /**
  * Helper interface for AI chat flow operations
@@ -596,14 +596,11 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 ]
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform.
+	// Get base flow documentation from centralized prompts (includes FLOW_BASE, OPENFLOW_SCHEMA, RESOURCE_TYPES)
+	const flowBaseContext = getFlowPrompt()
 
-## IMPORTANT RULES
-
-**Reserved IDs - Do NOT use these module IDs:**
-- \`failure\` - Reserved for failure handler module
-- \`preprocessor\` - Reserved for preprocessor module
-- \`Input\` - Reserved for flow input reference
+	// Chat-specific tool instructions
+	const chatToolInstructions = `You are a helpful assistant that creates and edits workflows on the Windmill platform.
 
 ## Tool Selection Guide
 
@@ -624,13 +621,6 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 **Resources & Schema:**
 - **Search resource types** → \`resource_type\`
 - **Get database schema** → \`get_db_schema\`
-
-## Common Mistakes to Avoid
-
-- **Don't forget \`input_transforms\`** - Rawscript parameters won't receive values without them
-- **Don't use spaces in module IDs** - Use underscores (e.g., \`fetch_data\` not \`fetch data\`)
-- **Don't reference future steps** - \`results.step_id\` only works for steps that execute before the current one
-- **Don't create duplicate IDs** - Each module ID must be unique in the flow
 
 ## Flow Modification with set_flow_json
 
@@ -815,43 +805,6 @@ To reduce token usage, rawscript content in the flow you receive is replaced wit
 **To inspect existing code:**
 - Use \`inspect_inline_script\` tool to view the current code: \`inspect_inline_script({ moduleId: "step_a" })\`
 
-### Input Transforms for Rawscripts
-
-Rawscript modules use \`input_transforms\` to map function parameters to values. Each key in \`input_transforms\` corresponds to a parameter name in your script's \`main\` function.
-
-**Transform Types:**
-- \`static\`: Fixed value passed directly
-- \`javascript\`: Dynamic expression evaluated at runtime
-
-**Available Variables in JavaScript Expressions:**
-- \`flow_input.{property}\` - Access flow input parameters
-- \`results.{step_id}\` - Access output from a previous step
-- \`flow_input.iter.value\` - Current item when inside a for-loop
-- \`flow_input.iter.index\` - Current index when inside a for-loop
-
-**Example - Rawscript using flow input and previous step result:**
-\`\`\`json
-{
-  "id": "step_b",
-  "value": {
-    "type": "rawscript",
-    "language": "bun",
-    "content": "export async function main(userId: string, data: any[]) { return 'Hello, world!'; }",
-    "input_transforms": {
-      "userId": { "type": "javascript", "expr": "flow_input.user_id" },
-      "data": { "type": "javascript", "expr": "results.step_a" }
-    }
-  }
-}
-\`\`\`
-
-**Important:** The parameter names in \`input_transforms\` must match the function parameter names in your script.
-
-### Other Key Concepts
-- **Resources**: For flow inputs, use type "object" with format "resource-<type>". For step inputs, use "$res:path/to/resource"
-- **Module IDs**: Must be unique and valid identifiers. Used to reference results via \`results.step_id\`
-- **Module types**: Use 'bun' as default language for rawscript if unspecified
-
 ### Writing Code for Modules
 
 **IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions.
@@ -908,27 +861,6 @@ AI agents can use tools to accomplish tasks. When creating an AI agent module:
 - **Tool summaries**: Cannot contain spaces - use underscores
 - **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
-## Resource Types
-On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
-- Use the \`resource_type\` tool to search for available resource types (e.g. stripe, google, postgresql, etc.)
-- If the user needs a resource as flow input, set the property type in the schema to "object" and add a key called "format" set to "resource-nameofresourcetype" (e.g. "resource-stripe")
-- If the user wants a specific resource as step input, set the step value to a static string in the format: "$res:path/to/resource"
-
-### OpenFlow Schema Reference
-Below is the complete OpenAPI schema for OpenFlow. All field descriptions and behaviors are defined here. Refer to this as the authoritative reference when generating flow JSON:
-
-\`\`\`json
-${JSON.stringify(openFlowSchema, null, 2)}
-\`\`\`
-
-The schema includes detailed descriptions for:
-- **FlowModuleValue types**: rawscript, script, flow, forloopflow, whileloopflow, branchone, branchall, identity, aiagent
-- **Module configuration**: stop_after_if, skip_if, suspend, sleep, cache_ttl, retry, mock, timeout
-- **InputTransform**: static vs javascript, available variables (results, flow_input, flow_input.iter)
-- **Special modules**: preprocessor_module, failure_module
-- **Loop options**: iterator, parallel, parallelism, skip_failures
-- **Branch types**: BranchOne (first match), BranchAll (all execute)
-
 ### Contexts
 
 You have access to the following contexts:
@@ -936,6 +868,8 @@ You have access to the following contexts:
 - Flow diffs: Diff between current flow and last deployed flow
 - Focused flow modules: IDs of modules the user is focused on. Your response should focus on these modules
 `
+
+	let content = chatToolInstructions + '\n\n' + flowBaseContext
 
 	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
