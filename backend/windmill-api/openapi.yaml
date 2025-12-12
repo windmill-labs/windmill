@@ -21002,6 +21002,9 @@ components:
           per_page:
             type: number
             description: Number of repositories loaded per page
+          error:
+            type: string
+            description: Error message if token retrieval failed
         required:
           - installation_id
           - account_id

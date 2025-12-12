@@ -2,7 +2,7 @@
 	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
-	import { Loader2, Github, RotateCw, Plus, Minus, Download } from 'lucide-svelte'
+	import { Loader2, Github, RotateCw, Plus, Minus, Download, AlertTriangle } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 	import {
 		createGitHubAppState,
@@ -208,7 +208,9 @@
 										<select bind:value={githubState.selectedGHAppAccountId}>
 											<option value="" disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
-												<option value={installation.account_id}>{installation.account_id}</option>
+												<option value={installation.account_id} disabled={!!installation.error}>
+													{installation.account_id}{installation.error ? ' (token error)' : ''}
+												</option>
 											{/each}
 										</select>
 									</div>
@@ -292,13 +294,24 @@
 												<tbody>
 													{#each githubState.workspaceGithubInstallations as installation (`current-${installation.installation_id}-${installation.workspace_id}`)}
 														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
+															<td class="py-2">
+																<div class="flex items-center gap-1">
+																	{#if installation.error}
+																		<AlertTriangle class="w-4 h-4 text-yellow-500" title={installation.error} />
+																	{/if}
+																	{installation.account_id}
+																</div>
+															</td>
 															<td class="py-2">
 																<span class="text-xs text-primary">{installation.workspace_id}</span
 																>
 															</td>
 															<td class="py-2 text-primary">
-																{installation.repositories.length} repos
+																{#if installation.error}
+																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																{:else}
+																	{installation.repositories.length} repos
+																{/if}
 															</td>
 															<td class="py-2 text-right">
 																<div class="flex justify-end gap-1">
@@ -350,13 +363,24 @@
 												<tbody>
 													{#each githubInstallationsNotInWorkspace as installation (`other-${installation.installation_id}-${installation.workspace_id}`)}
 														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
+															<td class="py-2">
+																<div class="flex items-center gap-1">
+																	{#if installation.error}
+																		<AlertTriangle class="w-4 h-4 text-yellow-500" title={installation.error} />
+																	{/if}
+																	{installation.account_id}
+																</div>
+															</td>
 															<td class="py-2">
 																<span class="text-xs text-primary">{installation.workspace_id}</span
 																>
 															</td>
 															<td class="py-2 text-primary">
-																{installation.repositories.length} repos
+																{#if installation.error}
+																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																{:else}
+																	{installation.repositories.length} repos
+																{/if}
 															</td>
 															<td class="pl-8 py-2 text-right">
 																<Button
