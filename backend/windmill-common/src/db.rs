@@ -1,4 +1,4 @@
-use sqlx::{Acquire, Pool, Postgres, Transaction};
+use sqlx::{Acquire, PgConnection, PgExecutor, Pool, Postgres, Transaction};
 
 use crate::audit::AuditAuthor;
 
@@ -237,5 +237,28 @@ impl UserDB {
         .await?;
 
         Ok(tx)
+    }
+}
+
+pub trait DbExecutor<'b>: Send + Sized + PgExecutor<'b> {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a>;
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a>;
+}
+
+impl<'b> DbExecutor<'b> for &DB {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a> {
+        &**self
+    }
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a> {
+        &**self
+    }
+}
+
+impl<'b> DbExecutor<'b> for &'b mut PgConnection {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a> {
+        &mut **self
+    }
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a> {
+        &mut **self
     }
 }

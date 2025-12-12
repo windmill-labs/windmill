@@ -188,7 +188,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default()
+                        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
                             .into(),
                         is_trigger: None,
                         assets: None,
@@ -235,7 +235,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 lock: None,
                                 tag: None,
                                 concurrency_settings:
-                                    windmill_common::jobs::ConcurrencySettings::default().into(),
+                                    windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                                 is_trigger: None,
                                 assets: None,
                             }
@@ -369,7 +369,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                         is_trigger: None,
                         assets: None,
 
@@ -425,7 +425,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     path: None,
                                     lock: None,
                                     tag: None,
-                                    concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                                    concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                                     is_trigger: None,
                                     assets: None,
                                 }.into(),
@@ -465,7 +465,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     path: None,
                                     lock: None,
                                     tag: None,
-                                    concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                                    concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                                     is_trigger: None,
                                     assets: None,
 
@@ -533,7 +533,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                         is_trigger: None,
                         assets: None,
                     }.into(),
@@ -865,8 +865,8 @@ func main(derp string) (string, error) {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, false, port)
@@ -900,8 +900,8 @@ fn main(world: String) -> Result<String, String> {
         lock: None,
         language: ScriptLang::Rust,
         cache_ignore_s3_path: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         dedicated_worker: None,
     }))
@@ -978,8 +978,8 @@ echo "hello $msg"
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1011,8 +1011,8 @@ def main [ msg: string ] {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1064,8 +1064,8 @@ def main [
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("a", json!("3"))
     .arg("b", json!("null"))
@@ -1126,8 +1126,8 @@ public class Main {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("a", json!(3))
     .arg("b", json!(3.0))
@@ -1161,8 +1161,8 @@ export async function main(a: Date) {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1196,8 +1196,8 @@ export async function main(a: Date) {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1232,8 +1232,8 @@ def main(a: datetime, b: bytes):
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
-        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .arg("b", json!("dGVzdA=="))

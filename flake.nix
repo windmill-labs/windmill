@@ -274,7 +274,7 @@
 
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
-          RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
+          # RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
           PHP_PATH = "${pkgs.php}/bin/php";
