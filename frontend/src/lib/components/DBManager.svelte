@@ -24,6 +24,7 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
+		initialSchemaKey?: string
 		initialTableKey?: string
 	}
 	let {
@@ -34,6 +35,7 @@
 		getColDefs,
 		dbSupportsSchemas,
 		refresh,
+		initialSchemaKey,
 		initialTableKey
 	}: Props = $props()
 
@@ -47,7 +49,8 @@
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
 			let schemaKey =
-				'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
+				initialSchemaKey ??
+				('public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0])
 			let tableKey =
 				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
 					? initialTableKey
