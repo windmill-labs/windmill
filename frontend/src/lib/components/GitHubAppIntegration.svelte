@@ -297,7 +297,9 @@
 															<td class="py-2">
 																<div class="flex items-center gap-1">
 																	{#if installation.error}
-																		<AlertTriangle class="w-4 h-4 text-yellow-500" title={installation.error} />
+																		<span title={installation.error}>
+																			<AlertTriangle class="w-4 h-4 text-yellow-500" />
+																		</span>
 																	{/if}
 																	{installation.account_id}
 																</div>
@@ -366,7 +368,9 @@
 															<td class="py-2">
 																<div class="flex items-center gap-1">
 																	{#if installation.error}
-																		<AlertTriangle class="w-4 h-4 text-yellow-500" title={installation.error} />
+																		<span title={installation.error}>
+																			<AlertTriangle class="w-4 h-4 text-yellow-500" />
+																		</span>
 																	{/if}
 																	{installation.account_id}
 																</div>
