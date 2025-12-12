@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import { ChevronDownIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -13,6 +13,8 @@
 	import DbTableEditor from './DBTableEditor.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	type Props = {
 		dbType: DbType
@@ -90,20 +92,38 @@
 
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
-		<div class="mx-3 mt-3">
+		<div class="mx-3 mt-3 flex flex-col gap-2">
 			{#if dbSupportsSchemas}
-				<select
-					value={selected.schemaKey}
-					onchange={(e) => {
-						selected = { schemaKey: e.currentTarget.value }
+				<Select
+					bind:value={selected.schemaKey}
+					items={safeSelectItems(schemaKeys)}
+					transformInputSelectedText={(s) => `Schema: ${s}`}
+					RightIcon={ChevronDownIcon}
+					onCreateItem={(schema) => {
+						schema = schema
+							.trim()
+							.toLowerCase()
+							.replace(/[^a-zA-Z0-9_]/g, '')
+						askingForConfirmation = {
+							confirmationText: `Create ${schema}`,
+							type: 'reload',
+							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
+							open: true,
+							onConfirm: async () => {
+								askingForConfirmation && (askingForConfirmation.loading = true)
+								try {
+									await dbSchemaOps.onCreateSchema({ schema })
+									refresh?.()
+									selected.schemaKey = schema
+								} finally {
+									askingForConfirmation = undefined
+								}
+							}
+						}
 					}}
-				>
-					{#each schemaKeys as schemaKey}
-						<option value={schemaKey}>{schemaKey}</option>
-					{/each}
-				</select>
+				/>
 			{/if}
-			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
+			<ClearableInput bind:value={search} placeholder="Search table..." />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
 			{#each filteredTableKeys as tableKey}
