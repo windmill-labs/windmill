@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.591.2"
+version = "1.592.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.591.2"
+version = "1.592.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -158,7 +158,6 @@ kube.workspace = true
 k8s-openapi.workspace = true
 libloading.workspace = true
 bitflags.workspace = true
-nom.workspace = true
 globset.workspace = true
 
 
@@ -378,7 +377,6 @@ pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
-nom = "8.0.0"
 globset = "0.4.16"
 
 process-wrap = { version = "8.2.1", features = ["tokio1"] }

@@ -37,6 +37,7 @@
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import FlowChat from './flows/conversations/FlowChat.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -128,11 +129,10 @@
 	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
-		const previewFlow = flowStore.val
 		if (previewMode === 'whole') {
-			return previewFlow
+			return flowStore.val
 		} else {
-			const flow = previewFlow
+			const flow = stateSnapshot(flowStore).val as OpenFlow
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf(upToId ?? selectionManager.getSelectedId() ?? '')
 

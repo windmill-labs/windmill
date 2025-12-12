@@ -112,7 +112,7 @@ export function dbTableOpsWithPreviewScripts({
 }
 
 export type IDbSchemaOps = {
-	onDelete: (params: { tableKey: string }) => Promise<void>
+	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
 }
@@ -128,8 +128,8 @@ export function dbSchemaOpsWithPreviewScripts({
 	const dbArg = getDatabaseArg(input)
 	const language = getLanguageByResourceType(dbType)
 	return {
-		onDelete: async ({ tableKey }) => {
-			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
+		onDelete: async ({ tableKey, schema }) => {
+			let deleteQuery = makeDeleteTableQuery(tableKey, dbType, schema)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,

@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.592.0](https://github.com/windmill-labs/windmill/compare/v1.591.4...v1.592.0) (2025-12-12)
+
+
+### Features
+
+* **ai:** standardize and improve system prompts ([#7346](https://github.com/windmill-labs/windmill/issues/7346)) ([31e002a](https://github.com/windmill-labs/windmill/commit/31e002ad411bfbf08c933700bf5ae12b253ac0b8))
+
+
+### Bug Fixes
+
+* **bun:** deployment error on workspace dependencies ([#7355](https://github.com/windmill-labs/windmill/issues/7355)) ([6859670](https://github.com/windmill-labs/windmill/commit/68596701f1e9da460d7bd3246dc797fca1e66a62))
+* clear datetime input in schedule sets input to null ([#7358](https://github.com/windmill-labs/windmill/issues/7358)) ([8f1343e](https://github.com/windmill-labs/windmill/commit/8f1343e155620b047e746da40653ec627f97a1a3))
+
+## [1.591.4](https://github.com/windmill-labs/windmill/compare/v1.591.3...v1.591.4) (2025-12-12)
+
+
+### Bug Fixes
+
+* **app:** fix raw scripts forbidden by policy if no args ([857adf5](https://github.com/windmill-labs/windmill/commit/857adf5b63fe243736366c38a7e573678552a99b))
+
+## [1.591.3](https://github.com/windmill-labs/windmill/compare/v1.591.2...v1.591.3) (2025-12-11)
+
+
+### Bug Fixes
+
+* fix test up to step ([#7348](https://github.com/windmill-labs/windmill/issues/7348)) ([4337a88](https://github.com/windmill-labs/windmill/commit/4337a8810e7db874cd75006aacf4e4a85bc33836))
+* S3 SDK nits + Presigned S3 Public URL function ([#7342](https://github.com/windmill-labs/windmill/issues/7342)) ([2ee00b3](https://github.com/windmill-labs/windmill/commit/2ee00b3c7b0f7ba9a5997ec4474949500ff2c67b))
+
 ## [1.591.2](https://github.com/windmill-labs/windmill/compare/v1.591.1...v1.591.2) (2025-12-11)
 
 

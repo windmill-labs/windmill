@@ -28,10 +28,15 @@
 		datatableNotFound = false,
 		onClick
 	}: Props = $props()
+
+	let resourceDataCacheValue = $derived.by(() => {
+		let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+		return resourceDataCache[truncatedPath]
+	})
 </script>
 
 <div class="flex gap-2 items-center">
-	{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
+	{#if asset.kind === 'resource' && resourceDataCacheValue !== undefined}
 		<Button
 			startIcon={{ icon: Edit2 }}
 			variant="default"
@@ -40,7 +45,7 @@
 			on:click={() => (resourceEditorDrawer?.initEdit(asset.path), onClick?.())}
 		/>
 	{/if}
-	{#if (asset.kind === 'resource' && resourceDataCache[asset.path] === undefined) || ducklakeNotFound || datatableNotFound}
+	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}
 		<Popover contentClasses="px-3 py-2">
 			<svelte:fragment slot="trigger">
 				<Button
@@ -61,19 +66,19 @@
 					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_data_tables">
 						Go to Data Table settings
 					</Button>
-				{:else if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
+				{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
 					<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
 				{/if}
 			</svelte:fragment>
 		</Popover>
-	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCache[asset.path] })}
+	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCacheValue })}
 		<ExploreAssetButton
 			{asset}
 			{s3FilePicker}
 			{dbManagerDrawer}
 			onClick={() => onClick?.()}
 			noText
-			_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
+			_resourceMetadata={{ resource_type: resourceDataCacheValue }}
 		/>
 	{/if}
 </div>

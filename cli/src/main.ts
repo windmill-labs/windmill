@@ -6,7 +6,7 @@ import {
   log,
 } from "../deps.ts";
 import flow from "./commands/flow/flow.ts";
-import app from "./commands/app/apps.ts";
+import app from "./commands/app/app.ts";
 import script from "./commands/script/script.ts";
 import workspace, {
   getActiveWorkspace,
@@ -22,7 +22,7 @@ import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
 import instance from "./commands/instance/instance.ts";
-import workerGroups from "./commands/worker-groups/worker_groups.ts";
+import workerGroups from "./commands/worker-groups/worker-groups.ts";
 
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
@@ -70,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.591.2";
+export const VERSION = "1.592.0";
 
 export const WM_FORK_PREFIX = "wm-fork";
 
