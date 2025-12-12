@@ -2901,6 +2901,8 @@ pub async fn pull(
                         continue;
                     }
                 }
+
+                #[cfg(feature = "private")]
                 let concurrency_settings = if let Some(ref j) = job {
                     RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
                         .await?
