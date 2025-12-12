@@ -5,6 +5,15 @@ import httpx
 
 
 class S3BufferedReader(BufferedReader):
+    """Streaming buffered reader for S3 files via Windmill's S3 proxy.
+
+    Args:
+        workspace: Windmill workspace ID
+        windmill_client: HTTP client for Windmill API
+        file_key: S3 file key/path
+        s3_resource_path: Optional path to S3 resource configuration
+        storage: Optional storage backend identifier
+    """
     def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: Optional[str], storage: Optional[str]):
         params = {
             "file_key": file_key,
@@ -62,6 +71,14 @@ class S3BufferedReader(BufferedReader):
 
 
 def bytes_generator(buffered_reader: Union[BufferedReader, BytesIO]):
+    """Yield 50KB chunks from a buffered reader.
+
+    Args:
+        buffered_reader: File-like object to read from
+
+    Yields:
+        Bytes chunks of up to 50KB
+    """
     while True:
         byte = buffered_reader.read(50 * 1024)
         if not byte:

@@ -29,7 +29,7 @@ import {
   loadRunnablesFromBackend,
   writeRunnableToBackend,
 } from "./raw_apps.ts";
-import { replaceInlineScripts, AppFile as NormalAppFile } from "./apps.ts";
+import { replaceInlineScripts, AppFile as NormalAppFile } from "./app.ts";
 import {
   newPathAssigner,
   newRawAppPathAssigner,

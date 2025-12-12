@@ -75,7 +75,7 @@ import {
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { isExecutionModeAnonymous } from "../app/apps.ts";
+import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,

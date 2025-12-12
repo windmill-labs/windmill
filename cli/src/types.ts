@@ -9,7 +9,7 @@ import {
   yamlParseContent,
   yamlStringify,
 } from "../deps.ts";
-import { pushApp } from "./commands/app/apps.ts";
+import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
 import { pushResource } from "./commands/resource/resource.ts";

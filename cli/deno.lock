@@ -65,6 +65,7 @@
     "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/shared-utils@1.0.10": "1.0.10",
+    "jsr:@windmill-labs/shared-utils@1.0.11": "1.0.11",
     "jsr:@windmill-labs/shared-utils@1.0.3": "1.0.3",
     "jsr:@windmill-labs/shared-utils@1.0.5": "1.0.5",
     "jsr:@windmill-labs/shared-utils@1.0.6": "1.0.6",
@@ -363,6 +364,9 @@
     },
     "@windmill-labs/shared-utils@1.0.10": {
       "integrity": "bd1993eb8d693c8ba49da1618f82ff4601eeb59011b2cac13e664291f7a299d8"
+    },
+    "@windmill-labs/shared-utils@1.0.11": {
+      "integrity": "4878a841480ad98213759495d72d40be1aebbbacc693f8aa9fc649127722580b"
     }
   },
   "npm": {

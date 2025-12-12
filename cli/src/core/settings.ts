@@ -5,7 +5,7 @@ import { AIConfig, Config, GlobalSetting } from "../../gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "../commands/instance/instance.ts";
 import { isSuperset } from "../types.ts";
 import { deepEqual } from "../utils/utils.ts";
-import { removeWorkerPrefix } from "../commands/worker-groups/worker_groups.ts";
+import { removeWorkerPrefix } from "../commands/worker-groups/worker-groups.ts";
 import { decrypt, encrypt } from "../utils/local_encryption.ts";
 
 export interface SimplifiedSettings {
