@@ -194,6 +194,7 @@
 							input: _input,
 							workspace: $workspaceStore
 						})}
+						initialTableKey={input.specificTable}
 						{dbType}
 						{refresh}
 					/>

@@ -58,6 +58,7 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import Toggle from './Toggle.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		// Exported
@@ -158,12 +159,14 @@
 	$effect(() => {
 		;[lang, code]
 		untrack(() => {
-			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
+			inferAssets(lang, code).then((inferAssetsResult) => {
+				if (inferAssetsResult.status === 'error') return
+				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
 				for (const asset of newAssets) {
 					const old = assets?.find((a) => assetEq(a, asset))
 					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 				}
-				assets = newAssets
+				if (!deepEqual(assets, newAssets)) assets = newAssets
 			})
 
 			if (lang === 'ansible') {

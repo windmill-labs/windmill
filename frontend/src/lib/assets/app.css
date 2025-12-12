@@ -209,3 +209,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 	margin: 0;
   padding: 0;
 }
+
+.svelte-flow__edges {
+	z-index: -10;
+}
