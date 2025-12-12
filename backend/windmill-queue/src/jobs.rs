@@ -2967,15 +2967,13 @@ pub async fn pull(
             });
         };
 
-        let concurrency_settings = dbg!(RunnableSettings::from_runnable_settings_handle(
-            job.runnable_settings_handle,
-            db
-        )
-        .await?
-        .prefetch_cached(db)
-        .await?
-        .1
-        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s));
+        let concurrency_settings =
+            RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?
+                .1
+                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
         let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
