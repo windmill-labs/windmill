@@ -2024,6 +2024,52 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/compare/{target_workspace_id}:
+    get:
+      operationId: compareWorkspaces
+      summary: Compare two workspaces
+      description: Compares the current workspace with a target workspace to find differences in scripts, flows, apps, resources, and variables. Returns information about items that are ahead, behind, or in conflict.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Workspace comparison results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceComparison"
+
+  /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
+    post:
+      operationId: resetDiffTally
+      summary: Resets the ahead and behind deployement counter after a deployement
+      description: This endpoint should be called after a fork deployement
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: fork_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -20926,6 +20972,108 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+
+    WorkspaceComparison:
+      type: object
+      required:
+        - all_ahead_items_visible
+        - all_behind_items_visible
+        - skipped_comparison
+        - diffs
+        - summary
+      properties:
+        all_ahead_items_visible:
+          type: boolean
+          description: All items with changes ahead are visible by the user of the request.
+        all_behind_items_visible:
+          type: boolean
+          description: All items with changes behind are visible by the user of the request.
+        skipped_comparison:
+          type: boolean
+          description: Whether the comparison was skipped. This happens with old forks that where not being kept track of
+        diffs:
+          type: array
+          description: List of differences found between workspaces
+          items:
+            $ref: "#/components/schemas/WorkspaceItemDiff"
+        summary:
+          $ref: "#/components/schemas/CompareSummary"
+          description: Summary statistics of the comparison
+
+    WorkspaceItemDiff:
+      type: object
+      required:
+        - kind
+        - path
+        - ahead
+        - behind
+        - has_changes
+        - exists_in_source
+        - exists_in_fork
+      properties:
+        kind:
+          type: string
+          enum: ["script", "flow", "app", "resource", "variable"]
+          description: Type of the item
+        path:
+          type: string
+          description: Path of the item in the workspace
+        ahead:
+          type: integer
+          description: Number of versions source is ahead of target
+        behind:
+          type: integer
+          description: Number of versions source is behind target
+        has_changes:
+          type: boolean
+          description: Whether the item has any differences
+        exists_in_source:
+          type: boolean
+          description: If the item exists in the source workspace
+        exists_in_fork:
+          type: boolean
+          description: If the item exists in the fork workspace
+
+    CompareSummary:
+      type: object
+      required:
+        - total_diffs
+        - total_ahead
+        - total_behind
+        - scripts_changed
+        - flows_changed
+        - apps_changed
+        - resources_changed
+        - variables_changed
+        - conflicts
+      properties:
+        total_diffs:
+          type: integer
+          description: Total number of items with differences
+        total_ahead:
+          type: integer
+          description: Total number of ahead changes
+        total_behind:
+          type: integer
+          description: Total number of behind changes
+        scripts_changed:
+          type: integer
+          description: Number of scripts with differences
+        flows_changed:
+          type: integer
+          description: Number of flows with differences
+        apps_changed:
+          type: integer
+          description: Number of apps with differences
+        resources_changed:
+          type: integer
+          description: Number of resources with differences
+        variables_changed:
+          type: integer
+          description: Number of variables with differences
+        conflicts:
+          type: integer
+          description: Number of items that are both ahead and behind (conflicts)
 
     TeamInfo:
       type: object

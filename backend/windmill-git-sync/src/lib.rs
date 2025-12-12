@@ -102,4 +102,30 @@ impl DeployedObject {
             DeployedObject::Key { .. } => None,
         }
     }
+
+    pub fn get_kind(&self) -> String {
+        match self {
+            DeployedObject::Script { .. } => "script",
+            DeployedObject::Flow { .. } => "flow",
+            DeployedObject::App { .. } => "app",
+            DeployedObject::Folder { .. } => "folder",
+            DeployedObject::Resource { .. } => "resource",
+            DeployedObject::Variable { .. } => "variable",
+            DeployedObject::Schedule { .. } => "schedule",
+            DeployedObject::ResourceType { .. } => "resource_type",
+            DeployedObject::User { .. } => "user",
+            DeployedObject::Group { .. } => "group",
+            DeployedObject::HttpTrigger { .. } => "http_trigger",
+            DeployedObject::WebsocketTrigger { .. } => "websocket_trigger",
+            DeployedObject::KafkaTrigger { .. } => "kafka_trigger",
+            DeployedObject::NatsTrigger { .. } => "nats_trigger",
+            DeployedObject::PostgresTrigger { .. } => "postgres_trigger",
+            DeployedObject::MqttTrigger { .. } => "mqtt_trigger",
+            DeployedObject::SqsTrigger { .. } => "sqs_trigger",
+            DeployedObject::GcpTrigger { .. } => "gcp_trigger",
+            DeployedObject::EmailTrigger { .. } => "email_trigger",
+            DeployedObject::Settings { .. } => "settings",
+            DeployedObject::Key { .. } => "key",
+        }.to_string()
+    }
 }

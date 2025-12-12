@@ -29,7 +29,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -172,11 +172,16 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/operator_settings", post(update_operator_settings))
         .route(
             "/create_workspace_fork_branch",
             post(create_workspace_fork_branch),
         )
-        .route("/operator_settings", post(update_operator_settings));
+        .route(
+            "/reset_diff_tally/:fork_workspace_id",
+            post(reset_workspace_diffs),
+        )
+        .route("/compare/:target_workspace_id", get(compare_workspaces));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -4041,4 +4046,612 @@ async fn update_operator_settings(
     .await?;
 
     Ok("Operator settings updated successfully".to_string())
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceComparison {
+    pub all_ahead_items_visible: bool,
+    pub all_behind_items_visible: bool,
+    pub skipped_comparison: bool,
+    pub diffs: Vec<WorkspaceDiffRow>,
+    pub summary: CompareSummary,
+}
+
+#[derive(Serialize, Default)]
+pub struct CompareSummary {
+    pub total_diffs: usize,
+    pub total_ahead: usize,
+    pub total_behind: usize,
+    pub scripts_changed: usize,
+    pub flows_changed: usize,
+    pub apps_changed: usize,
+    pub resources_changed: usize,
+    pub variables_changed: usize,
+    pub conflicts: usize, // Items that are both ahead and behind
+}
+
+async fn reset_workspace_diffs(
+    authed: ApiAuthed,
+    Path((w_id, target_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<()> {
+    // Needed to compute the has_changes: Option<bool>. Otherwise it will be None, and the query will not hit the items
+    let _ = compare_workspaces(
+        authed,
+        Path((w_id.clone(), target_workspace_id.clone())),
+        Extension(db.clone()),
+        Extension(user_db),
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE has_changes = false AND (
+            (source_workspace_id = $1 AND fork_workspace_id = $2)
+            OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+        )",
+        target_workspace_id,
+        w_id,
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(Json(()))
+}
+
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct WorkspaceDiffRow {
+    kind: String,
+    path: String,
+    ahead: i32,
+    behind: i32,
+    has_changes: Option<bool>,
+    exists_in_source: Option<bool>,
+    exists_in_fork: Option<bool>,
+}
+
+async fn compare_workspaces(
+    authed: ApiAuthed,
+    Path((source_workspace_id, fork_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspaceComparison> {
+    // require_admin(authed.is_admin, &authed.username)?;
+
+    let skipped_comparison: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM skip_workspace_diff_tally
+            WHERE workspace_id = $1
+        )",
+    )
+    .bind(&fork_workspace_id)
+    .fetch_one(&db)
+    .await?;
+
+    if skipped_comparison {
+        return Ok(Json(WorkspaceComparison {
+            all_ahead_items_visible: true,
+            all_behind_items_visible: true,
+            skipped_comparison,
+            diffs: vec![],
+            summary: Default::default(),
+        }));
+    }
+
+    let diff_items = sqlx::query_as!(
+        WorkspaceDiffRow,
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        source_workspace_id,
+        fork_workspace_id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut confirmed_diffs = vec![];
+    for item in diff_items {
+        if let Some(has_changes) = item.has_changes {
+            if has_changes {
+                confirmed_diffs.push(item);
+            }
+            continue;
+        }
+
+        let item_comparison = match item.kind.as_str() {
+            "script" => Some(
+                compare_two_scripts(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "flow" => Some(
+                compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "app" => Some(
+                compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
+            ),
+            "resource" => Some(
+                compare_two_resources(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "variable" => Some(
+                compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            k => {
+                tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
+                None
+                // Some(ItemComparison {
+                //     has_changes: true,
+                //     exists_in_source: true,
+                //     exists_in_fork: true,
+                // })
+            }
+        };
+
+        if let Some(item_comparison) = item_comparison {
+            if item_comparison.has_changes {
+                sqlx::query!(
+                    "UPDATE workspace_diff SET has_changes = true, exists_in_source = $5, exists_in_fork = $6
+                    WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    source_workspace_id,
+                    fork_workspace_id,
+                    item.path,
+                    item.kind,
+                    item_comparison.exists_in_source,
+                    item_comparison.exists_in_fork,
+                )
+                .execute(&db)
+                .await?;
+                confirmed_diffs.push(WorkspaceDiffRow {
+                    has_changes: Some(item_comparison.has_changes),
+                    exists_in_source: Some(item_comparison.exists_in_source),
+                    exists_in_fork: Some(item_comparison.exists_in_fork),
+                    ..item
+                });
+            } else {
+                sqlx::query!(
+                    "DELETE FROM workspace_diff WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    source_workspace_id,
+                    fork_workspace_id,
+                    item.path,
+                    item.kind,
+                )
+                .execute(&db)
+                .await?;
+            }
+        }
+    }
+
+    let visible_diffs = filter_visible_diffs(
+        &confirmed_diffs,
+        &source_workspace_id,
+        &fork_workspace_id,
+        user_db.begin(&authed).await?,
+    )
+    .await?;
+
+    let summary = CompareSummary {
+        total_diffs: visible_diffs.len(),
+        total_ahead: visible_diffs
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        total_behind: visible_diffs
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
+        flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
+        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        resources_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "resource")
+            .count(),
+        variables_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "variable")
+            .count(),
+        conflicts: visible_diffs
+            .iter()
+            .filter(|s| s.ahead > 0 && s.behind > 0)
+            .count(),
+    };
+
+    let all_ahead_items_visible = summary.total_ahead
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+    let all_behind_items_visible = summary.total_behind
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+
+    return Ok(Json(WorkspaceComparison {
+        all_ahead_items_visible,
+        all_behind_items_visible,
+        skipped_comparison: false,
+        diffs: visible_diffs,
+        summary,
+    }));
+}
+
+async fn filter_visible_diffs(
+    confirmed_diffs: &[WorkspaceDiffRow],
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    mut tx: Transaction<'static, Postgres>,
+) -> Result<Vec<WorkspaceDiffRow>> {
+    // Step 1: Group paths by (workspace, kind)
+    let mut source_items: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut fork_items: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for diff in confirmed_diffs {
+        if diff.exists_in_source.unwrap_or(false) {
+            source_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+        if diff.exists_in_fork.unwrap_or(false) {
+            fork_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+    }
+
+    // Step 2: Batch query for each (workspace, kind) combination
+    let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
+    let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+
+    // Step 3: Filter diffs based on visibility
+    let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs
+        .iter()
+        .filter(|diff| {
+            let v = (diff.kind.to_string(), diff.path.to_string());
+            let source_ok = !diff.exists_in_source.unwrap_or(false) || source_visible.contains(&v);
+            let fork_ok = !diff.exists_in_fork.unwrap_or(false) || fork_visible.contains(&v);
+            source_ok && fork_ok
+        })
+        .cloned()
+        .collect();
+
+    Ok(visible_diffs)
+}
+
+async fn query_visible_items<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    workspace_id: &str,
+    items_by_kind: &HashMap<&str, Vec<&str>>,
+) -> Result<HashSet<(String, String)>> {
+    let mut visible = HashSet::new();
+
+    for (kind, paths) in items_by_kind {
+        let paths_vec: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+
+        let results = match *kind {
+            "script" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM script
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "flow" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM flow
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "app" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM app
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "resource" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM resource
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "variable" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM variable
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            _ => vec![], // Unknown kind
+        };
+
+        for path in results {
+            visible.insert((kind.to_string(), path));
+        }
+    }
+
+    Ok(visible)
+}
+
+#[derive(Debug)]
+struct ItemComparison {
+    has_changes: bool,
+    exists_in_source: bool,
+    exists_in_fork: bool,
+}
+
+async fn compare_two_scripts(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest script from each workspace
+    let source_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_script, &target_script) {
+        if source.content != target.content
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.lock != target.lock
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_script.is_some() || target_script.is_some() {
+        // The script exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_script.is_some(),
+        exists_in_fork: target_script.is_some(),
+    });
+}
+
+async fn compare_two_flows(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest flow from each workspace
+    let source_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_flow, &target_flow) {
+        if source.value != target.value
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_flow.is_some() || target_flow.is_some() {
+        // The flow exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_flow.is_some(),
+        exists_in_fork: target_flow.is_some(),
+    });
+}
+
+async fn compare_two_apps(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get app with its latest version data from source workspace
+    let source_app = sqlx::query!(
+        "SELECT app.summary, app.policy, app_version.value
+         FROM app
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_app = sqlx::query!(
+        "SELECT app.summary, app.policy, app_version.value
+         FROM app
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata and content differences
+    if let (Some(source), Some(target)) = (&source_app, &target_app) {
+        if source.summary != target.summary
+            || source.policy != target.policy
+            || source.value != target.value
+        {
+            has_changes = true;
+        }
+    } else if source_app.is_some() || target_app.is_some() {
+        // The app exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_app.is_some(),
+        exists_in_fork: target_app.is_some(),
+    });
+}
+
+async fn compare_two_resources(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get resource from each workspace
+    let source_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
+        if source.value != target.value
+            || source.description != target.description
+            || source.resource_type != target.resource_type
+        {
+            has_changes = true;
+        }
+    } else if source_resource.is_some() || target_resource.is_some() {
+        // The resource exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource.is_some(),
+        exists_in_fork: target_resource.is_some(),
+    });
+}
+
+async fn compare_two_variables(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get variable from each workspace
+    let source_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
+        if source.is_secret != target.is_secret
+            || source.value != target.value
+            || source.description != target.description
+        {
+            has_changes = true;
+        }
+    } else if source_variable.is_some() || target_variable.is_some() {
+        // The variable exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_variable.is_some(),
+        exists_in_fork: target_variable.is_some(),
+    });
 }
