@@ -2723,8 +2723,11 @@ async fn capture_dependency_job(
             .await?
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
+            let wd_exist = workspace_dependencies.get_bun()?.is_some();
             // TODO: move inside gen_bun_lockfile
-            write_file(job_dir, "main.ts", job_raw_code)?;
+            if !wd_exist {
+                write_file(job_dir, "main.ts", job_raw_code)?;
+            }
             if let Some(lock) = gen_bun_lockfile(
                 mem_peak,
                 canceled_by,
@@ -2743,20 +2746,22 @@ async fn capture_dependency_job(
             )
             .await?
             {
-                crate::bun_executor::prebundle_bun_script(
-                    job_raw_code,
-                    &lock,
-                    script_path,
-                    job_id,
-                    w_id,
-                    Some(&db),
-                    &job_dir,
-                    base_internal_url,
-                    worker_name,
-                    &token,
-                    &mut Some(occupancy_metrics),
-                )
-                .await?;
+                if !wd_exist {
+                    crate::bun_executor::prebundle_bun_script(
+                        job_raw_code,
+                        &lock,
+                        script_path,
+                        job_id,
+                        w_id,
+                        Some(&db),
+                        &job_dir,
+                        base_internal_url,
+                        worker_name,
+                        &token,
+                        &mut Some(occupancy_metrics),
+                    )
+                    .await?;
+                }
 
                 lock
             } else {
