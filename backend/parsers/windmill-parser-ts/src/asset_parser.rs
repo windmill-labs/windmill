@@ -590,19 +590,27 @@ mod tests {
         let input = r#"
             import * as wmill from "windmill-client"
             export async function main(x: number) {
-                let sql;
-                sql = wmill.datatable('dt').schema('public')
+                let sql = wmill.datatable('dt')
+                await sql`INSERT INTO test VALUES ('')`.fetch()
+                sql = wmill.datatable('dt').schema('private')
                 return await sql`SELECT * FROM users WHERE id = ${x}`.fetch()
             }
         "#;
         let s = parse_assets(input);
         assert_eq!(
             s.map_err(|e| e.to_string()),
-            Ok(vec![ParseAssetsResult {
-                kind: AssetKind::DataTable,
-                path: "dt/public.users".to_string(),
-                access_type: Some(R)
-            },])
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/private.users".to_string(),
+                    access_type: Some(R)
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "dt/test".to_string(),
+                    access_type: Some(W)
+                },
+            ])
         );
     }
 }
