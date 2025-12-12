@@ -17,7 +17,7 @@ type FetchParams<ResultCollectionT extends ResultCollection> = {
 
 type SqlResult<ResultCollectionT extends ResultCollection> =
   ResultCollectionT extends "last_statement_first_row"
-    ? object
+    ? object | null
     : ResultCollectionT extends "all_statements_first_row"
     ? object[]
     : ResultCollectionT extends "last_statement_all_rows"
