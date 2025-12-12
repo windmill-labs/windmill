@@ -38,6 +38,16 @@ impl RunnableSettings {
             },
         ))
     }
+
+    pub async fn prefetch_cached_from_handle<'a>(
+        hash: Option<i64>,
+        db: &'a DB,
+    ) -> error::Result<(DebouncingSettings, ConcurrencySettings)> {
+        Self::from_runnable_settings_handle(hash, db)
+            .await?
+            .prefetch_cached(db)
+            .await
+    }
     /// Returns error if provided `hash` has no corresponding entry in db
     /// If `hash` is None, returnes Default
     pub fn from_runnable_settings_handle<'a>(

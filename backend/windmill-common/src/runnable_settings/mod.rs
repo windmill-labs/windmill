@@ -84,7 +84,10 @@ pub trait RunnableSettingsTrait:
 
     /// set [[Self]] in db
     /// returns optional `hash` that `MUST` be
-    fn set<'a>(&self, db: &'a Pool<Postgres>) -> impl Future<Output = error::Result<Option<i64>>> {
+    fn insert_cached<'a>(
+        &self,
+        db: &'a Pool<Postgres>,
+    ) -> impl Future<Output = error::Result<Option<i64>>> {
         async move {
             // If it is default/empty, we optimize by telling "there is no hash for this"
             if self.is_default() {

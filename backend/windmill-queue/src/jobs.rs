@@ -1137,7 +1137,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             }
         }
     }
-    if queued_job.concurrent_limit.is_some() {
+
+    if queued_job.concurrent_limit.is_some()
+        || RunnableSettings::prefetch_cached_from_handle(queued_job.runnable_settings_handle, db)
+            .await?
+            .1
+            .concurrent_limit
+            .is_some()
+    {
         let concurrency_key = concurrency_key(db, &queued_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
@@ -2822,6 +2829,7 @@ impl PulledJobResult {
     }
 }
 
+// TODO: Factorize
 /// Pull the job from queue
 pub async fn pull(
     db: &Pool<Postgres>,
@@ -2893,22 +2901,38 @@ pub async fn pull(
                         continue;
                     }
                 }
+                let concurrency_settings = if let Some(ref j) = job {
+                    RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
+                        .await?
+                        .prefetch_cached(db)
+                        .await?
+                        .1
+                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                } else {
+                    Default::default()
+                };
 
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if job.concurrent_limit.is_some()
+                        if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
-                        crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, job)
-                            .await?
-                            .unwrap_or(PulledJobResult {
-                                job: None,
-                                suspended,
-                                missing_concurrency_key: false,
-                                error_while_preprocessing: None,
-                            })
+                        crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                            &concurrency_settings,
+                        )
+                        .await?
+                        .unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                            error_while_preprocessing: None,
+                        })
                     }
                     _ => PulledJobResult {
                         job,
@@ -2941,7 +2965,17 @@ pub async fn pull(
             });
         };
 
-        let has_concurent_limit = job.concurrent_limit.is_some();
+        let concurrency_settings = dbg!(RunnableSettings::from_runnable_settings_handle(
+            job.runnable_settings_handle,
+            db
+        )
+        .await?
+        .prefetch_cached(db)
+        .await?
+        .1
+        .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s));
+
+        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -2977,9 +3011,14 @@ pub async fn pull(
         if cfg!(feature = "enterprise")
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
-            if let Some(pulled_job_res) =
-                crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
-                    .await?
+            if let Some(pulled_job_res) = crate::jobs_ee::apply_concurrency_limit(
+                db,
+                pull_loop_count,
+                suspended,
+                pulled_job,
+                &concurrency_settings,
+            )
+            .await?
             {
                 return Ok(pulled_job_res);
             }
@@ -5172,8 +5211,8 @@ pub async fn push<'c, 'd>(
     };
 
     let runnable_settings_handle = RunnableSettings {
-        debouncing_settings: debouncing_settings.set(_db).await?,
-        concurrency_settings: concurrency_settings.set(_db).await?,
+        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
     }
     .insert_cached(_db)
     .await?;

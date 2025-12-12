@@ -842,8 +842,8 @@ async fn create_script_internal<'c>(
     };
 
     let runnable_settings_handle = RunnableSettings {
-        debouncing_settings: ns.debouncing_settings.set(&db).await?,
-        concurrency_settings: ns.concurrency_settings.set(&db).await?,
+        debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
+        concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
     }
     .insert_cached(&db)
     .await?;
