@@ -170,7 +170,7 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-tertiary">
+				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-input">
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
@@ -191,11 +191,9 @@
 								<button
 									class={twMerge(
 										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
-										itemIndex === keyArrowPos
-											? 'bg-surface-secondary'
-											: item.value === value
-												? 'bg-surface-secondary'
-												: 'hover:bg-surface-hover',
+										itemIndex === keyArrowPos || item.value === value
+											? 'bg-surface-secondary dark:bg-surface-tertiary'
+											: 'hover:bg-surface-hover',
 										endSnippet || item.__is_create ? 'flex items-center justify-between gap-2' : '',
 										itemButtonWrapperClasses,
 										item.disabled ? 'cursor-not-allowed text-disabled' : ''
