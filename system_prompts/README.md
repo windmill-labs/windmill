@@ -8,9 +8,11 @@ This directory contains the single source of truth for AI system prompts used by
 system_prompts/
 ├── base/              # Core instruction templates (manually written)
 ├── languages/         # Language-specific instructions (manually written)
-├── sdks/              # Auto-generated SDK documentation
-├── cli/               # CLI command and option documentation (auto-generated)
-└── generated/         # Auto-generated TypeScript exports
+└── auto-generated/    # Auto-generated files (DO NOT EDIT)
+    ├── sdks/          # SDK documentation
+    ├── cli/           # CLI command documentation
+    ├── prompts.ts     # TypeScript exports
+    └── index.ts       # Helper functions
 ```
 
 ## Usage
@@ -29,7 +31,7 @@ This will:
 2. Parse the OpenFlow YAML schema
 3. Parse the CLI commands
 4. Assemble complete prompts from markdown files
-5. Generate TypeScript exports in `generated/`
+5. Generate TypeScript exports in `auto-generated/`
 
 ### Scope
 
@@ -51,7 +53,7 @@ Tool instructions are added separately by the frontend and CLI.
 
 ### Frontend
 
-Uses Vite path alias `$system_prompts` pointing to `generated/`:
+Uses Vite path alias `$system_prompts` pointing to `auto-generated/`:
 
 ```typescript
 import { FLOW_GUIDANCE } from "$system_prompts/flow";
@@ -67,6 +69,5 @@ Copies the relevant prompts in /cli/src/guidance/prompts.ts
 ## Editing Guidelines
 
 - Edit markdown files in `base/`, `languages/`
-- Never edit files in `generated/` directly
+- Never edit files in `auto-generated/` directly
 - After editing, run `generate.py` to update exports
-```

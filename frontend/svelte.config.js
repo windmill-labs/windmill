@@ -28,7 +28,7 @@ const config = {
 			base: process.env.VITE_BASE_URL ?? ''
 		},
 		alias: {
-			'$system_prompts': '../system_prompts/generated'
+			'$system_prompts': '../system_prompts/auto-generated'
 		}
 	}
 }

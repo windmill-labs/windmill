@@ -28,9 +28,9 @@ TS_SDK_DIR = ROOT_DIR / "typescript-client"
 PY_SDK_PATH = ROOT_DIR / "python-client" / "wmill" / "wmill" / "client.py"
 OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 
-OUTPUT_SDKS_DIR = SCRIPT_DIR / "sdks"
-OUTPUT_GENERATED_DIR = SCRIPT_DIR / "generated"
-OUTPUT_CLI_DIR = SCRIPT_DIR / "cli"
+OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
+OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
+OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
@@ -747,13 +747,13 @@ export function getFlowPrompt(): string {
     (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)
 
     print(f"\nGenerated files:")
-    print(f"  - sdks/typescript.md")
-    print(f"  - sdks/python.md")
-    print(f"  - cli/cli-commands.md (auto-generated from CLI source)")
-    print(f"  - generated/prompts.ts")
-    print(f"  - generated/index.ts")
-    print(f"  - generated/script.md")
-    print(f"  - generated/flow.md")
+    print(f"  - auto-generated/sdks/typescript.md")
+    print(f"  - auto-generated/sdks/python.md")
+    print(f"  - auto-generated/cli/cli-commands.md (auto-generated from CLI source)")
+    print(f"  - auto-generated/prompts.ts")
+    print(f"  - auto-generated/index.ts")
+    print(f"  - auto-generated/script.md")
+    print(f"  - auto-generated/flow.md")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/prompts.ts")
     print("\nDone!")
