@@ -55,55 +55,163 @@ def clean_jsdoc(jsdoc: str) -> str:
     return '\n'.join(cleaned).strip()
 
 
+def extract_balanced(content: str, start_pos: int, open_char: str, close_char: str) -> tuple[str, int]:
+    """
+    Extract content between balanced brackets starting at start_pos.
+    Returns (extracted_content, end_position) or ('', -1) if not found.
+    """
+    if start_pos >= len(content) or content[start_pos] != open_char:
+        return '', -1
+
+    depth = 0
+    i = start_pos
+    while i < len(content):
+        if content[i] == open_char:
+            depth += 1
+        elif content[i] == close_char:
+            depth -= 1
+            if depth == 0:
+                return content[start_pos + 1:i], i
+        i += 1
+    return '', -1
+
+
+def extract_return_type(content: str, start_pos: int) -> tuple[str, int]:
+    """
+    Extract return type from position after ')', handling nested braces.
+    Returns (return_type, end_position of function body open brace).
+    """
+    i = start_pos
+    # Skip whitespace
+    while i < len(content) and content[i] in ' \t\n':
+        i += 1
+
+    if i >= len(content) or content[i] != ':':
+        # No return type, find opening brace
+        while i < len(content) and content[i] != '{':
+            i += 1
+        return '', i
+
+    i += 1  # Skip ':'
+
+    # Now extract the return type, handling nested braces and angle brackets
+    return_type_start = i
+    brace_depth = 0
+    angle_depth = 0
+
+    while i < len(content):
+        char = content[i]
+        if char == '<':
+            angle_depth += 1
+        elif char == '>':
+            angle_depth -= 1
+        elif char == '{':
+            if angle_depth > 0:
+                # Inside a type like Promise<{...}>
+                brace_depth += 1
+            else:
+                # This is the function body opening brace
+                return content[return_type_start:i].strip(), i
+        elif char == '}':
+            brace_depth -= 1
+        i += 1
+
+    return '', -1
+
+
 def extract_ts_functions(content: str) -> list[dict]:
     """Extract exported function signatures from TypeScript SDK."""
     functions = []
+    seen_names = set()
 
-    # Pattern for JSDoc comment followed by exported function
-    # Captures: /** full docstring */ export [async] function name(params): ReturnType {
-    jsdoc_pattern = re.compile(
-        r'(/\*\*(?:[^*]|\*(?!/))*\*/)\s*'  # Capture single JSDoc comment (stops at first */)
+    # Pattern to find JSDoc followed by export function declaration
+    # Only captures up to the function name and optional generic
+    jsdoc_func_pattern = re.compile(
+        r'(/\*\*(?:[^*]|\*(?!/))*\*/)\s*'  # JSDoc comment
         r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
-        r'(<[^>]+>)?\s*'  # optional generic
-        r'\(([^)]*)\)\s*'  # parameters
-        r'(?::\s*([^{]+))?\s*\{',  # return type
+        r'(<[^>]+>)?\s*',  # optional generic
         re.MULTILINE
     )
 
-    # Pattern for exported functions without JSDoc
+    # Pattern to find export function without JSDoc
     func_pattern = re.compile(
         r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
-        r'(<[^>]+>)?\s*'  # optional generic
-        r'\(([^)]*)\)\s*'  # parameters
-        r'(?::\s*([^{]+))?\s*\{',  # return type
-        re.MULTILINE | re.DOTALL
+        r'(<[^>]+>)?\s*',  # optional generic
+        re.MULTILINE
     )
 
     # First, find all functions with JSDoc
-    for match in jsdoc_pattern.finditer(content):
-        jsdoc_raw, is_async, name, generic, params, return_type = match.groups()
+    for match in jsdoc_func_pattern.finditer(content):
+        jsdoc_raw, is_async, name, generic = match.groups()
+
+        if name in seen_names:
+            continue
+
+        # Find the opening parenthesis for parameters
+        pos = match.end()
+        while pos < len(content) and content[pos] in ' \t\n':
+            pos += 1
+
+        if pos >= len(content) or content[pos] != '(':
+            continue
+
+        # Extract balanced parameters
+        params, paren_end = extract_balanced(content, pos, '(', ')')
+        if paren_end == -1:
+            continue
+
+        # Extract return type (handles multi-line types like Promise<{...}>)
+        return_type, _ = extract_return_type(content, paren_end + 1)
+
+        if not return_type:
+            return_type = 'Promise<void>' if is_async else 'void'
+
         docstring = clean_jsdoc(jsdoc_raw)
+        seen_names.add(name)
         functions.append({
             'name': name,
             'generic': generic or '',
             'params': clean_params(params),
-            'return_type': (return_type or ('Promise<void>' if is_async else 'void')).strip(),
+            'return_type': return_type,
             'async': bool(is_async),
             'docstring': docstring
         })
 
     # Then find functions without JSDoc (that weren't already captured)
     for match in func_pattern.finditer(content):
-        is_async, name, generic, params, return_type = match.groups()
-        if not any(f['name'] == name for f in functions):
-            functions.append({
-                'name': name,
-                'generic': generic or '',
-                'params': clean_params(params),
-                'return_type': (return_type or ('Promise<void>' if is_async else 'void')).strip(),
-                'async': bool(is_async),
-                'docstring': ''
-            })
+        is_async, name, generic = match.groups()
+
+        if name in seen_names:
+            continue
+
+        # Find the opening parenthesis for parameters
+        pos = match.end()
+        while pos < len(content) and content[pos] in ' \t\n':
+            pos += 1
+
+        if pos >= len(content) or content[pos] != '(':
+            continue
+
+        # Extract balanced parameters
+        params, paren_end = extract_balanced(content, pos, '(', ')')
+        if paren_end == -1:
+            continue
+
+        # Extract return type (handles multi-line types like Promise<{...}>)
+        return_type, _ = extract_return_type(content, paren_end + 1)
+
+        if not return_type:
+            return_type = 'Promise<void>' if is_async else 'void'
+
+        seen_names.add(name)
+        functions.append({
+            'name': name,
+            'generic': generic or '',
+            'params': clean_params(params),
+            'return_type': return_type,
+            'async': bool(is_async),
+            'docstring': ''
+        })
 
     return functions
 

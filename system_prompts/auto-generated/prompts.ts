@@ -236,6 +236,13 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
+ * Wrap a function to execute as a Windmill task within a flow context
+ * @param f - Function to wrap as a task
+ * @returns Async wrapper function that executes as a Windmill job
+ */
+task<P, T>(f: (_: P) => T): (_: P) => Promise<T>
+
+/**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
 async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
@@ -439,12 +446,20 @@ async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: stri
  * @param approver approver name
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
-async getResumeUrls(approver?: string): Promise<
+async getResumeUrls(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * @deprecated use getResumeUrls instead
  */
-getResumeEndpoints(approver?: string): Promise<
+getResumeEndpoints(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
