@@ -39,6 +39,8 @@ export class RawAppHistoryManager {
 	private isCreatingSnapshot = $state(false) // Prevents concurrent snapshot operations
 	private currentIndex = $state(-1) // -1 means viewing latest, used for undo/redo
 	private id = $state(0)
+	// Track if current state has pending changes (differs from last snapshot)
+	private hasPendingChanges = $state(false)
 	// Derived state
 	public readonly hasEntries = $derived(this.entries.length > 0)
 	public readonly entryCount = $derived(this.entries.length)
@@ -47,7 +49,9 @@ export class RawAppHistoryManager {
 	public readonly currentPreview = $derived(this.previewEntry)
 	public readonly canSnapshot = $derived(!this.isCreatingSnapshot)
 	public readonly canUndo = $derived(
-		this.currentIndex > 0 || (this.currentIndex === -1 && this.entries.length > 1)
+		this.currentIndex > 0 ||
+			(this.currentIndex === -1 && this.entries.length > 1) ||
+			(this.currentIndex === -1 && this.entries.length === 1 && this.hasPendingChanges)
 	)
 	public readonly canRedo = $derived(
 		this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1
@@ -113,9 +117,20 @@ export class RawAppHistoryManager {
 			if (this.entries.length > this.config.maxEntries) {
 				this.entries = this.entries.slice(-this.config.maxEntries)
 			}
+
+			// Reset pending changes since we just saved
+			this.hasPendingChanges = false
 		} finally {
 			this.isCreatingSnapshot = false
 		}
+	}
+
+	/**
+	 * Mark that there are pending changes (current state differs from last snapshot)
+	 * This enables the undo button even when there's only one snapshot
+	 */
+	markPendingChanges(): void {
+		this.hasPendingChanges = true
 	}
 
 	getId(): number {

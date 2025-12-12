@@ -394,6 +394,8 @@
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
 			files = e.data.files
+			// Mark that there are pending changes so undo becomes available
+			historyManager.markPendingChanges()
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
 		} else if (e.data.type === 'updateModules') {
@@ -477,8 +479,6 @@
 			// Clear preview mode after restore
 			historyPreviewId = undefined
 			historyManager.clearPreview()
-
-			sendUserToast('Snapshot restored successfully')
 		} catch (error) {
 			console.error('Failed to restore snapshot:', error)
 			sendUserToast('Failed to restore snapshot: ' + (error as Error).message, true)
@@ -486,6 +486,9 @@
 	}
 
 	function handleUndo() {
+		// Create snapshot of current state before undoing
+		historyManager.manualSnapshot(files ?? {}, runnables, summary)
+
 		const entry = historyManager.undo()
 		if (entry) {
 			try {
@@ -495,8 +498,6 @@
 
 				setFilesInIframe(entry.files)
 				populateRunnables()
-
-				sendUserToast('Undo successful')
 			} catch (error) {
 				console.error('Failed to undo:', error)
 				sendUserToast('Failed to undo: ' + (error as Error).message, true)
@@ -514,8 +515,6 @@
 
 				setFilesInIframe(entry.files)
 				populateRunnables()
-
-				sendUserToast('Redo successful')
 			} catch (error) {
 				console.error('Failed to redo:', error)
 				sendUserToast('Failed to redo: ' + (error as Error).message, true)
@@ -564,8 +563,6 @@
 			sendUserToast('Snapshot created')
 		}
 	}
-
-	const debugFiles = true
 </script>
 
 <svelte:window onmessage={listener} onkeydown={handleKeydown} />
@@ -680,11 +677,6 @@
 				class="h-full w-full"
 				style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}"
 			>
-				{#if debugFiles}
-					<div class="w-full text-xs">
-						<pre>{JSON.stringify(files, null, 2)}</pre>
-					</div>
-				{/if}
 				<iframe
 					bind:this={iframe}
 					title="UI builder"
