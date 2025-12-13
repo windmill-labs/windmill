@@ -506,7 +506,8 @@ export interface ToolCallbacks {
 export function createToolDef(
 	zodSchema: z.ZodSchema,
 	name: string,
-	description: string
+	description: string,
+	{ strict = true }: { strict?: boolean } = {} // we sometimes have to set strict to false for open ai models to avoid issues with complex properties
 ): ChatCompletionFunctionTool {
 	// console.log('creating tool def for', name, zodSchema)
 	let parameters = z.toJSONSchema(zodSchema)
@@ -516,7 +517,7 @@ export function createToolDef(
 	return {
 		type: 'function',
 		function: {
-			strict: true,
+			strict,
 			name,
 			description,
 			parameters
