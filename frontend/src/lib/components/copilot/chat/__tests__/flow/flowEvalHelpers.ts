@@ -1,14 +1,14 @@
-import type { FlowAIChatHelpers } from '../../core'
+import type { FlowAIChatHelpers } from '../../flow/core'
 import type { FlowModule, InputTransform } from '$lib/gen'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { findModuleById } from '../../../shared'
-import { inlineScriptStore, restoreInlineScriptReferences } from '../../inlineScriptsUtils'
+import { findModuleById } from '../../shared'
+import { inlineScriptStore, restoreInlineScriptReferences } from '../../flow/inlineScriptsUtils'
 
 /**
  * Creates mock FlowAIChatHelpers for eval testing.
  * Tracks flow state in memory and allows tool functions to modify it.
  */
-export function createEvalHelpers(
+export function createFlowEvalHelpers(
 	initialModules: FlowModule[] = [],
 	initialSchema?: Record<string, any>
 ) {

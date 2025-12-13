@@ -1,8 +1,8 @@
-import type { VariantConfig } from '../evalVariants'
+import type { VariantConfig } from '../../shared'
 
 /**
  * Baseline variant - uses the production system prompt and all tools.
- * This is the default configuration that matches the actual flow chat implementation.
+ * This is the default configuration that matches the actual app chat implementation.
  */
 export const BASELINE_VARIANT: VariantConfig = {
 	name: 'baseline',
