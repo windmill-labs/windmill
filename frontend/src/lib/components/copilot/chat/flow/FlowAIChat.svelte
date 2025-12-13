@@ -175,16 +175,18 @@
 			schema: Record<string, any> | undefined
 		) => {
 			try {
-				if (modules) {
-					// Restore inline script references back to full content
-					const restoredModules = restoreInlineScriptReferences(modules)
-
-					// Take snapshot of current flowStore BEFORE making changes
+				if (modules || schema) {
+					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
 						const snapshot = $state.snapshot(flowStore).val
 						diffManager?.setBeforeFlow(snapshot)
+						diffManager?.setEditMode(true)
 					}
+				}
 
+				if (modules) {
+					// Restore inline script references back to full content
+					const restoredModules = restoreInlineScriptReferences(modules)
 					// Directly modify flowStore (immediate effect)
 					flowStore.val.value.modules = restoredModules
 				}
@@ -194,10 +196,7 @@
 					flowStore.val.schema = schema
 				}
 
-				diffManager?.setEditMode(true)
-
 				// Refresh the state store to update UI
-				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
 				refreshStateStore(flowStore)
 			} catch (error) {
 				console.error('setFlowJson error:', error)
