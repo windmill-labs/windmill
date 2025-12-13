@@ -92,8 +92,6 @@
 			js: string
 			css: string
 		}>
-		historyPaneOpen?: boolean
-		hasHistoryEntries?: boolean
 		canUndo?: boolean
 		canRedo?: boolean
 		onUndo?: () => void
@@ -114,8 +112,6 @@
 		jobs = $bindable(),
 		jobsById = $bindable(),
 		getBundle,
-		historyPaneOpen = $bindable(false),
-		hasHistoryEntries = false,
 		canUndo = false,
 		canRedo = false,
 		onUndo = undefined,
@@ -734,33 +730,12 @@
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />
 		<div></div>
-		<Button
-			selected={historyPaneOpen}
-			size="xs"
-			color="light"
-			startIcon={{ icon: History }}
-			on:click={() => (historyPaneOpen = !historyPaneOpen)}
-			btnClasses={hasHistoryEntries ? 'relative' : ''}
-		></Button>
 		<UndoRedo
 			undoProps={{ disabled: !canUndo }}
 			redoProps={{ disabled: !canRedo }}
 			on:undo={() => onUndo?.()}
 			on:redo={() => onRedo?.()}
 		/>
-		<div class="px-1"></div>
-
-		<Button
-			unifiedSized="sm"
-			color="light"
-			variant="default"
-			onClick={() => aiChatManager.toggleOpen()}
-			startIcon={{ icon: WandSparkles }}
-			iconOnly
-			btnClasses={AIBtnClasses(aiChatManager.open ? 'selected' : 'default')}
-		>
-			AI
-		</Button>
 	</div>
 
 	<div class=" flex">
@@ -831,6 +806,17 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
+		<Button
+			unifiedSized="sm"
+			color="light"
+			variant="default"
+			onClick={() => aiChatManager.toggleOpen()}
+			startIcon={{ icon: WandSparkles }}
+			iconOnly
+			btnClasses={AIBtnClasses('default')}
+		>
+			AI
+		</Button>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}

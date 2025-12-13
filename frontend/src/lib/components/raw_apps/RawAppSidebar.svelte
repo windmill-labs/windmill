@@ -4,9 +4,12 @@
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileTreeNode from './FileTreeNode.svelte'
 	import { buildFileTree } from './fileTreeUtils'
-	import { Plus, File, Folder } from 'lucide-svelte'
+	import { Plus, File, Folder, Camera } from 'lucide-svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import RawAppModules from './RawAppModules.svelte'
+	import RawAppHistoryList from './RawAppHistoryList.svelte'
+	import type { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
+	import Button from '../common/button/Button.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -15,6 +18,10 @@
 		modules?: Modules
 		onSelectFile?: (path: string) => void
 		selectedDocument: string | undefined
+		historyManager?: RawAppHistoryManager
+		historySelectedId?: number | undefined
+		onHistorySelect?: (id: number) => void
+		onManualSnapshot?: () => void
 	}
 
 	let {
@@ -23,7 +30,11 @@
 		files = $bindable(),
 		modules,
 		onSelectFile,
-		selectedDocument = $bindable()
+		selectedDocument = $bindable(),
+		historyManager,
+		historySelectedId,
+		onHistorySelect,
+		onManualSnapshot
 	}: Props = $props()
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
@@ -224,7 +235,7 @@
 	}
 </script>
 
-<PanelSection size="lg" fullHeight={false} title="Frontend" id="app-editor-frontend-panel">
+<PanelSection size="lg" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
 	{#snippet action()}
 		<div class="flex gap-1">
 			<div class="flex gap-0.5">
@@ -278,5 +289,34 @@
 
 <RawAppModules {modules} />
 
-<div class="py-10"></div>
+<div class="py-4"></div>
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />
+
+<div class="py-4"></div>
+<PanelSection fullHeight={false} size="lg" title="data">
+	<span class="text-2xs text-tertiary">Coming soon</span>
+</PanelSection>
+
+{#if historyManager && onHistorySelect && onManualSnapshot}
+	<div class="py-4"></div>
+	<PanelSection fullHeight={false} size="md" title="history" id="app-editor-history-panel">
+		{#snippet action()}
+			<div class="flex items-center gap-2">
+				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>
+				<Button
+					size="xs2"
+					color="dark"
+					variant="border"
+					startIcon={{ icon: Camera }}
+					on:click={onManualSnapshot}
+				></Button>
+			</div>
+		{/snippet}
+		<RawAppHistoryList
+			entries={historyManager.allEntries}
+			branches={historyManager.allBranches}
+			selectedId={historySelectedId}
+			onSelect={onHistorySelect}
+		/>
+	</PanelSection>
+{/if}

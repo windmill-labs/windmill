@@ -21,10 +21,7 @@
 	import type { LintResult } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
-	import RawAppHistorySidebar from './RawAppHistorySidebar.svelte'
-	import { sendUserToast, displayDate } from '$lib/utils'
-	import Button from '../common/button/Button.svelte'
-	import { Eye, X, RotateCcw } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/utils'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -80,8 +77,6 @@
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
 	historyManager.manualSnapshot(files ?? {}, runnables, summary)
-	let historyPaneOpen = $state(false)
-	let historyPreviewId = $state<number | undefined>(undefined)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -376,15 +371,15 @@
 				}
 			},
 			snapshot: () => {
+				// Force create snapshot for AI - it needs a restore point
 				return (
-					historyManager.manualSnapshot(files ?? {}, runnables, summary)?.id ??
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)?.id ??
 					historyManager.getId()
 				)
 			},
 			revertToSnapshot: (id: number) => {
 				console.log('reverting to snapshot', id)
-				handlePreviewSelect(id)
-				historyPaneOpen = true
+				handleHistorySelect(id)
 			}
 		})
 	})
@@ -398,8 +393,6 @@
 			if (!deepEqual(files, e.data.files)) {
 				files = e.data.files
 				historyManager.markPendingChanges()
-				// Clear preview selection since user is now editing
-				historyPreviewId = undefined
 			}
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
@@ -452,132 +445,63 @@
 		)
 	}
 
-	function handleRestoreSnapshot(id: number) {
-		const entry = historyManager.getEntryById(id)
-		if (!entry) {
-			sendUserToast('Failed to restore snapshot: entry not found', true)
-			return
-		}
-
-		// Validate snapshot integrity
-		if (!entry.files || typeof entry.files !== 'object') {
-			sendUserToast('Failed to restore snapshot: invalid files data', true)
-			return
-		}
-		if (!entry.runnables || typeof entry.runnables !== 'object') {
-			sendUserToast('Failed to restore snapshot: invalid runnables data', true)
-			return
-		}
-
-		try {
-			// Auto-save current state before restoring
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
-
-			// Restore from snapshot
-			files = entry.files
-			runnables = entry.runnables
-			summary = entry.summary
-
-			setFilesInIframe(files)
-			populateRunnables()
-
-			// Clear preview mode after restore
-			historyPreviewId = undefined
-			historyManager.clearPreview()
-		} catch (error) {
-			console.error('Failed to restore snapshot:', error)
-			sendUserToast('Failed to restore snapshot: ' + (error as Error).message, true)
-		}
-	}
-
 	function handleUndo() {
-		// Clear preview mode when using undo/redo
-		historyPreviewId = undefined
-		historyManager.clearPreview()
-
-		// Only create a snapshot if we're at the latest position with pending changes
-		// This allows navigating back and forth through history without creating new entries
-		if (historyManager.needsSnapshotBeforeUndo) {
+		// Create a snapshot if we're at the latest position with pending changes
+		if (historyManager.needsSnapshotBeforeNav) {
 			historyManager.manualSnapshot(files ?? {}, runnables, summary)
 		}
 
 		const entry = historyManager.undo()
 		if (entry) {
-			try {
-				files = entry.files
-				runnables = entry.runnables
-				summary = entry.summary
-
-				setFilesInIframe(entry.files)
-				populateRunnables()
-
-				// Open sidebar to show history navigation
-				historyPaneOpen = true
-			} catch (error) {
-				console.error('Failed to undo:', error)
-				sendUserToast('Failed to undo: ' + (error as Error).message, true)
-			}
+			applyEntry(entry)
 		}
 	}
 
 	function handleRedo() {
-		// Clear preview mode when using undo/redo
-		historyPreviewId = undefined
-		historyManager.clearPreview()
-
 		const entry = historyManager.redo()
 		if (entry) {
-			try {
-				files = entry.files
-				runnables = entry.runnables
-				summary = entry.summary
-
-				setFilesInIframe(entry.files)
-				populateRunnables()
-
-				// Open sidebar to show history navigation
-				historyPaneOpen = true
-			} catch (error) {
-				console.error('Failed to redo:', error)
-				sendUserToast('Failed to redo: ' + (error as Error).message, true)
-			}
+			applyEntry(entry)
 		}
 	}
 
-	function handlePreviewSelect(id: number) {
-		const entry = historyManager.getEntryById(id)
-		console.log('entry', entry)
+	function handleHistorySelect(id: number) {
+		// Create a snapshot if we have pending changes before navigating
+		if (historyManager.needsSnapshotBeforeNav) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		}
+
+		const entry = historyManager.selectEntry(id)
 		if (entry) {
-			// Clear undo/redo position when selecting a preview
-			historyManager.resetCurrentIndex()
+			applyEntry(entry)
+		}
+	}
 
-			historyPreviewId = entry.id
-			historyManager.setPreview(id)
-
-			// Apply preview state to editor
+	function applyEntry(entry: {
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		summary: string
+	}) {
+		try {
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-			console.log('files', files['/index.css'])
 
 			setFilesInIframe(entry.files)
 			populateRunnables()
-		}
-	}
 
-	function handleClearPreview() {
-		historyPreviewId = undefined
-		historyManager.clearPreview()
-
-		// Restore to latest state (last entry in history)
-		const latestEntry = historyManager.getEntry(historyManager.entryCount - 1)
-		if (latestEntry) {
-			files = latestEntry.files
-			runnables = latestEntry.runnables
-			summary = latestEntry.summary
-
-			setFilesInIframe(latestEntry.files)
-			populateRunnables()
+			// Re-select the current document if it exists in the new files
+			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+				iframe?.contentWindow?.postMessage(
+					{
+						type: 'selectFile',
+						path: selectedDocument
+					},
+					'*'
+				)
+			}
+		} catch (error) {
+			console.error('Failed to apply entry:', error)
+			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
 		}
 	}
 
@@ -586,7 +510,6 @@
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
 			historyManager.manualSnapshot(files ?? {}, runnables, summary)
-			sendUserToast('Snapshot created')
 		}
 	}
 </script>
@@ -619,8 +542,6 @@
 		{files}
 		{runnables}
 		{getBundle}
-		bind:historyPaneOpen
-		hasHistoryEntries={historyManager.hasEntries}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -628,19 +549,6 @@
 	/>
 
 	<Splitpanes id="o2" class="grow">
-		{#if historyPaneOpen}
-			<Pane size={20} minSize={15} maxSize={30}>
-				<RawAppHistorySidebar
-					{historyManager}
-					selectedId={historyPreviewId}
-					onSelect={handlePreviewSelect}
-					onManualSnapshot={() => {
-						historyManager.manualSnapshot(files ?? {}, runnables, summary)
-						sendUserToast('Snapshot created')
-					}}
-				/>
-			</Pane>
-		{/if}
 		<Pane bind:size={sidebarPanelSize} maxSize={20}>
 			<RawAppSidebar
 				bind:files={
@@ -655,54 +563,16 @@
 				bind:selectedDocument
 				{runnables}
 				{modules}
+				{historyManager}
+				historySelectedId={historyManager.selectedEntryId}
+				onHistorySelect={handleHistorySelect}
+				onManualSnapshot={() => {
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)
+				}}
 			></RawAppSidebar>
 		</Pane>
 		<Pane>
-			<!-- Preview Mode Banner -->
-			{#if historyManager.isPreviewMode && historyPreviewId !== undefined}
-				{@const previewEntry = historyManager.getEntryById(historyPreviewId)}
-				{#if previewEntry}
-					<div
-						class="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700 px-4 py-3"
-					>
-						<div class="flex items-center justify-between gap-4">
-							<div class="flex items-center gap-2 text-amber-800 dark:text-amber-300">
-								<Eye size={16} class="flex-shrink-0" />
-								<div class="flex flex-col gap-0.5">
-									<span class="font-medium text-sm">Preview Mode - Read Only</span>
-									<span class="text-xs opacity-80">
-										Viewing snapshot from {displayDate(previewEntry.timestamp.toISOString())}
-									</span>
-								</div>
-							</div>
-							<div class="flex gap-2">
-								<Button
-									size="xs"
-									color="light"
-									startIcon={{ icon: X }}
-									on:click={handleClearPreview}
-								>
-									Exit Preview
-								</Button>
-								<Button
-									size="xs"
-									color="dark"
-									startIcon={{ icon: RotateCcw }}
-									on:click={() =>
-										historyPreviewId !== undefined && handleRestoreSnapshot(historyPreviewId)}
-								>
-									Restore This Version
-								</Button>
-							</div>
-						</div>
-					</div>
-				{/if}
-			{/if}
-
-			<div
-				class="h-full w-full"
-				style="height: {historyManager.isPreviewMode ? 'calc(100% - 60px)' : '100%'}"
-			>
+			<div class="h-full w-full">
 				<iframe
 					bind:this={iframe}
 					title="UI builder"

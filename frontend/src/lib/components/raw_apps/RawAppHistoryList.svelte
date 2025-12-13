@@ -1,83 +1,123 @@
 <script lang="ts">
-	import type { HistoryEntry } from './RawAppHistoryManager.svelte'
-	import { displayDate, classNames, sendUserToast } from '$lib/utils'
-	import { Clock, Camera, History } from 'lucide-svelte'
-	import Button from '../common/button/Button.svelte'
+	import type { HistoryEntry, HistoryBranch } from './RawAppHistoryManager.svelte'
+	import { classNames, displayDate } from '$lib/utils'
+	import { GitBranch } from 'lucide-svelte'
 
 	interface Props {
 		entries: HistoryEntry[]
+		branches: HistoryBranch[]
 		selectedId: number | undefined
-		currentEntryId: number | undefined
 		onSelect: (id: number) => void
-		onManualSnapshot: () => void
 	}
 
-	let { entries, selectedId, currentEntryId, onSelect, onManualSnapshot }: Props = $props()
+	let { entries, branches, selectedId, onSelect }: Props = $props()
 
+	// Build a map of fork points to their branches for rendering
+	const branchesByForkPoint = $derived(
+		branches.reduce(
+			(acc, branch) => {
+				if (!acc[branch.forkPointId]) {
+					acc[branch.forkPointId] = []
+				}
+				acc[branch.forkPointId].push(branch)
+				return acc
+			},
+			{} as Record<number, HistoryBranch[]>
+		)
+	)
+
+	// Entries in reverse order (newest first)
 	const reversedEntries = $derived(entries.slice().reverse())
-
-	function handleManualSnapshot() {
-		onManualSnapshot()
-		sendUserToast('Snapshot created manually')
-	}
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="p-4 border-b border-gray-200 dark:border-gray-700">
-		<Button
-			size="xs"
-			color="dark"
-			variant="border"
-			startIcon={{ icon: Camera }}
-			on:click={handleManualSnapshot}
-			btnClasses="w-full"
-		>
-			Create Snapshot
-		</Button>
-		<div class="text-xs text-secondary mt-2 text-center">
-			{entries.length} / 50 snapshots
-		</div>
+{#if entries.length === 0}
+	<div class="text-tertiary py-2 text-center text-2xs">
+		No snapshots yet. Auto-saved every 5 min.
 	</div>
+{:else}
+	<div class="relative w-full">
+		<!-- Timeline line -->
+		<div class="absolute left-[0.95rem] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
 
-	<div class="flex-1 overflow-y-auto p-2">
-		{#if entries.length === 0}
-			<div class="text-secondary p-4 text-center text-sm">
-				<div class="mb-2">No history entries yet.</div>
-				<div class="text-xs">Snapshots are created automatically every 5 minutes.</div>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-2">
-				{#each reversedEntries as entry (entry.id)}
-					{@const fileCount = Object.keys(entry.files).length}
-					{@const runnableCount = Object.keys(entry.runnables).length}
-					{@const isPreviewSelected = selectedId === entry.id}
-					{@const isCurrentEntry = currentEntryId === entry.id}
+		{#each reversedEntries as entry, i (entry.id)}
+			{@const isSelected = selectedId === entry.id}
+			{@const isFirst = i === 0}
+			{@const entryBranches = branchesByForkPoint[entry.id] ?? []}
 
-					<button
-						onclick={() => onSelect(entry.id)}
-						class={classNames(
-							'border flex flex-col gap-1 p-3 rounded-md cursor-pointer transition-colors text-left',
-							'hover:bg-surface-hover',
-							isPreviewSelected
-								? 'bg-surface-selected text-primary border-blue-500 dark:border-blue-400'
-								: isCurrentEntry
-									? 'bg-emerald-50 dark:bg-emerald-900/20 text-primary border-emerald-500 dark:border-emerald-400'
-									: 'border-gray-200 dark:border-gray-700'
-						)}
-					>
-						<div class="flex items-center gap-2 text-sm">
-							{#if isCurrentEntry}
-								<History size={14} class="flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
-							{:else}
-								<Clock size={14} class="flex-shrink-0" />
-							{/if}
-							<span class="font-medium truncate">
-								#{entry.id} · {displayDate(entry.timestamp.toISOString(), true, false)}
+			<!-- Render branches ABOVE their fork point (newest first within branch) -->
+			{#each entryBranches as branch (branch.id)}
+				<div
+					class="ml-4 relative border-l border-dashed border-gray-300 dark:border-gray-600 pl-2 my-1"
+				>
+					<div class="absolute left-3 bottom-2 text-tertiary">
+						<GitBranch size={10} />
+					</div>
+					<!-- Branch entries in reverse order (newest first) -->
+					{#each branch.entries.slice().reverse() as branchEntry (branchEntry.id)}
+						{@const isBranchSelected = selectedId === branchEntry.id}
+						<button
+							onclick={() => onSelect(branchEntry.id)}
+							class={classNames(
+								'relative flex items-center gap-2 py-1 pr-1 pl-2 w-full text-left rounded transition-colors',
+								'hover:bg-surface-hover',
+								isBranchSelected ? 'bg-amber-50 dark:bg-amber-900/20' : ''
+							)}
+						>
+							<!-- Branch dot -->
+							<div
+								class={classNames(
+									'w-1 h-1 rounded-full',
+									isBranchSelected
+										? 'bg-amber-500 dark:bg-amber-400'
+										: 'bg-gray-300 dark:bg-gray-600'
+								)}
+							></div>
+							<span
+								class={classNames(
+									'text-2xs truncate',
+									isBranchSelected
+										? 'text-amber-600 dark:text-amber-400 font-medium'
+										: 'text-tertiary'
+								)}
+							>
+								{displayDate(branchEntry.timestamp.toISOString(), true, false)}
 							</span>
-						</div>
-					</button>
-				{/each}
-			</div>
-		{/if}
+						</button>
+					{/each}
+				</div>
+			{/each}
+
+			<!-- Main timeline entry -->
+			<button
+				onclick={() => onSelect(entry.id)}
+				class={classNames(
+					'relative flex items-center gap-2 py-1 pr-1 pl-3 w-full text-left rounded transition-colors',
+					'hover:bg-surface-hover',
+					isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+				)}
+			>
+				<!-- Timeline dot -->
+				<div
+					class={classNames(
+						'absolute left-0 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
+						isSelected
+							? 'border-blue-500 dark:border-blue-400'
+							: 'border-gray-300 dark:border-gray-600'
+					)}
+				></div>
+
+				<span
+					class={classNames(
+						'text-2xs truncate',
+						isSelected ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-secondary'
+					)}
+				>
+					{#if isFirst && !isSelected}
+						<span class="text-tertiary">Latest · </span>
+					{/if}
+					{displayDate(entry.timestamp.toISOString(), true, false)}
+				</span>
+			</button>
+		{/each}
 	</div>
-</div>
+{/if}

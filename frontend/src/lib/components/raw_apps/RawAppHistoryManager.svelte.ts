@@ -13,6 +13,16 @@ export interface HistoryEntry {
 }
 
 /**
+ * A branch in the history tree
+ * Contains entries that diverged from a fork point
+ */
+export interface HistoryBranch {
+	id: number
+	forkPointId: number // ID of the entry this branch forked from
+	entries: HistoryEntry[]
+}
+
+/**
  * Configuration for history manager
  */
 export interface HistoryConfig {
@@ -21,13 +31,24 @@ export interface HistoryConfig {
 }
 
 /**
- * History manager for raw apps
- * Maintains in-memory circular buffer of app state snapshots
- * Supports auto-snapshots, manual snapshots, preview, and restore
+ * History manager for raw apps with branching support
+ *
+ * Main timeline: The current working branch
+ * Branches: Preserved "futures" when navigating to historical points and making changes
+ *
+ * When selecting a historical entry and making changes:
+ * - Current "future" entries become a branch (forked from selected point)
+ * - The selected entry becomes the new "head" of main timeline
+ *
+ * When selecting an entry on a branch and making changes:
+ * - That branch becomes the main timeline
+ * - The old main timeline (from fork point onwards) becomes a branch
  */
 export class RawAppHistoryManager {
+	// Main timeline entries
 	private entries = $state<HistoryEntry[]>([])
-	private previewEntry = $state<HistoryEntry | undefined>(undefined)
+	// Preserved branches (old "futures" that were branched off)
+	private branches = $state<HistoryBranch[]>([])
 	private autoSnapshotTimer: number | undefined = undefined
 	private getStateFn:
 		| (() => {
@@ -36,45 +57,53 @@ export class RawAppHistoryManager {
 				summary: string
 		  })
 		| undefined = undefined
-	private isCreatingSnapshot = $state(false) // Prevents concurrent snapshot operations
-	private currentIndex = $state(-1) // -1 means viewing latest, used for undo/redo
-	private id = $state(0)
-	// Track if current state has pending changes (differs from last snapshot)
+	private isCreatingSnapshot = $state(false)
+	// Currently selected entry index in main timeline (-1 = at latest/no selection)
+	private currentIndex = $state(-1)
+	// If viewing a branch, which branch and entry index
+	private currentBranchId = $state<number | undefined>(undefined)
+	private currentBranchEntryIndex = $state(-1)
+	private entryIdCounter = $state(0)
+	private branchIdCounter = $state(0)
+	// Track if current state has pending changes
 	private hasPendingChanges = $state(false)
+
 	// Derived state
 	public readonly hasEntries = $derived(this.entries.length > 0)
 	public readonly entryCount = $derived(this.entries.length)
-	public readonly isPreviewMode = $derived(this.previewEntry !== undefined)
 	public readonly allEntries = $derived(this.entries.slice())
-	public readonly currentPreview = $derived(this.previewEntry)
+	public readonly allBranches = $derived(this.branches.slice())
 	public readonly canSnapshot = $derived(!this.isCreatingSnapshot)
-	// Whether we're viewing the latest state (not navigating through history)
-	public readonly isAtLatest = $derived(this.currentIndex === -1)
-	// The ID of the entry we're currently on (for undo/redo navigation display)
-	// Returns undefined if at latest (no specific historical entry selected)
-	public readonly currentEntryId = $derived(
-		this.currentIndex === -1 ? undefined : this.entries[this.currentIndex]?.id
+
+	// The ID of the currently selected entry (main timeline or branch)
+	public readonly selectedEntryId = $derived.by(() => {
+		if (this.currentBranchId !== undefined) {
+			const branch = this.branches.find((b) => b.id === this.currentBranchId)
+			return branch?.entries[this.currentBranchEntryIndex]?.id
+		}
+		if (this.currentIndex === -1) return undefined
+		return this.entries[this.currentIndex]?.id
+	})
+
+	// Whether we need to save current state before navigating
+	public readonly needsSnapshotBeforeNav = $derived(
+		this.currentIndex === -1 && this.currentBranchId === undefined && this.hasPendingChanges
 	)
-	// Whether we need to save current state before undoing (only when at latest with pending changes)
-	public readonly needsSnapshotBeforeUndo = $derived(
-		this.currentIndex === -1 && this.hasPendingChanges
-	)
+
 	public readonly canUndo = $derived(
 		this.currentIndex > 0 ||
 			(this.currentIndex === -1 && this.entries.length > 1) ||
 			(this.currentIndex === -1 && this.entries.length === 1 && this.hasPendingChanges)
 	)
+
 	public readonly canRedo = $derived(
 		this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1
 	)
 
-	constructor(private config: HistoryConfig) {
-		this.id = 0
-	}
+	constructor(private config: HistoryConfig) {}
 
 	/**
 	 * Create a snapshot from provided state
-	 * Uses structuredClone for deep cloning to avoid reactive proxy issues
 	 */
 	createSnapshot(
 		files: Record<string, string>,
@@ -82,7 +111,7 @@ export class RawAppHistoryManager {
 		summary: string
 	): HistoryEntry {
 		return {
-			id: this.id++,
+			id: this.entryIdCounter++,
 			timestamp: new Date(),
 			files: structuredClone($state.snapshot(files)),
 			runnables: structuredClone($state.snapshot(runnables)),
@@ -109,9 +138,7 @@ export class RawAppHistoryManager {
 	}
 
 	/**
-	 * Add a snapshot to history
-	 * Enforces FIFO when exceeding maxEntries
-	 * Uses guard to prevent concurrent operations
+	 * Add a snapshot to the main timeline
 	 */
 	addSnapshot(entry: HistoryEntry): void {
 		if (this.isCreatingSnapshot) {
@@ -126,10 +153,13 @@ export class RawAppHistoryManager {
 
 			// FIFO: Remove oldest entries when exceeding limit
 			if (this.entries.length > this.config.maxEntries) {
+				const removed = this.entries.slice(0, this.entries.length - this.config.maxEntries)
 				this.entries = this.entries.slice(-this.config.maxEntries)
+				// Clean up branches that reference removed entries
+				const removedIds = new Set(removed.map((e) => e.id))
+				this.branches = this.branches.filter((b) => !removedIds.has(b.forkPointId))
 			}
 
-			// Reset pending changes since we just saved
 			this.hasPendingChanges = false
 		} finally {
 			this.isCreatingSnapshot = false
@@ -137,40 +167,95 @@ export class RawAppHistoryManager {
 	}
 
 	/**
-	 * Mark that there are pending changes (current state differs from last snapshot)
-	 * This enables the undo button even when there's only one snapshot
-	 * If we're at a historical position, discard all entries after current position
-	 * (like a typical undo/redo stack - making changes discards redo history)
-	 * Also clears preview mode since the user is now editing
+	 * Mark that there are pending changes
+	 * When making changes from a historical position, create a branch from the "future"
 	 */
 	markPendingChanges(): void {
-		// Clear preview mode since user is making changes
-		this.previewEntry = undefined
-
-		// If we're at a historical position (not at latest), discard future entries
-		if (this.currentIndex !== -1) {
-			// Keep only entries up to and including current position
-			this.entries = this.entries.slice(0, this.currentIndex + 1)
-			// Reset to latest position
-			this.currentIndex = -1
+		// If we're on a branch and making changes, that branch becomes main
+		if (this.currentBranchId !== undefined) {
+			this.promoteBranchToMain()
 		}
+		// If we're at a historical position on main timeline
+		else if (this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1) {
+			this.createBranchFromFuture()
+		}
+
 		this.hasPendingChanges = true
 	}
 
-	getId(): number {
-		return this.id
+	/**
+	 * Create a branch from the "future" entries when making changes from historical position
+	 */
+	private createBranchFromFuture(): void {
+		const forkEntry = this.entries[this.currentIndex]
+		const futureEntries = this.entries.slice(this.currentIndex + 1)
+
+		if (futureEntries.length > 0) {
+			const newBranch: HistoryBranch = {
+				id: this.branchIdCounter++,
+				forkPointId: forkEntry.id,
+				entries: futureEntries
+			}
+			this.branches = [...this.branches, newBranch]
+		}
+
+		// Truncate main timeline to current position
+		this.entries = this.entries.slice(0, this.currentIndex + 1)
+		this.currentIndex = -1
 	}
+
+	/**
+	 * Promote current branch to main timeline
+	 * The old main timeline (from fork point onwards) becomes a branch
+	 */
+	private promoteBranchToMain(): void {
+		const branch = this.branches.find((b) => b.id === this.currentBranchId)
+		if (!branch) return
+
+		// Find fork point in main timeline
+		const forkIndex = this.entries.findIndex((e) => e.id === branch.forkPointId)
+		if (forkIndex === -1) return
+
+		// Save the current main timeline's "future" as a new branch (if any entries after fork)
+		const mainFutureEntries = this.entries.slice(forkIndex + 1)
+		if (mainFutureEntries.length > 0) {
+			const oldMainBranch: HistoryBranch = {
+				id: this.branchIdCounter++,
+				forkPointId: branch.forkPointId,
+				entries: mainFutureEntries
+			}
+			this.branches = [...this.branches.filter((b) => b.id !== this.currentBranchId), oldMainBranch]
+		} else {
+			// Just remove the current branch from branches list
+			this.branches = this.branches.filter((b) => b.id !== this.currentBranchId)
+		}
+
+		// New main timeline: entries up to fork point + branch entries up to selected index
+		const branchEntriesUpToSelection = branch.entries.slice(0, this.currentBranchEntryIndex + 1)
+		this.entries = [...this.entries.slice(0, forkIndex + 1), ...branchEntriesUpToSelection]
+
+		// Reset selection state
+		this.currentBranchId = undefined
+		this.currentBranchEntryIndex = -1
+		this.currentIndex = -1
+	}
+
+	getId(): number {
+		return this.entryIdCounter
+	}
+
 	/**
 	 * Manually create and add a snapshot
-	 * Only creates if state has changed
+	 * @param force - If true, create snapshot even if state hasn't changed
 	 */
 	manualSnapshot(
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
-		summary: string
+		summary: string,
+		force = false
 	): HistoryEntry | undefined {
-		if (!this.hasStateChanged(files, runnables, summary)) {
-			return // No changes, don't create snapshot
+		if (!force && !this.hasStateChanged(files, runnables, summary)) {
+			return
 		}
 
 		const entry = this.createSnapshot(files, runnables, summary)
@@ -180,7 +265,6 @@ export class RawAppHistoryManager {
 
 	/**
 	 * Start automatic snapshot timer
-	 * Only creates snapshots when state has actually changed
 	 */
 	startAutoSnapshot(
 		getState: () => {
@@ -195,9 +279,8 @@ export class RawAppHistoryManager {
 		if (!this.config.autoSnapshotInterval) return
 
 		this.autoSnapshotTimer = setInterval(() => {
-			if (!this.isPreviewMode && this.getStateFn) {
+			if (this.getStateFn && this.currentIndex === -1 && this.currentBranchId === undefined) {
 				const { files, runnables, summary } = this.getStateFn()
-				// Only snapshot if state has changed
 				this.manualSnapshot(files, runnables, summary)
 			}
 		}, this.config.autoSnapshotInterval) as unknown as number
@@ -214,51 +297,91 @@ export class RawAppHistoryManager {
 	}
 
 	/**
-	 * Set preview mode to view a specific entry
+	 * Select an entry (on main timeline or a branch)
+	 * If there are pending changes, a snapshot should be created first by the caller
 	 */
-	setPreview(id: number): void {
-		const entry = this.getEntryById(id)
-		if (entry) {
-			this.previewEntry = entry
+	selectEntry(id: number): HistoryEntry | undefined {
+		// Check main timeline first
+		const mainIndex = this.entries.findIndex((e) => e.id === id)
+		if (mainIndex !== -1) {
+			this.currentIndex = mainIndex
+			this.currentBranchId = undefined
+			this.currentBranchEntryIndex = -1
+			this.hasPendingChanges = false
+			return this.entries[mainIndex]
 		}
+
+		// Check branches
+		for (const branch of this.branches) {
+			const branchIndex = branch.entries.findIndex((e) => e.id === id)
+			if (branchIndex !== -1) {
+				this.currentBranchId = branch.id
+				this.currentBranchEntryIndex = branchIndex
+				this.currentIndex = -1
+				this.hasPendingChanges = false
+				return branch.entries[branchIndex]
+			}
+		}
+
+		return undefined
 	}
 
 	/**
-	 * Clear preview mode
+	 * Clear selection (go back to latest state)
 	 */
-	clearPreview(): void {
-		this.previewEntry = undefined
-	}
-
-	/**
-	 * Reset current index to latest (-1)
-	 * Used when switching from undo/redo navigation to preview mode
-	 */
-	resetCurrentIndex(): void {
+	clearSelection(): void {
 		this.currentIndex = -1
-		this.previewEntry = undefined
+		this.currentBranchId = undefined
+		this.currentBranchEntryIndex = -1
 	}
 
 	/**
-	 * Get entry at specific index
+	 * Get entry by ID (searches main timeline and branches)
 	 */
-	getEntry(index: number): HistoryEntry | undefined {
-		return this.entries[index]
-	}
-
 	getEntryById(id: number): HistoryEntry | undefined {
-		return this.entries.find((e) => e.id === id)
+		const mainEntry = this.entries.find((e) => e.id === id)
+		if (mainEntry) return mainEntry
+
+		for (const branch of this.branches) {
+			const branchEntry = branch.entries.find((e) => e.id === id)
+			if (branchEntry) return branchEntry
+		}
+
+		return undefined
 	}
 
-	setSelectedEntry(id: number): HistoryEntry | undefined {
-		console.log('setting selected entry', id)
-		const index = this.entries.findIndex((e) => e.id === id)
-		if (index === -1) {
-			return
+	/**
+	 * Get branch that contains an entry
+	 */
+	getBranchForEntry(id: number): HistoryBranch | undefined {
+		return this.branches.find((b) => b.entries.some((e) => e.id === id))
+	}
+
+	/**
+	 * Undo to previous state
+	 */
+	undo(): HistoryEntry | null {
+		if (!this.canUndo) return null
+
+		if (this.currentIndex === -1) {
+			this.currentIndex = this.entries.length - 2
+		} else {
+			this.currentIndex--
 		}
-		this.currentIndex = index
-		this.previewEntry = this.entries[index]
-		return this.previewEntry
+
+		this.hasPendingChanges = false
+		return this.entries[this.currentIndex]
+	}
+
+	/**
+	 * Redo to next state
+	 */
+	redo(): HistoryEntry | null {
+		if (!this.canRedo) return null
+
+		this.currentIndex++
+		this.hasPendingChanges = false
+		return this.entries[this.currentIndex]
 	}
 
 	/**
@@ -266,45 +389,10 @@ export class RawAppHistoryManager {
 	 */
 	clearHistory(): void {
 		this.entries = []
-		this.previewEntry = undefined
-	}
-
-	/**
-	 * Undo to previous state
-	 * Returns the entry to restore, or null if can't undo
-	 */
-	undo(): HistoryEntry | null {
-		if (!this.canUndo) return null
-
-		if (this.currentIndex === -1) {
-			// Currently viewing latest, move to second-to-last
-			this.currentIndex = this.entries.length - 2
-		} else {
-			// Move back one step
-			this.currentIndex--
-		}
-
-		// We're now at a known snapshot, no pending changes
-		this.hasPendingChanges = false
-
-		return this.entries[this.currentIndex]
-	}
-
-	/**
-	 * Redo to next state
-	 * Returns the entry to restore, or null if can't redo
-	 */
-	redo(): HistoryEntry | null {
-		if (!this.canRedo) return null
-
-		this.currentIndex++
-
-		const entry = this.entries[this.currentIndex]
-
-		// We're now at a known snapshot, no pending changes
-		this.hasPendingChanges = false
-
-		return entry
+		this.branches = []
+		this.currentIndex = -1
+		this.currentBranchId = undefined
+		this.currentBranchEntryIndex = -1
 	}
 
 	/**
