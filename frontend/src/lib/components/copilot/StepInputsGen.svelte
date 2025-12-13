@@ -19,7 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let loading = $state(false)
 	interface Props {
@@ -189,7 +189,7 @@ input_name2: expression2
 			variant="default"
 			btnClasses={twMerge(
 				!disabled &&
-					flowAIBtnClasses(
+					AIBtnClasses(
 						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
 					)
 			)}
@@ -234,7 +234,7 @@ input_name2: expression2
 				<Button
 					size="xs"
 					variant="default"
-					btnClasses={flowAIBtnClasses('default')}
+					btnClasses={AIBtnClasses('default')}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2

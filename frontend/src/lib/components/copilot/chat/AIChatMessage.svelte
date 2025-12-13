@@ -89,13 +89,17 @@
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
 		<div class="mx-2 text-sm text-primary flex flex-row items-center justify-between gap-2 mt-2">
-			Saved a flow snapshot
+			Saved {message.snapshot.type === 'flow' ? 'a flow' : 'an app'} snapshot
 			<Button
 				size="xs2"
 				variant="default"
 				on:click={() => {
 					if (message.snapshot) {
-						aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
+						if (message.snapshot.type === 'flow') {
+							aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot.value)
+						} else if (message.snapshot.type === 'app') {
+							aiChatManager.appAiChatHelpers?.revertToSnapshot(message.snapshot.value)
+						}
 					}
 				}}
 				title="Revert to snapshot"

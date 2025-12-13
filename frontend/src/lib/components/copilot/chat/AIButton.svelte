@@ -1,17 +1,3 @@
-<script module lang="ts">
-	export function flowAIBtnClasses(state: 'default' | 'selected' | 'green' = 'default') {
-		return twMerge(
-			['selected', 'default'].includes(state) ? 'text-ai !border-ai/20 hover:bg-ai/15' : '',
-			{
-				default: '',
-				selected: 'bg-ai/10',
-				green:
-					'bg-green-50 hover:bg-green-50 dark:bg-green-400/15 dark:hover:bg-green-400/15 text-green-800 border-green-200 dark:border-green-300/60 dark:text-green-400'
-			}[state]
-		)
-	}
-</script>
-
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { copilotInfo } from '$lib/aiStore'
@@ -20,14 +6,13 @@
 	import { ExternalLink, WandSparkles } from 'lucide-svelte'
 	import { getModifierKey } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	let {
 		togglePanel,
-		selected = false
+		btnClasses
 	}: {
 		togglePanel: () => void
-		selected?: boolean
+		btnClasses?: string
 	} = $props()
 </script>
 
@@ -72,7 +57,7 @@
 		onClick={onPress}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses={flowAIBtnClasses(selected ? 'selected' : 'default')}
+		{btnClasses}
 	>
 		AI Panel
 	</Button>

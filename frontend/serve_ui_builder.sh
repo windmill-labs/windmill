@@ -1,8 +1,8 @@
-node ./scripts/untar_ui_builder.js
+# node ./scripts/untar_ui_builder.js
 
-mkdir ui_builder_serve || true
-cp -r static/ui_builder ui_builder_serve/ui_builder || true
-rm -rf static/ui_builder || true
+# mkdir ui_builder_serve || true
+# cp -r static/ui_builder ui_builder_serve/ui_builder || true
+# rm -rf static/ui_builder || true
 python3 -c "
 import os
 os.chdir('ui_builder_serve')

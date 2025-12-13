@@ -6,6 +6,7 @@
 	import { type Policy } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { encodeState } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
@@ -19,6 +20,8 @@
 	import { onMount } from 'svelte'
 	import type { LintResult } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
+	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
+	import { sendUserToast } from '$lib/utils'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -67,6 +70,13 @@
 	)
 
 	let files: Record<string, string> | undefined = $state(initFiles)
+
+	// Initialize history manager
+	const historyManager = new RawAppHistoryManager({
+		maxEntries: 50,
+		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
+	})
+	historyManager.manualSnapshot(files ?? {}, runnables, summary)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -177,8 +187,16 @@
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 
+		// Start auto-snapshot
+		historyManager.startAutoSnapshot(() => ({
+			files: files ?? {},
+			runnables,
+			summary
+		}))
+
 		return () => {
 			rawAppLintStore.disable()
+			historyManager.destroy()
 		}
 	})
 
@@ -351,6 +369,17 @@
 					type: 'none',
 					content: ''
 				}
+			},
+			snapshot: () => {
+				// Force create snapshot for AI - it needs a restore point
+				return (
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)?.id ??
+					historyManager.getId()
+				)
+			},
+			revertToSnapshot: (id: number) => {
+				console.log('reverting to snapshot', id)
+				handleHistorySelect(id)
 			}
 		})
 	})
@@ -360,7 +389,11 @@
 	let modules = $state({}) as Modules
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
-			files = e.data.files
+			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
+			if (!deepEqual(files, e.data.files)) {
+				files = e.data.files
+				historyManager.markPendingChanges()
+			}
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
 		} else if (e.data.type === 'updateModules') {
@@ -411,9 +444,77 @@
 			'*'
 		)
 	}
+
+	function handleUndo() {
+		// Create a snapshot if we're at the latest position with pending changes
+		if (historyManager.needsSnapshotBeforeNav) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		}
+
+		const entry = historyManager.undo()
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function handleRedo() {
+		const entry = historyManager.redo()
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function handleHistorySelect(id: number) {
+		// Create a snapshot if we have pending changes before navigating
+		if (historyManager.needsSnapshotBeforeNav) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		}
+
+		const entry = historyManager.selectEntry(id)
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function applyEntry(entry: {
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		summary: string
+	}) {
+		try {
+			files = structuredClone($state.snapshot(entry.files))
+			runnables = structuredClone($state.snapshot(entry.runnables))
+			summary = entry.summary
+
+			setFilesInIframe(entry.files)
+			populateRunnables()
+
+			// Re-select the current document if it exists in the new files
+			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+				iframe?.contentWindow?.postMessage(
+					{
+						type: 'selectFile',
+						path: selectedDocument
+					},
+					'*'
+				)
+			}
+		} catch (error) {
+			console.error('Failed to apply entry:', error)
+			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + Shift + H for manual snapshot
+		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
+			e.preventDefault()
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		}
+	}
 </script>
 
-<svelte:window onmessage={listener} />
+<svelte:window onmessage={listener} onkeydown={handleKeydown} />
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
@@ -441,6 +542,10 @@
 		{files}
 		{runnables}
 		{getBundle}
+		canUndo={historyManager.canUndo}
+		canRedo={historyManager.canRedo}
+		onUndo={handleUndo}
+		onRedo={handleRedo}
 	/>
 
 	<Splitpanes id="o2" class="grow">
@@ -458,27 +563,35 @@
 				bind:selectedDocument
 				{runnables}
 				{modules}
+				{historyManager}
+				historySelectedId={historyManager.selectedEntryId}
+				onHistorySelect={handleHistorySelect}
+				onManualSnapshot={() => {
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)
+				}}
 			></RawAppSidebar>
 		</Pane>
 		<Pane>
-			<iframe
-				bind:this={iframe}
-				title="UI builder"
-				style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
-				src="/ui_builder/index.html?dark={darkMode}"
-				class="w-full h-full"
-			></iframe>
-			{#if selectedRunnable !== undefined}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="flex h-full w-full">
-					<RawAppInlineScriptsPanel
-						appPath={path}
-						{selectedRunnable}
-						{initRunnablesContent}
-						{runnables}
-					/>
-				</div>
-			{/if}
+			<div class="h-full w-full">
+				<iframe
+					bind:this={iframe}
+					title="UI builder"
+					style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
+					src="/ui_builder/index.html?dark={darkMode}"
+					class="w-full h-full"
+				></iframe>
+				{#if selectedRunnable !== undefined}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="flex h-full w-full">
+						<RawAppInlineScriptsPanel
+							appPath={path}
+							{selectedRunnable}
+							{initRunnablesContent}
+							{runnables}
+						/>
+					</div>
+				{/if}
+			</div>
 
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>

@@ -325,7 +325,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 type BaseDisplayMessage = {
 	content: string
 	contextElements?: ContextElement[]
-	snapshot?: ExtendedOpenFlow
+	snapshot?: { type: 'flow'; value: ExtendedOpenFlow } | { type: 'app'; value: number }
 }
 
 export type UserDisplayMessage = BaseDisplayMessage & {

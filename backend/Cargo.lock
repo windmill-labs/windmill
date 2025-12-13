@@ -14147,7 +14147,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba3beec919fbdf99d719de8eda6adae3281f8a5b71ae40431f44dc7423053d34"
 dependencies = [
  "loki-api",
- "reqwest 0.12.24",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "snap",

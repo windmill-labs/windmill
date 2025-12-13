@@ -80,6 +80,8 @@ export interface AppAIChatHelpers {
 	// Combined view
 	getFiles: () => AppFiles
 	getSelectedContext: () => SelectedContext
+	snapshot: () => number
+	revertToSnapshot: (id: number) => void
 	// Linting
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult

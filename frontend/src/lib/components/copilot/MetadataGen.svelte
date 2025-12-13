@@ -18,7 +18,7 @@
 		inputBorderClass,
 		inputSizeClasses
 	} from '../text_input/TextInput.svelte'
-	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	type PromptConfig = {
 		system: string
@@ -294,7 +294,7 @@ Generate a tool name for the script below:
 			<span
 				class={twMerge(
 					'rounded-md px-1',
-					flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'selected')
+					AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'selected')
 				)}
 			>
 				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
