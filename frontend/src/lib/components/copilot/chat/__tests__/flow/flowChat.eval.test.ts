@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runVariantComparison, type ExpectedFlow } from './evalRunner'
-import { writeComparisonResults } from './evalResultsWriter'
+import { runVariantComparison, writeFlowComparisonResults, type ExpectedFlow } from './flowEvalRunner'
 import { BASELINE_VARIANT, MINIMAL_SINGLE_TOOL_VARIANT } from './variants'
 // @ts-ignore - JSON import
 import expectedTest1 from './expected/test1.json'
@@ -71,7 +70,7 @@ STEP 5: Return action taken for each user
 			})
 
 			// Write results to files
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -117,7 +116,7 @@ STEP 7: Return final order summary with status
 				expectedFlow: expectedTest2 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -166,7 +165,7 @@ STEP 6: Return processing report with statistics (total records, quality score, 
 				expectedFlow: expectedTest3 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -215,7 +214,7 @@ STEP 5: Return the agent's response and any actions taken
 				expectedFlow: expectedTest4 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -263,7 +262,7 @@ Modify this existing flow to add error handling:
 				expectedFlow: expectedTest5 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -309,7 +308,7 @@ Modify the order processing loop to handle different order types:
 				expectedFlow: expectedTest6 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 
@@ -355,7 +354,7 @@ Refactor this flow for better performance by parallelizing the enrichment steps:
 				expectedFlow: expectedTest7 as ExpectedFlow
 			})
 
-			const { summaryPath, flowPaths } = await writeComparisonResults(USER_PROMPT, results)
+			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
 			console.log(`Flow files: ${flowPaths.join(', ')}`)
 

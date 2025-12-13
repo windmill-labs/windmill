@@ -1,8 +1,8 @@
-import type { VariantConfig } from '../evalVariants'
-import type { Tool } from '../../../../shared'
-import type { FlowAIChatHelpers } from '../../../core'
-import { flowTools } from '../../../core'
-import openFlowSchema from '../../../openFlow.json'
+import type { VariantConfig } from '../../shared'
+import type { Tool } from '../../shared'
+import type { FlowAIChatHelpers } from '../../../flow/core'
+import { flowTools } from '../../../flow/core'
+import openFlowSchema from '../../../flow/openFlow.json'
 
 /**
  * IDs of the granular flow editing tools that should be replaced by set_flow_json.
@@ -48,7 +48,7 @@ export const setFlowJsonTool: Tool<FlowAIChatHelpers> = {
 		}
 	},
 	fn: async ({ args, helpers }) => {
-		const { modules, schema } = args
+		const { modules, schema } = args as { modules: any[]; schema?: Record<string, any> }
 		await helpers.setFlowJson(modules, schema)
 		return `Flow updated with ${modules.length} module(s): [${modules.map((m: any) => m.id).join(', ')}]`
 	}
@@ -61,7 +61,7 @@ export const setFlowJsonTool: Tool<FlowAIChatHelpers> = {
  */
 function buildMinimalSingleToolTools(): Tool<FlowAIChatHelpers>[] {
 	// Get all production tools except flow editing tools
-	const utilityTools = flowTools.filter(
+	const utilityTools = (flowTools as Tool<FlowAIChatHelpers>[]).filter(
 		(t) => !FLOW_EDITING_TOOL_NAMES.includes(t.def.function.name)
 	)
 

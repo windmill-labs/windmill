@@ -4,36 +4,48 @@ import { writeFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 // @ts-ignore
 import { fileURLToPath } from 'url'
-import type { EvalResult } from './evalRunner'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+import type { BaseEvalResult } from './types'
 
 /**
  * Generates a timestamp string suitable for filenames.
  * Format: 2024-01-15T10-30-45-123Z (ISO but with dashes instead of colons)
  */
-function generateTimestamp(): string {
+export function generateTimestamp(): string {
 	return new Date().toISOString().replace(/:/g, '-')
+}
+
+/**
+ * Parameters for writing comparison results.
+ */
+export interface WriteResultsParams<TOutput> {
+	/** User prompt that was tested */
+	userPrompt: string
+	/** Results from all variants */
+	results: BaseEvalResult<TOutput>[]
+	/** Directory to write results to */
+	outputDir: string
+	/** Function to format domain-specific output for JSON files */
+	formatOutput: (output: TOutput) => unknown
+	/** Label for the output type (e.g., 'flow', 'app') */
+	outputLabel?: string
 }
 
 /**
  * Writes comparison results to files in the results folder.
  * Creates:
- * - {timestamp}.md - Summary with prompt and results table
- * - {timestamp}_{variant_name}.json - Flow JSON for each variant
+ * - summary.md - Summary with prompt and results table
+ * - {variant_name}.json - Full result with metadata for each variant
+ * - {variant_name}_{outputLabel}.json - Clean output for each variant
  */
-export async function writeComparisonResults(
-	userPrompt: string,
-	results: EvalResult[],
-	outputDir?: string
-): Promise<{ summaryPath: string; flowPaths: string[] }> {
-	const resultsDir = outputDir ?? join(__dirname, 'results')
+export async function writeComparisonResults<TOutput>(
+	params: WriteResultsParams<TOutput>
+): Promise<{ summaryPath: string; outputPaths: string[] }> {
+	const { userPrompt, results, outputDir, formatOutput, outputLabel = 'output' } = params
 	const timestamp = generateTimestamp()
 
 	// Ensure results directory exists
-	await mkdir(resultsDir, { recursive: true })
-	const resultFolder = join(resultsDir, timestamp)
+	await mkdir(outputDir, { recursive: true })
+	const resultFolder = join(outputDir, timestamp)
 	await mkdir(resultFolder, { recursive: true })
 
 	// Check if any results have evaluation data
@@ -122,15 +134,15 @@ export async function writeComparisonResults(
 		}
 	}
 
-	const flowPaths: string[] = []
+	const outputPaths: string[] = []
 
 	for (const result of results) {
 		const resultFilename = `${result.variantName}.json`
 		const resultPath = join(resultFolder, resultFilename)
-		flowPaths.push(resultPath)
+		outputPaths.push(resultPath)
 
-		const flowFilename = `${result.variantName}_flow.json`
-		const flowPath = join(resultFolder, flowFilename)
+		const outputFilename = `${result.variantName}_${outputLabel}.json`
+		const outputPath = join(resultFolder, outputFilename)
 
 		// Write result JSON file (with metadata)
 		const resultData = {
@@ -144,25 +156,14 @@ export async function writeComparisonResults(
 		}
 		await writeFile(resultPath, JSON.stringify(resultData, null, 2))
 
-		// Write flow definition JSON file (clean flow format)
-		const flowData = {
-			summary: result.flow.summary ?? '',
-			value: {
-				modules: result.flow.value.modules
-			},
-			schema: result.flow.schema ?? {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {},
-				required: [],
-				type: 'object'
-			}
-		}
-		await writeFile(flowPath, JSON.stringify(flowData, null, 2))
+		// Write clean output JSON file (domain-specific format)
+		const outputData = formatOutput(result.output)
+		await writeFile(outputPath, JSON.stringify(outputData, null, 2))
 	}
 
 	// Write summary markdown file
 	const summaryPath = join(resultFolder, `summary.md`)
 	await writeFile(summaryPath, summaryLines.join('\n'))
 
-	return { summaryPath, flowPaths }
+	return { summaryPath, outputPaths }
 }
