@@ -180,6 +180,11 @@ export class RawAppHistoryManager {
 			this.createBranchFromFuture()
 		}
 
+		// Clear selection - we're now in a new unsaved state
+		this.currentIndex = -1
+		this.currentBranchId = undefined
+		this.currentBranchEntryIndex = -1
+
 		this.hasPendingChanges = true
 	}
 
