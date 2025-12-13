@@ -6,6 +6,7 @@
 	import { type Policy } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { encodeState } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
@@ -393,9 +394,13 @@
 	let modules = $state({}) as Modules
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
-			files = e.data.files
-			// Mark that there are pending changes so undo becomes available
-			historyManager.markPendingChanges()
+			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
+			if (!deepEqual(files, e.data.files)) {
+				files = e.data.files
+				historyManager.markPendingChanges()
+				// Clear preview selection since user is now editing
+				historyPreviewId = undefined
+			}
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
 		} else if (e.data.type === 'updateModules') {
@@ -486,8 +491,15 @@
 	}
 
 	function handleUndo() {
-		// Create snapshot of current state before undoing
-		historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		// Clear preview mode when using undo/redo
+		historyPreviewId = undefined
+		historyManager.clearPreview()
+
+		// Only create a snapshot if we're at the latest position with pending changes
+		// This allows navigating back and forth through history without creating new entries
+		if (historyManager.needsSnapshotBeforeUndo) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+		}
 
 		const entry = historyManager.undo()
 		if (entry) {
@@ -498,6 +510,9 @@
 
 				setFilesInIframe(entry.files)
 				populateRunnables()
+
+				// Open sidebar to show history navigation
+				historyPaneOpen = true
 			} catch (error) {
 				console.error('Failed to undo:', error)
 				sendUserToast('Failed to undo: ' + (error as Error).message, true)
@@ -506,6 +521,10 @@
 	}
 
 	function handleRedo() {
+		// Clear preview mode when using undo/redo
+		historyPreviewId = undefined
+		historyManager.clearPreview()
+
 		const entry = historyManager.redo()
 		if (entry) {
 			try {
@@ -515,6 +534,9 @@
 
 				setFilesInIframe(entry.files)
 				populateRunnables()
+
+				// Open sidebar to show history navigation
+				historyPaneOpen = true
 			} catch (error) {
 				console.error('Failed to redo:', error)
 				sendUserToast('Failed to redo: ' + (error as Error).message, true)
@@ -526,6 +548,9 @@
 		const entry = historyManager.getEntryById(id)
 		console.log('entry', entry)
 		if (entry) {
+			// Clear undo/redo position when selecting a preview
+			historyManager.resetCurrentIndex()
+
 			historyPreviewId = entry.id
 			historyManager.setPreview(id)
 
@@ -534,6 +559,7 @@
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
 			console.log('files', files['/index.css'])
+
 			setFilesInIframe(entry.files)
 			populateRunnables()
 		}

@@ -48,6 +48,17 @@ export class RawAppHistoryManager {
 	public readonly allEntries = $derived(this.entries.slice())
 	public readonly currentPreview = $derived(this.previewEntry)
 	public readonly canSnapshot = $derived(!this.isCreatingSnapshot)
+	// Whether we're viewing the latest state (not navigating through history)
+	public readonly isAtLatest = $derived(this.currentIndex === -1)
+	// The ID of the entry we're currently on (for undo/redo navigation display)
+	// Returns undefined if at latest (no specific historical entry selected)
+	public readonly currentEntryId = $derived(
+		this.currentIndex === -1 ? undefined : this.entries[this.currentIndex]?.id
+	)
+	// Whether we need to save current state before undoing (only when at latest with pending changes)
+	public readonly needsSnapshotBeforeUndo = $derived(
+		this.currentIndex === -1 && this.hasPendingChanges
+	)
 	public readonly canUndo = $derived(
 		this.currentIndex > 0 ||
 			(this.currentIndex === -1 && this.entries.length > 1) ||
@@ -128,8 +139,21 @@ export class RawAppHistoryManager {
 	/**
 	 * Mark that there are pending changes (current state differs from last snapshot)
 	 * This enables the undo button even when there's only one snapshot
+	 * If we're at a historical position, discard all entries after current position
+	 * (like a typical undo/redo stack - making changes discards redo history)
+	 * Also clears preview mode since the user is now editing
 	 */
 	markPendingChanges(): void {
+		// Clear preview mode since user is making changes
+		this.previewEntry = undefined
+
+		// If we're at a historical position (not at latest), discard future entries
+		if (this.currentIndex !== -1) {
+			// Keep only entries up to and including current position
+			this.entries = this.entries.slice(0, this.currentIndex + 1)
+			// Reset to latest position
+			this.currentIndex = -1
+		}
 		this.hasPendingChanges = true
 	}
 
@@ -207,6 +231,15 @@ export class RawAppHistoryManager {
 	}
 
 	/**
+	 * Reset current index to latest (-1)
+	 * Used when switching from undo/redo navigation to preview mode
+	 */
+	resetCurrentIndex(): void {
+		this.currentIndex = -1
+		this.previewEntry = undefined
+	}
+
+	/**
 	 * Get entry at specific index
 	 */
 	getEntry(index: number): HistoryEntry | undefined {
@@ -251,6 +284,9 @@ export class RawAppHistoryManager {
 			this.currentIndex--
 		}
 
+		// We're now at a known snapshot, no pending changes
+		this.hasPendingChanges = false
+
 		return this.entries[this.currentIndex]
 	}
 
@@ -263,12 +299,12 @@ export class RawAppHistoryManager {
 
 		this.currentIndex++
 
-		// If we've reached the latest entry, reset index to -1
-		if (this.currentIndex === this.entries.length - 1) {
-			this.currentIndex = -1
-		}
+		const entry = this.entries[this.currentIndex]
 
-		return this.entries[this.currentIndex]
+		// We're now at a known snapshot, no pending changes
+		this.hasPendingChanges = false
+
+		return entry
 	}
 
 	/**

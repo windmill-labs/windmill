@@ -16,6 +16,7 @@
 	<RawAppHistoryList
 		entries={historyManager.allEntries}
 		{selectedId}
+		currentEntryId={historyManager.currentEntryId}
 		{onSelect}
 		{onManualSnapshot}
 	/>
