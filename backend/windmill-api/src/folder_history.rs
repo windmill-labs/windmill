@@ -40,10 +40,10 @@ async fn get_folder_permission_history(
     Path((w_id, name)): Path<(String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<FolderPermissionChange>> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Check if user is owner of the folder
+    // Check if user is owner of the folder (before starting transaction for performance)
     crate::folders::require_is_owner(&authed, &name)?;
+
+    let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(pagination);
 

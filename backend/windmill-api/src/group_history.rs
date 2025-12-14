@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::{ApiAuthed, DB};
+use crate::db::ApiAuthed;
 use axum::{
     extract::{Extension, Path, Query},
     routing::get,
@@ -36,19 +36,18 @@ pub struct GroupPermissionChange {
 
 async fn get_group_permission_history(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<GroupPermissionChange>> {
-    let mut tx = user_db.begin(&authed).await?;
-
     // Only workspace admins can view group permission history
     if !authed.is_admin {
         return Err(Error::NotAuthorized(
             "Only workspace administrators can view group permission history".to_string(),
         ));
     }
+
+    let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(pagination);
 
