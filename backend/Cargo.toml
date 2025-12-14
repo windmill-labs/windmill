@@ -260,7 +260,7 @@ reqwest = { version = "^0.12", features = ["json", "stream", "gzip", "multipart"
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
-tokio-tar = "^0"
+astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
 tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
