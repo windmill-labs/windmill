@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(s.flow_status, s.workflow_as_code_status)->'user_states'->$1\n            FROM v2_job_queue q LEFT JOIN v2_job_status s USING (id)\n            WHERE q.id = $2 AND q.workspace_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "28a6766d38539146b6cac9a3dbf0b8592a93b178c7db91f7e4a3c04f7017c539"
+}

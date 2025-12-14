@@ -26,7 +26,6 @@ impl TriggerCrud for MqttTrigger {
 
     const TABLE_NAME: &'static str = "mqtt_trigger";
     const TRIGGER_TYPE: &'static str = "mqtt";
-    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/mqtt_triggers";
@@ -97,7 +96,7 @@ impl TriggerCrud for MqttTrigger {
                 script_path, 
                 is_flow, 
                 email, 
-                enabled, 
+                mode, 
                 edited_by,
                 error_handler_path,
                 error_handler_args,
@@ -117,7 +116,7 @@ impl TriggerCrud for MqttTrigger {
             trigger.base.script_path,
             trigger.base.is_flow,
             authed.email,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             authed.username,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,

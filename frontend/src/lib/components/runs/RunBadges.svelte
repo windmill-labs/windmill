@@ -57,7 +57,7 @@
 		<Badge color="blue" {verySmall}>priority: {job.priority}</Badge>
 	</div>
 {/if}
-{#if job.tag}
+{#if job.tag != undefined}
 	<!-- for related places search: ADD_NEW_LANG -->
 	<div>
 		<Badge color="indigo" {verySmall}>Tag: {job.tag}</Badge>

@@ -16,7 +16,6 @@
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import CliHelpBox from '../CliHelpBox.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		selectedTrigger: Trigger
@@ -24,7 +23,7 @@
 		initialPath: string
 		fakeInitialPath: string
 		currentPath: string
-		hash?: string
+		runnableVersion?: string
 		isDeployed: boolean
 		small: boolean
 		args: Record<string, any>
@@ -45,7 +44,7 @@
 		initialPath,
 		fakeInitialPath,
 		currentPath,
-		hash,
+		runnableVersion,
 		small,
 		args,
 		newItem,
@@ -68,7 +67,7 @@
 	<WebhooksPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
-		{hash}
+		{runnableVersion}
 		token=""
 		{args}
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
@@ -80,7 +79,7 @@
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
-		{hash}
+		runnableVersion={!isFlow ? runnableVersion : undefined}
 		{onEmailDomain}
 	/>
 {:else if selectedTrigger.type === 'schedule'}
@@ -178,10 +177,7 @@
 {#snippet customLabel()}
 	{@const IconComponent = triggerIconMap[selectedTrigger.type]}
 	<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2">
-		<IconComponent
-			size={16}
-			class={twMerge(selectedTrigger.isDraft ? 'text-hint' : '', 'shrink-0')}
-		/>
+		<IconComponent size={16} class={'shrink-0'} />
 		<TriggerLabel trigger={selectedTrigger} />
 	</div>
 {/snippet}

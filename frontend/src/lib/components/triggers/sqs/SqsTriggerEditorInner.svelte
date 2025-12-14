@@ -4,14 +4,15 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
 		SqsTriggerService,
 		type AwsAuthResourceType,
 		type ErrorHandler,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -24,6 +25,9 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		useDrawer?: boolean
@@ -71,7 +75,7 @@
 	let fixedScriptPath = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -88,11 +92,14 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const sqsConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(getCaptureConfig)
+	const hasChanged = $derived(!deepEqual(sqsConfig, originalConfig ?? {}))
 	const saveDisabled = $derived(
-		pathError != '' || emptyString(script_path) || !isValid || !can_write
+		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -114,9 +121,13 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -147,11 +158,12 @@
 			initialPath = ''
 			edit = false
 			dirtyPath = false
-			enabled = defaultValues?.enabled ?? false
+			mode = defaultValues?.mode ?? 'enabled'
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			originalConfig = undefined
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
@@ -169,7 +181,7 @@
 			is_flow = cfg?.is_flow
 			message_attributes = cfg?.message_attributes ?? []
 			path = cfg?.path
-			enabled = cfg?.enabled
+			mode = cfg?.mode ?? 'enabled'
 			aws_auth_resource_type = cfg?.aws_auth_resource_type
 			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 			error_handler_path = cfg?.error_handler_path
@@ -207,22 +219,27 @@
 			queue_url,
 			message_attributes,
 			aws_auth_resource_type,
-			enabled,
+			mode,
 			error_handler_path,
 			error_handler_args,
 			retry
 		}
 	}
 
-	async function handleToggleEnabled(nEnabled: boolean) {
-		enabled = nEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await SqsTriggerService.setSqsTriggerEnabled({
+			await SqsTriggerService.setSqsTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: nEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} SQS trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} SQS trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -238,7 +255,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(cfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -264,6 +286,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="sqs"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -301,7 +340,6 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -309,7 +347,9 @@
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 			{cloudDisabled}
 		/>
 	{/if}
@@ -324,6 +364,9 @@
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
+			{/if}
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
 			{#if !hideTooltips}
 				<Alert title="Info" type="info" size="xs">
@@ -371,7 +414,7 @@
 						/>
 						{#if emptyString(script_path)}
 							<Button
-								btnClasses="ml-4 mt-2"
+								btnClasses="ml-4"
 								variant="accent"
 								size="xs"
 								disabled={!can_write}

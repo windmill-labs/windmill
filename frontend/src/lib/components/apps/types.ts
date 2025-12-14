@@ -1,5 +1,4 @@
-import type { Schema } from '$lib/common'
-import type { Policy, Preview } from '$lib/gen'
+import type { Policy } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 
 import type { Writable } from 'svelte/store'
@@ -15,6 +14,7 @@ import type {
 	ConnectedInput,
 	EvalAppInput,
 	EvalV2AppInput,
+	InlineScript,
 	InputConnection,
 	ResultAppInput,
 	RowAppInput,
@@ -109,18 +109,6 @@ export type AppSection = {
 }
 
 export type GridItem = FilledItem<AppComponent>
-
-export type InlineScript = {
-	content: string
-	language: Preview['language'] | 'frontend'
-	path?: string
-	schema?: Schema
-	lock?: string
-	cache_ttl?: number
-	refreshOn?: { id: string; key: string }[]
-	suggestedRefreshOn?: { id: string; key: string }[]
-	id?: number
-}
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
 
@@ -295,6 +283,7 @@ export type AppViewerContext = {
 				invalidate?: (key: string, error: string) => void
 				validateAll?: () => void
 				clearFiles?: () => void
+				sendMessage?: (message: string) => void
 				showToast?: (message: string, error?: boolean) => void
 				recompute?: () => void
 				askNewResource?: () => void

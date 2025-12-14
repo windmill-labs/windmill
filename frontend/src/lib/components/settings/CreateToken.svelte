@@ -22,6 +22,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+	import InfoIcon from 'lucide-svelte/icons/info'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -58,10 +59,21 @@
 	let includedRunnables = $state<string[]>([])
 	let selectedFolder = $state<string>('')
 
+	// Granular scope selection
+	let selectedScripts = $state<string[]>([])
+	let selectedFlows = $state<string[]>([])
+	let selectedEndpoints = $state<string[]>([])
+	let allScripts = $state<string[]>([])
+	let allFlows = $state<string[]>([])
+
 	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
+
+	// Wildcard pattern inputs for custom scope
+	let customScriptPatterns = $state<string>('')
+	let customFlowPatterns = $state<string>('')
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -77,6 +89,21 @@
 		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
 	}
 
+	function parsePatterns(input: string): string[] {
+		return input
+			.split(',')
+			.map((p) => p.trim())
+			.filter((p) => p.length > 0)
+	}
+
+	// Clear pattern inputs when MCP mode is disabled OR when not in custom scope
+	$effect(() => {
+		if (!mcpCreationMode || newMcpScope !== 'custom') {
+			customScriptPatterns = ''
+			customFlowPatterns = ''
+		}
+	})
+
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
@@ -86,9 +113,35 @@
 
 			let tokenScopes = scopes
 			if (mcpMode) {
-				if (newMcpScope === 'folder') {
+				if (newMcpScope === 'custom') {
+					// Granular scope format - combine individual selections with wildcard patterns
+					tokenScopes = []
+
+					// Scripts: combine individual selections with patterns
+					let scriptPaths = [...selectedScripts]
+					if (customScriptPatterns.trim()) {
+						scriptPaths.push(...parsePatterns(customScriptPatterns))
+					}
+					if (scriptPaths.length > 0) {
+						tokenScopes.push(`mcp:scripts:${scriptPaths.join(',')}`)
+					}
+
+					// Flows: combine individual selections with patterns
+					let flowPaths = [...selectedFlows]
+					if (customFlowPatterns.trim()) {
+						flowPaths.push(...parsePatterns(customFlowPatterns))
+					}
+					if (flowPaths.length > 0) {
+						tokenScopes.push(`mcp:flows:${flowPaths.join(',')}`)
+					}
+
+					// Endpoints: no wildcard support needed
+					if (selectedEndpoints.length > 0) {
+						tokenScopes.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
+					}
+				} else if (newMcpScope === 'folder') {
 					const folderPath = `f/${selectedFolder}/*`
-					tokenScopes = [`mcp:all:${folderPath}`]
+					tokenScopes = [`mcp:scripts:${folderPath}`, `mcp:flows:${folderPath}`, `mcp:endpoints:*`]
 				} else {
 					tokenScopes = [`mcp:${newMcpScope}`]
 				}
@@ -183,7 +236,8 @@
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return scripts.map((x) => x.path)
 	}
@@ -200,7 +254,8 @@
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
 			workspace,
-			pathStart
+			pathStart,
+			withoutDescription: true
 		})
 		return flows.map((x) => x.path)
 	}
@@ -247,6 +302,53 @@
 			selectedFolder = ''
 		}
 	})
+
+	$effect(() => {
+		if (mcpCreationMode && newMcpScope === 'custom') {
+			const workspace = newTokenWorkspace || $workspaceStore
+			if (workspace) {
+				loadAllScriptsAndFlows(workspace)
+			}
+		}
+	})
+
+	async function loadAllScriptsAndFlows(workspace: string) {
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([
+				getScripts(false, workspace, undefined),
+				getFlows(false, workspace, undefined)
+			])
+			allScripts = scripts
+			allFlows = flows
+		} finally {
+			loadingRunnables = false
+		}
+	}
+
+	function selectAllScripts() {
+		selectedScripts = [...allScripts]
+	}
+
+	function clearAllScripts() {
+		selectedScripts = []
+	}
+
+	function selectAllFlows() {
+		selectedFlows = [...allFlows]
+	}
+
+	function clearAllFlows() {
+		selectedFlows = []
+	}
+
+	function selectAllEndpoints() {
+		selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+	}
+
+	function clearAllEndpoints() {
+		selectedEndpoints = []
+	}
 </script>
 
 <div>
@@ -317,7 +419,7 @@
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
-				<div>
+				<div class="col-span-2">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
@@ -338,6 +440,12 @@
 								value="folder"
 								label="Folder"
 								tooltip="Make all scripts and flows in the selected folder available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="custom"
+								label="Custom"
+								tooltip="Select exactly which scripts, flows, and endpoints to expose"
 							/>
 						{/snippet}
 					</ToggleButtonGroup>
@@ -404,7 +512,109 @@
 					/>
 				</div>
 			{/if}
-			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
+			{#if mcpCreationMode && newMcpScope === 'custom'}
+				{#if loadingRunnables}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<span class="block text-xs text-primary">Loading scripts and flows...</span>
+						<div class="flex flex-wrap gap-1">
+							<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
+						</div>
+					</div>
+				{:else}
+					{#snippet sectionHeader(label: string, selectAll: () => void, clearAll: () => void)}
+						<div class="flex items-center justify-between">
+							<span class="block text-xs font-semibold">{label}</span>
+							<div class="flex gap-2">
+								<Button size="xs2" on:click={selectAll}>Select All</Button>
+								<Button size="xs2" on:click={clearAll}>Clear All</Button>
+							</div>
+						</div>
+					{/snippet}
+
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<div class="flex flex-col gap-2">
+							{@render sectionHeader('Scripts', selectAllScripts, clearAllScripts)}
+							{#if allScripts.length > 0}
+								<MultiSelect
+									items={safeSelectItems(allScripts)}
+									placeholder="Select scripts"
+									bind:value={selectedScripts}
+								/>
+							{:else}
+								<p class="text-xs text-primary">No scripts available</p>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('Flows', selectAllFlows, clearAllFlows)}
+							{#if allFlows.length > 0}
+								<MultiSelect
+									items={safeSelectItems(allFlows)}
+									placeholder="Select flows"
+									bind:value={selectedFlows}
+								/>
+							{:else}
+								<p class="text-xs text-primary">No flows available</p>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2 mt-2">
+							{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
+							<MultiSelect
+								items={safeSelectItems(mcpEndpointTools.map((e) => e.name))}
+								placeholder="Select endpoints"
+								bind:value={selectedEndpoints}
+							/>
+						</div>
+
+						<div class="text-xs text-primary mt-2">
+							Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
+							endpoints
+						</div>
+
+						<!-- Wildcard Patterns Section -->
+						<div class="flex flex-col gap-2 mt-4 pt-4 border-t border-surface-hover">
+							<div class="flex flex-col gap-2">
+								<div class="flex items-center justify-between">
+									<span class="block text-xs font-semibold">Script wildcard patterns</span>
+									<Popover notClickable>
+										{#snippet text()}
+											<div class="text-xs max-w-xs">
+												<p class="font-semibold mb-2">Add folder wildcards or complex patterns</p>
+												<p class="mb-1"><b>Examples:</b></p>
+												<ul class="list-disc ml-4 space-y-1">
+													<li><code>f/folder/*</code> - all scripts/flows in folder</li>
+													<li><code>f/folder1/*,f/folder2/*</code> - multiple folders</li>
+													<li>Mix: <code>f/folder/*,f/specific/path</code></li>
+												</ul>
+												<p class="mt-2 text-xs text-secondary">
+													Patterns are combined with individual selections above.
+												</p>
+											</div>
+										{/snippet}
+										<Button color="light" size="xs2" nonCaptureEvent startIcon={{ icon: InfoIcon }}>
+											Pattern Help
+										</Button>
+									</Popover>
+								</div>
+								<TextInput
+									inputProps={{ placeholder: 'e.g., f/outline/*,f/docs/*' }}
+									bind:value={customScriptPatterns}
+								/>
+							</div>
+							<div class="flex flex-col gap-2 mt-2">
+								<div class="flex items-center justify-between">
+									<span class="block text-xs font-semibold">Flow wildcard patterns</span>
+								</div>
+								<TextInput
+									inputProps={{ placeholder: 'e.g., f/workflows/*' }}
+									bind:value={customFlowPatterns}
+								/>
+							</div>
+						</div>
+					</div>
+				{/if}
+			{:else if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
 				{#if loadingRunnables}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
 						<span class="block text-xs text-primary"
@@ -476,7 +686,14 @@
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
-					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+					(newTokenWorkspace == undefined ||
+						(newMcpScope === 'folder' && !selectedFolder) ||
+						(newMcpScope === 'custom' &&
+							selectedScripts.length === 0 &&
+							selectedFlows.length === 0 &&
+							selectedEndpoints.length === 0 &&
+							!customScriptPatterns.trim() &&
+							!customFlowPatterns.trim()))}
 				variant="accent"
 			>
 				New token

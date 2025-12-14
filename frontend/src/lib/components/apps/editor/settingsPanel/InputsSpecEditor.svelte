@@ -28,6 +28,7 @@
 	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	interface Props {
 		id: string
@@ -108,6 +109,7 @@
 	let s3PickerSelection: { s3: string; storage?: string } | undefined = $state(undefined)
 	let s3FolderPrefix: string = $state('')
 	let s3FileUploadRawMode = $state(componentInput?.type == 'uploadS3' && !!componentInput.value?.s3)
+	let s3JsonEditor: SimpleEditor | undefined = $state()
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
@@ -115,6 +117,7 @@
 				componentInput.value = {
 					...s3PickerSelection
 				}
+				s3JsonEditor?.setCode(JSON.stringify(s3PickerSelection, null, 2))
 			}
 			s3FileUploadRawMode = true
 		}
@@ -197,7 +200,6 @@
 						id="schema-plug-{key}"
 					/>
 					<ToggleButtonGroup
-						class="h-6"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (
@@ -318,6 +320,7 @@
 						<Module.default
 							code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
 							bind:value={componentInput.value}
+							bind:editor={s3JsonEditor}
 						/>
 					{/await}
 				{:else}
@@ -352,8 +355,8 @@
 			<S3FilePicker
 				bind:this={s3FilePicker}
 				folderOnly={false}
-				on:close={(e) => {
-					s3PickerSelection = e.detail
+				onSelectAndClose={(selected) => {
+					s3PickerSelection = selected
 					updateSelectedS3File()
 				}}
 				readOnlyMode={false}

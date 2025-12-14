@@ -59,7 +59,6 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
-    jobs::QueuedJob,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
@@ -80,7 +79,7 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
-use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
+use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
@@ -362,24 +361,32 @@ pub async fn load_otel(db: &DB) {
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    }
                     Some(endpoint.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
                 };
 
                 let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    }
                     Some(headers.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
                 };
 
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    }
                 }
                 if let Some(compression) = o.otel_exporter_otlp_compression {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    }
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());
@@ -1272,7 +1279,7 @@ pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
         }
     };
-    set_license_key(value).await;
+    set_license_key(value, conn.as_sql()).await;
     Ok(())
 }
 
@@ -2047,7 +2054,7 @@ async fn cancel_stale_job(
 
 const RESTART_LIMIT: i32 = 3;
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_name: &str) {
     let mut zombie_jobs_uuid_restart_limit_reached = vec![];
 
     if *RESTART_ZOMBIE_JOBS {
@@ -2174,7 +2181,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
             "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
-    AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
         .await
@@ -2220,24 +2227,17 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             );
         }
 
-        let jobs = sqlx::query_as::<_, QueuedJob>(
-            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
-        )
-        .bind(&timeouts[..])
-        .fetch_all(db)
-        .await
-        .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-        .unwrap_or_default();
-
-        jobs
+        timeouts
     };
 
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND same_worker = false")
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
+        sqlx::query_scalar!("SELECT j.id
+             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+             WHERE r.ping < now() - ($1 || ' seconds')::interval
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false", 
+             ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await
         .ok()
@@ -2260,15 +2260,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
-    )
-    .bind(&zombie_jobs_uuid_restart_limit_reached[..])
-    .fetch_all(db)
-    .await
-    .ok()
-    .unwrap_or_else(|| vec![]);
-
     let timeouts = non_restartable_jobs
         .into_iter()
         .map(|x| (x, ErrorMessage::RestartDisabled))
@@ -2278,7 +2269,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 .map(|x| (x, ErrorMessage::SameWorker)),
         )
         .chain(
-            zombie_jobs_restart_limit_reached
+            zombie_jobs_uuid_restart_limit_reached
                 .into_iter()
                 .map(|x| (x, ErrorMessage::RestartLimit)),
         )
@@ -2289,7 +2280,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 
-    for (job, error_kind) in timeouts {
+    for (job_id, error_kind) in timeouts {
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) =
             mpsc::channel::<SameWorkerPayload>(1);
@@ -2298,59 +2289,67 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let (send_result_never_used, _send_result_rx_never_used) =
             JobCompletedSender::new_never_used();
 
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        let token = create_token_for_owner(
-            &db,
-            &job.workspace_id,
-            &job.permissioned_as,
-            &label,
-            *SCRIPT_TOKEN_EXPIRY,
-            &job.email,
-            &job.id,
-            None,
-            Some(format!("handle_zombie_jobs")),
-        )
-        .await
-        .expect("could not create job token");
+        let job = get_queued_job_v2(db, &job_id).await;
+        if let Err(e) = job {
+            tracing::error!("Error getting queued job: {:?}", e);
+            continue;
+        }
+        if let Some(job) = job.unwrap() {
+            let label = if job.permissioned_as != format!("u/{}", job.created_by)
+                && job.permissioned_as != job.created_by
+            {
+                format!("ephemeral-script-end-user-{}", job.created_by)
+            } else {
+                "ephemeral-script".to_string()
+            };
+            let token = create_token_for_owner(
+                &db,
+                &job.workspace_id,
+                &job.permissioned_as,
+                &label,
+                *SCRIPT_TOKEN_EXPIRY,
+                &job.permissioned_as_email,
+                &job.id,
+                None,
+                Some(format!("handle_zombie_jobs")),
+            )
+            .await
+            .expect("could not create job token");
 
-        let client = AuthedClient::new(
-            base_internal_url.to_string(),
-            job.workspace_id.to_string(),
-            token,
-            None,
-        );
+            let client = AuthedClient::new(
+                base_internal_url.to_string(),
+                job.workspace_id.to_string(),
+                token,
+                None,
+            );
 
-        let last_ping = job.last_ping.clone();
-        let error_message = format!(
-            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?})",
-            last_ping
-                .map(|x| x.to_string())
-                .unwrap_or_else(|| "no ping".to_string()),
-            *ZOMBIE_JOB_TIMEOUT,
-            error_kind.to_string()
-        );
-        let _ = handle_job_error(
-            db,
-            &client,
-            &MiniPulledJob::from(&job),
-            0,
-            None,
-            error::Error::ExecutionErr(error_message),
-            true,
-            Some(&same_worker_tx_never_used),
-            "",
-            worker_name,
-            send_result_never_used,
-            #[cfg(feature = "benchmark")]
-            &mut windmill_common::bench::BenchmarkIter::new(),
-        )
-        .await;
+            let error_message = format!(
+                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
+                job.last_ping.unwrap_or_default(),
+                *ZOMBIE_JOB_TIMEOUT,
+                error_kind.to_string(),
+                job.worker.clone().unwrap_or_default(),
+            );
+            let memory_peak = job.memory_peak.unwrap_or(0);
+            let (_, killpill_rx_never_used) = KillpillSender::new(1);
+            let _ = handle_job_error(
+                db,
+                &client,
+                &windmill_queue::MiniCompletedJob::from(job),
+                memory_peak,
+                None,
+                error::Error::ExecutionErr(error_message),
+                true,
+                Some(&same_worker_tx_never_used),
+                "",
+                node_name,
+                send_result_never_used,
+                &killpill_rx_never_used,
+                #[cfg(feature = "benchmark")]
+                &mut windmill_common::bench::BenchmarkIter::new(),
+            )
+            .await;
+        }
     }
 }
 
@@ -2457,13 +2456,13 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
         SELECT
-            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
-            flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM v2_as_queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
-            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
-            AND canceled = false
+            j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
+            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?"
+        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+        WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
+            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+            AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
+            AND q.canceled_by IS NULL
             
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()

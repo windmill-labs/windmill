@@ -78,7 +78,7 @@ class DiagnosticLS(LanguageServerWebSocketHandler):
     procargs = ["diagnostic-languageserver", "--stdio", "--log-level", "4"]
 
 class RuffLS(LanguageServerWebSocketHandler):
-    procargs = ["ruff-lsp"]
+    procargs = ["ruff", "server"]
 
 class DenoLS(LanguageServerWebSocketHandler):
     procargs = ["deno", "lsp"]

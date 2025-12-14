@@ -69,6 +69,7 @@
 		'spotify',
 		'snowflake_oauth',
 		'teams',
+		'zoho',
 		'xero',
 		'apify'
 	]

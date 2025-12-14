@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, Play, Loader2 } from 'lucide-svelte'
+	import { CircleStop, History, Play, Loader2, ExternalLink } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -67,7 +67,7 @@
 	const dispatch = createEventDispatcher<{
 		captureToggle: { disableOnly?: boolean }
 		updateSchema: { payloadData: Record<string, any>; redirect: boolean; args?: boolean }
-		addPreprocessor: null
+		addPreprocessor: { args: Record<string, any> } | null
 		testWithArgs: Record<string, any>
 		applyArgs: { kind: 'main' | 'preprocessor'; args: Record<string, any> }
 	}>()
@@ -121,6 +121,7 @@
 	let lastCaptureId: number | undefined = undefined
 	let displayResult: DisplayResult | undefined = $state(undefined)
 	let toolbarLocation: 'internal' | 'external' | undefined = $state(undefined)
+	let showRawPayload = $state(false)
 
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
@@ -225,13 +226,14 @@
 		}
 	}
 
-	function getCapturePayload(capture: Capture) {
+	function getCapturePayload(capture: Capture | undefined, showRawPayload: boolean) {
+		if (!capture) return {}
 		let payloadData: any = {}
 		const preprocessor_args = isObject(capture.preprocessor_args) ? capture.preprocessor_args : {}
 		if ('wm_trigger' in preprocessor_args) {
 			// v1
 			payloadData =
-				testKind === 'preprocessor'
+				testKind === 'preprocessor' || showRawPayload
 					? {
 							...(typeof capture.main_args === 'object' ? capture.main_args : {}),
 							...preprocessor_args
@@ -239,10 +241,19 @@
 					: capture.main_args
 		} else {
 			// v2
-			payloadData = testKind === 'preprocessor' ? capture.preprocessor_args : capture.main_args
+			payloadData =
+				testKind === 'preprocessor' || showRawPayload
+					? capture.preprocessor_args
+					: capture.main_args
 		}
 		return payloadData
 	}
+
+	function toggleRawPayload() {
+		showRawPayload = !showRawPayload
+	}
+
+	const payloadData = $derived(getCapturePayload(selectedCapture, showRawPayload))
 
 	// Start or stop capture listening based on active state
 	$effect(() => {
@@ -272,11 +283,7 @@
 			<div class="flex flex-col gap-1 mb-4 w-full">
 				<div class="flex justify-center w-full">
 					<div class="relative h-fit">
-						<AnimatedButton
-							animate={captureInfo.active}
-							wrapperClasses={captureInfo.active ? 'm-[-2px]' : ''}
-							baseRadius="7px"
-						>
+						<AnimatedButton animate={captureInfo.active} baseRadius="6px">
 							<Button
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
@@ -287,6 +294,7 @@
 									? { icon: CircleStop }
 									: { icon: CaptureIcon, props: { variant: 'redDot' } }}
 								loading={captureLoading}
+								btnClasses={captureInfo.active ? '!bg-surface' : ''}
 							>
 								{#if captureInfo.active}
 									<p class="w-24" transition:fade={{ duration: 300 }}>Stop capturing</p>
@@ -383,16 +391,16 @@
 				{#if selectedCapture}
 					{@const SvelteComponent = triggerIconMap[captureType]}
 					<div
-						class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
+						class="min-w-16 text-primary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]"
 					>
 						<SvelteComponent size={12} />
-						<span class="text-xs text-secondary truncate">
+						<span class="text-xs truncate">
 							Capture {formatDateShort(selectedCapture?.created_at)}
 						</span>
 					</div>
 				{/if}
 
-				{#if selectedCapture}
+				{#if selectedCapture && !showRawPayload}
 					{@const label = isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
 					{@const title =
 						isFlow && testKind === 'main'
@@ -458,26 +466,73 @@
 				/>
 			{/if}
 		</div>
-		<div class="grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto">
-			{#if isLoadingBigPayload}
-				<Loader2 class="animate-spin" />
-			{:else if selectedCapture?.main_args}
-				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
-					<DisplayResult
-						bind:this={displayResult}
-						workspaceId={undefined}
-						jobId={undefined}
-						result={getCapturePayload(selectedCapture)}
-						externalToolbarAvailable
-						on:toolbar-location-changed={({ detail }) => {
-							toolbarLocation = detail
-						}}
-					/>
+		<div class="grow min-h-0 w-full pl-2 py-1 pb-2 flex flex-col">
+			<div class="flex-1 min-h-0 overflow-auto">
+				{#if isLoadingBigPayload}
+					<Loader2 class="animate-spin" />
+				{:else if selectedCapture?.main_args}
+					<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
+						{#if showRawPayload}
+							<Alert type="info" title="Raw payload displayed" size="xs" class="mt-2 mb-2">
+								<div class="flex flex-col gap-2">
+									<div>
+										Add a preprocessor to use the raw payload data in the flow.
+										<a
+											href="https://www.windmill.dev/docs/core_concepts/preprocessors"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="underline"
+										>
+											Learn more about preprocessors
+											<ExternalLink size={12} class="inline-block" />
+										</a>
+									</div>
+									<div class="flex justify-end">
+										<Button
+											size="xs"
+											variant="accent"
+											wrapperClasses="w-fit"
+											onclick={() => {
+												if (selectedCapture) {
+													dispatch('addPreprocessor', {
+														args: $state.snapshot(payloadData)
+													})
+												} else {
+													dispatch('addPreprocessor')
+												}
+											}}
+										>
+											Add preprocessor
+										</Button>
+									</div>
+								</div>
+							</Alert>
+						{/if}
+						<DisplayResult
+							bind:this={displayResult}
+							workspaceId={undefined}
+							jobId={undefined}
+							result={payloadData}
+							externalToolbarAvailable
+							on:toolbar-location-changed={({ detail }) => {
+								toolbarLocation = detail
+							}}
+						/>
+					</div>
+				{:else}
+					<div class="text-center text-primary p-4 bg-surface rounded-md"
+						>No captures to show yet.</div
+					>
+				{/if}
+			</div>
+
+			{#if !hasPreprocessor && !isLoadingBigPayload && selectedCapture?.main_args}
+				<div class="mt-2 text-2xs text-secondary flex-shrink-0 text-right px-2">
+					{showRawPayload ? '' : 'Need more data about the trigger event?'}
+					<button onclick={toggleRawPayload} class="text-accent cursor-pointer">
+						{showRawPayload ? 'Show processed payload' : 'Show raw payload'}
+					</button>
 				</div>
-			{:else}
-				<div class="text-center text-primary p-4 bg-surface rounded-md"
-					>No captures to show yet.</div
-				>
 			{/if}
 		</div>
 	</Pane>

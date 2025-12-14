@@ -14,7 +14,7 @@
 	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Button, SecondsInput } from './common'
+	import { Alert, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -28,7 +28,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -46,11 +45,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import TextInput, {
-		inputBaseClass,
-		inputBorderClass,
-		inputSizeClasses
-	} from './text_input/TextInput.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
@@ -126,6 +121,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
+		s3StorageConfigured?: boolean
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -185,6 +181,7 @@
 		appPath = undefined,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
+		s3StorageConfigured = true,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -398,12 +395,25 @@
 	const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 	const IPV6_PATTERN =
 		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
+
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
+			valid && (valid = false)
+		} else if (
+			required &&
+			inputCat == 'list' &&
+			extra?.['nonEmpty'] == true &&
+			Array.isArray(v) &&
+			v.length === 0
+		) {
+			error = 'Required'
+			valid && (valid = false)
+		} else if (inputCat == 'list' && !Array.isArray(v)) {
+			error = 'Expected an array, got ' + typeof v + ' instead'
 			valid && (valid = false)
 		} else {
 			if (inputCat == 'number' && typeof v === 'number') {
@@ -521,6 +531,7 @@
 	})
 
 	$effect(() => {
+		extra?.['nonEmpty']
 		let args = [pattern, value, required] as const
 		untrack(() => validateInput(...args))
 	})
@@ -771,11 +782,24 @@
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}
-					{#await import('$lib/components/JsonEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
-					{/await}
+					<div>
+						<div class="w-full">
+							{#await import('$lib/components/JsonEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+							{/await}
+						</div>
+						<div class="text-red-500 text-2xs">
+							Error loading json schema resource {format.substring('jsonschema-'.length)}, please
+							check if the resource exists and is a valid json schema.
+							<a
+								href="https://windmill.dev/docs/core_concepts/resources_and_types#json-schema-resources"
+								target="_blank"
+								class="text-blue-500 hover:text-blue-700 underline">See documentation</a
+							>
+						</div>
+					</div>
 				{:else}
 					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm
@@ -1038,6 +1062,8 @@
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
+							wrap
+							class="mb-4"
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
@@ -1396,45 +1422,39 @@
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}
-							<textarea
-								{autofocus}
-								rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
-								bind:this={el}
-								onfocus={(e) => {
-									dispatch('focus')
+							<TextInput
+								inputProps={{
+									autofocus,
+									onfocus: () => dispatch('focus'),
+									onblur: () => dispatch('blur'),
+									disabled,
+									onkeydown: onKeyDown,
+									placeholder: placeholder ?? defaultValue ?? '',
+									rows: extra?.['minRows'] ? extra['minRows']?.toString() : '1'
 								}}
-								onblur={(e) => {
-									dispatch('blur')
-								}}
-								use:autosize
-								onkeydown={onKeyDown}
-								{disabled}
-								class={twMerge(
-									'w-full',
-									inputBaseClass,
-									inputSizeClasses.md,
-									inputBorderClass({ error: !!error })
-								)}
-								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
-							></textarea>
+								{error}
+								unifiedHeight={false}
+								underlyingInputEl="textarea"
+							/>
 						{/key}
 					{/if}
 					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<button
-							class={twMerge(
-								'absolute opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer',
-								password || extra?.['password'] == true ? 'right-16' : 'right-1'
-							)}
-							onclick={() => {
+						<Button
+							iconOnly
+							startIcon={{ icon: DollarSign }}
+							unifiedSize="sm"
+							onClick={() => {
 								pickForField = label
 								itemPicker?.openDrawer?.()
 							}}
+							wrapperClasses={twMerge(
+								'opacity-0 group-hover:opacity-100 transition-opacity absolute bg-surface-input',
+								password || extra?.['password'] == true ? 'right-8	' : 'right-2'
+							)}
+							variant="subtle"
 							title="Insert a Variable"
-						>
-							<DollarSign class="!text-primary" size={14} />
-						</button>
+						/>
 					{/if}
 				</div>
 				{@render variableInput()}
@@ -1454,6 +1474,15 @@
 		</div>
 	{:else if !noMargin}
 		<div class="mb-2"></div>
+	{/if}
+
+	{#if !s3StorageConfigured && extra['x-no-s3-storage-workspace-warning']}
+		<Alert
+			type="warning"
+			title={extra['x-no-s3-storage-workspace-warning']}
+			size="xs"
+			titleClass="text-2xs"
+		/>
 	{/if}
 </div>
 

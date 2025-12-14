@@ -63,9 +63,9 @@
 						<span>Acked</span>
 
 						<Button
-							color="green"
+							variant="accent"
 							startIcon={{ icon: CheckCircle2 }}
-							size="xs2"
+							unifiedSize="sm"
 							disabled={numUnacknowledgedCriticalAlerts === 0}
 							on:click={acknowledgeAll}
 							title="Acknowledge all"
@@ -123,9 +123,9 @@
 								<div class="w-full flex justify-center items-center">
 									{#if !acknowledged}
 										<Button
-											color="green"
+											variant="accent"
 											startIcon={{ icon: CheckCircle2 }}
-											size="xs2"
+											unifiedSize="sm"
 											on:click={() => {
 												if (id) acknowledgeAlert(id)
 											}}

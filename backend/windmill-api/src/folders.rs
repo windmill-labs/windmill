@@ -96,7 +96,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -117,7 +117,7 @@ async fn list_foldernames(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -166,7 +166,7 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
@@ -216,6 +216,9 @@ async fn create_folder(
     )
     .execute(&mut *tx)
     .await {
+        drop(tx);
+        let mut tx = user_db.begin(&authed).await?;
+
         let exists_for_user = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2 AND $3 = ANY(owners))",
             ng.name,

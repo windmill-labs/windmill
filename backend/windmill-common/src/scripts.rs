@@ -17,7 +17,8 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
 use crate::worker::HUB_CACHE_DIR;
@@ -25,12 +26,26 @@ use anyhow::Context;
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 use itertools::Itertools;
+use regex::Regex;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, Default)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Copy,
+    Clone,
+    Hash,
+    Eq,
+    sqlx::Type,
+    Default,
+    Ord,
+    PartialOrd,
+)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
@@ -88,6 +103,71 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
+        }
+    }
+
+    pub fn as_dependencies_filename(&self) -> Option<String> {
+        use ScriptLang::*;
+        Some(
+            match self {
+                Bun | Bunnative => "package.json",
+                Python3 => "requirements.in",
+                // Go => "go.mod",
+                Php => "composer.json",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    }
+
+    pub fn as_comment_lit(&self) -> String {
+        use ScriptLang::*;
+        match self {
+            Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
+            Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
+            Rust => "//!",
+            // for related places search: ADD_NEW_LANG
+        }
+        .to_owned()
+    }
+
+    pub fn extract_workspace_dependencies_annotated_refs(
+        &self,
+        code: &str,
+        runnable_path: &str,
+    ) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
+        use ScriptLang::*;
+        lazy_static::lazy_static! {
+            static ref RE_PYTHON: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
+        }
+        match self {
+            // TODO: Maybe use regex
+            Bun | Bunnative => WorkspaceDependenciesAnnotatedRefs::parse(
+                "//",
+                "package_json",
+                code,
+                None,
+                runnable_path,
+            ),
+            Python3 => WorkspaceDependenciesAnnotatedRefs::parse(
+                "#",
+                "requirements",
+                code,
+                Some(&RE_PYTHON),
+                runnable_path,
+            ),
+            Go => {
+                WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, None, runnable_path)
+            }
+            Php => WorkspaceDependenciesAnnotatedRefs::parse(
+                "//",
+                "composer_json",
+                code,
+                None,
+                runnable_path,
+            ),
+            _ => return None,
         }
     }
 }
@@ -151,7 +231,7 @@ impl From<i64> for ScriptHash {
     }
 }
 
-#[derive(PartialEq, sqlx::Type)]
+#[derive(PartialEq, sqlx::Type, Debug)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
 
@@ -267,7 +347,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
     let is_esm = id.contains(".esm");
     CodebaseInfo { is_tar, is_esm }
 }
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, Debug)]
 pub struct Script {
     pub workspace_id: String,
     pub hash: ScriptHash,
@@ -281,7 +361,8 @@ pub struct Script {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub deleted: bool,
-    pub is_template: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_template: Option<bool>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
@@ -311,6 +392,8 @@ pub struct Script {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -352,6 +435,8 @@ pub struct ListableScript {
     pub language: ScriptLang,
     pub starred: bool,
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_draft: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -412,6 +497,10 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    // NOTE: concurrency and debounce data is inline,
+    // bc it was this before refactor
+    // and rust seems to hash it differently
+    // for backwards compat we keep them inline
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
@@ -420,6 +509,7 @@ pub struct NewScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
@@ -492,6 +582,7 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct ListScriptQuery {
+    pub without_description: Option<bool>,
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
     pub created_by: Option<String>,
@@ -585,7 +676,7 @@ pub async fn get_hub_script_by_path(
                 && path
                     .split("/")
                     .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
             {
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
@@ -670,10 +761,9 @@ async fn get_full_hub_script_by_path_inner(
             Ok(response) => Ok(response),
             Err(e) => {
                 if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path
-                        .split("/")
-                        .next()
-                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    && path.split("/").next().is_some_and(|x| {
+                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
+                    })
                 {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
                     tracing::info!(
@@ -733,18 +823,81 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+pub async fn fetch_script_for_update<'a>(
+    hash: ScriptHash,
+    w_id: &str,
+    e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+) -> crate::error::Result<Option<Script>> {
+    sqlx::query_as::<_, Script>(
+        "SELECT
+            workspace_id,
+            hash,
+            path,
+            parent_hashes,
+            summary,
+            description,
+            content,
+            created_by,
+            created_at,
+            archived,
+            schema,
+            deleted,
+            is_template,
+            extra_perms,
+            lock,
+            lock_error_logs,
+            language,
+            kind,
+            tag,
+            draft_only,
+            envs,
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
+            dedicated_worker,
+            ws_error_handler_muted,
+            priority,
+            cache_ttl,
+            cache_ignore_s3_path,
+            timeout,
+            delete_after_use,
+            restart_unless_cancelled,
+            visible_to_runner_only,
+            no_main_func,
+            codebase,
+            has_preprocessor,
+            on_behalf_of_email,
+            assets
+         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+    )
+    .bind(hash.0)
+    .bind(w_id)
+    .fetch_optional(e)
+    .await
+    .map_err(crate::error::Error::from)
+}
+
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
+// TODO: What if dependency job fails, there is script with NULL in the lock
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> crate::error::Result<i64> {
-    let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(base_hash.0)
-            .bind(w_id)
-            .fetch_one(&mut **tx)
-            .await?;
+) -> crate::error::Result<ClonedScript> {
+    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
+        s
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Non-archived script with hash {} not found",
+            base_hash.0
+        )));
+    };
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -753,7 +906,7 @@ pub async fn clone_script<'c>(
         description: s.description,
         content: s.content,
         schema: s.schema,
-        is_template: Some(s.is_template),
+        is_template: s.is_template,
         // TODO: Make it either None everywhere (particularly when raw reqs are calculated)
         // Or handle this case and conditionally make Some (only with raw reqs)
         lock: None,
@@ -765,6 +918,7 @@ pub async fn clone_script<'c>(
         concurrent_limit: s.concurrent_limit,
         concurrency_time_window_s: s.concurrency_time_window_s,
         cache_ttl: s.cache_ttl,
+        cache_ignore_s3_path: s.cache_ignore_s3_path,
         dedicated_worker: s.dedicated_worker,
         ws_error_handler_muted: s.ws_error_handler_muted,
         priority: s.priority,
@@ -796,14 +950,14 @@ pub async fn clone_script<'c>(
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
@@ -820,5 +974,5 @@ pub async fn clone_script<'c>(
     .execute(&mut **tx)
     .await?;
 
-    Ok(new_hash)
+    Ok(ClonedScript { old_script: ns, new_hash })
 }

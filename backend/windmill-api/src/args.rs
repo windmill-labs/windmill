@@ -94,7 +94,7 @@ impl RawWebhookArgs {
         use object_store::{Attribute, Attributes};
         use windmill_common::s3_helpers::build_object_store_client;
 
-        let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, "", w_id, None).await?;
+        let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 
         if let Some(s3_resource) = s3_resource {
             let s3_client = build_object_store_client(&s3_resource).await?;

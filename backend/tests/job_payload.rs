@@ -52,12 +52,10 @@ mod job_payload {
             let result = RunJob::from(JobPayload::ScriptHash {
                 hash: ScriptHash(123412),
                 path: "f/system/hello".to_string(),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
@@ -86,16 +84,14 @@ mod job_payload {
             let job = RunJob::from(JobPayload::ScriptHash {
                 hash: ScriptHash(123413),
                 path: "f/system/hello_with_preprocessor".to_string(),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: true,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
+                debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -167,10 +163,9 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[0],
                 language: ScriptLang::Deno,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })
@@ -187,10 +182,9 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[1],
                 language: ScriptLang::Deno,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
+                concurrency_settings: windmill_common::jobs::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })

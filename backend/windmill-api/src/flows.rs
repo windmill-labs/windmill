@@ -32,7 +32,6 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::flows::FlowValue;
 use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
 use windmill_common::HUB_BASE_URL;
@@ -70,10 +69,8 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route(
-            "/history_update/v/:version/p/*path",
-            post(update_flow_history),
-        )
+        .route("/history_update/v/:version", post(update_flow_history))
+        .route("/get/v/:version", get(get_flow_version_by_id))
         .route("/get/v/:version/p/*path", get(get_flow_version))
         .route(
             "/toggle_workspace_error_handler/*path",
@@ -134,7 +131,11 @@ async fn list_flows(
             "o.workspace_id",
             "o.path",
             "summary",
-            "description",
+            if !lq.without_description.unwrap_or(false) {
+                "description"
+            } else {
+                "NULL as description"
+            },
             "fv.created_by as edited_by",
             "fv.created_at as edited_at",
             "archived",
@@ -281,33 +282,48 @@ async fn toggle_workspace_error_handler(
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        r#"
+            SELECT
+                error_handler 
+            FROM 
+                workspace_settings 
+            WHERE 
+                workspace_id = $1
+        "#,
         w_id
     )
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(None);
 
-    return match error_handler_maybe {
+    let response = match error_handler_maybe {
         Some(_) => {
             sqlx::query_scalar!(
-                "UPDATE flow SET ws_error_handler_muted = $3 WHERE path = $1 AND workspace_id = $2",
+                r#"
+                    UPDATE 
+                        flow 
+                    SET 
+                        ws_error_handler_muted = $3 
+                    WHERE 
+                        path = $1 AND 
+                        workspace_id = $2
+                "#,
                 path.to_path(),
                 w_id,
                 req.muted,
             )
             .execute(&mut *tx)
             .await?;
-            tx.commit().await?;
             Ok("".to_string())
         }
-        None => {
-            tx.commit().await?;
-            Err(Error::ExecutionErr(
-                "Workspace error handler needs to be defined".to_string(),
-            ))
-        }
+        None => Err(Error::BadRequest(
+            "Workspace error handler needs to be defined".to_string(),
+        )),
     };
+
+    tx.commit().await?;
+
+    return response;
 }
 
 async fn check_path_conflict<'c>(
@@ -378,6 +394,20 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
+    #[cfg(not(feature = "enterprise"))]
+    if new_flow.ws_error_handler_muted.is_some_and(|val| val) {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
+    guard_flow_from_debounce_data(new_flow).await?;
+
+    return Ok(());
+}
+
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -387,7 +417,7 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
-    guard_flow_from_debounce_data(&nf).await?;
+    validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -414,18 +444,6 @@ async fn create_flow(
             ));
         }
     }
-    #[cfg(not(feature = "enterprise"))]
-    if nf
-        .value
-        .get("ws_error_handler_muted")
-        .map(|val| val.as_bool().unwrap_or(false))
-        .is_some_and(|val| val)
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
 
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
@@ -451,17 +469,13 @@ async fn create_flow(
         w_id,
         nf.path,
         nf.summary,
-        nf.description.unwrap_or_else(String::new),
+        nf.description.as_deref().unwrap_or(""),
         nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        if nf.on_behalf_of_email.is_some() {
-            Some(&authed.email)
-        } else {
-            None
-        },
-        nf.value,
+        nf.on_behalf_of_email.and(Some(&authed.email)),
+        sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
     )
@@ -474,7 +488,7 @@ async fn create_flow(
         RETURNING id",
         w_id,
         nf.path,
-        nf.value,
+        sqlx::types::Json(nf.value) as _,
         schema_str,
         &authed.username,
     )
@@ -550,6 +564,8 @@ async fn create_flow(
         false,
         None,
         None,
+        None,
+        None,
     )
     .await?;
 
@@ -558,6 +574,20 @@ async fn create_flow(
         dependency_job_uuid,
         nf.path,
         w_id
+    )
+    .execute(&mut *new_tx)
+    .await?;
+
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
     )
     .execute(&mut *new_tx)
     .await?;
@@ -692,6 +722,72 @@ async fn get_flow_version(
     Ok(Json(flow))
 }
 
+async fn get_flow_version_by_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> JsonResult<Flow> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    // First, fetch the path to perform authorization check early
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2")
+            .bind(version)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let path = not_found_if_none(
+        path,
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
+
+    // Perform authorization check before fetching full data
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
+
+    // Now fetch the full flow data with INNER JOIN to ensure flow exists
+    let flow = sqlx::query_as::<_, Flow>(
+        "SELECT
+            flow.workspace_id,
+            flow.path,
+            flow.summary,
+            flow.description,
+            flow.archived,
+            flow.extra_perms,
+            flow.draft_only,
+            flow.dedicated_worker,
+            flow.tag,
+            flow.ws_error_handler_muted,
+            flow.timeout,
+            flow.visible_to_runner_only,
+            flow.on_behalf_of_email,
+            flow_version.schema,
+            flow_version.value,
+            flow_version.created_at as edited_at,
+            flow_version.created_by as edited_by
+        FROM flow
+        INNER JOIN flow_version
+            ON flow_version.path = flow.path
+            AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow_version.id = $1 AND flow.workspace_id = $2",
+    )
+    .bind(version)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let flow = not_found_if_none(
+        flow,
+        "Flow",
+        format!("for version {} (flow may have been deleted)", version),
+    )?;
+
+    Ok(Json(flow))
+}
+
 #[derive(Deserialize)]
 pub struct FlowHistoryUpdate {
     pub deployment_msg: String,
@@ -700,42 +796,41 @@ pub struct FlowHistoryUpdate {
 async fn update_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+    Path((w_id, version)): Path<(String, i64)>,
     Json(history_update): Json<FlowHistoryUpdate>,
 ) -> Result<()> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-    let path_o = sqlx::query_scalar!(
-        "SELECT flow.path FROM flow
-        LEFT JOIN flow_version
-            ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
+
+    // Fetch path and perform authorization check early
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2")
+            .bind(&w_id)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let path = not_found_if_none(
         path,
-        w_id,
-        version
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
 
-    if path_o.is_none() {
-        tx.commit().await?;
-        return Err(Error::NotFound(
-            format!("Flow version {version} for path {path} not found").to_string(),
-        ));
-    }
+    // Perform authorization check before any modifications
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
 
+    // Insert or update deployment metadata
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
-        w_id,
-        path_o.unwrap(),
+        &w_id,
+        path,
         version,
         history_update.deployment_msg,
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
-    return Ok(());
+    Ok(())
 }
 
 async fn update_flow(
@@ -748,20 +843,7 @@ async fn update_flow(
 ) -> Result<String> {
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
-    guard_flow_from_debounce_data(&nf).await?;
-
-    #[cfg(not(feature = "enterprise"))]
-    if nf
-        .value
-        .get("ws_error_handler_muted")
-        .map(|val| val.as_bool().unwrap_or(false))
-        .is_some_and(|val| val)
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
+    validate_flow(&nf).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -783,8 +865,8 @@ async fn update_flow(
 
     sqlx::query!(
         "
-        UPDATE 
-            flow 
+        UPDATE
+            flow
         SET
             path = $1,
             summary = $2,
@@ -800,20 +882,16 @@ async fn update_flow(
             schema = $9::text::json,
             edited_by = $10,
             edited_at = now()
-        WHERE 
+        WHERE
             path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
         nf.summary,
-        nf.description.unwrap_or_else(String::new),
+        nf.description.as_deref().unwrap_or(""),
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        if nf.on_behalf_of_email.is_some() {
-            Some(&authed.email)
-        } else {
-            None
-        },
-        nf.value,
+        nf.on_behalf_of_email.and(Some(&authed.email)),
+        sqlx::types::Json(&nf.value) as _,
         schema_str,
         authed.username,
         flow_path,
@@ -828,8 +906,8 @@ async fn update_flow(
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
-            "INSERT INTO flow 
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at) 
+            "INSERT INTO flow
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
             SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
@@ -897,12 +975,14 @@ async fn update_flow(
     .warn_after_seconds(10)
     .await??;
 
+    // tracing::error!("Updating flow: {:?}", nf.value.get());
+
     // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
         w_id,
         nf.path,
-        nf.value,
+        sqlx::types::Json(nf.value) as _,
         schema_str,
         &authed.username,
     )
@@ -1030,6 +1110,8 @@ async fn update_flow(
         false,
         None,
         None,
+        None,
+        None,
     )
     .await?;
 
@@ -1044,6 +1126,25 @@ async fn update_flow(
     .map_err(|e| {
         error::Error::internal_err(format!(
             "Error updating flow due to updating dependency job field: {e:#}"
+        ))
+    })?;
+
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
+    )
+    .execute(&mut *new_tx)
+    .await
+    .map_err(|e| {
+        error::Error::internal_err(format!(
+            "Error updating deployment_metadata with job_id: {e:#}"
         ))
     })?;
 
@@ -1086,9 +1187,10 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
@@ -1096,9 +1198,12 @@ async fn get_deployment_status(
 ) -> JsonResult<DeploymentStatus> {
     let path = path.to_path();
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock_error_logs FROM flow WHERE path = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT f.lock_error_logs, dm.job_id
+         FROM flow f
+         LEFT JOIN deployment_metadata dm ON f.versions[array_upper(f.versions, 1)] = dm.flow_version
+             AND f.workspace_id = dm.workspace_id AND f.path = dm.path
+         WHERE f.path = $1 AND f.workspace_id = $2",
         path,
         w_id,
     )
@@ -1107,8 +1212,11 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
 
+    let deployment_status =
+        DeploymentStatus { lock_error_logs: status.lock_error_logs, job_id: status.job_id };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 async fn get_flow_by_path(
@@ -1138,6 +1246,7 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
             flow_version.schema, 
             flow_version.value, 
             flow_version.created_at AS edited_at, 
@@ -1145,11 +1254,11 @@ async fn get_flow_by_path(
             favorite.path IS NOT NULL AS starred
         FROM flow
         LEFT JOIN favorite
-            ON favorite.favorite_kind = 'flow' 
-            AND favorite.workspace_id = flow.workspace_id 
-            AND favorite.path = flow.path 
+            ON favorite.favorite_kind = 'flow'
+            AND favorite.workspace_id = flow.workspace_id
+            AND favorite.path = flow.path
             AND favorite.usr = $3
-        LEFT JOIN flow_version 
+        LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
         WHERE flow.path = $1 AND flow.workspace_id = $2
         "#,
@@ -1177,13 +1286,14 @@ async fn get_flow_by_path(
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email, 
+            flow_version.id AS version_id,
             flow_version.schema, 
-            flow_version.value, 
+            flow_version.value,
             flow_version.created_at AS edited_at, 
             flow_version.created_by AS edited_by, 
             NULL AS starred
         FROM flow
-        LEFT JOIN flow_version 
+        LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
         WHERE flow.path = $1 AND flow.workspace_id = $2
         "#,
@@ -1370,10 +1480,9 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
-        let flow_value: FlowValue = serde_json::from_value(nf.value.clone())?;
-        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
-    } {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
@@ -1492,6 +1601,7 @@ mod tests {
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
+        jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
         scripts,
     };
 
@@ -1524,6 +1634,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1542,11 +1653,9 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
                         is_trigger: None,
                         assets: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1558,6 +1667,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1578,6 +1688,7 @@ mod tests {
                         skip_failures: true,
                         parallel: false,
                         parallelism: None,
+                        squash: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
@@ -1589,6 +1700,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1620,6 +1732,7 @@ mod tests {
                 retry: None,
                 sleep: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 mock: None,
                 timeout: None,
                 priority: None,
@@ -1631,16 +1744,15 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             early_return: None,
-            concurrency_key: None,
             chat_input_enabled: None,
-            debounce_key: None,
-            debounce_delay_s: None,
+            flow_env: None,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings: DebouncingSettings::default(),
         };
         let expect = serde_json::json!({
           "modules": [

@@ -20,11 +20,12 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
+	import DebounceLimit from '../DebounceLimit.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -85,7 +86,7 @@
 						bind:content={flowStore.val.summary}
 						promptConfigName="flowSummary"
 						flow={flowStore.val.value}
-						on:change={() => {
+						onChange={() => {
 							if ($initialPathStore == '' && flowStore.val.summary?.length > 0 && !dirtyPath) {
 								path?.setName(
 									flowStore.val.summary
@@ -140,12 +141,6 @@
 				small={true}
 				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
 			>
-				{#if flowStore.val.schema && enableAi}
-					<AIFormSettings
-						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
-						type="flow"
-					/>
-				{/if}
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
@@ -217,12 +212,20 @@
 							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
 								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
 								<div class="-mt-5">
-									{#if flowStore.val.value.cache_ttl}
-										<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-									{:else}
-										<SecondsInput disabled />
-									{/if}
+									<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 								</div>
+								<Toggle
+									size="2xs"
+									bind:checked={
+										() => flowStore.val.value.cache_ignore_s3_path,
+										(v) => (flowStore.val.value.cache_ignore_s3_path = v || undefined)
+									}
+									options={{
+										right: 'Ignore S3 Object paths for caching purposes',
+										rightTooltip:
+											'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+									}}
+								/>
 							</div>
 						{/if}
 					</div>
@@ -391,12 +394,7 @@
 						bind:errorHandlerMuted={flowStore.val.ws_error_handler_muted}
 					/>
 					{#if !$enterpriseLicense}
-						<span
-							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-						>
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</span>
+						<EEOnly />
 					{/if}
 				</div>
 
@@ -474,60 +472,13 @@
 
 				<!-- Debouncing Section -->
 				{#if customUi?.settingsTabs?.debouncing != false}
-					<div>
-						<div class="flex flex-row items-center gap-2">
-							<Toggle
-								textClass="font-normal text-sm"
-								color="nord"
-								size="xs"
-								disabled={!$enterpriseLicense}
-								checked={Boolean(flowStore.val.value.debounce_delay_s)}
-								on:change={() => {
-									if (flowStore.val.value.debounce_delay_s) {
-										flowStore.val.value.debounce_delay_s = undefined
-									} else {
-										flowStore.val.value.debounce_delay_s = 1
-									}
-								}}
-								options={{
-									right: 'Debounce limits',
-									rightTooltip:
-										'Consolidate multiple flow executions into a single run within a time window',
-									rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/debouncing'
-								}}
-								class="py-1"
-								eeOnly={true}
-							/>
-						</div>
-
-						{#if flowStore.val.value.debounce_delay_s}
-							<div class="flex flex-col gap-4">
-								<Label label="Delay in seconds">
-									<SecondsInput
-										disabled={!$enterpriseLicense}
-										bind:seconds={flowStore.val.value.debounce_delay_s}
-									/>
-								</Label>
-								<Label label="Custom debounce key (optional)">
-									{#snippet header()}
-										<Tooltip>
-											Debounce keys are global, you can have them be workspace specific using the
-											variable `$workspace`. You can also use an argument's value using
-											`$args[name_of_arg]`</Tooltip
-										>
-									{/snippet}
-									<!-- svelte-ignore a11y_autofocus -->
-									<input
-										type="text"
-										autofocus
-										disabled={!$enterpriseLicense}
-										bind:value={flowStore.val.value.debounce_key}
-										placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-									/>
-								</Label>
-							</div>
-						{/if}
-					</div>
+					<DebounceLimit
+						size="xs"
+						fontClass="font-medium"
+						bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
+						bind:debounce_key={flowStore.val.value.debounce_key}
+						placeholder={`$workspace/flow/${$pathStore}-$args[foo]`}
+					/>
 				{/if}
 
 				<!-- Priority Section -->
@@ -571,12 +522,7 @@
 							}}
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
-							<span
-								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-							>
-								<AlertTriangle size={16} />
-								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-							</span>
+							<EEOnly />
 						{/if}
 					{/snippet}
 				</Toggle>
@@ -613,7 +559,12 @@
 						</div>
 					{/if}
 				</div>
-				<div></div>
+				{#if flowStore.val.schema && enableAi}
+					<AIFormSettings
+						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+						type="flow"
+					/>
+				{/if}
 			</Section>
 		</div>
 	</FlowCard>

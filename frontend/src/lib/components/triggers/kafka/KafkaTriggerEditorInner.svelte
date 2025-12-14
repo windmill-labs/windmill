@@ -5,9 +5,9 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { KafkaTriggerService, type ErrorHandler, type Retry } from '$lib/gen'
+	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -19,6 +19,9 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -66,7 +69,7 @@
 	let fixedScriptPath = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -83,6 +86,9 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+
 	const isValid = $derived(
 		!!kafkaResourcePath &&
 			kafkaCfgValid &&
@@ -90,6 +96,8 @@
 			kafkaCfg.topics.length > 0 &&
 			kafkaCfg.topics.every((b) => /^[a-zA-Z0-9-_.]+$/.test(b))
 	)
+
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const saveDisabled = $derived(
 		pathError !== '' ||
 			!isValid ||
@@ -98,7 +106,8 @@
 			emptyString(script_path) ||
 			emptyString(kafkaResourcePath) ||
 			kafkaCfg.topics.length === 0 ||
-			kafkaCfg.topics.some((t) => emptyString(t))
+			kafkaCfg.topics.some((t) => emptyString(t)) ||
+			!hasChanged
 	)
 	const kafkaConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -123,6 +132,7 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err) {
 			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
@@ -164,6 +174,8 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			mode = nDefaultValues?.mode ?? 'enabled'
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -181,7 +193,7 @@
 			group_id: cfg?.group_id,
 			topics: cfg?.topics
 		}
-		enabled = cfg?.enabled
+		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
@@ -211,7 +223,7 @@
 			kafka_resource_path: kafkaResourcePath,
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
-			enabled,
+			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
 			error_handler_args,
@@ -231,7 +243,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(cfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -245,13 +262,21 @@
 		}
 	}
 
-	async function handleToggleEnabled(nEnabled: boolean) {
-		await KafkaTriggerService.setKafkaTriggerEnabled({
-			path: initialPath,
-			workspace: $workspaceStore ?? '',
-			requestBody: { enabled: nEnabled }
-		})
-		sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
+		if (!trigger?.draftConfig) {
+			await KafkaTriggerService.setKafkaTriggerMode({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { mode: newMode }
+			})
+			sendUserToast(`${capitalize(newMode)} Kafka trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
+		}
 	}
 
 	$effect(() => {
@@ -265,6 +290,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="kafka"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -301,7 +343,7 @@
 		<TriggerEditorToolbar
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{enabled}
+			{mode}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -310,8 +352,9 @@
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={handleToggleMode}
 			{cloudDisabled}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}
@@ -337,6 +380,9 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
@@ -372,7 +418,7 @@
 						/>
 						{#if emptyString(script_path)}
 							<Button
-								btnClasses="ml-4 mt-2"
+								btnClasses="ml-4"
 								variant="accent"
 								size="xs"
 								disabled={!can_write}

@@ -6,7 +6,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -17,7 +17,8 @@
 		type MqttV5Config,
 		type MqttSubscribeTopic,
 		type Retry,
-		type ErrorHandler
+		type ErrorHandler,
+		type TriggerMode
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
@@ -31,6 +32,9 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		useDrawer?: boolean
@@ -79,7 +83,7 @@
 	let fixedScriptPath = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
+	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -96,14 +100,17 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
 	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
 		$state('connection_options')
 
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const mqttConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
-		pathError != '' || emptyString(script_path) || !can_write || !isValid
+		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
 	)
 	const activateV5Options = $state({
 		topic_alias_maximum: Boolean(DEFAULT_V5_CONFIG.topic_alias_maximum),
@@ -136,6 +143,7 @@
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -166,7 +174,7 @@
 			dirtyPath = false
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
-			enabled = defaultValues?.enabled ?? false
+			mode = defaultValues?.mode ?? 'enabled'
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
@@ -177,6 +185,7 @@
 			activateV5Options.session_expiry_interval = Boolean(
 				defaultValues?.v5_config?.session_expiry_interval
 			)
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -192,7 +201,7 @@
 			initialScriptPath = cfg?.script_path
 			is_flow = cfg?.is_flow
 			path = cfg?.path
-			enabled = cfg?.enabled
+			mode = cfg?.mode ?? 'enabled'
 			client_version = cfg?.client_version
 			v3_config = cfg?.v3_config ?? DEFAULT_V3_CONFIG
 			v5_config = cfg?.v5_config ?? DEFAULT_V5_CONFIG
@@ -236,7 +245,7 @@
 			subscribe_topics,
 			path,
 			script_path,
-			enabled,
+			mode,
 			is_flow,
 			error_handler_path,
 			error_handler_args,
@@ -268,20 +277,30 @@
 		)
 		if (isSaved) {
 			onUpdate?.(cfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
 
-	async function handleToggleEnabled(newEnabled: boolean) {
-		enabled = newEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await MqttTriggerService.setMqttTriggerEnabled({
+			await MqttTriggerService.setMqttTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: newEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} MQTT trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} MQTT trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -296,6 +315,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="mqtt"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -333,7 +369,7 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			{mode}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -341,8 +377,9 @@
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={handleToggleMode}
 			{cloudDisabled}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}
@@ -368,6 +405,9 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
@@ -403,7 +443,7 @@
 						/>
 						{#if emptyString(script_path)}
 							<Button
-								btnClasses="ml-4 mt-2"
+								btnClasses="ml-4"
 								variant="accent"
 								size="xs"
 								disabled={!can_write}

@@ -10,15 +10,16 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
-import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
+
+export type RunsSelectionMode = 'cancel' | 're-run'
 
 export namespace OpenApi {
 	export enum OpenApiVersion {
@@ -367,6 +368,13 @@ export function clickOutside(
 			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
+}
+
+export function undefinedIfEmpty(obj: any): any {
+	if (Object.keys(obj).length === 0) {
+		return undefined
+	}
+	return obj
 }
 
 export function pointerDownOutside(
@@ -803,9 +811,7 @@ export function addDeterminant(word: string): string {
 	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
-export function capitalize(word: string): string {
-	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
-}
+export { capitalize } from './sharedUtils'
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
 	if (!word) {
@@ -1344,6 +1350,7 @@ export type Item = {
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
+	tooltip?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1623,9 +1630,21 @@ export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
 
+export function validateRetryConfig(retry: Retry | undefined): string | null {
+	if (retry?.exponential?.seconds !== undefined) {
+		const seconds = retry.exponential.seconds
+		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0) {
+			return 'Exponential backoff base (seconds) must be an integer ≥ 0'
+		}
+	}
+	return null
+}
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+import BarsStaggered from './components/icons/BarsStaggered.svelte'
+import { GitIcon } from './components/icons'
+import { Bot, Code, Package } from 'lucide-svelte'
 export function getCssColor(
 	color: CssColor,
 	{
@@ -1646,3 +1665,28 @@ export function getCssColor(
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
+
+export function getJobKindIcon(jobKind: Job['job_kind']) {
+	if (jobKind === 'flow' || isFlowPreview(jobKind) || jobKind === 'unassigned_flow') {
+		return BarsStaggered
+	} else if (jobKind === 'deploymentcallback') {
+		return GitIcon
+	} else if (
+		jobKind === 'dependencies' ||
+		jobKind === 'appdependencies' ||
+		jobKind === 'flowdependencies'
+	) {
+		return Package
+	} else if (
+		jobKind === 'script' ||
+		isScriptPreview(jobKind) ||
+		jobKind === 'script_hub' ||
+		jobKind === 'singlestepflow' ||
+		jobKind === 'unassigned_script' ||
+		jobKind === 'unassigned_singlestepflow'
+	) {
+		return Code
+	} else if (jobKind === 'aiagent') {
+		return Bot
+	} else if (jobKind) return Code
+}

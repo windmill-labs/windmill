@@ -1,0 +1,382 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            v2_job.id,\n            v2_job.raw_code,\n            v2_job.raw_lock,\n            v2_job.raw_flow as \"raw_flow: _\",\n            v2_job.tag,\n            v2_job.created_at,\n            v2_job.created_by,\n            v2_job.permissioned_as,\n            v2_job.permissioned_as_email,\n            v2_job.kind as \"kind: _\",\n            v2_job.runnable_id,\n            v2_job.runnable_path,\n            v2_job.parent_job,\n            v2_job.root_job,\n            v2_job.script_lang as \"script_lang: _\",\n            v2_job.script_entrypoint_override,\n            v2_job.flow_step,\n            v2_job.flow_step_id,\n            v2_job.flow_innermost_root_job,\n            v2_job.\"trigger\",\n            v2_job.trigger_kind as \"trigger_kind: _\",\n            v2_job.same_worker,\n            v2_job.visible_to_owner,\n            v2_job.concurrent_limit,\n            v2_job.concurrency_time_window_s,\n            v2_job.cache_ttl,\n            v2_job.timeout,\n            v2_job.priority,\n            v2_job.preprocessed,\n            v2_job.args as \"args: _\",\n            v2_job.labels,\n            v2_job.pre_run_error,\n\n            v2_job_queue.started_at,\n            v2_job_queue.scheduled_for,\n            v2_job_queue.running,\n            v2_job_queue.canceled_by,\n            v2_job_queue.canceled_reason,\n            v2_job_queue.suspend,\n            v2_job_queue.suspend_until,\n            v2_job_queue.worker,\n            v2_job_queue.extras as \"extras: _\",\n\n            v2_job_runtime.ping,\n            v2_job_runtime.memory_peak,\n\n            v2_job_status.flow_status as \"flow_status: _\",\n            v2_job_status.flow_leaf_jobs as \"flow_leaf_jobs: _\",\n            v2_job_status.workflow_as_code_status as \"workflow_as_code_status: _\",\n\n            concurrency_key.key as \"concurrency_key?\"\n        FROM v2_job_queue\n        INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n        LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id\n        LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id\n        LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id\n        WHERE v2_job_queue.workspace_id = $1\n            AND v2_job_queue.running = false\n            AND v2_job.parent_job IS NULL\n            AND v2_job.trigger_kind IS DISTINCT FROM 'schedule'\n        ORDER BY v2_job.created_at DESC\n        LIMIT $2\n        OFFSET $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "raw_lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_flow: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 13,
+        "name": "root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 14,
+        "name": "script_lang: _",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "script_entrypoint_override",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "flow_step",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 17,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 18,
+        "name": "flow_innermost_root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 19,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 20,
+        "name": "trigger_kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "same_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "visible_to_owner",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 23,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 24,
+        "name": "concurrency_time_window_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 25,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 26,
+        "name": "timeout",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 27,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 28,
+        "name": "preprocessed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 29,
+        "name": "args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 30,
+        "name": "labels",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 31,
+        "name": "pre_run_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 32,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 33,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 34,
+        "name": "running",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 35,
+        "name": "canceled_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 36,
+        "name": "canceled_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 37,
+        "name": "suspend",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 38,
+        "name": "suspend_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 39,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 40,
+        "name": "extras: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 41,
+        "name": "ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 42,
+        "name": "memory_peak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 43,
+        "name": "flow_status: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 44,
+        "name": "flow_leaf_jobs: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 45,
+        "name": "workflow_as_code_status: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 46,
+        "name": "concurrency_key?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a4b6371d33206010b2f3ffd2b09e33244fe8ab9a803248fc23f334034d24aad4"
+}

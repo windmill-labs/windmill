@@ -1,12 +1,9 @@
-<script lang="ts" module>
-	export type RunsSelectionMode = 'cancel' | 're-run'
-</script>
-
 <script lang="ts">
 	import { userStore, superadmin } from '$lib/stores'
 	import { X, Check, ChevronDown, Loader2, SquareMousePointer } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import type { RunsSelectionMode } from '$lib/utils'
 
 	interface Props {
 		isLoading?: boolean

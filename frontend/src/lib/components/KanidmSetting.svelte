@@ -42,7 +42,7 @@
 
 <div class="flex flex-col gap-1">
 	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="text-sm font-medium text-primary flex gap-4 items-center"
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'kanidm'} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {

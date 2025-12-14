@@ -606,17 +606,17 @@ git pull
 
 {#if !settingsOnly}# Push from git repository to workspace
 wmill sync push --workspace {$workspaceStore} --repository {gitRepoResourcePath}
-						{:else}
-							# Edit wmill.yaml file
+{:else}# Edit wmill.yaml file
 vim wmill.yaml
 git add wmill.yaml
-						{/if}# Commit changes
+
+{/if}# Commit changes
 git commit
 git push
 {#if settingsOnly}
-							# Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
-								wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
-								wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre
+# Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre
 					>
 					{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch && settingsOnly}
 						<div class="text-xs text-primary mt-3">
@@ -629,7 +629,7 @@ git push
 								>
 							</div>
 							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
-								>git_branches:
+								>gitBranches:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here

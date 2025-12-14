@@ -338,7 +338,7 @@ pub async fn http_get_from_hub(
     db: Option<&Pool<Postgres>>,
 ) -> Result<reqwest::Response> {
     let uid = match db {
-        Some(db) => match get_uid(db).await {
+        Some(db) => match get_license_id_or_uid(db).await {
             Ok(uid) => Some(uid),
             Err(err) => {
                 tracing::info!("No valid uid found: {}", err);
@@ -393,21 +393,41 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
-    let mut uid = LICENSE_KEY_ID.read().await.clone();
+pub async fn get_license_id_or_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+) -> Result<String> {
+    let license_id = LICENSE_KEY_ID.read().await.clone();
 
-    if uid == "" {
-        let uid_value = sqlx::query_scalar!(
-            "SELECT value FROM global_settings WHERE name = $1",
-            UNIQUE_ID_SETTING
-        )
-        .fetch_one(db)
-        .await?;
-
-        uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
+    if license_id.is_empty() {
+        get_instance_uid(db).await
+    } else {
+        Ok(license_id)
     }
+}
+
+async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
+    let uid_value = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        UNIQUE_ID_SETTING
+    )
+    .fetch_one(db)
+    .await?;
+
+    let uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
 
     Ok(uid)
+}
+
+pub async fn get_telemetry_ids<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+) -> Result<(String, String)> {
+    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let instance_uid = get_instance_uid(db).await?;
+    if license_id.is_empty() {
+        Ok((instance_uid.clone(), instance_uid))
+    } else {
+        Ok((license_id, instance_uid))
+    }
 }
 
 pub fn map_string_to_number(s: &str, max_number: u64) -> u64 {
@@ -946,4 +966,23 @@ mod tests {
 pub struct ExpiringCacheEntry<T> {
     pub value: T,
     pub expiry: std::time::Instant,
+}
+
+impl<T> ExpiringCacheEntry<T> {
+    pub fn is_expired(&self) -> bool {
+        self.expiry < std::time::Instant::now()
+    }
+}
+
+pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
+    sqlx::query_scalar!(
+        "SELECT value->>'user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';"
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten().ok_or_else(||
+        Error::BadRequest(format!(
+            "Custom instance db password not found, did you run migrations ?"
+        ))
+    )
 }

@@ -7,9 +7,11 @@
 	function update(time: number) {
 		isLoopRunning = true
 		const delta = time - lastTime
+
+		let hover = Object.values(toastStates).some((state) => state.hover)
 		for (const toastId in toastStates) {
 			const state = toastStates[toastId]
-			if (state.hover) continue
+			if (hover) continue
 			if (state.elapsed >= state.duration) {
 				delete toastStates[toastId]
 				continue
@@ -82,6 +84,8 @@
 	let color = error
 		? { text: 'text-red-400', bg: 'bg-red-400' }
 		: { text: 'text-green-400', bg: 'bg-green-300' }
+
+	let hover = $derived(Object.values(toastStates).some((state) => state.hover))
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -140,7 +144,7 @@
 	</div>
 	<!-- Duration indicator -->
 	<div
-		class="h-0.5 {color.bg}"
+		class="h-0.5 transition-colors {hover ? 'bg-gray-300' : color.bg}"
 		style="width: {Math.max(0, 1 - (state?.elapsed ?? duration) / duration) * 100}%"
 	>
 	</div>

@@ -17,6 +17,10 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	getNonStreamingOpenAIResponsesCompletion,
+	getOpenAIResponsesCompletionStream
+} from './chat/openai-responses'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
@@ -76,6 +80,10 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'Together AI',
 		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
 	},
+	aws_bedrock: {
+		label: 'AWS Bedrock',
+		defaultModels: ['global.anthropic.claude-haiku-4-5-20251001-v1:0']
+	},
 	customai: {
 		label: 'Custom AI',
 		defaultModels: []
@@ -100,18 +108,102 @@ export async function fetchAvailableModels(
 	provider: AIProvider,
 	signal?: AbortSignal
 ): Promise<string[]> {
-	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
-		signal,
-		headers: {
+	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
+	if (provider === 'aws_bedrock') {
+		const headers = {
 			'X-Resource-Path': resourcePath,
-			'X-Provider': provider,
-			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+			'X-Provider': provider
 		}
-	})
+
+		// Fetch both foundation models and inference profiles
+		const [foundationModelsResp, inferenceProfilesResp] = await Promise.all([
+			fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/foundation-models`, {
+				signal,
+				headers
+			}),
+			fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/inference-profiles`, {
+				signal,
+				headers
+			})
+		])
+
+		if (!foundationModelsResp.ok) {
+			console.error('Failed to fetch foundation models', foundationModelsResp)
+			throw new Error('Failed to fetch foundation models for AWS Bedrock')
+		}
+
+		const foundationModelsData = (await foundationModelsResp.json()) as {
+			modelSummaries: Array<{
+				modelId: string
+				modelArn: string
+				inputModalities: string[]
+				outputModalities: string[]
+				inferenceTypesSupported: string[]
+			}>
+		}
+
+		// Inference profiles fetch might fail in some regions/accounts
+		let inferenceProfiles: Array<{
+			inferenceProfileId: string
+			models: Array<{ modelArn: string }>
+		}> = []
+
+		if (inferenceProfilesResp.ok) {
+			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+				inferenceProfileSummaries: Array<{
+					inferenceProfileId: string
+					models: Array<{ modelArn: string }>
+				}>
+			}
+			inferenceProfiles = inferenceProfilesData.inferenceProfileSummaries || []
+		} else {
+			console.warn('Failed to fetch inference profiles, will use direct model IDs only')
+		}
+
+		// Filter to TEXT-capable models
+		const textModels = foundationModelsData.modelSummaries.filter(
+			(m) => m.inputModalities?.includes('TEXT') && m.outputModalities?.includes('TEXT')
+		)
+
+		const onDemandModels = textModels
+			.filter(
+				(model) =>
+					model.inferenceTypesSupported?.includes('ON_DEMAND') &&
+					!model.inferenceTypesSupported?.includes('INFERENCE_PROFILE')
+			)
+			.map((model) => model.modelId)
+		const inferenceModels = inferenceProfiles.map((profile) => profile.inferenceProfileId)
+		const modelIds = [...onDemandModels, ...inferenceModels]
+
+		// Sort by default models
+		const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+		return modelIds.sort((a, b) => {
+			const aInDefault = defaultModels.includes(a)
+			const bInDefault = defaultModels.includes(b)
+			if (aInDefault && !bInDefault) return -1
+			if (!aInDefault && bInDefault) return 1
+			return 0
+		})
+	}
+
+	// Standard provider handling
+	const endpoint = 'models'
+	const models = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/${endpoint}`,
+		{
+			signal,
+			headers: {
+				'X-Resource-Path': resourcePath,
+				'X-Provider': provider,
+				...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+			}
+		}
+	)
 	if (!models.ok) {
 		console.error('Failed to fetch models for provider', provider, models)
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
+
 	const data = (await models.json()) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
@@ -137,8 +229,7 @@ export async function fetchAvailableModels(
 					.filter(
 						(m) =>
 							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
-							m.lifecycle_status !== 'deprecated' &&
-							(m.capabilities.completion || m.capabilities.chat_completion)
+							m.lifecycle_status !== 'deprecated'
 					)
 					.map((m) => m.id)
 					.sort(sortFunc(provider))
@@ -153,34 +244,38 @@ export async function fetchAvailableModels(
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (model.startsWith('gpt-5')) {
+	if (model.includes('gpt-5')) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
 		return 100000
-	} else if (model.startsWith('claude-sonnet') || model.startsWith('gemini-2.5')) {
+	} else if (
+		model.includes('claude-sonnet') ||
+		model.includes('gemini-2.5') ||
+		model.includes('claude-haiku')
+	) {
 		return 64000
-	} else if (model.startsWith('gpt-4.1')) {
+	} else if (model.includes('gpt-4.1')) {
 		return 32768
-	} else if (model.startsWith('claude-opus')) {
+	} else if (model.includes('claude-opus')) {
 		return 32000
-	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+	} else if (model.includes('gpt-4o') || model.includes('codestral')) {
 		return 16384
-	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
+	} else if (model.includes('gpt-4-turbo') || model.includes('gpt-3.5')) {
 		return 4096
 	}
 	return 8192
 }
 
 export function getModelContextWindow(model: string) {
-	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+	if (model.includes('gpt-4.1') || model.includes('gemini')) {
 		return 1000000
-	} else if (model.startsWith('gpt-5')) {
+	} else if (model.includes('gpt-5')) {
 		return 400000
-	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
 		return 128000
-	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
 		return 200000
-	} else if (model.startsWith('codestral')) {
+	} else if (model.includes('codestral')) {
 		return 32000
 	} else {
 		return 128000
@@ -271,7 +366,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined
 	},
-	anthropic: DEFAULT_COMPLETION_CONFIG
+	anthropic: DEFAULT_COMPLETION_CONFIG,
+	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const
 
 class WorkspacedAIClients {
@@ -581,6 +677,20 @@ export async function getNonStreamingCompletion(
 		forceModelProvider: testOptions?.forceModelProvider
 	})
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if (provider === 'openai' || provider === 'azure_openai') {
+		try {
+			const response = await getNonStreamingOpenAIResponsesCompletion(
+				messages,
+				abortController,
+				testOptions
+			)
+			return response
+		} catch (error) {
+			console.error('Error using Responses API:', error)
+		}
+	}
+
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -696,10 +806,24 @@ export async function getFimCompletion(
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceCompletions?: boolean
+	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 
+	// Use Responses API for OpenAI and Azure OpenAI
+	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
+		try {
+			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			return stream
+		} catch (error) {
+			console.error('Error using Responses API:', error)
+		}
+	}
+
+	// Use Completions API for other providers
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
@@ -729,9 +853,11 @@ export async function parseOpenAICompletion(
 	messages: ChatCompletionMessageParam[],
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
-	helpers: any
+	helpers: any,
+	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	let malformedFunctionCallError = false
 
 	let answer = ''
 	for await (const chunk of completion) {
@@ -739,6 +865,17 @@ export async function parseOpenAICompletion(
 			continue
 		}
 		const c = chunk as ChatCompletionChunk
+
+		// Check for malformed function call error (e.g. from Gemini models)
+		const finishReason = c.choices[0].finish_reason
+		if (
+			finishReason &&
+			typeof finishReason === 'string' &&
+			finishReason.includes('MALFORMED_FUNCTION_CALL')
+		) {
+			malformedFunctionCallError = true
+		}
+
 		const delta = c.choices[0].delta.content
 		if (delta) {
 			answer += delta
@@ -793,10 +930,26 @@ export async function parseOpenAICompletion(
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
 
-					// Display tool call immediately in loading state
+					const shouldStream = tool?.streamArguments ?? false
+					const accumulatedArgs = finalToolCall.function.arguments
+					let parameters: any = undefined
+					if (accumulatedArgs) {
+						try {
+							parameters = JSON.parse(accumulatedArgs)
+						} catch {
+							parameters = accumulatedArgs
+						}
+					}
+
+					// Display tool call with streaming parameters if enabled
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: `Calling ${funcName} tool...`
+						content: `Calling ${funcName}...`,
+						toolName: funcName,
+						isStreamingArguments: shouldStream,
+						showFade: tool?.showFade,
+						showDetails: tool?.showDetails,
+						parameters: parameters
 					})
 				}
 			}
@@ -810,6 +963,13 @@ export async function parseOpenAICompletion(
 	}
 
 	callbacks.onMessageEnd()
+
+	// Clear streaming state for all tool calls
+	for (const toolCall of Object.values(finalToolCalls)) {
+		if (toolCall.id) {
+			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+		}
+	}
 
 	const toolCalls = Object.values(finalToolCalls).filter(
 		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
@@ -838,6 +998,43 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+	} else if (malformedFunctionCallError) {
+		// Malformed function call with no tool calls - create artificial tool call to inform AI
+		const fakeToolCallId = generateRandomString()
+
+		// Show error status to user
+		callbacks.setToolStatus(fakeToolCallId, {
+			isLoading: false,
+			content: 'Malformed function call',
+			error: 'Invalid input given to function call',
+			toolName: 'unknown'
+		})
+
+		// Add assistant message with fake tool call
+		const assistantMessage = {
+			role: 'assistant' as const,
+			tool_calls: [
+				{
+					id: fakeToolCallId,
+					type: 'function' as const,
+					function: {
+						name: 'unknown',
+						arguments: '{}'
+					}
+				}
+			]
+		}
+		messages.push(assistantMessage)
+		addedMessages.push(assistantMessage)
+
+		// Add tool response telling AI to retry
+		const toolResponse = {
+			role: 'tool' as const,
+			tool_call_id: fakeToolCallId,
+			content: 'Invalid input given to function call, MUST TRY WITH SIMPLER ARGUMENTS'
+		}
+		messages.push(toolResponse)
+		addedMessages.push(toolResponse)
 	} else {
 		return false
 	}
@@ -924,55 +1121,6 @@ export async function copilot(
 
 	// make sure we display the latest and complete code
 	generatedCode.set(code)
-
-	if (code.length === 0) {
-		throw new Error('No code block found')
-	}
-
-	return code
-}
-
-function getStringEndDelta(prev: string, now: string) {
-	return now.slice(prev.length)
-}
-
-export async function deltaCodeCompletion(
-	messages: ChatCompletionMessageParam[],
-	generatedCodeDelta: Writable<string>,
-	abortController: AbortController
-) {
-	const completion = await getCompletion(messages, abortController)
-
-	let response = ''
-	let code = ''
-	let delta = ''
-	for await (const part of completion) {
-		response += getResponseFromEvent(part)
-		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
-
-		if (match) {
-			// if we have a full code block
-			delta = getStringEndDelta(code, match[1])
-			code = match[1]
-			generatedCodeDelta.set(delta)
-
-			break
-		}
-
-		// partial code block, keep going
-		match = response.match(/```[a-zA-Z]+\n([\s\S]*)/)
-
-		if (!match) {
-			continue
-		}
-
-		if (!match[1].endsWith('`')) {
-			// skip updating if possible that part of three ticks (end of code block)s
-			delta = getStringEndDelta(code, match[1])
-			generatedCodeDelta.set(delta)
-			code = match[1]
-		}
-	}
 
 	if (code.length === 0) {
 		throw new Error('No code block found')

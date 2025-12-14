@@ -203,6 +203,7 @@ async fn get_concurrent_intervals(
             has_null_parent: None,
             worker: None,
             label: None,
+            trigger_path: None,
             scheduled_for_before_now: _,
             is_not_schedule: _,
             started_before: _,
@@ -222,6 +223,7 @@ async fn get_concurrent_intervals(
             all_workspaces: _,
             concurrency_key: Some(_),
             allow_wildcards: None,
+            trigger_kind: _,
         } => true,
         _ => false,
     };

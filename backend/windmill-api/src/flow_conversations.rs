@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::db::ApiAuthed;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, DB},
     error::{JsonResult, Result},
     flow_conversations::MessageType,
     utils::{not_found_if_none, paginate, Pagination},
@@ -134,6 +134,7 @@ pub async fn get_or_create_conversation_with_id(
     } else {
         title.to_string()
     };
+
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
@@ -148,12 +149,14 @@ pub async fn get_or_create_conversation_with_id(
     )
     .fetch_one(&mut **tx)
     .await?;
+
     Ok(conversation)
 }
 
 async fn delete_conversation(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
 ) -> Result<String> {
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -185,10 +188,14 @@ async fn delete_conversation(
 
     // Delete associated memory in background (non-blocking cleanup)
     let w_id_clone = w_id.clone();
+    let db_clone = db.clone();
     tokio::spawn(async move {
-        if let Err(e) =
-            windmill_worker::memory_oss::delete_conversation_memory(&w_id_clone, conversation_id)
-                .await
+        if let Err(e) = windmill_worker::memory_oss::delete_conversation_memory(
+            &db_clone,
+            &w_id_clone,
+            conversation_id,
+        )
+        .await
         {
             tracing::error!(
                 "Failed to delete memory for conversation {} in workspace {}: {:?}",

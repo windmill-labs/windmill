@@ -2,7 +2,6 @@
 	import { Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import { CircleAlert, CircleCheck, Hourglass, ListFilterPlus, CirclePlay, X } from 'lucide-svelte'
 	import JsonEditor from '../JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -18,6 +17,8 @@
 	import DropdownSelect from '../DropdownSelect.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
+	import type { JobTriggerKind } from '$lib/gen'
 
 	interface Props {
 		// Filters
@@ -27,10 +28,11 @@
 		worker?: string | null
 		tag?: string | null
 		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
-		isSkipped?: boolean | undefined
+		showSkipped?: boolean | undefined
 		argFilter: string
 		argError: string
 		resultFilter: string
+		jobTriggerKind: JobTriggerKind | undefined
 		resultError: string
 		jobKindsCat: string
 		user?: string | null
@@ -63,10 +65,11 @@
 		worker = $bindable(null),
 		tag = $bindable(null),
 		success = $bindable(undefined),
-		isSkipped = $bindable(undefined),
+		showSkipped = $bindable(undefined),
 		argFilter = $bindable(),
 		argError = $bindable(),
 		resultFilter = $bindable(),
+		jobTriggerKind = $bindable(),
 		resultError = $bindable(),
 		jobKindsCat = $bindable(),
 		user = $bindable(null),
@@ -949,26 +952,40 @@
 					{/if}
 
 					<Label label="Show skipped flows">
+						<span class="text-2xs text-secondary">
+							Skipped flows are flows that did an early break
+						</span>
 						<div class="flex flex-row gap-1 items-center">
-							<Toggle size="sm" bind:checked={isSkipped} />
+							<Toggle size="sm" bind:checked={showSkipped} />
 						</div>
-						{#snippet header()}
-							<Tooltip>Skipped flows are flows that did an early break</Tooltip>
-						{/snippet}
+					</Label>
+
+					<Label label="Filter by trigger kind">
+						<span class="text-2xs text-secondary">
+							{`Filter by what kind of trigger started the run.`}
+						</span>
+						<Select
+							items={jobTriggerKinds.map((value) => ({
+								label: triggerDisplayNamesMap[value],
+								value
+							}))}
+							bind:value={jobTriggerKind}
+							clearable
+						/>
 					</Label>
 
 					<div class="flex flex-col gap-6">
 						<Label label="Filter by args">
-							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
 							<span class="text-2xs text-secondary">
 								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 							</span>
+							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
 						</Label>
 						<Label label="Filter by result">
-							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
 							<span class="text-2xs text-secondary">
 								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 							</span>
+							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
 						</Label>
 					</div>
 

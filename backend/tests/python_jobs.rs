@@ -25,7 +25,10 @@ def main():
         &db,
         content,
         ScriptLang::Python3,
-        vec!["# py: 3.11.11", "tiny==0.1.3"],
+        vec![
+            "# workspace-dependencies-mode: manual\n# py: 3.11.11",
+            "tiny==0.1.3",
+        ],
     )
     .await?;
     Ok(())
@@ -55,7 +58,11 @@ def main():
             &db,
             content,
             ScriptLang::Python3,
-            vec!["# py: 3.11.11", "bottle==0.13.2", "tiny==0.1.2"],
+            vec![
+                "# workspace-dependencies-mode: extra\n# py: 3.11.11",
+                "bottle==0.13.2",
+                "tiny==0.1.2",
+            ],
         )
         .await?;
     }
@@ -79,7 +86,11 @@ def main():
         &db,
         content,
         ScriptLang::Python3,
-        vec!["# py: 3.11.11", "simplejson==3.20.1", "tiny==0.1.3"],
+        vec![
+            "# workspace-dependencies-mode: extra\n# py: 3.11.11",
+            "simplejson==3.20.1",
+            "tiny==0.1.3",
+        ],
     )
     .await?;
     Ok(())
@@ -108,7 +119,7 @@ def main():
         content,
         ScriptLang::Python3,
         vec![
-            "# py: 3.11.11",
+            "# workspace-dependencies-mode: extra\n# py: 3.11.11",
             "bottle==0.13.2",
             "microdot==2.2.0",
             "simplejson==3.19.3",
@@ -178,12 +189,10 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 
@@ -229,12 +238,10 @@ def main():
             path: None,
             language: ScriptLang::Python3,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+            debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
         });
 
@@ -265,12 +272,10 @@ def main():
             path: None,
             language: ScriptLang::Python3,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            custom_debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+            debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
         });
 
@@ -306,12 +311,10 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 
@@ -345,12 +348,10 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
     });
 

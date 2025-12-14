@@ -32,6 +32,8 @@
 		allowClear = true,
 		hideMainClearBtn = false,
 		size = 'md',
+		id,
+		error = false,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -56,6 +58,8 @@
 		allowClear?: boolean
 		hideMainClearBtn?: boolean
 		size?: keyof typeof inputSizeClasses
+		id?: string
+		error?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -101,15 +105,19 @@
 		filterText = ''
 		value = []
 	}
+
+	export function getFilteredInputText() {
+		return filterText
+	}
 </script>
 
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'flex items-center flex-wrap',
+		'flex items-center flex-wrap relative',
 		inputBaseClass,
 		inputSizeClasses[size],
-		inputBorderClass({ forceFocus: open && !disabled }),
+		inputBorderClass({ forceFocus: open && !disabled, error }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
 		disabled ? 'disabled' : '',
@@ -118,6 +126,7 @@
 	{style}
 	onpointerup={() => (open = true)}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
+	{id}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

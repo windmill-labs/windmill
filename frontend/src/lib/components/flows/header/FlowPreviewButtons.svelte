@@ -8,7 +8,6 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 
 	interface Props {
@@ -25,7 +24,7 @@
 		localModuleStates = $bindable({})
 	}: Props = $props()
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
 	let preventEscape = $state(false)
@@ -50,14 +49,14 @@
 		flowPreviewContent?.test()
 	}
 
-	export async function runPreview(): Promise<string | undefined> {
+	export async function runPreview(conversationId?: string): Promise<string | undefined> {
 		if (!previewOpen) {
 			deferContent = true
 			await tick()
 		}
 		previewMode = 'whole'
 		flowPreviewContent?.refresh()
-		return await flowPreviewContent?.test()
+		return await flowPreviewContent?.test(conversationId)
 	}
 
 	export function cancelTest() {
@@ -70,7 +69,7 @@
 		$state('timeline')
 
 	let upToDisabled = $derived.by(() => {
-		const upToSelected = upToId ?? $selectedId
+		const upToSelected = upToId ?? selectionManager.getSelectedId()
 		return (
 			upToSelected == undefined ||
 			[
@@ -92,10 +91,9 @@
 				'constants',
 				'Result',
 				'Input',
-				'triggers'
+				'Trigger'
 			].includes(upToSelected) ||
-			upToSelected?.includes('branch') ||
-			aiChatManager.flowAiChatHelpers?.getModuleAction(upToSelected) === 'removed'
+			upToSelected?.includes('branch')
 		)
 	})
 
@@ -144,8 +142,8 @@
 	dropdownItems={!upToDisabled
 		? [
 				{
-					label: 'Test up to ' + $selectedId,
-					onClick: () => testUpTo($selectedId, true)
+					label: 'Test up to ' + selectionManager.getSelectedId(),
+					onClick: () => testUpTo(selectionManager.getSelectedId(), true)
 				}
 			]
 		: undefined}

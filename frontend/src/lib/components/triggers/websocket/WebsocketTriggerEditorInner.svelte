@@ -14,7 +14,8 @@
 		type ScriptArgs,
 		type WebsocketTriggerInitialMessage,
 		type Retry,
-		type ErrorHandler
+		type ErrorHandler,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
@@ -34,6 +35,10 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { capitalize } from '$lib/utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -84,7 +89,6 @@
 	let pathError = $state('')
 	let url = $state('')
 	let dirtyUrl = $state(false)
-	let enabled = $state(false)
 	let filters: {
 		key: string
 		value: any
@@ -105,7 +109,12 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let mode = $state<TriggerMode>('enabled')
 
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const websocketCfg = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived.by(() => {
@@ -121,7 +130,8 @@
 			invalidInitialMessages ||
 			drawerLoading ||
 			!can_write ||
-			emptyString(script_path)
+			emptyString(script_path) ||
+			!hasChanged
 		)
 	})
 
@@ -152,6 +162,7 @@
 			dirtyPath = false
 			dirtyUrl = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
@@ -195,6 +206,8 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			mode = defaultValues?.mode ?? 'enabled'
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -208,7 +221,6 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		url = cfg?.url
-		enabled = cfg?.enabled
 		filters = cfg?.filters
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
@@ -219,12 +231,12 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		mode = cfg?.mode ?? 'enabled'
 	}
 
 	function getSaveCfg() {
 		return {
 			script_path,
-			initialScriptPath,
 			is_flow,
 			path,
 			url,
@@ -233,10 +245,10 @@
 			url_runnable_args,
 			can_return_message,
 			can_return_error_result,
-			enabled,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			mode
 		}
 	}
 
@@ -303,7 +315,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(saveCfg.path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = saveCfg.path
+			initialScriptPath = saveCfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -316,15 +333,20 @@
 		}
 	}
 
-	async function handleToggleEnabled(newEnabled: boolean) {
-		enabled = newEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await WebsocketTriggerService.setWebsocketTriggerEnabled({
+			await WebsocketTriggerService.setWebsocketTriggerMode({
 				path: initialPath,
-				workspace: $workspaceStore!,
-				requestBody: { enabled: newEnabled }
+				workspace: $workspaceStore ?? '',
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} websocket trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -339,6 +361,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="websocket"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -375,7 +414,6 @@
 		<TriggerEditorToolbar
 			{trigger}
 			permissions={!drawerLoading && can_write ? 'create' : 'none'}
-			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -384,7 +422,9 @@
 			onUpdate={updateTrigger}
 			{onDelete}
 			{onReset}
-			onToggleEnabled={handleToggleEnabled}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 			{cloudDisabled}
 		/>
 	{/if}
@@ -397,6 +437,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-4">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			{#if description}
 				{@render description()}
 			{/if}
@@ -447,7 +490,7 @@
 							/>
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
+									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
 									disabled={!can_write}

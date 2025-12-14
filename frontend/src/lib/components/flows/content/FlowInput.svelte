@@ -42,22 +42,29 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import type { ScriptLang } from '$lib/gen'
+	import type { AiAgent, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import FlowChat from '../conversations/FlowChat.svelte'
 
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
-		onTestFlow?: () => Promise<string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
+	let {
+		noEditor,
+		disabled,
+		onTestFlow,
+		previewOpen,
+		flowModuleSchemaMap = undefined
+	}: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -68,7 +75,22 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+
+	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
+	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
+
+	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 	let showChatModeWarning = $state(false)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
@@ -106,6 +128,10 @@
 		timeout = setTimeout(() => {
 			updateEditPanelSize(editPanelSize)
 		}, 100)
+	})
+
+	$effect(() => {
+		chatInputEnabled = Boolean(flowStore.val.value?.chat_input_enabled)
 	})
 
 	const getDropdownItems = () => {
@@ -217,7 +243,7 @@
 	}
 
 	async function runPreview() {
-		await onTestFlow?.()
+		await onTestFlow?.(undefined)
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
@@ -370,9 +396,12 @@
 		firstStepInputs?.resetSelected(true)
 	}
 
-	async function runFlowWithMessage(message: string): Promise<string | undefined> {
+	async function runFlowWithMessage(
+		message: string,
+		conversationId: string
+	): Promise<string | undefined> {
 		previewArgs.val = { user_message: message }
-		const jobId = await onTestFlow?.()
+		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
 
@@ -386,7 +415,7 @@
 	}
 
 	function handleToggleChatMode() {
-		if (!chatInputEnabled) {
+		if (!flowStore.val.value?.chat_input_enabled) {
 			// Check if there are existing inputs
 			if (hasOtherInputs()) {
 				showChatModeWarning = true
@@ -417,8 +446,12 @@
 			},
 			required: ['user_message']
 		}
-		const hasAiAgent = flowStore.val.value.modules.some((m) => m.value.type === 'aiagent')
-		if (!hasAiAgent) {
+
+		// Find all AI agent modules
+		const aiAgentModules = flowStore.val.value.modules.filter((m) => m.value.type === 'aiagent')
+
+		if (aiAgentModules.length === 0) {
+			// No AI agent exists, create one with context memory set to 10
 			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
 			flowStore.val.value.modules = [
 				...flowStore.val.value.modules,
@@ -427,21 +460,53 @@
 					value: {
 						type: 'aiagent',
 						tools: [],
-						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
-							if (key === 'user_message') {
-								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-							} else {
-								accu[key] = {
-									type: 'static',
-									value: undefined
+						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
+							(accu, key) => {
+								if (key === 'user_message') {
+									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+								} else if (key === 'messages_context_length') {
+									accu[key] = { type: 'static', value: 10 }
+								} else {
+									accu[key] = {
+										type: 'static',
+										value: undefined
+									}
 								}
-							}
-							return accu
-						}, {})
+								return accu
+							},
+							{} as AiAgent['input_transforms']
+						)
 					}
 				}
 			]
+			sendUserToast(
+				'Chat mode enabled. AI agent created with user message input and context memory set to 10.',
+				false
+			)
+		} else if (aiAgentModules.length === 1) {
+			// Exactly one AI agent exists, configure it
+			const aiAgent = aiAgentModules[0]
+			const value = aiAgent.value as AiAgent
+
+			// Set user_message to flow_input.user_message
+			value.input_transforms['user_message'] = {
+				type: 'javascript',
+				expr: 'flow_input.user_message'
+			}
+
+			// Set messages_context_length to 10
+			value.input_transforms['messages_context_length'] = {
+				type: 'static',
+				value: 10
+			}
+
+			sendUserToast(
+				'Chat mode enabled. AI agent configured with user message input and context memory set to 10.',
+				false
+			)
 		}
+		// If there are multiple AI agents, don't auto-configure (ambiguous which one to configure)
+
 		showChatModeWarning = false
 	}
 </script>
@@ -454,7 +519,10 @@
 	title="Enable Chat Mode?"
 	confirmationText="Continue"
 	onConfirmed={enableChatMode}
-	onCanceled={() => (showChatModeWarning = false)}
+	onCanceled={() => {
+		showChatModeWarning = false
+		chatInputEnabled = false
+	}}
 >
 	<p class="text-sm text-secondary">
 		Enabling Chat Mode will replace all existing flow inputs with a single
@@ -471,9 +539,8 @@
 		{#if !disabled}
 			<Toggle
 				size="sm"
-				checked={chatInputEnabled}
-				on:click={(e) => {
-					e.preventDefault()
+				bind:checked={chatInputEnabled}
+				on:change={(e) => {
 					handleToggleChatMode()
 				}}
 				options={{
@@ -487,13 +554,12 @@
 	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
-				<div class="flex-1 min-h-0">
-					<FlowChatInterface
+				<div class="flex flex-col h-full">
+					<FlowChat
 						onRunFlow={runFlowWithMessage}
-						createConversation={async () => {
-							const newConversationId = crypto.randomUUID()
-							return newConversationId
-						}}
+						path={$pathStore}
+						hideSidebar={true}
+						useStreaming={shouldUseStreaming}
 					/>
 				</div>
 			{:else}
@@ -756,7 +822,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.val.schema} />
+			<FlowInputViewer schema={effectiveSchema} />
 		</div>
 	{/if}
 </FlowCard>

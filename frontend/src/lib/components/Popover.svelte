@@ -1,4 +1,8 @@
 <script lang="ts">
+	/**
+	 * @deprecated Use `$lib/components/meltComponents/Popover.svelte` instead.
+	 * This legacy popover component will be removed in a future version.
+	 */
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'

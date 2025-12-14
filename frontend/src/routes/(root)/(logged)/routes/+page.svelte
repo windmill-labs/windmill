@@ -5,6 +5,7 @@
 		HttpTriggerService,
 		WorkspaceService,
 		type HttpTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -31,7 +32,18 @@
 		enterpriseLicense,
 		usedTriggerKinds
 	} from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
+	import {
+		Route,
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Share,
+		Trash,
+		FileUp,
+		ClipboardCopy,
+		Pause
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -48,6 +60,7 @@
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
 	import OpenApiSpecGenerator from '$lib/components/triggers/http/OpenAPISpecGenerator.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
@@ -196,6 +209,25 @@
 		}
 	}
 
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+		try {
+			await HttpTriggerService.setHttpTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` http trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
@@ -297,7 +329,7 @@
 				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -342,6 +374,25 @@
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
 
+								<TriggerModeToggle
+									onToggleMode={(mode) => onToggleMode(path, mode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'http',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
+
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() =>
@@ -376,25 +427,17 @@
 													goto(href)
 												}
 											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
-												action: async () => {
-													try {
-														await HttpTriggerService.deleteHttpTrigger({
-															workspace: $workspaceStore ?? '',
-															path
-														})
-														sendUserToast(`Successfully deleted HTTP route: ${path}`)
-														loadTriggers()
-													} catch (error) {
-														sendUserToast(error.body || error.message, true)
-													}
-												}
-											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
 											{
 												displayName: canWrite ? 'Edit' : 'View',
 												icon: canWrite ? Pen : Eye,
@@ -427,6 +470,25 @@
 												icon: Share,
 												action: () => {
 													shareModal?.openDrawer(path, 'http_trigger')
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled:
+													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												action: async () => {
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											}
 										]}

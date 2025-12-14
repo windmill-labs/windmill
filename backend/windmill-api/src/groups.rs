@@ -55,6 +55,12 @@ pub fn global_service() -> Router {
         .route("/overwrite", post(overwrite_igroups))
 }
 
+/// Normalize group names: replace spaces with underscores and convert to lowercase
+/// Used when manually creating groups and SCIM-managed groups
+pub fn convert_name(name: &str) -> String {
+    name.replace(" ", "_").to_lowercase()
+}
+
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct Group {
     pub workspace_id: String,
@@ -103,7 +109,7 @@ async fn list_groups(
 
     let rows = sqlx::query_as!(
         Group,
-        "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -126,7 +132,7 @@ async fn list_group_names(
 ) -> JsonResult<Vec<String>> {
     let rows = if !only_member_of.unwrap_or(false) {
         sqlx::query_scalar!(
-            "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name desc",
+            "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name asc",
             w_id
         )
         .fetch_all(&db)
@@ -291,10 +297,12 @@ async fn create_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let normalized_name = convert_name(&ng.name);
+
     let id = Uuid::new_v4().to_string();
     sqlx::query!(
         "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-        ng.name,
+        normalized_name,
         ng.summary,
         id,
     )
@@ -307,13 +315,13 @@ async fn create_igroup(
         "igroup.create",
         ActionKind::Create,
         "global",
-        Some(&ng.name.to_string()),
+        Some(&normalized_name),
         None,
     )
     .await?;
 
     tx.commit().await?;
-    Ok(format!("Created group {}", ng.name))
+    Ok(format!("Created group {}", normalized_name))
 }
 
 #[derive(Deserialize)]

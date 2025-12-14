@@ -15,7 +15,12 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode } from '$lib/script_helpers'
+	import {
+		initialCode,
+		canHavePreprocessor,
+		getPreprocessorFullCode,
+		getMainFunctionPattern
+	} from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -80,12 +85,6 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import {
-		TS_PREPROCESSOR_MODULE_CODE,
-		TS_PREPROCESSOR_SCRIPT_INTRO,
-		PYTHON_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_SCRIPT_INTRO
-	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
@@ -103,6 +102,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
+	import DebounceLimit from './flows/DebounceLimit.svelte'
 
 	let {
 		script = $bindable(),
@@ -312,7 +312,7 @@
 		{
 			value: 'preprocessor',
 			title: 'Preprocessor',
-			desc: 'Transform incoming requests before they are passed to the flow.',
+			desc: 'Transform incoming requests before they are passed to the main entrypoint.',
 			documentationLink: 'https://www.windmill.dev/docs/core_concepts/preprocessors',
 			Icon: Shuffle
 		}
@@ -379,7 +379,7 @@
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
-		scriptEditor?.inferSchema(script.content, language, true)
+		scriptEditor?.inferSchema(script.content, { nlang: language, resetArgs: true })
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
@@ -523,6 +523,7 @@
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
 					cache_ttl: script.cache_ttl,
+					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
@@ -567,7 +568,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || script.kind !== 'script' || script.no_main_func) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -663,7 +664,10 @@
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
+						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+						debounce_delay_s: script.debounce_delay_s,
 						cache_ttl: script.cache_ttl,
+						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
@@ -847,16 +851,13 @@
 		captureOn.set(true)
 	}
 
-	function addPreprocessor() {
+	function addPreprocessor(e?: { detail?: { args: Record<string, any> } }) {
 		const code = editor?.getCode()
 		if (code) {
-			const preprocessorCode =
-				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
-					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
-			const mainIndex = code.indexOf(
-				script.language === 'python3' ? 'def main' : 'export async function main'
-			)
+			const preprocessorCode = getPreprocessorFullCode(script.language, false)
+			const mainPattern = getMainFunctionPattern(script.language)
+			const mainIndex = code.indexOf(mainPattern)
+
 			if (mainIndex === -1) {
 				editor?.setCode(code + preprocessorCode)
 			} else {
@@ -866,6 +867,11 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+
+		// Apply provided args to the preprocessor
+		if (e?.detail?.args && Object.keys(e.detail.args).length > 0) {
+			args = { ...args, ...e.detail.args }
+		}
 	}
 
 	function handleDeployTrigger(trigger: Trigger) {
@@ -1042,7 +1048,7 @@
 					{#snippet content()}
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Metadata">
 										{#snippet action()}
 											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
@@ -1061,13 +1067,11 @@
 												<MetadataGen
 													aiId="create-script-summary-input"
 													aiDescription="Summary / Title of the new script"
-													label="Summary"
 													bind:content={script.summary}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => onSummaryChange(script.summary)}
+													onChange={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1097,7 +1101,6 @@
 											<Label label="Description">
 												<MetadataGen
 													bind:content={script.description}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="description"
 													elementType="textarea"
@@ -1136,7 +1139,8 @@
 															btnClasses={isPicked ? '' : 'm-[1px]'}
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
-																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
+																(script.kind == 'preprocessor' && !canHavePreprocessor(lang))}
 															startIcon={{
 																icon: LanguageIcon,
 																props: { lang }
@@ -1209,101 +1213,7 @@
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 px-4 py-2">
-									<Section label="Concurrency limits" eeOnly>
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
-											>
-												Allowed concurrency within a given timeframe
-											</Tooltip>
-										{/snippet}
-										<div class="flex flex-col gap-4">
-											<Label label="Max number of executions within the time window">
-												<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
-													<input
-														disabled={!$enterpriseLicense}
-														bind:value={script.concurrent_limit}
-														type="number"
-													/>
-													<Button
-														size="sm"
-														color="light"
-														on:click={() => {
-															script.concurrent_limit = undefined
-															script.concurrency_time_window_s = undefined
-															script.concurrency_key = undefined
-														}}
-														variant="border">Remove Limits</Button
-													>
-												</div>
-											</Label>
-											<Label label="Time window in seconds">
-												<SecondsInput
-													disabled={!$enterpriseLicense}
-													bind:seconds={script.concurrency_time_window_s}
-												/>
-											</Label>
-											<Label label="Custom concurrency key (optional)">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
-													>
-														Concurrency keys are global, you can have them be workspace specific
-														using the variable `$workspace`. You can also use an argument's value
-														using `$args[name_of_arg]`</Tooltip
-													>
-												{/snippet}
-												<input
-													disabled={!$enterpriseLicense}
-													type="text"
-													autofocus
-													bind:value={script.concurrency_key}
-													placeholder={`$workspace/script/${script.path}-$args[foo]`}
-												/>
-											</Label>
-										</div>
-									</Section>
-									<Section label="Debouncing" eeOnly>
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
-											>
-												Debounce Jobs
-											</Tooltip>
-										{/snippet}
-										<div class="flex flex-col gap-4">
-											<Label label="Debounce Delay in seconds. (if not set - disabled)">
-												<SecondsInput bind:seconds={script.debounce_delay_s} />
-												<Button
-													size="sm"
-													color="light"
-													on:click={() => {
-														script.debounce_delay_s = undefined
-														script.debounce_key = undefined
-													}}
-													variant="border">Remove Debouncing</Button
-												>
-											</Label>
-											<Label label="Custom debounce key (optional)">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
-													>
-														Debounce Keys are global, you can have them be workspace specific using
-														the variable `$workspace`. You can also use an argument's value using
-														`$args[name_of_arg]`</Tooltip
-													>
-												{/snippet}
-												<input
-													type="text"
-													autofocus
-													bind:value={script.debounce_key}
-													placeholder={`$workspace/script/${script.path}-$args[foo]`}
-												/>
-											</Label>
-										</div>
-									</Section>
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
 											<Tooltip
@@ -1318,6 +1228,71 @@
 											placeholder={customUi?.tagSelectPlaceholder}
 										/>
 									</Section>
+
+									<Section label="Concurrency limits" eeOnly>
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
+											>
+												Allowed concurrency within a given timeframe
+											</Tooltip>
+										{/snippet}
+										<Toggle
+											size="sm"
+											checked={Boolean(script.concurrent_limit)}
+											on:change={() => {
+												if (script.concurrent_limit && script.concurrent_limit != undefined) {
+													script.concurrent_limit = undefined
+													script.concurrency_time_window_s = undefined
+													script.concurrency_key = undefined
+												} else {
+													script.concurrent_limit = 1
+												}
+											}}
+											options={{
+												right: 'Concurrency limits'
+											}}
+										/>
+										{#if Boolean(script.concurrent_limit)}
+											<div class="flex flex-col gap-4 mt-2">
+												<Label label="Max number of executions within the time window">
+													<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
+														<input
+															disabled={!$enterpriseLicense}
+															bind:value={script.concurrent_limit}
+															type="number"
+														/>
+													</div>
+												</Label>
+												{#if Boolean(script.concurrent_limit)}
+													<Label label="Time window in seconds">
+														<SecondsInput
+															disabled={!$enterpriseLicense}
+															bind:seconds={script.concurrency_time_window_s}
+														/>
+													</Label>
+													<Label label="Custom concurrency key (optional)">
+														{#snippet header()}
+															<Tooltip
+																documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
+															>
+																Concurrency keys are global, you can have them be workspace specific
+																using the variable `$workspace`. You can also use an argument's
+																value using `$args[name_of_arg]`</Tooltip
+															>
+														{/snippet}
+														<input
+															disabled={!$enterpriseLicense}
+															type="text"
+															autofocus
+															bind:value={script.concurrency_key}
+															placeholder={`$workspace/script/${script.path}-$args[foo]`}
+														/>
+													</Label>
+												{/if}
+											</div>
+										{/if}
+									</Section>
 									<Section label="Cache">
 										{#snippet header()}
 											<Tooltip
@@ -1329,25 +1304,28 @@
 										<div class="flex gap-2 shrink flex-col">
 											<Toggle
 												size="sm"
-												checked={Boolean(script.cache_ttl)}
-												on:change={() => {
-													if (script.cache_ttl && script.cache_ttl != undefined) {
-														script.cache_ttl = undefined
-													} else {
-														script.cache_ttl = 300
-													}
-												}}
-												options={{
-													right: 'Cache the results for each possible inputs'
-												}}
+												bind:checked={
+													() => !!script.cache_ttl, (v) => (script.cache_ttl = v ? 300 : undefined)
+												}
+												options={{ right: 'Cache the results for each possible inputs' }}
 											/>
-											<span class="text-xs font-semibold text-emphasis leading-none">
-												How long to the keep cache valid
-											</span>
 											{#if script.cache_ttl}
-												<SecondsInput bind:seconds={script.cache_ttl} />
-											{:else}
-												<SecondsInput disabled />
+												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
+												<div class="-mt-5">
+													<SecondsInput bind:seconds={script.cache_ttl} />
+												</div>
+												<Toggle
+													size="2xs"
+													bind:checked={
+														() => script.cache_ignore_s3_path,
+														(v) => (script.cache_ignore_s3_path = v || undefined)
+													}
+													options={{
+														right: 'Ignore S3 Object paths for caching purposes',
+														rightTooltip:
+															'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+													}}
+												/>
 											{/if}
 										</div>
 									</Section>
@@ -1374,16 +1352,35 @@
 													right: 'Add a custom timeout for this script'
 												}}
 											/>
-											<span class="text-xs font-semibold text-emphasis leading-none">
-												Timeout duration
-											</span>
-											{#if script.timeout}
-												<SecondsInput bind:seconds={script.timeout} />
-											{:else}
-												<SecondsInput disabled />
+											{#if Boolean(script.timeout)}
+												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
+													Timeout duration
+												</span>
+												{#if script.timeout}
+													<SecondsInput bind:seconds={script.timeout} />
+												{:else}
+													<SecondsInput disabled />
+												{/if}
 											{/if}
 										</div>
 									</Section>
+									<Section label="Debouncing">
+										<DebounceLimit
+											size="sm"
+											bind:debounce_delay_s={script.debounce_delay_s}
+											bind:debounce_key={script.debounce_key}
+											placeholder={`$workspace/script/${script.path}-$args[foo]`}
+										/>
+
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/job_debouncing"
+											>
+												Debounce Jobs
+											</Tooltip>
+										{/snippet}
+									</Section>
+
 									<Section label="Perpetual script">
 										{#snippet header()}
 											<Tooltip
@@ -1672,13 +1669,11 @@
 									newItem={initialPath == ''}
 									isFlow={false}
 									{hasPreprocessor}
-									canHavePreprocessor={script.language === 'bun' ||
-										script.language === 'deno' ||
-										script.language === 'python3'}
+									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
-									hash={script.parent_hash}
+									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 
@@ -1781,7 +1776,6 @@
 									nullTag={script.language}
 									placeholder={customUi?.tagSelectPlaceholder}
 									bind:tag={script.tag}
-									alwaysDisplayRefresh
 								/>
 							</div>
 						{/if}

@@ -24,6 +24,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
     utils::report_critical_error,
     worker::to_raw_value,
     DB,
@@ -94,6 +95,7 @@ impl ListeningTrigger<WebsocketConfig> {
                         None,
                         None,
                         "".to_string(), // doesn't matter as no retry/error handler
+                        TriggerMetadata::new(Some(self.path.to_owned()), JobTriggerKind::Websocket),
                     )
                     .await
                     .map(|r| r.get().to_owned())?;
@@ -332,6 +334,7 @@ impl Listener for WebsocketTrigger {
             trigger_config,
             script_path,
             error_handling,
+            suspended_mode,
             ..
         } = listening_trigger;
 
@@ -364,7 +367,26 @@ impl Listener for WebsocketTrigger {
             ),
             None => (None, None, None),
         };
-        if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
+        let trigger = TriggerMetadata::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
+        if *suspended_mode || extra.is_none() {
+            trigger_runnable(
+                db,
+                None,
+                authed,
+                &workspace_id,
+                &script_path,
+                *is_flow,
+                args,
+                retry,
+                error_handler_path,
+                error_handler_args,
+                format!("websocket_trigger/{}", listening_trigger.path),
+                None,
+                *suspended_mode,
+                trigger,
+            )
+            .await?;
+        } else if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
             let db_ = db.clone();
             let url = url.to_owned();
             let script_path = script_path.to_owned();
@@ -392,6 +414,7 @@ impl Listener for WebsocketTrigger {
                         error_handler_path.as_deref(),
                         error_handler_args.as_ref(),
                         format!("websocket_trigger/{}", trigger_path),
+                        trigger,
                     ) => {
                         if let Ok((result, success)) = result {
                             if !success && !can_return_error_result {
@@ -414,22 +437,6 @@ impl Listener for WebsocketTrigger {
             };
 
             tokio::spawn(handle_response_f);
-        } else {
-            trigger_runnable(
-                db,
-                None,
-                authed,
-                &workspace_id,
-                &script_path,
-                *is_flow,
-                args,
-                retry,
-                error_handler_path,
-                error_handler_args,
-                format!("websocket_trigger/{}", listening_trigger.path),
-                None,
-            )
-            .await?;
         }
 
         Ok(())

@@ -415,9 +415,8 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "duckdb"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a093eed1c714143b257b95fa323e38527fabf05fbf02bb0d5d2045275ffdaef"
+version = "1.4.2"
+source = "git+https://github.com/windmill-labs/duckdb-rs.git?rev=fe0702529de6ec5a568337726bba9355503157d2#fe0702529de6ec5a568337726bba9355503157d2"
 dependencies = [
  "arrow",
  "cast",
@@ -703,9 +702,8 @@ checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 
 [[package]]
 name = "libduckdb-sys"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b93c3ff279601516f01531cadf2ccba50394fbb5f7bf685c6e6b9b07c8dca6f"
+version = "1.4.2"
+source = "git+https://github.com/windmill-labs/duckdb-rs.git?rev=fe0702529de6ec5a568337726bba9355503157d2#fe0702529de6ec5a568337726bba9355503157d2"
 dependencies = [
  "cc",
  "flate2",

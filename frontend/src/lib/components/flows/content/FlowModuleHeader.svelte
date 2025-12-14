@@ -12,9 +12,9 @@
 		PhoneIncoming,
 		RefreshCcw,
 		Repeat,
-		Save,
 		Square,
-		Pin
+		Pin,
+		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -38,7 +38,7 @@
 		'center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 </script>
 
-<div class="flex flex-row space-x-1 whitespace-nowrap">
+<div class="flex flex-row gap-2 whitespace-nowrap">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
 		{#if module.retry?.constant || module.retry?.exponential}
 			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleRetry')}>
@@ -106,12 +106,10 @@
 		{/if}
 	{/if}
 	{#if module.value.type === 'script'}
-		<div class="w-2"></div>
-
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				onClick={async () => {
 					if (module.value.type == 'script') {
 						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
@@ -139,8 +137,8 @@
 		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={() => dispatch('fork')}
 				startIcon={{ icon: GitFork }}
 				iconOnly={false}
@@ -150,8 +148,8 @@
 		{/if}
 	{:else if module.value.type === 'flow'}
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			on:click={async () => {
 				if (module.value.type == 'flow') {
 					window.open(`/flows/edit/${module.value.path}`, '_blank', 'noopener,noreferrer')
@@ -163,8 +161,8 @@
 			Edit <ExternalLink size={12} />
 		</Button>
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			on:click={async () => {
 				dispatch('reload')
 			}}
@@ -174,7 +172,7 @@
 			iconOnly={true}
 		/>
 	{/if}
-	<div class="px-0.5"></div>
+
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect
 			placeholder={customUi?.tagSelectPlaceholder}
@@ -184,8 +182,8 @@
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			startIcon={{ icon: Save }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}

@@ -19,7 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let loading = $state(false)
 	interface Props {
@@ -30,7 +30,7 @@
 
 	let { pickableProperties = undefined, argNames = [], schema = undefined }: Props = $props()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { exprsToSet, stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -49,7 +49,7 @@
 		stepInputsLoading?.set(true)
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -65,7 +65,7 @@
 			}
 			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId}, you can find the details for the step and previous ones below:
+The current step is ${selectionManager.getSelectedId()}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(
@@ -189,7 +189,7 @@ input_name2: expression2
 			variant="default"
 			btnClasses={twMerge(
 				!disabled &&
-					flowAIBtnClasses(
+					AIBtnClasses(
 						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
 					)
 			)}
@@ -234,7 +234,7 @@ input_name2: expression2
 				<Button
 					size="xs"
 					variant="default"
-					btnClasses={flowAIBtnClasses('default')}
+					btnClasses={AIBtnClasses('default')}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2

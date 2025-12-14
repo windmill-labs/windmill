@@ -19,7 +19,7 @@ import {
   mergeConfigWithConfigFile,
   readConfigFile,
 } from "../../core/conf.ts";
-import { exts, findGlobalDeps, removeExtensionToPath } from "../script/script.ts";
+import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -82,8 +82,8 @@ async function dev(opts: GlobalOptions & SyncOptions) {
           localPath,
           SEP,
           undefined,
-          (path: string, newPath: string) => Deno.renameSync(path, newPath),
-          (path: string) => Deno.removeSync(path),
+          // (path: string, newPath: string) => Deno.renameSync(path, newPath),
+          // (path: string) => Deno.removeSync(path),
         );
         currentLastEdit = {
           type: "flow",
@@ -167,7 +167,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       ws.on("message", (message: WebSocket.RawData) => {
         let data;
         try {
-          data = JSON.parse(message);
+          data = JSON.parse(message.toString());
         } catch (e) {
           console.log("Received invalid JSON: " + message + " " + e);
           return;

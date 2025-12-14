@@ -9,23 +9,21 @@
 		isScriptPreview,
 		isJobSelectable,
 		msToReadableTime,
-		isFlowPreview
+		isFlowPreview,
+		type RunsSelectionMode,
+		getJobKindIcon
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
-		Bot,
 		Calendar,
 		Check,
 		Clock,
-		Code,
 		ExternalLink,
 		FastForward,
 		Hourglass,
 		ListFilterPlus,
-		Package,
 		Play,
 		ShieldQuestion,
 		X
@@ -37,10 +35,8 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
-	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Tooltip } from '../meltComponents'
-	import { GitIcon } from '../icons'
 	import RunLabels from './RunLabels.svelte'
 	import './runs-grid.css'
 
@@ -69,30 +65,6 @@
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
 	let isExternal = $derived(job && job.id === '-')
-
-	function getJobKindIcon(jobKind: Job['job_kind']) {
-		if (jobKind === 'flow' || isFlowPreview(jobKind)) {
-			return BarsStaggered
-		} else if (jobKind === 'deploymentcallback') {
-			return GitIcon
-		} else if (
-			jobKind === 'dependencies' ||
-			jobKind === 'appdependencies' ||
-			jobKind === 'flowdependencies'
-		) {
-			return Package
-		} else if (
-			jobKind === 'script' ||
-			isScriptPreview(jobKind) ||
-			jobKind === 'script_hub' ||
-			jobKind === 'singlestepflow'
-		) {
-			return Code
-		} else if (jobKind === 'aiagent') {
-			return Bot
-		}
-		return Code
-	}
 
 	let labelWidth = $state(0)
 
@@ -205,10 +177,7 @@
 						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					Waiting executor (<TimeAgo
-						agoOnlyIfRecent
-						date={job.scheduled_for || ''}
-					/>)
+					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.scheduled_for || ''} />)
 				{:else}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}

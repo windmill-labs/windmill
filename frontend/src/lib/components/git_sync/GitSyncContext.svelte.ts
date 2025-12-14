@@ -595,7 +595,7 @@ export function createGitSyncContext(workspace: string) {
 		return result
 	}
 
-	function getLegacyPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
+	function getSecondaryPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
 		const result: { repo: GitSyncRepository, idx: number }[] = []
 		let foundFirst = false
 		repositories.forEach((repo, idx) => {
@@ -664,12 +664,13 @@ export function createGitSyncContext(workspace: string) {
 	}
 
 	// Helper to get target branch from git resource
-	async function getTargetBranch(repo: GitSyncRepository): Promise<string> {
+	async function getTargetBranch(repo: GitSyncRepository): Promise<string | undefined> {
 		if (!repo.git_repo_resource_path) {
-			return 'main'
+			return undefined
 		}
 
 		if (repo._targetBranch) {
+			if (repo._targetBranch === '') return undefined
 			return repo._targetBranch
 		}
 
@@ -681,14 +682,15 @@ export function createGitSyncContext(workspace: string) {
 
 			// Extract branch from git resource value
 			const resourceValue = resource.value as any
-			const targetBranch = resourceValue?.branch || 'main'
+			const targetBranch = resourceValue?.branch
 
 			// Cache the result
 			repo._targetBranch = targetBranch
+			if (targetBranch === '') return undefined
 			return targetBranch
 		} catch (error) {
 			console.warn('Failed to fetch git resource for branch info:', error)
-			return 'main'
+			return undefined
 		}
 	}
 
@@ -736,7 +738,7 @@ export function createGitSyncContext(workspace: string) {
 		getPrimarySyncRepository,
 		getPrimaryPromotionRepository,
 		getSecondarySyncRepositories,
-		getLegacyPromotionRepositories,
+		getSecondaryPromotionRepositories,
 
 		// Helper methods
 		getTargetBranch,

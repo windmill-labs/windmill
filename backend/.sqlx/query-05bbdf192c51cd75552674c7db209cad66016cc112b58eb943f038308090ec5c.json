@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)\n         SELECT $1, language, name, description, content, archived, created_at\n         FROM workspace_dependencies \n         WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "05bbdf192c51cd75552674c7db209cad66016cc112b58eb943f038308090ec5c"
+}

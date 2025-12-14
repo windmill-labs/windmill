@@ -118,6 +118,7 @@ pub struct AIAgentArgs {
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
     pub messages_context_length: Option<usize>,
+    pub max_iterations: Option<usize>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -126,6 +127,7 @@ pub struct ProviderResource {
     pub api_key: String,
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
+    pub region: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -146,8 +148,16 @@ impl ProviderWithResource {
 
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
         self.kind
-            .get_base_url(self.resource.base_url.clone(), db)
+            .get_base_url(
+                self.resource.base_url.clone(),
+                self.resource.region.clone(),
+                db,
+            )
             .await
+    }
+
+    pub fn get_region(&self) -> Option<&str> {
+        self.resource.region.as_deref()
     }
 }
 

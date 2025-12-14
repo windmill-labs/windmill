@@ -1,6 +1,6 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{StandardTriggerQuery, TriggerData},
+    triggers::{StandardTriggerQuery, TriggerData, TriggerMode},
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -50,7 +50,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
-    const SUPPORTS_ENABLED: bool;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
@@ -144,10 +143,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
+            "mode",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
@@ -206,46 +206,71 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(deleted > 0)
     }
 
-    async fn set_enabled(
+    async fn set_trigger_mode_extra_action(&self, _: &mut PgConnection) -> Result<()> {
+        Ok(())
+    }
+
+    async fn set_trigger_mode(
         &self,
         authed: &ApiAuthed,
         tx: &mut PgConnection,
         workspace_id: &str,
         path: &str,
-        enabled: bool,
+        mode: &TriggerMode,
     ) -> Result<bool> {
-        if !Self::SUPPORTS_SERVER_STATE {
-            return Err(anyhow::anyhow!(
-                "Enable/disable not supported for this trigger type".to_string(),
-            )
-            .into());
-        }
+        let updated = if Self::SUPPORTS_SERVER_STATE {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    mode = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now(),
+                    server_id = NULL,
+                    error = NULL
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(mode)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    mode = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now()
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(mode)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        };
 
-        let updated = sqlx::query(&format!(
-            r#"
-            UPDATE 
-                {} 
-            SET 
-                enabled = $1,
-                email = $2,
-                edited_by = $3,
-                edited_at = now(),
-                server_id = NULL,
-                error = NULL
-            WHERE 
-                workspace_id = $4 AND 
-                path = $5
-            "#,
-            Self::TABLE_NAME
-        ))
-        .bind(enabled)
-        .bind(&authed.email)
-        .bind(&authed.username)
-        .bind(workspace_id)
-        .bind(path)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        self.set_trigger_mode_extra_action(&mut *tx).await?;
 
         Ok(updated > 0)
     }
@@ -296,10 +321,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "email",
             "edited_at",
             "extra_perms",
+            "mode",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
@@ -333,6 +359,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .sql()
             .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
+        tracing::info!("SQL: {}", sql);
         let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
 
         Ok(triggers)
@@ -346,11 +373,8 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
         .route("/get/*path", get(get_trigger::<T>))
         .route("/update/*path", post(update_trigger::<T>))
         .route("/delete/*path", delete(delete_trigger::<T>))
-        .route("/exists/*path", get(exists_trigger::<T>));
-
-    if T::SUPPORTS_ENABLED {
-        router = router.route("/setenabled/*path", post(set_enabled_trigger::<T>));
-    }
+        .route("/exists/*path", get(exists_trigger::<T>))
+        .route("/setmode/*path", post(set_trigger_mode::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));
@@ -482,6 +506,7 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
+
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
@@ -568,24 +593,24 @@ async fn exists_trigger<T: TriggerCrud>(
 }
 
 #[derive(serde::Deserialize)]
-struct SetEnabledPayload {
-    enabled: bool,
+struct SetTriggerModePayload {
+    mode: TriggerMode,
 }
 
-async fn set_enabled_trigger<T: TriggerCrud>(
+async fn set_trigger_mode<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<SetEnabledPayload>,
+    Json(payload): Json<SetTriggerModePayload>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
 
     let mut tx = user_db.begin(&authed).await?;
     let updated = handler
-        .set_enabled(&authed, &mut *tx, &workspace_id, path, payload.enabled)
+        .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
 
     if !updated {
@@ -611,10 +636,12 @@ async fn set_enabled_trigger<T: TriggerCrud>(
     Ok(format!(
         "Trigger '{}' {}",
         path,
-        if payload.enabled {
+        if payload.mode == TriggerMode::Enabled {
             "enabled"
-        } else {
+        } else if payload.mode == TriggerMode::Disabled {
             "disabled"
+        } else {
+            "suspended"
         }
     ))
 }
@@ -744,6 +771,22 @@ pub fn generate_trigger_routers() -> Router {
             EmailTrigger::ROUTE_PREFIX,
             complete_trigger_routes(EmailTrigger),
         );
+    }
+
+    {
+        use crate::triggers::global_handler::{
+            cancel_suspended_trigger_jobs, resume_suspended_trigger_jobs,
+        };
+
+        router = router
+            .route(
+                "/trigger/:trigger_kind/resume_suspended_trigger_jobs/*trigger_path",
+                post(resume_suspended_trigger_jobs),
+            )
+            .route(
+                "/trigger/:trigger_kind/cancel_suspended_trigger_jobs/*trigger_path",
+                post(cancel_suspended_trigger_jobs),
+            );
     }
 
     router

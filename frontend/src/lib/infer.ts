@@ -23,7 +23,11 @@ import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
-import initYamlParser, { parse_assets_ansible, parse_ansible, parse_ansible_delegate } from 'windmill-parser-wasm-yaml'
+import initYamlParser, {
+	parse_assets_ansible,
+	parse_ansible,
+	parse_ansible_delegate
+} from 'windmill-parser-wasm-yaml'
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
@@ -85,33 +89,43 @@ async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
 }
 
+type InferAssetsResult =
+	| { status: 'ok'; assets: AssetWithAccessType[] }
+	| { status: 'error'; error: string }
+
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
-): Promise<AssetWithAccessType[]> {
+): Promise<InferAssetsResult> {
+	function wrap(raw_result: string): InferAssetsResult {
+		if (raw_result.startsWith('err:')) {
+			return { status: 'error', error: raw_result.slice(4).trim() }
+		}
+		return { status: 'ok', assets: JSON.parse(raw_result) as AssetWithAccessType[] }
+	}
+
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			let r = JSON.parse(parse_assets_sql(code))
-			return r
+			return wrap(parse_assets_sql(code))
 		}
 		if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()
-			return JSON.parse(parse_assets_ts(code))
+			return wrap(parse_assets_ts(code))
 		}
 		if (language === 'python3') {
 			await initWasmPython()
-			return JSON.parse(parse_assets_py(code))
+			return wrap(parse_assets_py(code))
 		}
 		if (language === 'ansible') {
 			await initWasmYaml()
-			return JSON.parse(parse_assets_ansible(code))
+			return wrap(parse_assets_ansible(code))
 		}
 	} catch (e) {
-		console.error('error parsing assets', e)
-		return []
+		return { status: 'error', error: (e as Error)?.message || JSON.stringify(e) }
 	}
-	return []
+
+	return { status: 'ok', assets: [] }
 }
 
 export async function inferAnsibleExecutionMode(code: string): Promise<any> {
@@ -244,7 +258,7 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_powershell(code))
 		} else if (language == 'php') {
 			await initWasmPhp()
-			inferedSchema = JSON.parse(parse_php(code))
+			inferedSchema = JSON.parse(parse_php(code, mainOverride))
 		} else if (language == 'rust') {
 			await initWasmRust()
 			inferedSchema = JSON.parse(parse_rust(code))

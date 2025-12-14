@@ -11,6 +11,9 @@
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
+	import { isCloudHosted } from '$lib/cloud'
+	import { getCookie } from '$lib/cookies'
+	// import { getAndDeleteCookie } from '$lib/cookies'
 
 	let error = page.url.searchParams.get('error')
 	let clientName = page.params.client_name ?? ''
@@ -18,11 +21,14 @@
 	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
+		// const closeCookie = getAndDeleteCookie('close')
+		// console.log('closeCookie', closeCookie)
 		const rd = localStorage.getItem('rd')
 		if (rd) {
 			localStorage.removeItem('rd')
 		}
-		const closeUponLogin = localStorage.getItem('closeUponLogin') == 'true'
+		const cookieCloseUponLogin = getCookie('close') == 'true'
+		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			if (closeUponLogin) {
@@ -51,6 +57,21 @@
 				window.location.href = rd
 				return
 			}
+
+			// Check if this is a first-time user (individual user onboarding)
+			// Only show onboarding for cloud-hosted instances
+			if (isCloudHosted()) {
+				try {
+					const globalUserInfo = await UserService.globalWhoami()
+					if (globalUserInfo.first_time_user) {
+						goto('/user/onboarding')
+						return
+					}
+				} catch (err) {
+					console.error('Could not fetch global user info for onboarding check:', err)
+				}
+			}
+
 			if ($workspaceStore) {
 				$userStore = await getUserExt($workspaceStore)
 				goto(rd ?? '/')

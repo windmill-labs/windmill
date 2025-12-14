@@ -47,7 +47,6 @@ impl TriggerCrud for PostgresTrigger {
 
     const TABLE_NAME: &'static str = "postgres_trigger";
     const TRIGGER_TYPE: &'static str = "postgres";
-    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/postgres_triggers";
@@ -63,7 +62,6 @@ impl TriggerCrud for PostgresTrigger {
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::PostgresTrigger { path }
     }
-
 
     async fn create_trigger(
         &self,
@@ -121,7 +119,7 @@ impl TriggerCrud for PostgresTrigger {
                 publication_name,
                 script_path,
                 is_flow,
-                enabled,
+                mode,
                 edited_by,
                 email,
                 edited_at,
@@ -139,7 +137,7 @@ impl TriggerCrud for PostgresTrigger {
             pub_name,
             trigger.base.script_path,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             authed.username,
             authed.email,
             trigger.error_handling.error_handler_path,

@@ -6,7 +6,8 @@
 		userWorkspaces,
 		workspaceStore,
 		workspaceUsageStore,
-		workspaceColor
+		workspaceColor,
+		clearWorkspaceFromStorage
 	} from '$lib/stores'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -226,9 +227,7 @@
 				<div class="py-1" role="none">
 					<MenuItem
 						href="{base}/user/workspaces"
-						onClick={() => {
-							localStorage.removeItem('workspace')
-						}}
+						onClick={() => clearWorkspaceFromStorage()}
 						class={twMerge(
 							'text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary',
 							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'

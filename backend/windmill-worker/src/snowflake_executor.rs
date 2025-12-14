@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
@@ -130,10 +130,12 @@ fn do_snowflake_inner<'a>(
     token_is_keypair: bool,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     http_client: &'a Client,
     s3: Option<S3ModeWorkerData>,
     reserved_variables: &HashMap<String, String>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
@@ -179,7 +181,7 @@ fn do_snowflake_inner<'a>(
 
         if skip_collect {
             handle_snowflake_result(result).await?;
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
         } else {
             let response = result
                 .parse_snowflake_response::<SnowflakeResponse>()
@@ -254,19 +256,22 @@ fn do_snowflake_inner<'a>(
                 row_map
             });
 
+            let rows_stream = rows_stream.take(if first_row_only { 1 } else { usize::MAX });
+
             if let Some(s3) = s3 {
                 let rows_stream =
                     rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
                 let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                 s3.upload(stream.boxed()).await?;
-                Ok(to_raw_value(&s3.to_return_s3_obj()))
+                Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
             } else {
                 let rows = rows_stream
                     .collect::<Vec<_>>()
                     .await
                     .into_iter()
+                    .map(|x| x.map(|v| to_raw_value(&v)))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(to_raw_value(&rows))
+                Ok(rows)
             }
         }
     };
@@ -312,6 +317,11 @@ pub async fn do_snowflake(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     // Check if the token is present in db_arg and use it if available
     let (token, token_is_keypair) = if let Some(token) = db_arg
@@ -409,56 +419,39 @@ pub async fn do_snowflake(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_snowflake_inner(
-                    x,
-                    &snowflake_args,
-                    body.clone(),
-                    &database.account_identifier,
-                    &token,
-                    token_is_keypair,
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    &http_client,
-                    s3.clone(),
-                    &reserved_variables,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let result = do_snowflake_inner(
+                q,
+                &snowflake_args,
+                body.clone(),
+                &database.account_identifier,
+                &token,
+                token_is_keypair,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                &http_client,
+                s3.clone(),
+                &reserved_variables,
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_snowflake_inner(
-            query,
-            &snowflake_args,
-            body.clone(),
-            &database.account_identifier,
-            &token,
-            token_is_keypair,
-            Some(column_order),
-            false,
-            &http_client,
-            s3.clone(),
-            &reserved_variables,
-        )?
+        collection_strategy.collect(results)
     };
+
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,

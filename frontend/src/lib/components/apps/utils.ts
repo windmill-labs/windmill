@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
+import { isRunnableByName, isRunnableByPath, type AppInput, type InputType, type ResultAppInput, type StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -12,14 +12,13 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
-
-export const BG_PREFIX = 'bg_'
+import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
 export function migrateApp(app: App) {
 	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
-			x.type = 'runnableByName'
+			x.type = 'inline'
 		}
 		//TODO: remove after migration is done
 		if (x.doNotRecomputeOnInputChanged != undefined) {
@@ -62,16 +61,6 @@ export function processSubcomponents(data: AppComponent, fn: (data: AppComponent
 			fn(c)
 		}
 	}
-}
-
-export function allItems(
-	grid: GridItem[],
-	subgrids: Record<string, GridItem[]> | undefined
-): GridItem[] {
-	if (subgrids == undefined) {
-		return grid ?? []
-	}
-	return [...(grid ?? []), ...Object.values(subgrids).flat()]
 }
 
 export function schemaToInputsSpec(
@@ -144,7 +133,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
+	if (appInput.type === 'runnable' &&  isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -156,7 +145,7 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByPath') {
+	if (appInput.type === 'runnable' && isRunnableByPath(appInput.runnable)) {
 		return Boolean(appInput.runnable?.path)
 	}
 
@@ -356,6 +345,12 @@ declare function validateAll(id: string): void;
  */
 declare function clearFiles(id: string): void;
 
+/** Send a message to a chat component
+ * @param id component's id
+ * @param message message to send
+ */
+declare function sendMessage(id: string, message: string): void;
+
 /**  Display a toast message
  * @param message message to display
  */
@@ -409,7 +404,7 @@ export function getAllScriptNames(app: App): string[] {
 
 		if (
 			componentInput?.type === 'runnable' &&
-			componentInput?.runnable?.type === 'runnableByName'
+			isRunnableByName(componentInput.runnable)
 		) {
 			acc.push(componentInput.runnable.name)
 		}
@@ -417,7 +412,7 @@ export function getAllScriptNames(app: App): string[] {
 		if (gridItem.data.type === 'tablecomponent') {
 			gridItem.data.actionButtons.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton?.componentInput?.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -433,7 +428,7 @@ export function getAllScriptNames(app: App): string[] {
 		) {
 			gridItem.data.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton.componentInput.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -443,7 +438,7 @@ export function getAllScriptNames(app: App): string[] {
 		if (gridItem.data.type === 'menucomponent') {
 			gridItem.data.menuItems.forEach((menuItem) => {
 				if (menuItem.componentInput?.type === 'runnable') {
-					if (menuItem.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(menuItem.componentInput.runnable)) {
 						acc.push(menuItem.componentInput.runnable.name)
 					}
 				}

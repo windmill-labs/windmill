@@ -2,9 +2,7 @@
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import { Plus } from 'lucide-svelte'
-	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
-	import { flip, offset } from 'svelte-floating-ui/dom'
-	import type { ComputeConfig } from 'svelte-floating-ui'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
 
 	let funcDesc = $state('')
@@ -13,35 +11,42 @@
 	}
 	let { data }: Props = $props()
 
-	let floatingConfig: ComputeConfig = {
-		strategy: 'fixed',
-		// @ts-ignore
-		placement: 'bottom-center',
-		middleware: [offset(8), flip()],
-		autoUpdate: true
-	}
-
 	let open = $state(false)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<PopupV2 bind:open {floatingConfig} target="#flow-editor">
-	{#snippet button()}
+<Popover
+	bind:isOpen={open}
+	portal="#flow-editor"
+	contentClasses="p-2 max-w-lg h-[400px] bg-surface"
+	class="inline-block"
+	usePointerDownOutside
+	floatingConfig={{
+		placement: 'bottom',
+		strategy: 'absolute',
+		gutter: 8,
+		overflowPadding: 16,
+		flip: true,
+		fitViewport: true,
+		overlap: false
+	}}
+>
+	{#snippet trigger()}
 		<Button
 			size="xs3"
 			variant="default"
-			onpointerdown={() => (open = !open)}
+			nonCaptureEvent
 			selected={open}
 			startIcon={{ icon: Plus }}
 			wrapperClasses="{open
 				? 'bg-surface-secondary'
 				: 'bg-surface-tertiary'} transition-colors drop-shadow-base"
-			btnClasses="gap-1 "
+			btnClasses="gap-1 text-2xs px-1"
 		>
 			Tool
 		</Button>
 	{/snippet}
-	{#snippet children({ close })}
+	{#snippet content({ close })}
 		<InsertModuleInner
 			bind:funcDesc
 			toolMode
@@ -88,4 +93,4 @@
 			}}
 		/>
 	{/snippet}
-</PopupV2>
+</Popover>

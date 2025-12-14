@@ -41,6 +41,7 @@
 		components,
 		type ButtonComponent,
 		type CheckboxComponent,
+		type ModalComponent,
 		type SelectComponent
 	} from '../../../editor/component'
 	import { initCss } from '../../../utils'
@@ -62,7 +63,8 @@
 		id: string
 		componentInput: AppInput | undefined
 		configuration: RichConfigurations
-		actionButtons: (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+		actionButtons: (BaseAppComponent &
+			(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
 		initializing?: boolean | undefined
 		customCss?: ComponentCustomCSS<'tablecomponent'> | undefined
 		render: boolean

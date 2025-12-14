@@ -15,21 +15,41 @@
 		team_name: string
 	}
 
-	export let platform: 'slack' | 'teams'
-	export let teamName: string | undefined
-	export let display_name: string | undefined
-	export let scriptPath: string
-	export let initialPath: string
-	export let onDisconnect: () => Promise<void>
-	export let onSelect: () => Promise<void>
-	export let connectHref: string | undefined
-	export let createScriptHref: string
-	export let createFlowHref: string
-	export let documentationLink: string
-	export let onLoadSettings: () => void
-	export let itemKind: 'flow' | 'script' = 'script'
+	let {
+		platform,
+		teamName,
+		display_name,
+		scriptPath = $bindable(),
+		initialPath = $bindable(),
+		itemKind = $bindable('script' as 'flow' | 'script'),
+		onDisconnect,
+		onSelect,
+		connectHref,
+		createScriptHref,
+		createFlowHref,
+		documentationLink,
+		onLoadSettings,
+		workspaceConfig,
+		hideConnectButton = false
+	}: {
+		platform: 'slack' | 'teams'
+		teamName: string | undefined
+		display_name: string | undefined
+		scriptPath: string
+		initialPath: string
+		itemKind: 'flow' | 'script'
+		onDisconnect: () => Promise<void>
+		onSelect: () => Promise<void>
+		connectHref: string | undefined
+		createScriptHref: string
+		createFlowHref: string
+		documentationLink: string
+		onLoadSettings: () => void
+		workspaceConfig?: import('svelte').Snippet
+		hideConnectButton?: boolean
+	} = $props()
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return
@@ -72,6 +92,10 @@
 	</Description>
 </div>
 
+{#if workspaceConfig}
+	{@render workspaceConfig()}
+{/if}
+
 {#if teamName}
 	<div class="flex flex-col gap-2 max-w-sm">
 		<div class="flex flex-row gap-2">
@@ -80,7 +104,7 @@
 				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
 				btnClasses="mt-2"
 				disabled={!$enterpriseLicense && platform === 'teams'}
-				on:click={onDisconnect}
+				onclick={onDisconnect}
 			>
 				Disconnect {platform.charAt(0).toUpperCase() + platform.slice(1)}
 				{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
@@ -98,13 +122,13 @@
 			</Button>
 		{/if}
 	</div>
-{:else}
+{:else if !hideConnectButton}
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row gap-2 items-center">
 			{#if platform === 'teams'}
 				<Button
 					unifiedSize="md"
-					on:click={connectTeams}
+					onclick={connectTeams}
 					startIcon={{ icon: MsTeamsIcon }}
 					disabled={!selectedTeam || !$enterpriseLicense}
 				>
@@ -117,7 +141,10 @@
 						bind:selectedTeam
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
-						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
+						onError={(e) => {
+							const errorMsg = typeof (e as any)?.body === 'string' ? (e as any).body : (e?.message || 'Unknown error')
+							sendUserToast('Failed to load teams: ' + errorMsg, true)
+						}}
 					/>
 				{/if}
 			{:else}

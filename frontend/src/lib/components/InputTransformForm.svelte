@@ -3,7 +3,8 @@
 		'flow_input',
 		'results',
 		'resource',
-		'variable'
+		'variable',
+		'flow_env'
 	])
 </script>
 
@@ -17,7 +18,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
-	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
+	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ButtonType } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -67,6 +68,7 @@
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
+		s3StorageConfigured?: boolean
 	}
 
 	let {
@@ -91,7 +93,8 @@
 		editor = $bindable(undefined),
 		otherArgs = {},
 		helperScript = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		s3StorageConfigured = true
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -159,7 +162,13 @@
 
 	function getPropertyType(arg: InputTransform | any): PropertyType {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
-		if (isAgentTool && arg?.type === 'static' && arg?.value === undefined) {
+		if (
+			isAgentTool &&
+			((arg?.type === 'static' && arg?.value === undefined) || arg?.type === 'ai')
+		) {
+			if (arg?.type === 'static') {
+				arg.type = 'ai'
+			}
 			return 'ai'
 		}
 
@@ -519,7 +528,7 @@
 							{pickableProperties}
 							{argName}
 							btnClass={twMerge(
-								'h-6 min-w-8 px-2',
+								'h-7 min-w-8 px-2',
 								'group-hover:opacity-100 transition-opacity',
 								!connecting ? 'opacity-0' : ''
 							)}
@@ -529,7 +538,7 @@
 					{#if propPickerWrapperContext}
 						<FlowPlugConnect
 							wrapperClasses={twMerge(
-								connecting ? 'h-5 w-7' : 'h-6 w-8',
+								connecting ? 'h-6 w-7' : 'h-7 w-8',
 								'group-hover:opacity-100 transition-opacity p-0',
 								!connecting ? 'opacity-0' : ''
 							)}
@@ -563,7 +572,7 @@
 								if (e.detail === 'ai') {
 									// Switch to AI mode: static with no value
 									if (arg) {
-										arg.type = 'static'
+										arg.type = 'ai'
 										arg.value = undefined
 										arg.expr = undefined
 									}
@@ -792,6 +801,7 @@
 								bind:title={schema.properties[argName].title}
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
+								{s3StorageConfigured}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,

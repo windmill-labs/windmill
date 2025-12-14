@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { GitSyncService } from '$lib/gen'
 	import Select from './select/Select.svelte'
-	import { debounce } from '$lib/utils'
 
 	interface Repository {
 		name: string
@@ -32,97 +31,89 @@
 		onError
 	}: Props = $props()
 
-	let isFetching = $state(false)
-	let selectFilterText = $state('')
-	let lastSearchQuery = $state('')
+	// Track all loaded repositories across pages
+	let loadedRepositories = $state<Repository[]>(initialRepositories)
+	let currentPage = $state(1)
+	let isLoadingMore = $state(false)
 
-	// Use a derived value that always reflects current repos
-	let availableRepos = $derived(() => {
-		// If we have search results from backend, use those
-		// Otherwise use initial repositories
-		return searchResults.length > 0 ? searchResults : initialRepositories
-	})
+	// Client-side filtered repositories based on search text
+	let filterText = $state('')
 
-	// Track search results from backend
-	let searchResults = $state<Repository[]>([])
-
-	// Only enable search mode if total count exceeds per_page limit
-	const searchMode = $derived(totalCount > perPage)
-
-	// Debounced search function
-	const debouncedSearch = debounce(async (query: string) => {
-		await searchRepositories(query)
-	}, 500)
-
-	// Watch for filter text changes and trigger backend search
-	$effect(() => {
-		if (searchMode && selectFilterText !== undefined && selectFilterText !== lastSearchQuery) {
-			if (selectFilterText.length >= 1) {
-				// Only search backend if we have more repos than currently loaded
-				if (totalCount > initialRepositories.length) {
-					debouncedSearch.debounced(selectFilterText)
-				}
-			} else if (selectFilterText.length === 0) {
-				lastSearchQuery = ''
-				searchResults = []
-			}
+	const filteredRepositories = $derived(() => {
+		if (!filterText) {
+			return loadedRepositories
 		}
+		const search = filterText.toLowerCase()
+		return loadedRepositories.filter((repo) => repo.name.toLowerCase().includes(search))
 	})
 
-	async function searchRepositories(query: string) {
-		if (!query) {
-			searchResults = []
-			lastSearchQuery = ''
+	// Check if there are more repos to load
+	const hasMoreRepos = $derived(loadedRepositories.length < totalCount)
+
+	// Show the select when we have more repos than the initial load
+	const showSearchableSelect = $derived(totalCount > perPage)
+
+	async function loadMoreRepositories() {
+		if (isLoadingMore || !hasMoreRepos) {
 			return
 		}
 
-		// Don't search if we already have all repos
-		if (totalCount <= initialRepositories.length) {
-			return
-		}
+		isLoadingMore = true
+		const nextPage = currentPage + 1
 
-		isFetching = true
 		try {
 			const installations = await GitSyncService.getGlobalConnectedRepositories({
-				search: query
+				page: nextPage
 			})
 
 			// Find the matching installation and get its repositories
 			const installation = installations.find((inst) => inst.account_id === accountId)
-			searchResults = installation?.repositories || []
-			lastSearchQuery = query
-			isFetching = false
-			return searchResults
+
+			if (installation?.repositories) {
+				// Append new repos to existing ones
+				loadedRepositories = [...loadedRepositories, ...installation.repositories]
+				currentPage = nextPage
+			}
 		} catch (error) {
-			isFetching = false
-			onError?.(error)
-			console.error('Error searching repositories:', error)
-			searchResults = []
-			lastSearchQuery = ''
-			return []
+			onError?.(error as Error)
+			console.error('Error loading more repositories:', error)
+		} finally {
+			isLoadingMore = false
 		}
 	}
 </script>
 
 <div class={containerClass}>
-	{#if searchMode}
+	{#if showSearchableSelect}
 		<div class="flex flex-col gap-1">
 			<Select
 				containerStyle={'min-width: ' + minWidth}
-				items={availableRepos().map((repo) => ({
+				items={filteredRepositories().map((repo) => ({
 					label: repo.name,
 					value: repo.url
 				}))}
-				placeholder={isFetching ? 'Searching...' : `Search all repositories...`}
+				placeholder="Select repository..."
 				clearable
-				disabled={disabled || isFetching}
-				bind:filterText={selectFilterText}
+				disabled={disabled}
+				bind:filterText={filterText}
 				bind:value={selectedRepository}
 			/>
-			{#if totalCount > initialRepositories.length}
-				<span class="text-3xs pl-1 text-tertiary">
-					Loaded {initialRepositories.length} of {totalCount} repositories.
-				</span>
+			{#if hasMoreRepos}
+				<div class="flex items-center gap-2 pl-1">
+					<span class="text-2xs text-tertiary">
+						Loaded {loadedRepositories.length} of {totalCount}
+					</span>
+					{#if hasMoreRepos}
+						<button
+							type="button"
+							class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+							onclick={loadMoreRepositories}
+							disabled={isLoadingMore}
+						>
+							{isLoadingMore ? 'loading...' : 'load more...'}
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{:else}

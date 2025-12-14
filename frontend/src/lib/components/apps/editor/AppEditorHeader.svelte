@@ -34,12 +34,10 @@
 		type Value,
 		replaceFalseWithUndefined
 	} from '../../../utils'
-	import type { AppInput, Runnable } from '../inputType'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
-	import { BG_PREFIX, allItems, toStatic } from '../utils'
+	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
-	import type { AppComponent } from './component/components'
 	import PreviewToggle from './PreviewToggle.svelte'
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -52,48 +50,19 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
-	import { type ColumnDef, type DbType, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
-	import { getCountInput } from '../components/display/dbtable/queries/count'
-	import { getSelectInput } from '../components/display/dbtable/queries/select'
-	import { getInsertInput } from '../components/display/dbtable/queries/insert'
-	import { getUpdateInput } from '../components/display/dbtable/queries/update'
-	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
-	import { collectOneOfFields } from './appUtils'
+
 	import Summary from '$lib/components/Summary.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import {
-		computeS3FileInputPolicy,
-		computeWorkspaceS3FileInputPolicy,
-		computeS3ImageViewerPolicy
-	} from './appUtilsS3'
+
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
-	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
-	import { Sha256 } from '@aws-crypto/sha256-js'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
-	import type { DbInput } from '$lib/components/dbOps'
-
-	async function hash(message) {
-		try {
-			const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
-			const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8) // hash the message
-			const hashArray = Array.from(new Uint8Array(hashBuffer)) // convert buffer to byte array
-			const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
-			return hashHex
-		} catch {
-			//subtle not available, trying pure js
-			const hash = new Sha256()
-			hash.update(message ?? '')
-			const result = Array.from(await hash.digest())
-			const hex = result.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
-			return hex
-		}
-	}
+	import { updatePolicy } from './appPolicy'
 
 	interface Props {
 		policy: Policy
@@ -198,208 +167,8 @@
 		draftDrawerOpen = false
 	}
 
-	async function computeTriggerables() {
-		const items = allItems($app.grid, $app.subgrids)
-
-		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
-			items
-				.flatMap((x) => {
-					let c = x.data as AppComponent
-					let r: { input: AppInput | undefined; id: string }[] = [
-						{ input: c.componentInput, id: x.id }
-					]
-					if (c.type === 'tablecomponent') {
-						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
-					}
-					if (
-						(c.type === 'aggridcomponent' ||
-							c.type === 'aggridcomponentee' ||
-							c.type === 'dbexplorercomponent' ||
-							c.type === 'aggridinfinitecomponent' ||
-							c.type === 'aggridinfinitecomponentee') &&
-						Array.isArray(c.actions)
-					) {
-						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))
-					}
-					if (c.type === 'menucomponent') {
-						r.push(...c.menuItems.map((x) => ({ input: x.componentInput, id: x.id })))
-					}
-					if (c.type === 'dbexplorercomponent') {
-						let nr: { id: string; input: AppInput }[] = []
-						let config = c.configuration as any
-
-						const dbType = config?.type?.selected as DbType
-						let pg = config?.type?.configuration?.[dbType]
-
-						if (pg && dbType) {
-							const { table, resource, ducklake } = pg
-							const tableValue = table.value
-							const dbPath =
-								resource?.value.split('$res:')[1] ??
-								(ducklake?.value as string | undefined)?.split('ducklake://')[1]
-							const columnDefs = (c.configuration.columnDefs as any).value as ColumnDef[]
-							const whereClause = (c.configuration.whereClause as any).value as unknown as
-								| string
-								| undefined
-							if (tableValue && dbPath && columnDefs) {
-								let dbInput: DbInput = ducklake
-									? { type: 'ducklake', ducklake: dbPath }
-									: { type: 'database', resourcePath: dbPath, resourceType: dbType }
-								r.push({
-									input: getSelectInput(dbInput, tableValue, columnDefs, whereClause),
-									id: x.id
-								})
-
-								r.push({
-									input: getCountInput(dbInput, tableValue, columnDefs, whereClause),
-									id: x.id + '_count'
-								})
-
-								r.push({
-									input: getInsertInput(dbInput, tableValue, columnDefs),
-									id: x.id + '_insert'
-								})
-
-								let primaryColumns = getPrimaryKeys(columnDefs)
-								let columns = columnDefs?.filter((x) => primaryColumns.includes(x.field))
-
-								r.push({
-									input: getDeleteInput(dbInput, tableValue, columns),
-									id: x.id + '_delete'
-								})
-
-								columnDefs
-									.filter((col) => col.editable || config.allEditable.value)
-									.forEach((column) => {
-										r.push({
-											input: getUpdateInput(dbInput, tableValue, column, columns),
-											id: x.id + '_update'
-										})
-									})
-							}
-						}
-						r.push(...nr)
-					}
-
-					const processed = r
-						.filter((x) => x.input)
-						.map(async (o) => {
-							if (o.input?.type == 'runnable') {
-								return await processRunnable(o.id, o.input.runnable, o.input.fields)
-							}
-						})
-
-					return processed as Promise<[string, TriggerableV2] | undefined>[]
-				})
-				.concat(
-					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
-						return await processRunnable(BG_PREFIX + i, v, v.fields)
-					}) as Promise<[string, TriggerableV2] | undefined>[]
-				)
-		)) as ([string, TriggerableV2] | undefined)[]
-
-		delete policy.triggerables
-		const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
-			allTriggers.filter(Boolean) as [string, TriggerableV2][]
-		)
-		policy.triggerables_v2 = ntriggerables
-
-		const s3_inputs = items
-			.filter((x) => (x.data as AppComponent).type === 's3fileinputcomponent')
-			.map((x) => {
-				const c = x.data as AppComponent
-				const config = c.configuration as any
-				return computeS3FileInputPolicy(config?.type?.configuration?.s3, $app)
-			})
-			.filter(Boolean) as {
-			allowed_resources: string[]
-			allow_user_resources: boolean
-			file_key_regex: string
-		}[]
-
-		if (
-			items.findIndex((x) => {
-				const c = x.data as AppComponent
-				if (
-					c.type === 'schemaformcomponent' ||
-					c.type === 'formbuttoncomponent' ||
-					c.type === 'formcomponent'
-				) {
-					const props =
-						c.type === 'schemaformcomponent'
-							? (c.componentInput as any)?.value?.properties
-							: (c.componentInput as any)?.runnable?.type === 'runnableByName'
-								? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
-								: (c.componentInput as any)?.runnable?.schema?.properties
-					return (
-						Object.values(props ?? {}).findIndex(
-							(p: any) =>
-								(p?.type === 'object' && p?.format === 'resource-s3_object') ||
-								(p?.type === 'array' &&
-									(p?.items?.resourceType === 's3object' || p?.items?.resourceType === 's3_object'))
-						) !== -1
-					)
-				} else {
-					return false
-				}
-			}) !== -1
-		) {
-			s3_inputs.push(computeWorkspaceS3FileInputPolicy())
-		}
-
-		policy.s3_inputs = s3_inputs
-
-		const s3FileKeys = items
-			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
-			.map((x) => {
-				const c = x.data as AppComponent
-				const config = c.configuration
-				return computeS3ImageViewerPolicy(config)
-			})
-			.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
-
-		policy.allowed_s3_keys = s3FileKeys
-	}
-
-	async function processRunnable(
-		id: string,
-		runnable: Runnable,
-		fields: Record<string, any>
-	): Promise<[string, TriggerableV2] | undefined> {
-		const staticInputs = collectStaticFields(fields)
-		const oneOfInputs = collectOneOfFields(fields, $app)
-		const allowUserResources: string[] = Object.entries(fields)
-			.map(([k, v]) => {
-				return v['allowUserResources'] ? k : undefined
-			})
-			.filter(Boolean) as string[]
-
-		if (runnable?.type == 'runnableByName') {
-			let hex = await hash(runnable.inlineScript?.content)
-			console.log('hex', hex, id)
-			return [
-				`${id}:rawscript/${hex}`,
-				{
-					static_inputs: staticInputs,
-					one_of_inputs: oneOfInputs,
-					allow_user_resources: allowUserResources
-				}
-			]
-		} else if (runnable?.type == 'runnableByPath') {
-			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-			return [
-				`${id}:${prefix}/${runnable.path}`,
-				{
-					static_inputs: staticInputs,
-					one_of_inputs: oneOfInputs,
-					allow_user_resources: allowUserResources
-				}
-			]
-		}
-	}
-
 	async function createApp(path: string) {
-		await computeTriggerables()
+		policy = await updatePolicy($app, policy)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -492,7 +261,7 @@
 	}
 
 	async function updateApp(npath: string) {
-		await computeTriggerables()
+		policy = await updatePolicy($app, policy)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -534,7 +303,7 @@
 	}
 
 	async function setPublishState() {
-		await computeTriggerables()
+		policy = await updatePolicy($app, policy)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
@@ -556,7 +325,7 @@
 	}
 
 	async function saveInitialDraft() {
-		await computeTriggerables()
+		policy = await updatePolicy($app, policy)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -636,7 +405,7 @@
 		}
 		loading.saveDraft = true
 		try {
-			await computeTriggerables()
+			policy = await updatePolicy($app, policy)
 			let path = $appPath
 			if (savedApp.draft_only) {
 				await AppService.deleteApp({
@@ -887,8 +656,8 @@
 
 	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
-	export function toggleTutorial() {
-		appEditorTutorial?.toggleTutorial()
+	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
+		appEditorTutorial?.runTutorialById(id, options)
 	}
 
 	let appReportingDrawerOpen = $state(false)
@@ -907,6 +676,7 @@
 			document.documentElement.classList.remove('dark')
 		}
 		$darkMode = newDarkMode ?? globalDarkMode
+		$app.darkMode = newDarkMode
 	}
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')

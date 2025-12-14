@@ -37,6 +37,8 @@ export const AI_AGENT_SCHEMA = {
 			type: 'number',
 			description:
 				'Maximum number of conversation messages to store and retrieve from memory. If not set or 0, memory is disabled.',
+			'x-no-s3-storage-workspace-warning':
+				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
 			showExpr: "fields.output_type === 'text'"
 		},
 		output_schema: {
@@ -63,6 +65,12 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
 			showExpr: "fields.output_type === 'text'"
+		},
+		max_iterations: {
+			type: 'number',
+			description:
+				'Limits how many times the agent can loop through reasoning and tool use. Range: 1-1000.',
+			default: 10
 		}
 	},
 	required: ['provider', 'user_message', 'output_type'],
@@ -76,7 +84,8 @@ export const AI_AGENT_SCHEMA = {
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',
-		'temperature'
+		'temperature',
+		'max_iterations'
 	]
 }
 

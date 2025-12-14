@@ -75,7 +75,7 @@
 
 <Popover placement="bottom-end">
 	{#snippet trigger()}
-		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
+		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
 		</Button>
 	{/snippet}

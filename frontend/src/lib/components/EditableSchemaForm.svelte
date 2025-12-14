@@ -668,6 +668,7 @@
 															bind:customErrorMessage={
 																schema.properties[argName].customErrorMessage
 															}
+															bind:nonEmpty={schema.properties[argName].nonEmpty}
 															bind:itemsType={schema.properties[argName].items}
 															bind:extra={schema.properties[argName]}
 															bind:title={schema.properties[argName].title}

@@ -5,6 +5,7 @@
 		EmailTriggerService,
 		WorkspaceService,
 		type EmailTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -31,7 +32,18 @@
 		enterpriseLicense,
 		usedTriggerKinds
 	} from '$lib/stores'
-	import { Mail, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
+	import {
+		Mail,
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Share,
+		Trash,
+		FileUp,
+		ClipboardCopy,
+		Pause
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -45,6 +57,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { getEmailAddress, getEmailDomain } from '$lib/components/triggers/email/utils'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = EmailTrigger & { canWrite: boolean }
 
@@ -193,6 +206,25 @@
 		}
 	}
 
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+		try {
+			await EmailTriggerService.setEmailTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` email trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
@@ -274,7 +306,7 @@
 				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const emailAddress = getEmailAddress(
 							local_part,
@@ -318,24 +350,43 @@
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
 
+								<TriggerModeToggle
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'email',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
+
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() => copyToClipboard(emailAddress)}
-										variant="accent"
-										size="xs"
+										variant="subtle"
+										unifiedSize="md"
 										startIcon={{ icon: ClipboardCopy }}
 									>
 										Copy email address
 									</Button>
 									<Button
 										on:click={() => emailTriggerEditor?.openEdit(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
-										variant="accent"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
@@ -348,25 +399,17 @@
 													goto(href)
 												}
 											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
-												action: async () => {
-													try {
-														await EmailTriggerService.deleteEmailTrigger({
-															workspace: $workspaceStore ?? '',
-															path
-														})
-														sendUserToast(`Successfully deleted Email trigger: ${path}`)
-														loadTriggers()
-													} catch (error) {
-														sendUserToast(error.body || error.message, true)
-													}
-												}
-											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
 											{
 												displayName: canWrite ? 'Edit' : 'View',
 												icon: canWrite ? Pen : Eye,
@@ -399,6 +442,25 @@
 												icon: Share,
 												action: () => {
 													shareModal?.openDrawer(path, 'email_trigger')
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled:
+													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												action: async () => {
+													try {
+														await EmailTriggerService.deleteEmailTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted Email trigger: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											}
 										]}

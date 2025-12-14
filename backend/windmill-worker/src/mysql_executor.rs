@@ -16,7 +16,7 @@ use windmill_common::{
     client::AuthedClient,
     error::{to_anyhow, Error},
     s3_helpers::convert_json_line_stream,
-    worker::{to_raw_value, Connection},
+    worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
@@ -50,8 +50,10 @@ fn do_mysql_inner<'a>(
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let param_names = parse_sql_statement_named_params(query, ':')
         .into_iter()
         .map(|x| x.into_bytes())
@@ -76,7 +78,7 @@ fn do_mysql_inner<'a>(
                 .await
                 .map_err(to_anyhow)?;
 
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
         } else if let Some(ref s3) = s3 {
             let query = query.to_string();
             let rows_stream = async_stream::stream! {
@@ -108,14 +110,23 @@ fn do_mysql_inner<'a>(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
-            Ok(to_raw_value(&s3.to_return_s3_obj()))
+            Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
         } else {
-            let rows: Vec<Row> = conn
-                .lock()
-                .await
-                .exec(query, statement_values)
-                .await
-                .map_err(to_anyhow)?;
+            let rows: Vec<Row> = if first_row_only {
+                conn.lock()
+                    .await
+                    .exec_first(query, statement_values)
+                    .await
+                    .map_err(to_anyhow)?
+                    .into_iter()
+                    .collect()
+            } else {
+                conn.lock()
+                    .await
+                    .exec(query, statement_values)
+                    .await
+                    .map_err(to_anyhow)?
+            };
 
             if let Some(column_order) = column_order {
                 *column_order = Some(
@@ -130,12 +141,10 @@ fn do_mysql_inner<'a>(
                 );
             }
 
-            Ok(to_raw_value(
-                &rows
-                    .into_iter()
-                    .map(|x| convert_row_to_value(x))
-                    .collect::<Vec<serde_json::Value>>(),
-            ))
+            Ok(rows
+                .into_iter()
+                .map(|x| to_raw_value(&convert_row_to_value(x)))
+                .collect::<Vec<_>>())
         }
     };
 
@@ -180,6 +189,11 @@ pub async fn do_mysql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
@@ -285,45 +299,33 @@ pub async fn do_mysql(
 
     let queries = parse_sql_blocks(query);
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_mysql_inner(
-                    x,
-                    &statement_values,
-                    conn_a.clone(),
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    s3.clone(),
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let conn_a_ref = &conn_a;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, query) in queries.iter().enumerate() {
+            let result = do_mysql_inner(
+                query,
+                &statement_values,
+                conn_a_ref.clone(),
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_mysql_inner(
-            query,
-            &statement_values,
-            conn_a.clone(),
-            Some(column_order),
-            false,
-            s3,
-        )?
+        collection_strategy.collect(results)
     };
 
     let result = run_future_with_polling_update_job_poller(
@@ -344,11 +346,10 @@ pub async fn do_mysql(
 
     pool.disconnect().await.map_err(to_anyhow)?;
 
-    let raw_result = windmill_common::worker::to_raw_value(&json!(result));
-    *mem_peak = (raw_result.get().len() / 1000) as i32;
+    *mem_peak = (result.get().len() / 1000) as i32;
 
     // And then check that we got back the same string we sent over.
-    return Ok(raw_result);
+    return Ok(result);
 }
 
 // 2023-12-01T16:18:00.000Z

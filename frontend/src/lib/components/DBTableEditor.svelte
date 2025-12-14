@@ -36,14 +36,6 @@
 		if (Object.values(errs).every((v) => !v)) return undefined
 		return errs
 	}
-
-	export type DBTableEditorProps = {
-		onConfirm: (values: CreateTableValues) => void | Promise<void>
-		previewSql?: (values: CreateTableValues) => string
-		dbType: DbType
-		dbSchema?: DBSchema
-		currentSchema?: string
-	}
 </script>
 
 <script lang="ts">
@@ -53,11 +45,7 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import {
-		datatypeHasLength,
-		dbSupportsSchemas,
-		type DbType
-	} from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
@@ -74,8 +62,18 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import type { DbType } from './dbTypes'
+	import Portal from './Portal.svelte'
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
+	type Props = {
+		onConfirm: (values: CreateTableValues) => void | Promise<void>
+		previewSql?: (values: CreateTableValues) => string
+		dbType: DbType
+		dbSchema?: DBSchema
+		currentSchema?: string
+	}
+
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
@@ -395,23 +393,25 @@
 	>
 </div>
 
-<ConfirmationModal
-	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-	on:canceled={() => (askingForConfirmation = undefined)}
-	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
->
-	{#if askingForConfirmation?.codeContent}
-		<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
-			<code class="whitespace-pre-wrap">
-				{askingForConfirmation.codeContent}
-			</code>
-			<Button
-				on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
-				size="xs"
-				startIcon={{ icon: ClipboardCopy }}
-				color="none"
-				wrapperClasses="absolute z-10 top-0 right-0"
-			></Button>
-		</div>
-	{/if}
-</ConfirmationModal>
+<Portal>
+	<ConfirmationModal
+		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+		on:canceled={() => (askingForConfirmation = undefined)}
+		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+	>
+		{#if askingForConfirmation?.codeContent}
+			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
+				<code class="whitespace-pre-wrap">
+					{askingForConfirmation.codeContent}
+				</code>
+				<Button
+					on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
+					size="xs"
+					startIcon={{ icon: ClipboardCopy }}
+					color="none"
+					wrapperClasses="absolute z-10 top-0 right-0"
+				></Button>
+			</div>
+		{/if}
+	</ConfirmationModal>
+</Portal>

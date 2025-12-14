@@ -204,31 +204,31 @@ pub async fn get_approval_form_details(
         "WITH job_info AS (
             -- Query for Teams (running jobs)
             SELECT
-                parent.job_kind AS \"job_kind!: JobKind\",
-                parent.script_hash AS \"script_hash: ScriptHash\",
-                parent.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-                child.parent_job AS \"parent_job: Uuid\",
-                parent.created_at AS \"created_at!: chrono::NaiveDateTime\",
-                parent.created_by AS \"created_by!\",
-                parent.script_path,
-                parent.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-            FROM v2_as_queue child
-            JOIN v2_as_queue parent ON parent.id = child.parent_job
-            WHERE child.id = $1 AND child.workspace_id = $2
+                parent_j.kind AS \"job_kind!: JobKind\",
+                parent_j.runnable_id AS \"script_hash: ScriptHash\",
+                parent_j.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+                child_j.parent_job AS \"parent_job: Uuid\",
+                parent_j.created_at AS \"created_at!: chrono::NaiveDateTime\",
+                parent_j.created_by AS \"created_by!\",
+                parent_j.runnable_path as script_path,
+                parent_j.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+            FROM v2_job_queue child_q JOIN v2_job child_j USING (id)
+            JOIN v2_job parent_j ON parent_j.id = child_j.parent_job
+            WHERE child_j.id = $1 AND child_j.workspace_id = $2
             UNION ALL
             -- Query for Slack (completed jobs)
             SELECT
-                v2_as_queue.job_kind AS \"job_kind!: JobKind\",
-                v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
-                v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-                v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
-                v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
-                v2_as_completed_job.created_by AS \"created_by!\",
-                v2_as_queue.script_path,
-                v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-            FROM v2_as_queue
-            JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
-            WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
+                parent_j.kind AS \"job_kind!: JobKind\",
+                parent_j.runnable_id AS \"script_hash: ScriptHash\",
+                parent_j.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+                completed_j.parent_job AS \"parent_job: Uuid\",
+                completed_j.created_at AS \"created_at!: chrono::NaiveDateTime\",
+                completed_j.created_by AS \"created_by!\",
+                parent_j.runnable_path as script_path,
+                parent_j.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+            FROM v2_job_completed completed_c JOIN v2_job completed_j USING (id)
+            JOIN v2_job parent_j ON parent_j.id = completed_j.parent_job
+            WHERE completed_j.id = $1 AND completed_j.workspace_id = $2
         )
         SELECT * FROM job_info LIMIT 1",
         job_id,

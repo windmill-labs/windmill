@@ -14,11 +14,12 @@
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
+	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { Flag, Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined
@@ -39,6 +40,14 @@
 	}: Props = $props()
 
 	let latestHash: string | undefined = $state(undefined)
+
+	// Extract version_id from hub path (format: hub/{version_id}/{app}/{summary})
+	let hubVersionId = $derived(
+		flowModuleValue?.type === 'script' && flowModuleValue.path?.startsWith('hub/')
+			? flowModuleValue.path.split('/')[1]
+			: undefined
+	)
+
 	function getCachedKey(path: string) {
 		return `${$workspaceStore}-${path}`
 	}
@@ -74,7 +83,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-1 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-2 flex-nowrap"
 >
 	{#if flowModuleValue}
 		<span class="text-sm w-full mr-4">
@@ -96,6 +105,26 @@
 					/>
 				{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
 					<IconedPath path={flowModuleValue.path} hash={flowModuleValue.hash} class="grow" />
+
+					{#if hubVersionId}
+						<Button
+							title="Report an issue with this hub script"
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								const targetHubBaseUrl =
+									Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION
+										? DEFAULT_HUB_BASE_URL
+										: $hubBaseUrlStore
+								window.open(
+									`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
+									'_blank'
+								)
+							}}
+						>
+							<Flag size={12} />Report issue
+						</Button>
+					{/if}
 
 					{#if flowModuleValue.hash}
 						{#if latestHash != flowModuleValue.hash}

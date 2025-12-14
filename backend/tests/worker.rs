@@ -188,9 +188,8 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
+                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default()
+                            .into(),
                         is_trigger: None,
                         assets: None,
                     }
@@ -202,6 +201,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -217,6 +217,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
@@ -233,9 +234,8 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 path: None,
                                 lock: None,
                                 tag: None,
-                                custom_concurrency_key: None,
-                                concurrent_limit: None,
-                                concurrency_time_window_s: None,
+                                concurrency_settings:
+                                    windmill_common::jobs::ConcurrencySettings::default().into(),
                                 is_trigger: None,
                                 assets: None,
                             }
@@ -247,6 +247,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                             retry: None,
                             sleep: None,
                             cache_ttl: None,
+                            cache_ignore_s3_path: None,
                             mock: None,
                             timeout: None,
                             priority: None,
@@ -266,6 +267,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -367,9 +369,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
+                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
                         is_trigger: None,
                         assets: None,
 
@@ -381,6 +381,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -396,6 +397,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         iterator: InputTransform::Static { value: windmill_common::worker::to_raw_value(&[1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
+                        squash: None,
                         parallelism: None,
                         modules: vec![
                             FlowModule {
@@ -423,9 +425,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     path: None,
                                     lock: None,
                                     tag: None,
-                                    custom_concurrency_key: None,
-                                    concurrent_limit: None,
-                                    concurrency_time_window_s: None,
+                                    concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
                                     is_trigger: None,
                                     assets: None,
                                 }.into(),
@@ -436,6 +436,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 retry: None,
                                 sleep: None,
                                 cache_ttl: None,
+                                cache_ignore_s3_path: None,
                                 mock: None,
                                 timeout: None,
                                 priority: None,
@@ -464,9 +465,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                     path: None,
                                     lock: None,
                                     tag: None,
-                                    custom_concurrency_key: None,
-                                    concurrent_limit: None,
-                                    concurrency_time_window_s: None,
+                                    concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
                                     is_trigger: None,
                                     assets: None,
 
@@ -478,6 +477,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 retry: None,
                                 sleep: None,
                                 cache_ttl: None,
+                                cache_ignore_s3_path: None,
                                 mock: None,
                                 timeout: None,
                                 priority: None,
@@ -497,6 +497,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -532,9 +533,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
+                        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
                         is_trigger: None,
                         assets: None,
                     }.into(),
@@ -545,6 +544,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -862,13 +862,11 @@ func main(derp string) (string, error) {
         path: None,
         lock: None,
         language: ScriptLang::Go,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, false, port)
@@ -901,13 +899,11 @@ fn main(world: String) -> Result<String, String> {
         path: None,
         lock: None,
         language: ScriptLang::Rust,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
+        cache_ignore_s3_path: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
         cache_ttl: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
     }))
     .arg("world", json!("Hyrule"))
     .run_until_complete(&db, false, port)
@@ -979,13 +975,11 @@ echo "hello $msg"
         path: None,
         lock: None,
         language: ScriptLang::Bash,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1014,13 +1008,11 @@ def main [ msg: string ] {
         path: None,
         lock: None,
         language: ScriptLang::Nu,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1069,13 +1061,11 @@ def main [
         path: None,
         lock: None,
         language: ScriptLang::Nu,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("a", json!("3"))
     .arg("b", json!("null"))
@@ -1133,13 +1123,11 @@ public class Main {
         path: None,
         lock: None,
         language: ScriptLang::Java,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("a", json!(3))
     .arg("b", json!(3.0))
@@ -1170,13 +1158,11 @@ export async function main(a: Date) {
         path: None,
         lock: None,
         language: ScriptLang::Bun,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1207,13 +1193,11 @@ export async function main(a: Date) {
         path: None,
         lock: None,
         language: ScriptLang::Deno,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1245,13 +1229,11 @@ def main(a: datetime, b: bytes):
         path: None,
         lock: None,
         language: ScriptLang::Python3,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        custom_debounce_key: None,
-        debounce_delay_s: None,
+        concurrency_settings: windmill_common::jobs::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::jobs::DebouncingSettings::default(),
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .arg("b", json!("dGVzdA=="))
@@ -2395,7 +2377,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT script_path FROM v2_as_completed_job  WHERE id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2466,7 +2448,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT script_path FROM v2_as_completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -2553,7 +2535,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT script_path FROM v2_as_completed_job  WHERE id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2625,7 +2607,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT script_path FROM v2_as_completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -2769,7 +2751,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let response = windmill_api::jobs::run_wait_result(
         &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
-        "test-workspace".to_string(),
+        "test-workspace",
         None,
         "test-user",
     )
@@ -2892,13 +2874,15 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     in_test_worker(
         db,
         async move {
-            let job = RunJob::from(JobPayload::Code(RawCode {
-                language: ScriptLang::Python3,
-                content: WORKFLOW_AS_CODE.into(),
-                ..RawCode::default()
-            }))
-            .arg("n", json!(3))
-            .run_until_complete(db, false, port)
+            let job = Box::pin(
+                RunJob::from(JobPayload::Code(RawCode {
+                    language: ScriptLang::Python3,
+                    content: WORKFLOW_AS_CODE.into(),
+                    ..RawCode::default()
+                }))
+                .arg("n", json!(3))
+                .run_until_complete(db, false, port),
+            )
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
@@ -2942,5 +2926,35 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
         port,
     )
     .await;
+    Ok(())
+}
+
+#[cfg(feature = "duckdb")]
+#[sqlx::test(fixtures("base"))]
+async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    let content = "-- result_collection=last_statement_first_row_scalar\nSELECT 'Hello world!';";
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "value": {
+                "type": "rawscript",
+                "language": "duckdb",
+                "content": content,
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+    assert_eq!(result, serde_json::json!("Hello world!"));
     Ok(())
 }

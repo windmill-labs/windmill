@@ -21,6 +21,7 @@
 	export let schema: any | undefined = undefined
 
 	export let stepDetail: FlowModule | string | undefined = undefined
+	export let jobScriptHash: string | undefined = undefined
 	let codeViewer: Drawer
 </script>
 
@@ -121,6 +122,7 @@
 					{:else if stepDetail.value.type == 'forloopflow'}
 						For loop {#if stepDetail.value.parallel}(parallel){/if}
 						{#if stepDetail.value.skip_failures}(skip failures){/if}
+						{#if stepDetail.value.squash}(squash){/if}
 					{:else if stepDetail.value.type == 'branchall'}
 						Run all branches {#if stepDetail.value.parallel}(parallel){/if}
 					{:else if stepDetail.value.type == 'branchone'}
@@ -128,7 +130,8 @@
 					{:else if stepDetail.value.type == 'flow'}
 						Inner flow
 					{:else if stepDetail.value.type == 'whileloopflow'}
-						While loop
+						While loop {#if stepDetail.value.skip_failures}(skip failures){/if}
+						{#if stepDetail.value.squash}(squash){/if}
 					{:else if stepDetail.id === 'failure'}
 						Error handler
 					{:else if stepDetail.id === 'preprocessor'}
@@ -217,7 +220,7 @@
 					></iframe>
 				</div>
 			{:else}
-				<FlowModuleScript path={stepDetail.value.path} />
+				<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
 			{/if}
 		{:else if stepDetail.value.type == 'aiagent'}
 			<div class="text-2xs">

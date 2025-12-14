@@ -19,8 +19,8 @@
 			try {
 				return get(userStore)
 					? filter.length > 0
-						? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
-						: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ??
+						? await ScriptService.queryHubScripts({ text: filter, limit: 20, kind })
+						: ((await ScriptService.getTopHubScripts({ limit: 20, kind, app: appFilter })).asks ??
 							[])
 					: undefined
 			} catch (err) {
@@ -41,10 +41,10 @@
 	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
-	import { Circle } from 'lucide-svelte'
+	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { userStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -139,6 +139,20 @@
 		})
 	})
 
+	async function handlePickScript(item: (typeof items)[number]) {
+		if (item.path.startsWith('hub/')) {
+			try {
+				await ScriptService.pickHubScriptByPath({ path: item.path })
+			} catch (error) {
+				console.error('Failed to track hub script pick:', error)
+				// Don't block the flow if tracking fails
+			}
+		}
+
+		// Dispatch the event to continue with the selection
+		dispatch('pickScript', item)
+	}
+
 	function onKeyDown(e: KeyboardEvent) {
 		if (
 			selected != undefined &&
@@ -149,7 +163,7 @@
 		) {
 			e.preventDefault()
 			let item = items![selected]
-			dispatch('pickScript', item)
+			handlePickScript(item)
 		}
 	}
 	$effect(() => {
@@ -189,7 +203,7 @@
 						variant="subtle"
 						unifiedSize="sm"
 						btnClasses="justify-start"
-						onClick={() => dispatch('pickScript', item)}
+						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
 							{#if item['app'] in APP_TO_ICON_COMPONENT}
@@ -220,9 +234,22 @@
 			</li>
 		{/each}
 	</ul>
-	{#if items.length == 40}
+	{#if items.length == 20}
 		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
+	{:else}
+		<div class="px-2 py-1">
+			<a
+				href={`${$hubBaseUrlStore}?suggest_script=true`}
+				target="_blank"
+				class="text-xs flex flex-row items-center gap-1 text-blue-500 hover:text-blue-600"
+				>Suggest script <ExternalLink class="size-3" />
+			</a>
+		</div>
 	{/if}
+{:else}
+	<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">
+		No scripts found.
+	</div>
 {/if}

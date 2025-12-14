@@ -85,7 +85,8 @@
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true
+			includeDraftOnly: true,
+			withoutDescription: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -102,7 +103,8 @@
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true
+				includeDraftOnly: true,
+				withoutDescription: true
 			})
 		).map((x: Flow) => {
 			return {
@@ -525,7 +527,7 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<NoItemFound />
+			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
 		{:else if treeView}
 			<TreeViewRoot
 				{items}

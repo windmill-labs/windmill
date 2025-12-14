@@ -43,7 +43,7 @@
 	import { VariableService } from '$lib/gen'
 	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
-	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
+	import { animateTo, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
@@ -54,13 +54,14 @@
 		secondaryMenuRightStore
 	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
-	import { BG_PREFIX, migrateApp } from '../utils'
+	import { migrateApp } from '../utils'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
+	import { BG_PREFIX, findGridItem } from './appUtilsCore'
 
 	let {
 		app,
@@ -427,7 +428,12 @@
 	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
 
 	export function triggerTutorial() {
-		appEditorHeader?.toggleTutorial()
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial) {
+			appEditorHeader?.runTutorialById(tutorial)
+		}
 	}
 
 	let box: HTMLElement | undefined = $state(undefined)

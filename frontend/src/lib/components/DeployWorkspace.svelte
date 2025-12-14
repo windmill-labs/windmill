@@ -33,6 +33,7 @@
 	import type { TriggerKind } from './triggers'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
+	import { isRunnableByPath } from './apps/inputType'
 
 	const dispatch = createEventDispatcher()
 
@@ -60,6 +61,7 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let notSet: boolean | undefined = $state(undefined)
+	let isFlow: boolean | undefined = $state(undefined)
 
 	async function reload(path: string) {
 		try {
@@ -144,7 +146,7 @@
 				let result: { kind: Kind; path: string }[] = []
 				getAllGridItems(appValue).forEach((gridItem) => {
 					const ci = gridItem.data.componentInput
-					if (ci?.type == 'runnable' && ci.runnable?.type == 'runnableByPath') {
+					if (ci?.type == 'runnable' && isRunnableByPath(ci.runnable)) {
 						if (ci.runnable.runType == 'script') {
 							result.push({ kind: 'script', path: ci.runnable.path })
 						} else if (ci.runnable.runType == 'flow') {
@@ -638,7 +640,7 @@
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
-		<DiffDrawer bind:this={diffDrawer} />
+		<DiffDrawer bind:this={diffDrawer} {isFlow} />
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
 			{#each dependencies ?? [] as { kind, path, include }, i}
 				{@const statusPath = computeStatusPath(kind, path)}
@@ -683,6 +685,7 @@
 							class="text-blue-600 font-normal mt-1"
 							onclick={() => {
 								showDiff(kind, path)
+								isFlow = kind === 'flow'
 							}}>diff</button
 						>
 					{/if}</div

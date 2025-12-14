@@ -27,8 +27,13 @@
 	let nodraft = page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+
+	const urlArgs = page.url.searchParams.get('initial_args')
+
 	let initialArgs = $state({})
-	if ($initialArgsStore) {
+	if (urlArgs) {
+		initialArgs = decodeState(urlArgs)
+	} else if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
 	}
@@ -266,7 +271,7 @@
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} isFlow />
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>

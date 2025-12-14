@@ -143,6 +143,7 @@ async fn update_worker_ping_full_inner(
                         memory: memory,
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
+                        job_isolation: None,
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -171,6 +172,15 @@ pub async fn insert_ping(
     let vcpus = get_vcpus();
     let memory = get_memory();
 
+    // Determine job isolation method
+    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+        Some("nsjail".to_string())
+    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+        Some("unshare".to_string())
+    } else {
+        Some("none".to_string())
+    };
+
     match db {
         Connection::Sql(db) => {
             insert_ping_query(
@@ -183,6 +193,7 @@ pub async fn insert_ping(
                 windmill_common::utils::GIT_VERSION,
                 vcpus,
                 memory,
+                job_isolation,
                 db,
             )
             .await?;
@@ -209,6 +220,7 @@ pub async fn insert_ping(
                         memory: memory,
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
+                        job_isolation,
                         ping_type: PingType::Initial,
                     },
                 )
@@ -231,6 +243,15 @@ pub async fn update_worker_ping_from_job(
     let occupancy_rate_15s = occupancy.as_ref().and_then(|x| x.occupancy_rate_15s);
     let occupancy_rate_5m = occupancy.as_ref().and_then(|x| x.occupancy_rate_5m);
     let occupancy_rate_30m = occupancy.as_ref().and_then(|x| x.occupancy_rate_30m);
+
+    let job_isolation = if crate::NSJAIL_AVAILABLE.is_some() {
+        Some("nsjail".to_string())
+    } else if *crate::ENABLE_UNSHARE_PID && crate::UNSHARE_PATH.is_some() {
+        Some("unshare".to_string())
+    } else {
+        Some("none".to_string())
+    };
+
     match conn.clone() {
         Connection::Sql(ref db) => {
             update_worker_ping_from_job_query(
@@ -243,6 +264,7 @@ pub async fn update_worker_ping_from_job(
                 occupancy_rate_15s,
                 occupancy_rate_5m,
                 occupancy_rate_30m,
+                job_isolation,
                 db,
             )
             .await?;
@@ -270,6 +292,7 @@ pub async fn update_worker_ping_from_job(
                         occupancy_rate_15s: occupancy_rate_15s,
                         occupancy_rate_5m: occupancy_rate_5m,
                         occupancy_rate_30m: occupancy_rate_30m,
+                        job_isolation,
                     },
                 )
                 .await?;
@@ -372,15 +395,19 @@ pub async fn get_tag_and_concurrency(job_id: &Uuid, db: &DB) -> Option<TagAndCon
                 Err(_) => cache::flow::fetch_version(db, version).await,
             };
             let flow_value = flow.map(|f| f.value().clone()).ok();
+
             let concurrency_key = flow_value
                 .as_ref()
-                .map(|fv| fv.concurrency_key.clone())
-                .flatten();
-            let concurrent_limit = flow_value.as_ref().map(|fv| fv.concurrent_limit).flatten();
+                .and_then(|fv| fv.concurrency_settings.concurrency_key.to_owned());
+
+            let concurrent_limit = flow_value
+                .as_ref()
+                .and_then(|fv| fv.concurrency_settings.concurrent_limit);
+
             let concurrent_time_window_s = flow_value
                 .as_ref()
-                .map(|fv| fv.concurrency_time_window_s)
-                .flatten();
+                .and_then(|fv| fv.concurrency_settings.concurrency_time_window_s);
+
             Some(TagAndConcurrencyKey {
                 tag: tag_and_concurrency_key.tag,
                 concurrency_key,

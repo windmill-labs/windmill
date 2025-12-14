@@ -48,7 +48,7 @@
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
 		isOwner?: boolean
-		onTestFlow?: () => Promise<string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
@@ -102,6 +102,10 @@
 		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
 	}
 
+	export function enableNotes(): void {
+		flowModuleSchemaMap?.enableNotes?.()
+	}
+
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
@@ -125,6 +129,7 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
@@ -209,11 +214,12 @@
 					{suspendStatus}
 					onOpenDetails={onOpenPreview}
 					{previewOpen}
+					{flowModuleSchemaMap}
 				/>
 			{/if}
 		</Pane>
 		{#if !disableAi}
-			<FlowAIChat {flowModuleSchemaMap} />
+			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
 		{/if}
 	</Splitpanes>
 </div>

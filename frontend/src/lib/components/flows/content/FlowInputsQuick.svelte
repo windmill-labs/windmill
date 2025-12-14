@@ -8,13 +8,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
-	import { Folder, User, X } from 'lucide-svelte'
+	import { ExternalLink, Folder, User, X } from 'lucide-svelte'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -24,6 +30,12 @@
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import {
+		canHavePreprocessor,
+		canHaveTrigger,
+		canHaveApproval,
+		canHaveFailure
+	} from '$lib/script_helpers'
 
 	const dispatch = createEventDispatcher()
 
@@ -88,17 +100,17 @@
 		kind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (kind == 'trigger') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveTrigger(lang as SupportedLanguage)
 		} else if (kind == 'script') {
 			return true
 		} else if (kind == 'approval') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHaveApproval(lang as SupportedLanguage)
 		} else if (kind == 'flow') {
 			return false
 		} else if (kind == 'preprocessor') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHavePreprocessor(lang as SupportedLanguage)
 		} else if (kind == 'failure') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveFailure(lang as SupportedLanguage)
 		}
 	}
 
@@ -248,7 +260,7 @@
 			{#if ['script', 'trigger', 'approval', 'preprocessor', 'failure'].includes(selectedKind)}
 				{#if (preFilter === 'all' && owners.length > 0) || preFilter === 'workspace'}
 					{#if preFilter !== 'workspace'}
-						<div class="pb-0 text-2xs font-light text-secondary ml-2">Folders</div>
+						<div class="pb-0 text-2xs font-normal text-secondary ml-2">Folders</div>
 					{/if}
 
 					{#if owners.length > 0}
@@ -275,9 +287,9 @@
 								</Button>
 							</div>
 						{/each}
-						<div class="pb-1.5"></div>
+						<div class="pb-1"></div>
 					{:else}
-						<div class="text-2xs text-primary font-light text-center py-3 px-3 items-center">
+						<div class="text-2xs text-primary font-normal text-center py-3 px-3 items-center">
 							No items found.
 						</div>
 					{/if}
@@ -285,7 +297,7 @@
 
 				{#if preFilter === 'hub' || preFilter === 'all'}
 					{#if preFilter == 'all'}
-						<div class="pb-0 text-2xs font-light text-secondary ml-2 pt-0.5">Integrations</div>
+						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
 					<ListFiltersQuick
 						on:selected={() => {
@@ -296,6 +308,16 @@
 						bind:selectedFilter={selected}
 						resourceType
 					/>
+					{#if !selected}
+						<div class="pl-2 py-1">
+							<a
+								href={`${$hubBaseUrlStore}?suggest_integration=true`}
+								target="_blank"
+								class="text-2xs flex flex-row items-center gap-1"
+								>Suggest integration <ExternalLink class="size-3" />
+							</a>
+						</div>
+					{/if}
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
@@ -339,8 +361,8 @@
 		{/if}
 
 		{#if inlineScripts?.length > 0}
-			<div class="pb-0 flex flex-row items-center gap-2 -mt-[3px]">
-				<div class=" text-2xs font-light text-secondary ml-2"
+			<div class="pb-0 flex flex-row items-center gap-2">
+				<div class="text-2xs font-normal text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
 				{#if $userStore?.is_admin || $userStore?.is_super_admin}
@@ -351,6 +373,7 @@
 							unifiedSize="sm"
 							variant="subtle"
 							title="Edit global default scripts"
+							btnClasses="-my-3"
 						/>
 					{:else}
 						<Button
@@ -358,6 +381,7 @@
 							startIcon={{ icon: X }}
 							variant="accent"
 							unifiedSize="sm"
+							btnClasses="-my-3"
 						>
 							Close
 						</Button>
@@ -443,7 +467,7 @@
 
 		{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
 			{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
-				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
+				<div class="pt-2 pb-0 text-2xs font-normal text-secondary ml-2">Workspace</div>
 			{/if}
 			{#await import('../pickers/WorkspaceScriptPickerQuick.svelte') then Module}
 				<Module.default
@@ -470,7 +494,7 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
-					<div class=" pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
+					<div class=" pb-0 text-2xs font-normal text-secondary ml-2">Hub</div>
 				{/if}
 				{#await import('../pickers/PickHubScriptQuick.svelte') then Module}
 					<Module.default

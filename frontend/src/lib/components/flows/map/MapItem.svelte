@@ -2,7 +2,6 @@
 	import { Button } from '$lib/components/common'
 	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
@@ -12,15 +11,18 @@
 		isTriggerStep,
 		type onSelectedIteration
 	} from '$lib/components/graph/graphBuilder.svelte'
-	import { checkIfParentLoop } from '$lib/components/flows/utils'
+	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
+		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -53,6 +55,7 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
+		moduleAction = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -69,11 +72,10 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 
-	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const { flowStore } = flowEditorContext || {}
 
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
@@ -83,7 +85,7 @@
 	}>()
 
 	let itemProps = $derived({
-		selected: $selectedId === mod.id,
+		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		skip: Boolean(mod.skip_if),
@@ -97,6 +99,13 @@
 	let parentLoop = $derived(
 		flowStore?.val && mod ? checkIfParentLoop(flowStore.val, mod.id) : undefined
 	)
+
+	function handlePointerDown(e: CustomEvent<PointerEvent>) {
+		// Only handle left clicks (button 0)
+		if (e.detail.button === 0) {
+			onSelect(mod.id)
+		}
+	}
 </script>
 
 {#if mod}
@@ -112,8 +121,8 @@
 		{#if duration_ms}
 			<div
 				class={twMerge(
-					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
-					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-10' : ''
+					'absolute z-5 right-0 -top-4 center-center text-primary text-2xs',
+					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-16' : ''
 				)}
 			>
 				{msToSec(duration_ms)}s
@@ -148,16 +157,17 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
 						mod.value.skip_failures ? '(skip failures)' : ''
-					}`}
+					} ${mod.value.squash ? '(squash)' : ''}`}
 					id={mod.id}
 					on:changeId
 					on:move
 					on:delete
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					onUpdateMock={(mock) => {
 						mod.mock = mock
 						onUpdateMock?.({ id: mod.id, mock })
@@ -181,10 +191,11 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -199,10 +210,11 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -217,8 +229,9 @@
 				<FlowModuleSchemaItem
 					{retries}
 					{editMode}
+					{moduleAction}
 					on:changeId
-					on:pointerdown={() => onSelect(mod.id)}
+					on:pointerdown={handlePointerDown}
 					on:delete
 					on:move
 					onUpdateMock={(mock) => {

@@ -8,6 +8,9 @@ import {
 	SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
 } from './components/triggers/http/utils'
 
+export const DEFAULT_HUB_BASE_URL = 'https://hub.windmill.dev'
+export const PRIVATE_HUB_MIN_VERSION = 10_000_000
+
 export function scriptToHubUrl(
 	content: string,
 	summary: string,
@@ -95,6 +98,7 @@ type HubPaths = {
 	teamsSuccessHandler: string
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
+	appReport: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

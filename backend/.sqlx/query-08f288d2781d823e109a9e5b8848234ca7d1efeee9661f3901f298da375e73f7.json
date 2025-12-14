@@ -157,6 +157,21 @@
         "ordinal": 30,
         "name": "auto_add_instance_groups_roles",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 31,
+        "name": "slack_oauth_client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 32,
+        "name": "slack_oauth_client_secret",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 33,
+        "name": "datatable",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -193,6 +208,9 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
       true,
       true,
       true

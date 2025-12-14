@@ -43,8 +43,9 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
@@ -110,6 +111,7 @@ pub fn global_service() -> Router {
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
         .route("/overwrite", post(overwrite_global_users))
+        .route("/onboarding", post(submit_onboarding_data))
 
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -286,6 +288,7 @@ pub struct GlobalUserInfo {
     username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_only: Option<bool>,
+    first_time_user: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -492,14 +495,13 @@ async fn list_user_usage(
             UserWithUsage,
             "
     SELECT usr.email, usage.executions
-        FROM usr
-            , LATERAL (
-            SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
-                FROM v2_as_completed_job
-                WHERE workspace_id = $1
-                AND job_kind NOT IN ('flow', 'flowpreview', 'flownode')
-                AND email = usr.email
-                AND now() - '1 week'::interval < created_at
+        FROM usr, LATERAL (
+            SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions
+                FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE j.workspace_id = $1
+                AND j.kind NOT IN ('flow', 'flowpreview', 'flownode')
+                AND j.permissioned_as_email = usr.email
+                AND now() - '1 week'::interval < j.created_at
             ) usage
         WHERE workspace_id = $1
         ",
@@ -533,7 +535,7 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             ORDER BY super_admin DESC, devops DESC
@@ -546,7 +548,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -561,20 +563,27 @@ async fn list_users_as_super_admin(
 #[derive(Serialize, Deserialize)]
 struct Progress {
     progress: u64,
+    skipped_all: bool,
 }
 async fn get_tutorial_progress(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Progress> {
-    let res = sqlx::query_scalar!(
-        "SELECT progress::bigint FROM tutorial_progress WHERE email = $1",
+    let row = sqlx::query!(
+        "SELECT progress::bigint as progress, skipped_all FROM tutorial_progress WHERE email = $1",
         authed.email
     )
     .fetch_optional(&db)
-    .await?
-    .flatten()
-    .unwrap_or_default() as u64;
-    Ok(Json(Progress { progress: res }))
+    .await?;
+
+    if let Some(row) = row {
+        Ok(Json(Progress {
+            progress: row.progress.unwrap_or_default() as u64,
+            skipped_all: row.skipped_all,
+        }))
+    } else {
+        Ok(Json(Progress { progress: 0, skipped_all: false }))
+    }
 }
 
 async fn update_tutorial_progress(
@@ -582,10 +591,11 @@ async fn update_tutorial_progress(
     Extension(db): Extension<DB>,
     Json(progress): Json<Progress>,
 ) -> Result<String> {
-    sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
+    sqlx::query!(
+        "INSERT INTO tutorial_progress (email, progress, skipped_all) VALUES ($2, $1::bigint::bit(64), $3) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress, skipped_all = EXCLUDED.skipped_all",
         progress.progress as i64,
-        authed.email
+        authed.email,
+        progress.skipped_all
     )
     .execute(&db)
     .await?;
@@ -749,7 +759,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user FROM password WHERE \
          email = $1",
         email
     )
@@ -770,6 +780,7 @@ async fn global_whoami(
             company: None,
             username: None,
             operator_only: None,
+            first_time_user: false,
         }))
     } else {
         Err(user.unwrap_err())
@@ -1643,6 +1654,14 @@ async fn create_user(
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
+async fn submit_onboarding_data(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(data): Json<crate::users_oss::OnboardingData>,
+) -> Result<String> {
+    crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
+}
+
 /// Internal helper for updating workspace user permissions - used by both API and system operations
 pub async fn update_workspace_user_internal(
     w_id: &str,
@@ -1858,15 +1877,15 @@ async fn login(
         username_override: None,
         token_prefix: None,
     };
-    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
     .await?;
 
-    if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
+    if let Some((email, hash, super_admin)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
@@ -1885,25 +1904,6 @@ async fn login(
             .await?;
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            if first_time_user {
-                sqlx::query_scalar!(
-                    "UPDATE password SET first_time_user = false WHERE email = $1",
-                    &email
-                )
-                .execute(&mut *tx)
-                .await?;
-                let mut c = Cookie::new("first_time", "1");
-                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
-                    c.set_domain(domain);
-                }
-                c.set_secure(false);
-                c.set_expires(time::OffsetDateTime::now_utc() + time::Duration::minutes(15));
-                c.set_http_only(false);
-                c.set_path("/");
-
-                cookies.add(c);
-            }
-
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {

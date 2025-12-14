@@ -12,10 +12,14 @@
 
 	let { message }: Props = $props()
 
-	let isExpanded = $derived(message.showDetails || (message.isLoading && message.needsConfirmation))
-
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
+	)
+
+	let isExpanded = $derived(
+		message.showDetails ||
+			(message.isStreamingArguments && hasParameters) ||
+			(message.isLoading && message.needsConfirmation)
 	)
 </script>
 
@@ -25,14 +29,14 @@
 	<!-- Collapsible Header -->
 	<button
 		class={twMerge(
-			'w-full p-3 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
+			'w-full p-2 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
 		onclick={() => (isExpanded = !isExpanded)}
-		disabled={!message.showDetails}
+		disabled={!message.showDetails && !message.isStreamingArguments}
 	>
 		<div class="flex items-center gap-2 flex-1">
-			{#if message.showDetails}
+			{#if message.showDetails || message.isStreamingArguments}
 				{#if isExpanded}
 					<ChevronDown class="w-3 h-3 text-secondary" />
 				{:else}
@@ -55,11 +59,19 @@
 
 	<!-- Expanded Content -->
 	{#if isExpanded}
-		<div class="p-3 bg-surface space-y-3">
-			<!-- Parameters Section -->
-			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
-				<ToolContentDisplay title="Parameters" content={message.parameters} />
-			</div>
+		<div class="p-2 bg-surface space-y-3">
+			<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
+			{#if hasParameters || message.needsConfirmation}
+				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+					<ToolContentDisplay
+						title="Parameters"
+						content={message.parameters}
+						streaming={message.isStreamingArguments}
+						toolName={message.toolName}
+						showFade={message.showFade}
+					/>
+				</div>
+			{/if}
 
 			<!-- Confirmation Footer -->
 			{#if message.needsConfirmation}
@@ -94,8 +106,8 @@
 					</Button>
 				</div>
 
-				<!-- Result Section -->
-			{:else}
+				<!-- Logs and Result - hide while streaming -->
+			{:else if !message.isStreamingArguments}
 				<ToolContentDisplay
 					title="Logs"
 					content={message.logs}

@@ -78,13 +78,13 @@
 				filter.length > 0
 					? await ScriptService.queryHubScripts({
 							text: `${filter}`,
-							limit: 40,
+							limit: 20,
 							kind: filterKind,
 							app: appFilter
 						})
 					: ((
 							await ScriptService.getTopHubScripts({
-								limit: 40,
+								limit: 20,
 								app: appFilter,
 								kind: filterKind
 							})
@@ -114,6 +114,20 @@
 		}
 	}
 
+	async function handlePick(item: (typeof items)[number]) {
+		if (item.path.startsWith('hub/')) {
+			try {
+				await ScriptService.pickHubScriptByPath({ path: item.path })
+			} catch (error) {
+				console.error('Failed to track hub script pick:', error)
+				// Don't block the flow if tracking fails
+			}
+		}
+
+		// Dispatch the event to continue with the selection
+		dispatch('pick', item)
+	}
+
 	$effect(() => {
 		;[filter, kind, appFilter]
 		untrack(() => applyFilter(filter, kind, appFilter))
@@ -136,14 +150,14 @@
 			{size}
 		/>
 		{#if loading}
-			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
+			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-1" />
 		{/if}
 	</div>
 </div>
 
 {#if hubNotAvailable}
 	<Alert type="error" title="Hub not available" />
-{:else if items.length > 0 && apps.length > 0}
+{:else if (items.length > 0 && apps.length > 0) || !loading}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 	{#if items.length == 0}
 		<NoItemFound />
@@ -153,7 +167,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
-						onclick={() => dispatch('pick', item)}
+						onclick={() => handlePick(item)}
 					>
 						<div class="flex items-center gap-4">
 							<div class="flex justify-center items-center">
@@ -180,7 +194,7 @@
 			{/each}
 		</ul>
 	{/if}
-	{#if items.length == 40}
+	{#if items.length == 20}
 		<div class="text-primary text-xs font-normal py-4">
 			There are more items than being displayed. Refine your search.
 		</div>

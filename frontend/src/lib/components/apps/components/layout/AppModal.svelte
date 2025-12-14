@@ -29,6 +29,7 @@
 		render: boolean
 		onOpenRecomputeIds?: string[] | undefined
 		onCloseRecomputeIds?: string[] | undefined
+		preclickAction?: (() => Promise<void>) | undefined
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		noWFull = false,
 		render,
 		onOpenRecomputeIds = undefined,
-		onCloseRecomputeIds = undefined
+		onCloseRecomputeIds = undefined,
+		preclickAction
 	}: Props = $props()
 
 	const {
@@ -156,6 +158,7 @@
 					e?.stopPropagation()
 				}}
 				on:click={async (e) => {
+					await preclickAction?.()
 					$focusedGrid = {
 						parentComponentId: id,
 						subGridIndex: 0

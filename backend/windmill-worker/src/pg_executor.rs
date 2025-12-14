@@ -28,7 +28,10 @@ use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
+use windmill_common::worker::{
+    to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
+};
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -36,6 +39,7 @@ use windmill_parser_sql::{
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
     build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
     OccupancyMetrics, S3ModeWorkerData,
@@ -73,8 +77,9 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
+    first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
-) -> error::Result<BoxFuture<'a, error::Result<Box<RawValue>>>> {
+) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -100,7 +105,7 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         // Now we can execute a simple statement that just returns its parameter.
 
-        let mut res: Vec<serde_json::Value> = vec![];
+        let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
         let query_params = query_params
             .iter()
@@ -125,12 +130,18 @@ fn do_postgresql_inner<'a>(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
-            return Ok(to_raw_value(&s3.to_return_s3_obj()));
+            return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
             let rows = client
                 .query_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
+
+            let rows = if first_row_only {
+                rows.take(1).boxed()
+            } else {
+                rows.boxed()
+            };
 
             let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
 
@@ -164,14 +175,14 @@ fn do_postgresql_inner<'a>(
                     }
                 }
                 if let Ok(v) = r {
-                    res.push(v);
+                    res.push(to_raw_value(&v));
                 } else {
                     return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }
 
-        Ok(to_raw_value(&res))
+        Ok(res)
     };
 
     Ok(result_f.boxed())
@@ -188,6 +199,7 @@ pub async fn do_postgresql(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, conn).await?;
 
@@ -205,7 +217,22 @@ pub async fn do_postgresql(
                 .await?,
         )
     } else {
-        pg_args.get("database").cloned()
+        match pg_args.get("database").cloned() {
+            Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
+                let db_str = db_str.trim_start_matches("datatable://");
+                Some(match conn {
+                    Connection::Http(client) => {
+                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
+                            .await?
+                    }
+                    Connection::Sql(db) => {
+                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
+                            .await?
+                    }
+                })
+            }
+            database => database,
+        }
     };
 
     let database = if let Some(db) = db_arg {
@@ -216,6 +243,11 @@ pub async fn do_postgresql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let sslmode = match database.sslmode.as_deref() {
         Some("allow") => "prefer".to_string(),
@@ -227,7 +259,7 @@ pub async fn do_postgresql(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = encode(&database.user.unwrap_or("postgres".to_string())),
         password = encode(&database.password.unwrap_or("".to_string())),
-        host = encode(&database.host),
+        host = database.host,
         port = database.port.unwrap_or(5432),
         dbname = database.dbname,
         sslmode = sslmode
@@ -336,62 +368,53 @@ pub async fn do_postgresql(
         .collect::<HashMap<_, _>>();
 
     let size = AtomicUsize::new(0);
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_postgresql_inner(
-                    x.to_string(),
-                    &param_idx_to_arg_and_value,
-                    client,
-                    None,
-                    &size,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    s3.clone(),
-                )
-            })
-            .collect::<error::Result<Vec<_>>>()?;
+    let size_ref = &size;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, query) in queries.iter().enumerate() {
+            let result = do_postgresql_inner(
+                query.to_string(),
+                &param_idx_to_arg_and_value,
+                client,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                size_ref,
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_postgresql_inner(
-            query.to_string(),
-            &param_idx_to_arg_and_value,
-            client,
-            Some(column_order),
-            &size,
-            false,
-            s3,
-        )?
+        collection_strategy.collect(results)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await?;
+    let result = if run_inline {
+        result_f.await?
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await?
+    };
 
     // drop the mtex to avoid holding the lock for too long, result has been returned
     drop(mtex);

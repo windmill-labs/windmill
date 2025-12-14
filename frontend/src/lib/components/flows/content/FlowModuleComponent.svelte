@@ -49,7 +49,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { checkIfParentLoop } from '../utils'
+	import { checkIfParentLoop } from '../utils.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -59,7 +59,7 @@
 	import { DynamicInput } from '$lib/utils'
 
 	const {
-		selectedId,
+		selectionManager,
 		currentEditor,
 		previewArgs,
 		flowStateStore,
@@ -69,6 +69,8 @@
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	interface Props {
 		flowModule: FlowModule
@@ -215,7 +217,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -223,10 +225,11 @@
 	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+
+		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
 		editor?.hide()
 	}
 
@@ -252,7 +255,7 @@
 	)
 
 	$effect.pre(() => {
-		$selectedId && untrack(() => onSelectedIdChange())
+		selectedId && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -404,7 +407,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							$selectedId,
+							selectedId,
 							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
@@ -424,7 +427,6 @@
 							customUi={customUi?.editorBar}
 							{validCode}
 							{editor}
-							{diffEditor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
@@ -456,50 +458,52 @@
 													<AssetsDropdownButton {assets} />
 												{/if}
 											</div>
-											<Editor
-												loadAsync
-												folding
-												path={$pathStore + '/' + flowModule.id}
-												bind:websocketAlive
-												bind:this={editor}
-												class="h-full relative"
-												code={flowModule.value.content}
-												scriptLang={flowModule?.value?.language}
-												automaticLayout={true}
-												cmdEnterAction={async () => {
-													selected = 'test'
-													if ($selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
+											<div id="flow-editor-code-section" class="h-full relative">
+												<Editor
+													loadAsync
+													folding
+													path={$pathStore + '/' + flowModule.id}
+													bind:websocketAlive
+													bind:this={editor}
+													class="h-full relative"
+													code={flowModule.value.content}
+													scriptLang={flowModule?.value?.language}
+													automaticLayout={true}
+													cmdEnterAction={async () => {
+														selected = 'test'
+														if (selectedId == flowModule.id) {
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
+															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
-													}
-												}}
-												on:change={async (event) => {
-													const content = event.detail
-													if (flowModule.value.type === 'rawscript') {
-														if (flowModule.value.content !== content) {
-															flowModule.value.content = content
+													}}
+													on:change={async (event) => {
+														const content = event.detail
+														if (flowModule.value.type === 'rawscript') {
+															if (flowModule.value.content !== content) {
+																flowModule.value.content = content
+															}
+															await reload(flowModule)
 														}
-														await reload(flowModule)
-													}
-												}}
-												formatAction={() => {
-													reload(flowModule)
-													saveDraft()
-												}}
-												fixedOverflowWidgets={true}
-												args={Object.entries(flowModule.value.input_transforms).reduce(
-													(acc, [key, obj]) => {
-														acc[key] = obj.type === 'static' ? obj.value : undefined
-														return acc
-													},
-													{}
-												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-												moduleId={flowModule.id}
-											/>
+													}}
+													formatAction={() => {
+														reload(flowModule)
+														saveDraft()
+													}}
+													fixedOverflowWidgets={true}
+													args={Object.entries(flowModule.value.input_transforms).reduce(
+														(acc, [key, obj]) => {
+															acc[key] = obj.type === 'static' ? obj.value : undefined
+															return acc
+														},
+														{}
+													)}
+													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+													moduleId={flowModule.id}
+												/>
+											</div>
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
@@ -578,7 +582,7 @@
 														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+														schema={flowStateStore.val[selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -609,7 +613,7 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+												schema={flowStateStore.val[selectedId]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
@@ -623,7 +627,7 @@
 													active={flowModule.retry !== undefined}
 													label="Retries"
 												/>
-												{#if !$selectedId.includes('failure')}
+												{#if !selectedId.includes('failure')}
 													<Tab value="runtime" label="Runtime" />
 													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab
@@ -838,7 +842,7 @@
 														<Button
 															btnClasses="mt-4"
 															on:click={() => {
-																$selectedId = 'settings-same-worker'
+																selectionManager.selectId('settings-same-worker')
 															}}
 														>
 															Set shared directory in the flow settings

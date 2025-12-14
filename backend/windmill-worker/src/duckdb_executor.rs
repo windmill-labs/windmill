@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_uint, CStr, CString};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
@@ -12,12 +12,15 @@ use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::Connection;
-use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
+    DucklakeCatalogResourceType,
+};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
-use crate::agent_workers::get_ducklake_from_agent_http;
+use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -25,6 +28,7 @@ use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use windmill_common::client::AuthedClient;
+use windmill_common::s3_helpers::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
@@ -38,7 +42,22 @@ pub async fn do_duckdb(
     #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> Result<Box<RawValue>> {
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy =
+        if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+            // Before result_collection was introduced, duckdb ignored all statements results except the last one
+            SqlResultCollectionStrategy::LastStatementAllRows
+        } else {
+            annotations.result_collection
+        };
+    if annotations.return_last_result {
+        return Err(Error::ExecutionErr(
+            "return_last_result annotation is deprecated, use result_collection=last_statement_all_rows instead".to_string(),
+        ));
+    }
+
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
 
@@ -70,7 +89,7 @@ pub async fn do_duckdb(
                     })?;
                     let uri = format!(
                         "s3://{}/{}",
-                        s3_obj.storage.as_deref().unwrap_or("_default_"),
+                        s3_obj.storage.as_deref().unwrap_or(DEFAULT_STORAGE),
                         s3_obj.s3
                     );
                     m.push(Arg {
@@ -91,41 +110,48 @@ pub async fn do_duckdb(
 
         let query_block_list = parse_sql_blocks(&query);
 
-        // Replace windmill resource ATTACH statements with the real instructions
+        // Replace custom ATTACH statements with the real instructions
         let query_block_list = {
             let mut v = vec![];
             for query_block in query_block_list.iter() {
                 let query_block = remove_comments(&query_block);
-                match parse_attach_db_resource(query_block) {
-                    Some(parsed) => {
-                        v.extend(
-                            transform_attach_db_resource_query(
-                                &parsed,
-                                &job.id,
-                                client,
-                                &mut hidden_passwords,
-                            )
-                            .await?,
-                        );
-                        if parsed.db_type == "bigquery" {
-                            bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
-                                job.id,
-                                parsed.resource_path,
-                            )?);
-                        }
+                if let Some(parsed) = parse_attach_db_resource(query_block) {
+                    v.extend(
+                        transform_attach_db_resource_query(
+                            &parsed,
+                            &job.id,
+                            client,
+                            &mut hidden_passwords,
+                        )
+                        .await?,
+                    );
+                    if parsed.db_type == "bigquery" {
+                        bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
+                            job.id,
+                            parsed.resource_path,
+                        )?);
                     }
-                    None => match transform_attach_ducklake(
-                        &query_block,
-                        conn,
-                        &mut hidden_passwords,
-                        &job.workspace_id,
-                    )
-                    .await?
-                    {
-                        Some(ducklake_query) => v.extend(ducklake_query),
-                        None => v.push(query_block.to_string()),
-                    },
-                };
+                } else if let Some(ducklake_query) = transform_attach_ducklake(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                )
+                .await?
+                {
+                    v.extend(ducklake_query);
+                } else if let Some(datatable_query) = transform_attach_datatable(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                )
+                .await?
+                {
+                    v.extend(datatable_query);
+                } else {
+                    v.push(query_block.to_string());
+                }
             }
             v
         };
@@ -141,11 +167,13 @@ pub async fn do_duckdb(
                 &token,
                 &base_internal_url,
                 &w_id,
+                collection_strategy,
             )
         })
         .await
         .map_err(|e| Error::from(to_anyhow(e)))
         .and_then(|r| r);
+
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
@@ -166,19 +194,23 @@ pub async fn do_duckdb(
         Ok(result)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await;
+    let result = if run_inline {
+        result_f.await
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await
+    };
 
     match result {
         Ok(result) => Ok(result),
@@ -210,6 +242,8 @@ struct DuckDbFfiLib {
             base_internal_url: *const c_char,
             w_id: *const c_char,
             column_order_ptr: *mut *mut c_char,
+            collect_last_only: bool,
+            collect_first_row_only: bool,
         ) -> *mut c_char,
     >,
     free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
@@ -249,7 +283,28 @@ impl DuckDbFfiLib {
                 ))
             })?
         };
+
         let lib = Box::leak(Box::new(lib));
+
+        // Version mismatch should only be possible on Windows agent workers
+        // We check for it because FFI interface mismatch will cause undefined behavior / crashes
+        unsafe {
+            let expected_version: c_uint = 1;
+            let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
+            lib.get(b"get_version")
+                .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
+            let actual_version = get_version();
+            if actual_version < expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please update to the latest windmill_duckdb_ffi_lib."),
+                ));
+            } else if actual_version > expected_version {
+                return Err(Error::InternalErr(
+                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please upgrade your worker to the latest windmill version."),
+                ));
+            }
+        }
+
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
             free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
@@ -265,6 +320,7 @@ fn run_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
     let query_block_list = query_block_list
         .map(|s| {
@@ -296,13 +352,18 @@ fn run_duckdb_ffi_safe<'a>(
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
             &mut column_order,
+            collection_strategy.collect_last_statement_only(query_block_list_count),
+            collection_strategy.collect_first_row_only(),
         );
         let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
         free_cstr(ptr);
         str
     };
 
-    let column_order = if column_order.is_null() {
+    let column_order = if column_order.is_null()
+        || !collection_strategy.collect_last_statement_only(query_block_list_count)
+        || collection_strategy.collect_scalar()
+    {
         None
     } else {
         let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
@@ -313,7 +374,14 @@ fn run_duckdb_ffi_safe<'a>(
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))
     } else {
-        let result = serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?;
+        let result = if collection_strategy == SqlResultCollectionStrategy::AllStatementsAllRows {
+            // Avoid parsing JSON
+            serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?
+        } else {
+            let result =
+                serde_json::from_str::<Vec<Vec<Box<RawValue>>>>(&result_str).map_err(to_anyhow)?;
+            collection_strategy.collect(result)?
+        };
         Ok((result, column_order))
     }
 }
@@ -350,7 +418,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
             format!(
-                "dbname={} {} host={} {} {}",
+                "dbname={} {} host={} {} {} {}",
                 res.dbname,
                 res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
                 res.host,
@@ -358,6 +426,9 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
                     .map(|p| format!("password={}", p))
                     .unwrap_or_default(),
                 res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+                res.sslmode
+                    .map(|s| format!("sslmode={}", s))
+                    .unwrap_or_default(),
             )
         }
         #[cfg(feature = "mysql")]
@@ -437,18 +508,28 @@ async fn transform_attach_db_resource_query(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    db_resource_to_attach_statements(db_resource, parsed.name, parsed.db_type, parsed.extra_args)
+        .await
+}
+
+async fn db_resource_to_attach_statements(
+    db_resource: Value,
+    ident_name: &str,
+    db_type: &str,
+    extra_args: Option<&str>,
+) -> Result<Vec<String>> {
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        format_attach_db_conn_str(db_resource, parsed.db_type)?,
-        parsed.name,
-        parsed.db_type,
-        parsed.extra_args.unwrap_or("")
+        format_attach_db_conn_str(db_resource, db_type)?,
+        ident_name,
+        db_type,
+        extra_args.unwrap_or("")
     )
     .to_string();
 
     Ok(vec![
-        get_attach_db_install_str(parsed.db_type)?.to_string(),
-        format!("LOAD {};", parsed.db_type),
+        get_attach_db_install_str(db_type)?.to_string(),
+        format!("LOAD {};", db_type),
         attach_str,
     ])
 }
@@ -490,7 +571,7 @@ async fn transform_attach_ducklake(
     }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
-    let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
+    let storage = ducklake.storage.storage.as_deref().unwrap_or(DEFAULT_STORAGE);
     let data_path = ducklake.storage.path;
 
     // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
@@ -514,6 +595,38 @@ async fn transform_attach_ducklake(
     ]))
 }
 
+async fn transform_attach_datatable(
+    query: &str,
+    conn: &Connection,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    w_id: &str,
+) -> Result<Option<Vec<String>>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
+    }
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
+    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
+    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+    let db_resource = match conn {
+        Connection::Http(client) => {
+            get_datatable_resource_from_agent_http(client, name, w_id).await?
+        }
+        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+    };
+    let db_type = "postgres";
+
+    if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
+        hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+
+    Ok(Some(
+        db_resource_to_attach_statements(db_resource, alias_name, db_type, None).await?,
+    ))
+}
+
 async fn transform_s3_uris(query: &str) -> Result<String> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
@@ -527,7 +640,7 @@ async fn transform_s3_uris(query: &str) -> Result<String> {
                 continue;
             }
             let original_str_lit: String = format!("'s3://{}/{}'", storage, s3_path);
-            storage = "_default_";
+            storage = DEFAULT_STORAGE;
 
             let new_s3_lit = format!("'s3://{}/{}'", storage, s3_path);
             transformed_query = Some(
@@ -543,14 +656,19 @@ async fn transform_s3_uris(query: &str) -> Result<String> {
 // BigQuery extension requires a json file as credentials
 // The file path is set as an env var by do_duckdb
 // It is created by transform_attach_db_resource_query (when bigquery is detected)
-// and deleted by do_duckdb after the query is executed
+// and deleted by do_duckdb after the query is executed.
+//
+// This relies on the fact that DuckDB does not run in native worker, so
+// a worker will only run a single job at a time.
 pub struct UseBigQueryCredentialsFile {
     path: String,
 }
 impl UseBigQueryCredentialsFile {
     fn new(job_id: Uuid, bigquery_resource: &str) -> Result<Self> {
         let path = format!("/tmp/service-account-credentials-{}.json", job_id);
-        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        unsafe {
+            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &path);
+        }
         std::fs::write(&path, bigquery_resource)
             .map_err(|e| Error::ExecutionErr(format!("Failed to write BigQuery creds: {e}")))?;
         Ok(Self { path })
@@ -558,7 +676,9 @@ impl UseBigQueryCredentialsFile {
 }
 impl Drop for UseBigQueryCredentialsFile {
     fn drop(&mut self) {
-        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        unsafe {
+            env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+        }
         if matches!(std::fs::exists(&self.path), Ok(true)) {
             let _ = std::fs::remove_file(&self.path);
         }
@@ -605,6 +725,8 @@ fn remove_comments(stmt: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Tests for remove_comments function
     #[test]
     fn test_remove_comments_single_line() {
         let sql = "-- This is a comment\nSELECT * FROM table;";
@@ -634,5 +756,378 @@ mod tests {
     fn test_remove_comments_with_whitespace() {
         let sql = "   -- Comment\n  -- Comment2\n  -- Comment3\n   SELECT\n\n * FROM\n table\n;\n\n -- end comment   ";
         assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
+    }
+
+    // Tests for parse_attach_db_resource function
+    #[test]
+    fn test_parse_attach_db_resource_postgres_res_prefix() {
+        let query = "ATTACH '$res:u/user/my_postgres' AS mydb (TYPE POSTGRES)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/my_postgres");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "POSTGRES");
+        assert!(parsed.extra_args.is_none() || parsed.extra_args.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_res_protocol() {
+        let query = "ATTACH 'res://f/folder/database' AS db (TYPE postgresql)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "f/folder/database");
+        assert_eq!(parsed.name, "db");
+        assert_eq!(parsed.db_type, "postgresql");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_mysql() {
+        let query = "ATTACH '$res:u/admin/mysql_prod' AS mysql_db (TYPE mysql)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/admin/mysql_prod");
+        assert_eq!(parsed.name, "mysql_db");
+        assert_eq!(parsed.db_type, "mysql");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_bigquery() {
+        let query = "ATTACH '$res:u/user/bq_resource' AS bq (TYPE bigquery)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/bq_resource");
+        assert_eq!(parsed.name, "bq");
+        assert_eq!(parsed.db_type, "bigquery");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_with_extra_args() {
+        let query = "ATTACH '$res:u/user/db' AS mydb (TYPE POSTGRES, READ_ONLY)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/db");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "POSTGRES");
+        assert_eq!(parsed.extra_args.unwrap(), ", READ_ONLY");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_case_insensitive() {
+        let query = "attach '$res:u/user/db' as mydb (type postgres)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.resource_path, "u/user/db");
+        assert_eq!(parsed.name, "mydb");
+        assert_eq!(parsed.db_type, "postgres");
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_no_match() {
+        let query = "SELECT * FROM table";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_attach_db_resource_regular_attach() {
+        // Regular ATTACH without $res: or res:// should not match
+        let query = "ATTACH 'mydb.duckdb' AS mydb (TYPE duckdb)";
+        let result = parse_attach_db_resource(query);
+        assert!(result.is_none());
+    }
+
+    // Tests for format_attach_db_conn_str function
+    #[test]
+    fn test_format_attach_db_conn_str_postgres_full() {
+        let db_resource = json!({
+            "host": "localhost",
+            "port": 5432,
+            "user": "admin",
+            "password": "secret123",
+            "dbname": "mydb",
+            "sslmode": "require"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        assert!(result.contains("dbname=mydb"));
+        assert!(result.contains("user=admin"));
+        assert!(result.contains("host=localhost"));
+        assert!(result.contains("password=secret123"));
+        assert!(result.contains("port=5432"));
+        assert!(result.contains("sslmode=require"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_postgres_minimal() {
+        let db_resource = json!({
+            "host": "db.example.com",
+            "dbname": "production"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        assert!(result.contains("dbname=production"));
+        assert!(result.contains("host=db.example.com"));
+        // Optional fields should result in empty strings
+        assert!(!result.contains("user="));
+        assert!(!result.contains("password="));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_postgresql_alias() {
+        let db_resource = json!({
+            "host": "localhost",
+            "dbname": "test"
+        });
+        let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
+        assert!(result.contains("dbname=test"));
+        assert!(result.contains("host=localhost"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_bigquery() {
+        let db_resource = json!({
+            "project_id": "my-gcp-project"
+        });
+        let result = format_attach_db_conn_str(db_resource, "bigquery").unwrap();
+        assert_eq!(result, "project=my-gcp-project");
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_bigquery_missing_project_id() {
+        let db_resource = json!({
+            "other_field": "value"
+        });
+        let result = format_attach_db_conn_str(db_resource, "bigquery");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("project_id"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_unsupported_type() {
+        let db_resource = json!({});
+        let result = format_attach_db_conn_str(db_resource, "oracle");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported db type"));
+    }
+
+    #[test]
+    fn test_format_attach_db_conn_str_case_insensitive() {
+        let db_resource = json!({
+            "host": "localhost",
+            "dbname": "test"
+        });
+        let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
+        assert!(result.contains("dbname=test"));
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_format_attach_db_conn_str_mysql_full() {
+        let db_resource = json!({
+            "host": "mysql.example.com",
+            "port": 3306,
+            "user": "root",
+            "password": "mysecret",
+            "database": "app_db",
+            "ssl": true
+        });
+        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        assert!(result.contains("database=app_db"));
+        assert!(result.contains("host=mysql.example.com"));
+        assert!(result.contains("ssl_mode=required"));
+        assert!(result.contains("password=mysecret"));
+        assert!(result.contains("port=3306"));
+        assert!(result.contains("user=root"));
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_format_attach_db_conn_str_mysql_ssl_disabled() {
+        let db_resource = json!({
+            "host": "localhost",
+            "database": "test",
+            "ssl": false
+        });
+        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        assert!(result.contains("ssl_mode=disabled"));
+    }
+
+    // Tests for get_attach_db_install_str function
+    #[test]
+    fn test_get_attach_db_install_str_postgres() {
+        let result = get_attach_db_install_str("postgres").unwrap();
+        assert_eq!(result, "INSTALL postgres;");
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_bigquery() {
+        let result = get_attach_db_install_str("bigquery").unwrap();
+        assert_eq!(result, "INSTALL bigquery FROM community;");
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_unsupported() {
+        let result = get_attach_db_install_str("sqlite");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported db type"));
+    }
+
+    #[test]
+    fn test_get_attach_db_install_str_case_insensitive() {
+        let result = get_attach_db_install_str("POSTGRES").unwrap();
+        assert_eq!(result, "INSTALL postgres;");
+    }
+
+    #[cfg(feature = "mysql")]
+    #[test]
+    fn test_get_attach_db_install_str_mysql() {
+        let result = get_attach_db_install_str("mysql").unwrap();
+        assert_eq!(result, "INSTALL mysql;");
+    }
+
+    #[cfg(not(feature = "mysql"))]
+    #[test]
+    fn test_get_attach_db_install_str_mysql_disabled() {
+        let result = get_attach_db_install_str("mysql");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("MySQL feature is not enabled"));
+    }
+
+    // Tests for transform_s3_uris function
+    #[tokio::test]
+    async fn test_transform_s3_uris_empty_storage() {
+        let query = "SELECT * FROM read_parquet('s3:///path/to/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM read_parquet('s3://_default_/path/to/file.parquet')"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_with_storage() {
+        // URIs with explicit storage should not be transformed
+        let query = "SELECT * FROM read_parquet('s3://mybucket/path/to/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(result, query);
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_multiple_empty() {
+        let query = "SELECT * FROM read_parquet('s3:///file1.parquet') UNION SELECT * FROM read_parquet('s3:///file2.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert!(result.contains("s3://_default_/file1.parquet"));
+        assert!(result.contains("s3://_default_/file2.parquet"));
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_no_s3() {
+        let query = "SELECT * FROM my_table";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(result, query);
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_mixed() {
+        let query = "SELECT * FROM read_parquet('s3:///default.parquet'), read_csv('s3://explicit/file.csv')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert!(result.contains("s3://_default_/default.parquet"));
+        assert!(result.contains("s3://explicit/file.csv"));
+    }
+
+    #[tokio::test]
+    async fn test_transform_s3_uris_nested_path() {
+        let query = "SELECT * FROM read_parquet('s3:///deep/nested/path/file.parquet')";
+        let result = transform_s3_uris(query).await.unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM read_parquet('s3://_default_/deep/nested/path/file.parquet')"
+        );
+    }
+
+    // Tests for Arg struct
+    #[test]
+    fn test_arg_serialization() {
+        let arg = Arg {
+            name: "test_arg".to_string(),
+            arg_type: "string".to_string(),
+            json_value: json!("hello"),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"name\":\"test_arg\""));
+        assert!(serialized.contains("\"arg_type\":\"string\""));
+        assert!(serialized.contains("\"json_value\":\"hello\""));
+    }
+
+    #[test]
+    fn test_arg_serialization_number() {
+        let arg = Arg {
+            name: "count".to_string(),
+            arg_type: "integer".to_string(),
+            json_value: json!(42),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":42"));
+    }
+
+    #[test]
+    fn test_arg_serialization_null() {
+        let arg = Arg {
+            name: "optional".to_string(),
+            arg_type: "text".to_string(),
+            json_value: json!(null),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":null"));
+    }
+
+    #[test]
+    fn test_arg_serialization_array() {
+        let arg = Arg {
+            name: "items".to_string(),
+            arg_type: "array".to_string(),
+            json_value: json!([1, 2, 3]),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":[1,2,3]"));
+    }
+
+    #[test]
+    fn test_arg_serialization_object() {
+        let arg = Arg {
+            name: "config".to_string(),
+            arg_type: "object".to_string(),
+            json_value: json!({"key": "value"}),
+        };
+        let serialized = serde_json::to_string(&arg).unwrap();
+        assert!(serialized.contains("\"json_value\":{\"key\":\"value\"}"));
+    }
+
+    #[test]
+    fn test_remove_comments_comment_in_string() {
+        let sql = "SELECT '-- not a comment' FROM table;";
+        let result = remove_comments(sql);
+        assert_eq!(result, "SELECT '-- not a comment' FROM table;");
+    }
+
+    #[test]
+    fn test_remove_comments_multiple_dashes() {
+        let sql = "SELECT 5 - - 3;";
+        let result = remove_comments(sql);
+        // This correctly handles the subtraction of negative number
+        assert_eq!(result, sql);
     }
 }

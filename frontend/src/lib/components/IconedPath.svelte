@@ -4,11 +4,16 @@
 	import { Badge } from './common'
 	import IconedResourceType from './IconedResourceType.svelte'
 
-	export let path: string
-	export let hash: string | undefined = undefined
+	interface Props {
+		path: string
+		hash?: string | undefined
+		class?: string | undefined
+	}
+
+	let { path, hash = undefined, class: clazz = undefined }: Props = $props()
 </script>
 
-<div class="flex space-x-2 items-center w-full shrink min-w-0 {$$props.class}">
+<div class="flex space-x-2 items-center w-full shrink min-w-0 {clazz ?? ''}">
 	{#if path.startsWith('hub/')}
 		<div>
 			<IconedResourceType width="20px" height="20px" name={path.split('/')[2]} silent={true} />

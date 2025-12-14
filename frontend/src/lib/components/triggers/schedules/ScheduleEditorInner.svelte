@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -36,6 +36,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let {
 		useDrawer = true,
@@ -616,6 +617,7 @@
 				requestBody: { enabled: nEnabled }
 			})
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+			onUpdate?.(initialPath)
 		}
 	}
 
@@ -633,15 +635,16 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
+			disableSuspendedMode
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
@@ -724,7 +727,10 @@
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-secondary !text-secondary rounded-r-none border"
+									class={twMerge(
+										'center-center !bg-surface-secondary !text-secondary rounded-r-none border',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
 								>
 									Schedule path (not editable)
 								</Badge>
@@ -733,7 +739,10 @@
 									readonly
 									value={path}
 									size={path?.length || 50}
-									class="font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none"
+									class={twMerge(
+										'font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
 									onfocus={({ currentTarget }) => {
 										currentTarget.select()
 									}}
@@ -1221,7 +1230,7 @@
 								/>
 								{#if !dynamicSkipPath}
 									<Button
-										btnClasses="ml-4 mt-2 whitespace-nowrap"
+										btnClasses="ml-4 whitespace-nowrap"
 										variant="default"
 										size="xs"
 										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"

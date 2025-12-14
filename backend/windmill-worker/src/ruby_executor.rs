@@ -23,12 +23,13 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
+    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -140,7 +141,7 @@ pub async fn prepare<'a>(
         File::create(format!("{}/inline.rb", &mini_wm_path))
             .await?
             .write_all(&wrap(
-        r#"    
+        r#"
 class GemfileProxy
   def initialize
     @gem_calls = []
@@ -213,7 +214,7 @@ end
             .await?
             .write_all(
                 &wrap(
-                    r##"    
+                    r##"
 require 'net/http'
 require 'uri'
 require 'json'
@@ -223,17 +224,17 @@ def get_variable(path)
   base_url = ENV['BASE_INTERNAL_URL']
   workspace = ENV['WM_WORKSPACE']
   token = ENV['WM_TOKEN']
-  
+
   uri = URI("#{base_url}/api/w/#{workspace}/variables/get_value/#{path}")
-  
+
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == 'https'
-  
+
   request = Net::HTTP::Get.new(uri)
   request['Authorization'] = "Bearer #{token}"
-  
+
   response = http.request(request)
-  
+
   if response.code == '200'
     JSON.parse(response.body)
   else
@@ -245,17 +246,17 @@ def get_resource(path)
   base_url = ENV['BASE_INTERNAL_URL']
   workspace = ENV['WM_WORKSPACE']
   token = ENV['WM_TOKEN']
-  
+
   uri = URI("#{base_url}/api/w/#{workspace}/resources/get_value_interpolated/#{path}")
-  
+
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == 'https'
-  
+
   request = Net::HTTP::Get.new(uri)
   request['Authorization'] = "Bearer #{token}"
-  
+
   response = http.request(request)
-  
+
   if response.code == '200'
     JSON.parse(response.body)
   else
@@ -823,11 +824,14 @@ mount {{
         )
         .await;
 
-        let mut cmd = Command::new(if cfg!(windows) {
+        let ruby_executable = if cfg!(windows) {
             "ruby.exe"
         } else {
             RUBY_PATH.as_str()
-        });
+        };
+
+        let args = vec!["main.rb"];
+        let mut cmd = build_command_with_isolation(ruby_executable, &args);
 
         #[cfg(windows)]
         let rubylib = rubylib.replace(":", ";");
@@ -842,8 +846,7 @@ mount {{
             .envs(PROXY_ENVS.clone())
             .envs(envs);
 
-        cmd.args(&["main.rb"])
-            .stdin(Stdio::null())
+        cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -856,7 +859,7 @@ mount {{
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "ruby", false).await?
+        start_child_process(cmd, ruby_executable, false).await?
     };
     handle_child::handle_child(
         &job.id,
@@ -891,9 +894,23 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
 
 require 'json'
 a = JSON.parse(File.read("args.json"))
-res = main(SPREAD)
-File.open("result.json", "w") do |file|
-  file.write(JSON.generate(res))
+
+begin
+    res = main(SPREAD)
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(res))
+    end
+
+rescue => e
+    error = {
+        name: e.class.name,
+        stack: e.full_message,
+        message: e.message
+    }
+    File.open("result.json", "w") do |file|
+      file.write(JSON.generate(error))
+    end
+    raise
 end
             "#
         .replace("INNER_CONTENT", inner_content)

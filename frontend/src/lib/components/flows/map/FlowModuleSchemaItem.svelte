@@ -36,19 +36,23 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
+	import {
+		getNodeColorClasses,
+		aiActionToNodeState,
+		type FlowNodeState
+	} from '$lib/components/graph'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+	import DiffActionBar from './DiffActionBar.svelte'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
+		moduleAction: ModuleActionInfo | undefined
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -90,6 +94,7 @@
 	let {
 		selected = false,
 		deletable = false,
+		moduleAction = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -121,12 +126,18 @@
 		maximizeSubflow = undefined
 	}: Props = $props()
 
-	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
-
-	let pickableIds: Record<string, any> | undefined = $state(undefined)
+	// AI action colors take priority over execution state
+	let effectiveState = $derived(aiActionToNodeState(moduleAction?.action) ?? nodeState)
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const flowInputsStore = flowEditorContext?.flowInputsStore
+	const flowStore = flowEditorContext?.flowStore
+
+	const flowGraphContext = getGraphContext()
+	const diffManager = flowGraphContext?.diffManager
+
+	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -179,8 +190,6 @@
 	)
 
 	const icon_render = $derived(icon)
-
-	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
 
@@ -246,9 +255,9 @@
 	</Drawer>
 {/if}
 
-{#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
-	{@const flowStore = flowEditorContext?.flowStore.val}
-	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
+{#if deletable && id && flowStore && outputPickerVisible}
+	{@const flowStoreVal = flowStore.val}
+	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -268,16 +277,15 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable ? aiModuleActionToBgColor(action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
-		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
+		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
 	>
-		{#if deletable}
-			<ModuleAcceptReject {action} {id} />
+		{#if id}
+			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
@@ -412,14 +420,12 @@
 			{/if}
 		</div>
 
-		<div
-			class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
-		>
+		<div class="flex flex-col w-full">
 			<FlowModuleSchemaItemViewer
 				{label}
 				{path}
 				{id}
-				deletable={deletable && !action}
+				{deletable}
 				{bold}
 				bind:editId
 				{hover}
@@ -468,15 +474,22 @@
 			{/if}
 		</div>
 
-		{#if deletable && !action}
-			<div
-				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
-			>
-				{#if id !== 'preprocessor'}
+		{#if deletable}
+			{#if maximizeSubflow !== undefined}
+				{@render buttonMaximizeSubflow?.()}
+			{/if}
+
+			{#if id !== 'preprocessor'}
+				<!-- The `style="will-change: transform;"` fixes a bug in Safari where the close and move
+			 		 and delete buttons would get clipped (unless an animation is running) -->
+				<div
+					class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}
+					style="will-change: transform;"
+				>
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white',
-							hover ? 'block' : '!hidden',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
 						)}
@@ -485,26 +498,13 @@
 					>
 						<Move size={12} />
 					</button>
-				{/if}
-				{#if maximizeSubflow !== undefined && (hover || selected)}
-					<button
-						title="Expand subflow"
-						class={twMerge(
-							'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
-							selected || hover ? 'block' : '!hidden',
-							'group-hover:block',
-							'shadow-md rounded-md'
-						)}
-						onclick={(e) => {
-							e.stopPropagation()
-							e.preventDefault()
+				</div>
+			{/if}
 
-							maximizeSubflow?.()
-						}}
-					>
-						<Maximize2 size={12} />
-					</button>
-				{/if}
+			<div
+				class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
+				style="will-change: transform;"
+			>
 				<button
 					class={twMerge(
 						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
@@ -524,6 +524,7 @@
 
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 				<Popover
+					style="will-change: transform;"
 					class={twMerge(
 						'absolute -translate-y-[100%] top-1 -left-1',
 						'flex items-center justify-center rounded-b-none rounded-md p-1 shadow-md  duration-0 ',
@@ -550,6 +551,8 @@
 					<TriangleAlert size={12} strokeWidth={2} />
 				</Popover>
 			{/if}
+		{:else if maximizeSubflow !== undefined}
+			{@render buttonMaximizeSubflow?.()}
 		{/if}
 	</div>
 
@@ -610,6 +613,30 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet buttonMaximizeSubflow()}
+	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+		<button
+			title="Expand subflow"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				hover || selected ? 'opacity-100' : 'opacity-50'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				maximizeSubflow?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	</div>
+{/snippet}
 
 <style>
 	.module:hover .trash {

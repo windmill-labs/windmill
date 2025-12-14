@@ -1,3 +1,24 @@
+<script lang="ts" module>
+	export const errorHandlerArgs = [
+		'path',
+		'workspace_id',
+		'job_id',
+		'is_flow',
+		'schedule_path',
+		'error',
+		'error_started_at',
+		'failed_times',
+		'started_at',
+		'success_times',
+		'success_result',
+		'success_started_at',
+		'email',
+		'trigger_path'
+	]
+
+	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
+</script>
+
 <script lang="ts">
 	import { Alert, Button, Tab, Tabs, Badge } from '$lib/components/common'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -131,7 +152,7 @@
 						workspace: $workspaceStore!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after 5s'
+							reason: 'Slack message not sent after 10s'
 						}
 					})
 				} catch (err) {
@@ -139,7 +160,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 	}
 
@@ -189,10 +210,7 @@
 			return false
 		}
 		if (errorOrRecovery == 'error') {
-			return (
-				scriptPath.startsWith('hub/') &&
-				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-			)
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith(slackErrorHandlerHubPathEnding)
 		} else if (errorOrRecovery == 'recovery') {
 			return (
 				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
@@ -275,44 +293,17 @@
 			!isSlackHandler(handlerPath) &&
 			!isTeamsHandler(handlerPath) &&
 			!isEmailHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, [
-				'path',
-				'workspace_id',
-				'job_id',
-				'is_flow',
-				'schedule_path',
-				'error',
-				'error_started_at',
-				'failed_times',
-				'started_at',
-				'success_times',
-				'success_result',
-				'success_started_at',
-				'email',
-				'trigger_path'
-			]).then((schema) => (customHandlerSchema = schema))
+			loadHandlerScriptArgs(handlerPath, errorHandlerArgs).then(
+				(schema) => (customHandlerSchema = schema)
+			)
 	})
 
 	$effect(() => {
 		handlerPath &&
 			isSlackHandler(handlerPath) &&
-			loadHandlerScriptArgs(handlerPath, [
-				'path',
-				'workspace_id',
-				'job_id',
-				'is_flow',
-				'schedule_path',
-				'error',
-				'error_started_at',
-				'failed_times',
-				'started_at',
-				'success_times',
-				'success_result',
-				'success_started_at',
-				'email',
-				'trigger_path',
-				'slack'
-			]).then((schema) => (slackHandlerSchema = schema))
+			loadHandlerScriptArgs(handlerPath, [...errorHandlerArgs, 'slack']).then(
+				(schema) => (slackHandlerSchema = schema)
+			)
 	})
 
 	$effect(() => {
@@ -496,19 +487,16 @@
 					minWidth="200px"
 					placeholder="Search Teams channels"
 					teamId={teams_team_id}
-					bind:selectedChannel={
-						() =>
-							handlerExtraArgs['channel']
-								? {
-										channel_id: handlerExtraArgs['channel'],
-										channel_name: handlerExtraArgs['channel_name']
-									}
-								: undefined,
-						(channel) => {
-							handlerExtraArgs['channel'] = channel?.channel_id
-							handlerExtraArgs['channel_name'] = channel?.channel_name
-						}
-					}
+					selectedChannel={handlerExtraArgs['channel']
+						? {
+								channel_id: handlerExtraArgs['channel'],
+								channel_name: handlerExtraArgs['channel_name']
+							}
+						: undefined}
+					onSelectedChannelChange={(channel) => {
+						handlerExtraArgs['channel'] = channel?.channel_id
+						handlerExtraArgs['channel_name'] = channel?.channel_name
+					}}
 					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 				/>
 			</div>

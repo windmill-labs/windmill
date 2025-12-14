@@ -58,10 +58,10 @@
 		Pen,
 		ChevronUpSquare,
 		Share,
-		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -89,6 +89,7 @@
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
 	let shareModal: ShareModal | undefined = $state()
 	let runForm: RunForm | undefined = $state()
@@ -156,9 +157,12 @@
 			})
 			if (status.lock != undefined || status.lock_error_logs != undefined) {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				script.lock = status.lock
 				script.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -339,8 +343,8 @@
 					},
 
 					unifiedSize: 'md',
-					variant: 'accent',
-					startIcon: Table2
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -367,7 +371,7 @@
 						}`,
 						unifiedSize: 'md',
 						startIcon: Pen,
-						variant: 'accent-secondary',
+						variant: 'accent',
 						disabled: !can_write
 					}
 				})
@@ -567,9 +571,7 @@
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
-						if (script?.ws_error_handler_muted) {
-							script.ws_error_handler_muted = v
-						}
+						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
 				errorHandlerKind="script"
@@ -689,6 +691,13 @@
 						<Badge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</Badge>
 					{/if}
 
@@ -783,6 +792,9 @@
 					on:selected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
+						if (jsonView) {
+							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+						}
 					}}
 				/>
 			{/if}
@@ -791,7 +803,7 @@
 			{#if script}
 				<TriggersEditor
 					{args}
-					hash={script.hash}
+					runnableVersion={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}

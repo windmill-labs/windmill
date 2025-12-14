@@ -11,12 +11,21 @@
 		LayoutDashboard,
 		Building,
 		Calendar,
-		ServerCog
+		ServerCog,
+		GraduationCap
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		enterpriseLicense,
+		superadmin,
+		userWorkspaces,
+		workspaceStore,
+		tutorialsToDo,
+		skippedAll
+	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { logout } from '$lib/logout'
@@ -46,10 +55,22 @@
 		[
 			{ label: 'Home', id: 'home', href: `${base}/`, icon: Home },
 			{ label: 'Runs', id: 'runs', href: `${base}/runs`, icon: Play },
-			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar }
+			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar },
+			// Add Tutorials to main menu only if not all completed and not skipped
+			...($tutorialsToDo.length > 0 && !$skippedAll
+				? [
+						{
+							label: 'Tutorials',
+							id: 'tutorials',
+							href: `${base}/tutorials`,
+							icon: GraduationCap
+						}
+					]
+				: [])
 		].filter(
 			(link) =>
 				link.id === 'home' ||
+				link.id === 'tutorials' ||
 				($userWorkspaces &&
 					$workspaceStore &&
 					$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] ===
@@ -255,9 +276,7 @@
 						</MenuItem>
 						<MenuItem
 							href="{base}/user/workspaces"
-							onClick={() => {
-								localStorage.removeItem('workspace')
-							}}
+							onClick={() => clearWorkspaceFromStorage()}
 							lightMode
 							class={twMerge('flex gap-3.5 px-2 py-2', sidebarClasses.hoverBg, sidebarClasses.text)}
 							{item}

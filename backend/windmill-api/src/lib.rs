@@ -62,7 +62,10 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
+use windmill_common::{
+    utils::{configure_client, GIT_VERSION},
+    BASE_URL, INSTANCE_NAME,
+};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -77,6 +80,7 @@ pub mod args;
 mod assets;
 mod audit;
 pub mod auth;
+mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -108,6 +112,7 @@ mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+mod workspace_dependencies;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -124,6 +129,7 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
+pub mod jobs_export;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -153,6 +159,7 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+mod public_app_layer;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -322,6 +329,11 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            windmill_queue::init_usage_buffer(db.clone());
+        }
+
         let mut start_smtp_server = false;
         if let Some(smtp_settings) =
             load_value_from_global_settings(&db, EMAIL_DOMAIN_SETTING).await?
@@ -447,6 +459,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/workspace_dependencies",
+                            workspace_dependencies::workspaced_service(),
+                        )
                         .nest(
                             "/flow_conversations",
                             flow_conversations::workspaced_service(),
@@ -701,6 +717,15 @@ pub async fn run_server(
                 .on_request(())
                 .on_failure(MyOnFailure {}),
         )
+    };
+
+    let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
+        tracing::info!("Public app domain filter enabled for domain: {}", domain);
+        app.layer(axum::middleware::from_fn(
+            public_app_layer::public_app_domain_filter,
+        ))
+    } else {
+        app
     };
 
     let app = app.layer(CatchPanicLayer::custom(|err| {

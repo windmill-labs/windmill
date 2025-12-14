@@ -1,0 +1,248 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", \n        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running\n             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_id: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "flow_innermost_root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "script_lang: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "trigger_kind: JobTriggerKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 17,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 18,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 19,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 20,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "last_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 22,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "memory_peak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 24,
+        "name": "running",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a84e67035584bbdb02482026b9cc0808086c50f78947d43bb88628a481f41a1d"
+}

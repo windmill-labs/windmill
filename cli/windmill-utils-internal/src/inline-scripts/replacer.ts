@@ -24,8 +24,8 @@ export async function replaceInlineScripts(
     localPath: string,
     separator: string = "/",
     removeLocks?: string[],
-    renamer?: (path: string, newPath: string) => void,
-    deleter?: (path: string) => void
+    // renamer?: (path: string, newPath: string) => void,
+    // deleter?: (path: string) => void
   ): Promise<void> {
     await Promise.all(modules.map(async (module) => {
       if (!module.value) {
@@ -34,7 +34,7 @@ export async function replaceInlineScripts(
   
       if (module.value.type === "rawscript" && module.value.content && module.value.content.startsWith("!inline")) {
           const path = module.value.content.split(" ")[1];
-          const pathPrefix = path.split(".")[0];
+          // const pathPrefix = path.split(".")[0];
           const pathSuffix = path.split(".").slice(1).join(".");
           // new path is the module id with the same suffix
           const newPath = module.id + "." + pathSuffix;
@@ -88,7 +88,8 @@ export async function replaceInlineScripts(
             try {
               module.value.lock = await fileReader(path.replaceAll("/", separator));
             } catch {
-              logger.error(`Lock file ${path} not found`);
+              logger.error(`Lock file ${path} not found, treating as empty`);
+              module.value.lock = "";
             }
         }
       } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {

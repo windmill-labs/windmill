@@ -20,25 +20,47 @@
 		href?: string
 		icon?: any
 		disabled?: boolean
+		tooltip?: string
 	}
 	interface Props {
 		id?: string
 		aiId?: string | undefined
 		aiDescription?: string | undefined
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		size?: ButtonType.Size
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		spacingSize?: ButtonType.Size
+		/**
+		 * Unified sizing: sm (28px), md (32px), lg (40px)
+		 */
 		unifiedSize?: ButtonType.UnifiedSize
 		/**
-		 * @description Extended size for App only, do not use
+		 * @description Extended size for App editor only
 		 */
 		extendedSize?: ButtonType.ExtendedSize
 		/**
 		 * @deprecated Use `variant` instead
 		 */
 		color?: ButtonType.Color | string
+		/**
+		 * Button style: accent, accent-secondary, default, subtle
+		 */
 		variant?: ButtonType.Variant
+		/**
+		 * Additional classes. Do NOT use for colors/fonts - use for layout only
+		 */
 		btnClasses?: string
+		/**
+		 * Wrapper classes. Do NOT use for colors/fonts - use for positioning only
+		 */
 		wrapperClasses?: string
+		/**
+		 * Wrapper styles. Avoid unless absolutely necessary
+		 */
 		wrapperStyle?: string
 		disabled?: boolean
 		selected?: boolean
@@ -74,6 +96,7 @@
 		tooltip?: import('svelte').Snippet
 		[key: string]: any
 		dropdownOpen?: boolean
+		dropdownWidth?: number | undefined
 	}
 
 	let {
@@ -115,6 +138,7 @@
 		tooltip,
 		onClick,
 		dropdownOpen = $bindable(false),
+		dropdownWidth = undefined,
 		...rest
 	}: Props = $props()
 
@@ -125,7 +149,8 @@
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
 			icon: item.icon,
 			disabled: item.disabled ?? false,
-			href: item.href
+			href: item.href,
+			tooltip: item.tooltip
 		}))
 	}
 
@@ -194,7 +219,7 @@
 			const horizontalPadding = iconOnly
 				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
 				: ButtonType.UnifiedSizingClasses[unifiedSize]
-			const height = ButtonType.UnifiedMinHeightClasses[unifiedSize]
+			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
 			return `${horizontalPadding} ${height}`
 		}
 
@@ -445,6 +470,7 @@
 			on:close={() => dispatch('dropdownOpen', false)}
 			bind:open={dropdownOpen}
 			enableFlyTransition
+			customWidth={dropdownWidth}
 		>
 			{#snippet buttonReplacement()}
 				<div

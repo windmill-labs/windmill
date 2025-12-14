@@ -23,7 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
-		Clipboard,
+		Copy,
 		CornerDownLeft,
 		ExternalLink,
 		Github,
@@ -48,6 +48,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
@@ -55,6 +56,9 @@
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import Toggle from './Toggle.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		// Exported
@@ -122,6 +126,10 @@
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
+	let initialArgs = structuredClone($state.snapshot(args))
+	let jsonView = $state(false)
+	let schemaHeight = $state(0)
+
 	$effect.pre(() => {
 		if (schema == undefined) {
 			schema = emptySchema()
@@ -151,12 +159,14 @@
 	$effect(() => {
 		;[lang, code]
 		untrack(() => {
-			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
+			inferAssets(lang, code).then((inferAssetsResult) => {
+				if (inferAssetsResult.status === 'error') return
+				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
 				for (const asset of newAssets) {
 					const old = assets?.find((a) => assetEq(a, asset))
 					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 				}
-				assets = newAssets
+				if (!deepEqual(assets, newAssets)) assets = newAssets
 			})
 
 			if (lang === 'ansible') {
@@ -268,7 +278,18 @@
 		})
 	}
 
-	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
+	export async function inferSchema(
+		code: string,
+		{
+			nlang,
+			resetArgs = false,
+			applyInitialArgs = false
+		}: {
+			nlang?: SupportedLanguage
+			resetArgs?: boolean
+			applyInitialArgs?: boolean
+		} = {}
+	) {
 		let nschema = schema ?? emptySchema()
 
 		try {
@@ -295,6 +316,10 @@
 			validCode = true
 			if (resetArgs) {
 				args = {}
+			}
+			if (applyInitialArgs) {
+				// we reapply initial args as the schema form might have cleared them between mount and the schema inference
+				args = initialArgs
 			}
 			schema = nschema
 		} catch (e) {
@@ -337,7 +362,7 @@
 	}
 
 	onMount(() => {
-		inferSchema(code)
+		inferSchema(code, { applyInitialArgs: true })
 		loadPastTests()
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
@@ -417,6 +442,7 @@
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 
@@ -471,10 +497,10 @@
 	}
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
 		editor?.hide()
 	}
 
@@ -534,7 +560,7 @@
 
 		<Button
 			color="light"
-			startIcon={{ icon: Clipboard }}
+			startIcon={{ icon: Copy }}
 			iconOnly
 			on:click={() => copyToClipboard(collabUrl())}
 		/>
@@ -554,7 +580,7 @@
 				}}
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
-				customUi={{ ...customUi?.editorBar, aiGen: false }}
+				customUi={customUi?.editorBar}
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
@@ -567,7 +593,6 @@
 				collabUsers={peers}
 				kind={asKind(kind)}
 				{template}
-				{diffEditor}
 				{args}
 				{noHistory}
 				{saveToWorkspace}
@@ -690,29 +715,50 @@
 							{/if}
 						</div>
 					{/if}
+					<div class="absolute top-2 right-2"
+						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
+					>
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-4">
-							<div class="break-words relative font-sans">
-								{#key argsRender}
-									<SchemaForm
-										helperScript={{
-											source: 'inline',
-											code,
-											//@ts-ignore
-											lang
-										}}
-										compact
-										{schema}
-										bind:args
-										bind:isValid
-										noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-										showSchemaExplorer
-									/>
-								{/key}
+						{#if jsonView}
+							<div
+								class="py-2"
+								style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+								data-schema-picker
+							>
+								<JsonInputs
+									on:select={(e) => {
+										if (e.detail) {
+											args = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
 							</div>
-						</div>
+						{:else}
+							<div class="px-4">
+								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+									{#key argsRender}
+										<SchemaForm
+											helperScript={{
+												source: 'inline',
+												code,
+												//@ts-ignore
+												lang
+											}}
+											compact
+											{schema}
+											bind:args
+											bind:isValid
+											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+											showSchemaExplorer
+										/>
+									{/key}
+								</div>
+							</div>
+						{/if}
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel
@@ -741,7 +787,7 @@
 									<CaptureTable
 										bind:this={captureTable}
 										{hasPreprocessor}
-										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+										canHavePreprocessor={canHavePreprocessor(lang)}
 										isFlow={false}
 										path={stablePathForCaptures}
 										canEdit={true}

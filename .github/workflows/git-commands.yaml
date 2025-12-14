@@ -40,11 +40,12 @@ jobs:
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Starting sqlx update...'
+              body: `Starting sqlx update...\n\n[View workflow run](${runUrl})`
             })
 
       - name: Checkout repository
@@ -81,6 +82,10 @@ jobs:
         run: |
           set -e  # Exit on any command failure
           PR_NUMBER=${{ github.event.issue.number }}
+
+          # Set up error trap to comment on PR for any failure
+          trap 'gh pr comment $PR_NUMBER --body "❌ SQLx update failed. Please check the workflow logs for details."' ERR
+
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
@@ -92,10 +97,8 @@ jobs:
           cd backend
           cargo install sqlx-cli --version 0.8.5
           sqlx migrate run
-          if ! ./update_sqlx.sh --dir ./windmill-ee-private; then
-            gh pr comment $PR_NUMBER --body "❌ SQLx update failed. Please check the workflow logs for details."
-            exit 1
-          fi
+          ./substitute_ee_code.sh --dir ./windmill-ee-private
+          ./update_sqlx.sh
           # Pass the branch name to the next step
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
@@ -215,11 +218,12 @@ jobs:
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Starting ee ref update...'
+              body: `Starting ee ref update...\n\n[View workflow run](${runUrl})`
             })
 
       - name: Checkout repository
@@ -248,7 +252,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
+          set -e  # Exit on any command failure
           PR_NUMBER=${{ github.event.issue.number }}
+
+          # Set up error trap to comment on PR for any failure
+          trap 'gh pr comment $PR_NUMBER --body "❌ EE ref update failed. Please check the workflow logs for details."' ERR
+
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME

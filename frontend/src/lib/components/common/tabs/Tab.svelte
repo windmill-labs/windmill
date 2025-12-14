@@ -21,6 +21,10 @@
 		exact?: boolean
 		otherValues?: string[]
 		disabled?: boolean
+		/**
+		 * @deprecated TODO : Re-organize workspace settings so we don't have so many tabs
+		 */
+		small?: boolean
 		extra?: import('svelte').Snippet
 	}
 
@@ -39,6 +43,7 @@
 		exact = false,
 		otherValues = [],
 		disabled = false,
+		small = false,
 		extra = undefined
 	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
@@ -71,10 +76,11 @@
 		}
 	}}
 	class={twMerge(
-		'border-b-2 border-border-light py-1 px-2 cursor-pointer transition-all z-10 ease-linear text-primary font-normal text-xs',
+		'border-b-2 border-border-light py-1 cursor-pointer transition-all z-10 ease-linear text-primary font-normal text-xs',
 		isSelected
 			? 'text-emphasis font-semibold border-border-normal'
 			: 'border-opacity-0 hover:border-opacity-100',
+		small ? 'px-1' : 'px-2',
 		c,
 		isSelected ? selectedClass : '',
 		disabled ? 'cursor-not-allowed text-disabled' : ''

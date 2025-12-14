@@ -33,6 +33,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pollJobResult } from './jobs/utils'
+	import { sameTopDomainOrigin } from '$lib/cookies'
 
 	interface Props {
 		step?: number
@@ -239,7 +240,7 @@
 	function popupListener(event) {
 		console.log('Received oauth popup message', event)
 		let data = event.data
-		if (event.origin == null || event.origin !== window.location.origin) {
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
 			console.log(
 				'Received oauth popup message from different origin',
 				event.origin,
@@ -311,7 +312,8 @@
 			path: resourceType
 		})
 		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
-		const newArgsKeys = Object.keys(props) ?? []
+		const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
+
 		const passwords = newArgsKeys.filter((x) => {
 			return props?.[x]?.password
 		})
@@ -397,6 +399,7 @@
 				}
 				window.addEventListener('message', popupListener)
 				window.addEventListener('storage', handleStorageEvent)
+				console.log('opening popup', url.toString())
 				window.open(url.toString(), '_blank', 'popup=true')
 				step += 1
 			}
