@@ -43,7 +43,7 @@ def load_openapi_spec(file_path: str) -> Dict[str, Any]:
         print(f"Error loading OpenAPI spec: {e}", file=sys.stderr)
         sys.exit(1)
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None) -> tuple:
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "") -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -63,16 +63,16 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     for param in parameters:
         # Resolve $ref if present
         if '$ref' in param:
-            param = resolve_schema_refs(param, spec)
-        
+            param = resolve_schema_refs(param, spec, base_path)
+
         param_name = param.get('name', '')
         param_schema = param.get('schema', {'type': 'string'})
         param_required = param.get('required', False)
         param_description = param.get('description', '')
         param_in = param.get('in', 'query')
-        
+
         # Resolve any refs in the parameter schema
-        param_schema = resolve_schema_refs(param_schema, spec)
+        param_schema = resolve_schema_refs(param_schema, spec, base_path)
         
         # Add description if available
         if param_description:
@@ -93,7 +93,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     
     # Process request body if present
     if request_body:
-        body_schema = extract_request_body_schema(request_body, spec)
+        body_schema = extract_request_body_schema(request_body, spec, base_path)
         
         # If we have required fields specified and a body schema, update the required array
         if body_schema and required_fields:
@@ -115,68 +115,109 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     
     return (path_params_schema, query_params_schema, body_schema)
 
-def resolve_ref(ref_path: str, spec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Resolve a $ref path to the actual schema definition."""
-    if not ref_path.startswith('#/'):
+# Cache for loaded external files
+_external_file_cache: Dict[str, Dict[str, Any]] = {}
+
+def load_external_file(file_path: str, base_path: str) -> Optional[Dict[str, Any]]:
+    """Load an external YAML file relative to the base path."""
+    if file_path in _external_file_cache:
+        return _external_file_cache[file_path]
+
+    try:
+        import yaml
+        from pathlib import Path
+
+        # Resolve the path relative to the base file
+        base_dir = Path(base_path).parent
+        full_path = (base_dir / file_path).resolve()
+
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = yaml.safe_load(f)
+            _external_file_cache[file_path] = content
+            return content
+    except Exception as e:
+        print(f"Warning: Could not load external file {file_path}: {e}", file=sys.stderr)
         return None
-    
+
+def resolve_ref(ref_path: str, spec: Dict[str, Any], base_path: str = "") -> tuple:
+    """Resolve a $ref path to the actual schema definition.
+
+    Handles both internal refs (#/...) and external file refs (file.yaml#/...).
+
+    Returns a tuple of (resolved_schema, resolved_spec) where resolved_spec is the spec
+    that should be used for resolving any nested refs within the resolved schema.
+    """
+    # Check if this is an external file reference
+    if '#' in ref_path and not ref_path.startswith('#'):
+        # External file reference: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        file_part, fragment = ref_path.split('#', 1)
+        external_spec = load_external_file(file_part, base_path)
+        if external_spec is None:
+            return None, spec
+        # Resolve the fragment within the external file, and return external_spec for nested refs
+        resolved, _ = resolve_ref('#' + fragment, external_spec, base_path)
+        return resolved, external_spec
+
+    if not ref_path.startswith('#/'):
+        return None, spec
+
     # Remove the '#/' prefix and split by '/'
     path_parts = ref_path[2:].split('/')
-    
+
     # Navigate through the spec following the path
     current = spec
     for part in path_parts:
         if isinstance(current, dict) and part in current:
             current = current[part]
         else:
-            return None
-    
-    return current if isinstance(current, dict) else None
+            return None, spec
 
-def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any]) -> Dict[str, Any]:
+    return (current if isinstance(current, dict) else None), spec
+
+def resolve_schema_refs(schema: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Dict[str, Any]:
     """Recursively resolve all $ref references in a schema."""
     if not isinstance(schema, dict):
         return schema
-    
+
     # If this is a $ref, resolve it
     if '$ref' in schema:
         ref_path = schema['$ref']
-        resolved = resolve_ref(ref_path, spec)
+        resolved, resolved_spec = resolve_ref(ref_path, spec, base_path)
         if resolved:
-            # Recursively resolve any refs in the resolved schema
-            return resolve_schema_refs(resolved, spec)
+            # Recursively resolve any refs in the resolved schema using the appropriate spec
+            return resolve_schema_refs(resolved, resolved_spec, base_path)
         else:
             print(f"Warning: Could not resolve $ref: {ref_path}")
             return schema
-    
+
     # Recursively process all values in the schema
     resolved_schema = {}
     for key, value in schema.items():
         if isinstance(value, dict):
-            resolved_schema[key] = resolve_schema_refs(value, spec)
+            resolved_schema[key] = resolve_schema_refs(value, spec, base_path)
         elif isinstance(value, list):
             resolved_schema[key] = [
-                resolve_schema_refs(item, spec) if isinstance(item, dict) else item
+                resolve_schema_refs(item, spec, base_path) if isinstance(item, dict) else item
                 for item in value
             ]
         else:
             resolved_schema[key] = value
-    
+
     return resolved_schema
 
-def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_request_body_schema(request_body: Dict[str, Any], spec: Dict[str, Any], base_path: str = "") -> Optional[Dict[str, Any]]:
     """Extract request body schema from OpenAPI requestBody definition and resolve refs."""
     if not request_body:
         return None
-    
+
     content = request_body.get('content', {})
     json_content = content.get('application/json', {})
     schema = json_content.get('schema', {})
-    
+
     if schema:
         # Resolve any $ref references in the schema
-        return resolve_schema_refs(schema, spec)
-    
+        return resolve_schema_refs(schema, spec, base_path)
+
     return None
 
 def http_method_to_rust(method: str) -> str:
@@ -221,7 +262,7 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     return tools
 
-def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any]) -> str:
+def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:
     """Generate TypeScript code with MCP endpoint tools."""
     if not tools:
         return """// Auto-generated MCP tools from OpenAPI specification
@@ -252,7 +293,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
 
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields']
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
@@ -297,7 +338,7 @@ export const mcpEndpointTools: EndpointTool[] = [
 
     return typescript_code
 
-def generate_rust_code(tools: List[Dict[str, Any]], spec: Dict[str, Any]) -> str:
+def generate_rust_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:
     """Generate the complete Rust code with MCP tools."""
     if not tools:
         return """// No MCP tools found in the OpenAPI specification
@@ -320,7 +361,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
 
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema = extract_separate_schemas(
-            tool['parameters'], tool['requestBody'], spec, tool['required_fields']
+            tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)
@@ -386,7 +427,7 @@ def main():
 
     # Generate and write Rust code
     print(f"Generating Rust code...")
-    rust_code = generate_rust_code(tools, spec)
+    rust_code = generate_rust_code(tools, spec, str(openapi_file))
 
     print(f"Writing Rust code to: {rust_output_file}")
     rust_output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -395,7 +436,7 @@ def main():
 
     # Generate and write TypeScript code
     print(f"Generating TypeScript code...")
-    typescript_code = generate_typescript_code(tools, spec)
+    typescript_code = generate_typescript_code(tools, spec, str(openapi_file))
 
     print(f"Writing TypeScript code to: {ts_output_file}")
     ts_output_file.parent.mkdir(parents=True, exist_ok=True)
