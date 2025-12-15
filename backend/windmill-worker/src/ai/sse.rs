@@ -128,9 +128,8 @@ impl SSEParser for OpenAISSEParser {
                                         existing_tool_call.function.arguments += &arguments;
                                     }
                                     // Update extra_content if provided in this delta (for thought signatures)
-                                    if tool_call.extra_content.is_some() {
-                                        existing_tool_call.extra_content =
-                                            tool_call.extra_content.clone();
+                                    if let Some(extra) = tool_call.extra_content {
+                                        existing_tool_call.extra_content = Some(extra);
                                     }
                                 } else {
                                     let fun_name = function.name.unwrap_or_default();
