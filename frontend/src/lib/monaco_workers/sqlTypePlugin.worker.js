@@ -175,6 +175,81 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	}
 
 	/**
+	 * Override getCompletionsAtPosition to map autocomplete positions correctly
+	 * This fixes the offset issue when showing autocomplete suggestions
+	 */
+	async getCompletionsAtPosition(fileName, position, options) {
+		// Map the position from original code to transformed code
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+
+		// Get completions from the base class using the transformed position
+		const completions = await super.getCompletionsAtPosition(fileName, transformedPosition, options)
+
+		if (!completions) {
+			return completions
+		}
+
+		// Map all completion entry replacement spans back to original positions
+		if (completions.entries) {
+			for (const entry of completions.entries) {
+				if (entry.replacementSpan) {
+					entry.replacementSpan.start = this._mapPositionToOriginal(
+						entry.replacementSpan.start,
+						fileName
+					)
+				}
+			}
+		}
+
+		return completions
+	}
+
+	/**
+	 * Override getCompletionEntryDetails to map positions in detailed completion info
+	 */
+	async getCompletionEntryDetails(fileName, position, entryName, formatOptions, source, preferences, data) {
+		// Map the position from original code to transformed code
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+
+		// Get details from the base class using the transformed position
+		const details = await super.getCompletionEntryDetails(
+			fileName,
+			transformedPosition,
+			entryName,
+			formatOptions,
+			source,
+			preferences,
+			data
+		)
+
+		if (!details) {
+			return details
+		}
+
+		// Map any code actions back to original positions
+		if (details.codeActions) {
+			for (const action of details.codeActions) {
+				if (action.changes) {
+					for (const change of action.changes) {
+						if (change.textChanges) {
+							for (const textChange of change.textChanges) {
+								if (textChange.span) {
+									textChange.span.start = this._mapPositionToOriginal(
+										textChange.span.start,
+										fileName
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return details
+	}
+
+	/**
 	 * Maps diagnostics positions from transformed code back to original code
 	 * @param {Array} diagnostics - TypeScript diagnostics
 	 * @param {string} fileName - File name
