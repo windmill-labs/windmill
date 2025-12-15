@@ -575,7 +575,6 @@ pub struct BedrockQueryBuilder;
 
 impl BedrockQueryBuilder {
     /// Execute Bedrock request (streaming or non-streaming)
-    #[allow(clippy::too_many_arguments)]
     pub async fn execute_request(
         &self,
         messages: &[OpenAIMessage],

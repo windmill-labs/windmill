@@ -170,11 +170,20 @@ impl AIRequestConfig {
         w_id: &str,
         resource: AIResource,
     ) -> Result<Self> {
-        let (api_key, access_token, organization_id, base_url, user, region, aws_access_key_id, aws_secret_access_key) = match resource {
+        let (
+            api_key,
+            access_token,
+            organization_id,
+            base_url,
+            user,
+            region,
+            aws_access_key_id,
+            aws_secret_access_key,
+        ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let base_url = provider
-                    .get_base_url(resource.base_url, region.clone(), db)
+                    .get_base_url(resource.base_url, resource.region, db)
                     .await?;
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
@@ -191,13 +200,23 @@ impl AIRequestConfig {
                 } else {
                     None
                 };
-                let aws_secret_access_key = if let Some(secret_access_key) = resource.aws_secret_access_key {
-                    Some(get_variable_or_self(secret_access_key, db, w_id).await?)
-                } else {
-                    None
-                };
+                let aws_secret_access_key =
+                    if let Some(secret_access_key) = resource.aws_secret_access_key {
+                        Some(get_variable_or_self(secret_access_key, db, w_id).await?)
+                    } else {
+                        None
+                    };
 
-                (api_key, None, organization_id, base_url, None, region, aws_access_key_id, aws_secret_access_key)
+                (
+                    api_key,
+                    None,
+                    organization_id,
+                    base_url,
+                    None,
+                    region,
+                    aws_access_key_id,
+                    aws_secret_access_key,
+                )
             }
             AIResource::OAuth(resource) => {
                 let user = if let Some(user) = resource.user.clone() {
@@ -212,7 +231,16 @@ impl AIRequestConfig {
             }
         };
 
-        Ok(Self { base_url, organization_id, api_key, access_token, user, region, aws_access_key_id, aws_secret_access_key })
+        Ok(Self {
+            base_url,
+            organization_id,
+            api_key,
+            access_token,
+            user,
+            region,
+            aws_access_key_id,
+            aws_secret_access_key,
+        })
     }
 
     async fn get_token_using_oauth(
@@ -270,9 +298,8 @@ impl AIRequestConfig {
         let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
 
         // Check if using IAM credentials for Bedrock (instead of bearer token)
-        let use_iam_auth = is_bedrock
-            && self.aws_access_key_id.is_some()
-            && self.aws_secret_access_key.is_some();
+        let use_iam_auth =
+            is_bedrock && self.aws_access_key_id.is_some() && self.aws_secret_access_key.is_some();
 
         // Handle AWS Bedrock transformation
         let (url, body) = if is_bedrock && method != Method::GET {
@@ -316,7 +343,9 @@ impl AIRequestConfig {
 
         // For Bedrock with IAM credentials, sign the request using SigV4
         if use_iam_auth {
-            let region = self.region.as_deref().unwrap_or("us-east-1");
+            let region = self.region.as_deref().ok_or_else(|| {
+                Error::internal_err("AWS region must be set for IAM authentication with Bedrock")
+            })?;
             let signed_headers = bedrock::sign_bedrock_request(
                 method.as_str(),
                 &url,
