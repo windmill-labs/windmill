@@ -7,13 +7,13 @@ import {
 	resolveSystemPrompt,
 	resolveTools,
 	resolveModel,
-	writeComparisonResults,
 	type VariantConfig,
 	type BaseEvalResult,
 	type EvaluationResult,
 	type Tool,
 	type VariantDefaults
 } from '../shared'
+import { writeAppComparisonResultsToFolders } from './appResultsWriter'
 
 // Re-export for convenience
 export type { ExpectedApp } from './appEvalComparison'
@@ -128,7 +128,8 @@ export async function runVariantComparison(
 }
 
 /**
- * Writes app comparison results to files.
+ * Writes app comparison results to a folder-based structure.
+ * Each variant gets its own folder with frontend/, backend/, and details.json.
  */
 export async function writeAppComparisonResults(
 	userPrompt: string,
@@ -145,13 +146,11 @@ export async function writeAppComparisonResults(
 
 	const resultsDir = outputDir ?? join(__dirname, 'results')
 
-	const result = await writeComparisonResults({
+	const result = await writeAppComparisonResultsToFolders({
 		userPrompt,
 		results,
-		outputDir: resultsDir,
-		formatOutput: (files: AppFiles) => files,
-		outputLabel: 'app'
+		outputDir: resultsDir
 	})
 
-	return { summaryPath: result.summaryPath, appPaths: result.outputPaths }
+	return { summaryPath: result.summaryPath, appPaths: result.variantPaths }
 }
