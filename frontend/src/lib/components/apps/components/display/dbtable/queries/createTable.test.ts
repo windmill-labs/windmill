@@ -147,6 +147,8 @@ describe("makeCreateTableQuery", () => {
 			"postgresql",
 		);
 
+		expect(normalize(sql)).toContain(`CONSTRAINT fk_posts_author_id_users_id`);
+
 		expect(normalize(sql)).toContain(
 			normalize(`
 			FOREIGN KEY (author_id)
@@ -156,7 +158,7 @@ describe("makeCreateTableQuery", () => {
 		);
 	});
 
-	it("uses schema when supported", () => {
+	it("uses schema when provided", () => {
 		const sql = makeCreateTableQuery(
 			{
 				name: "users",
