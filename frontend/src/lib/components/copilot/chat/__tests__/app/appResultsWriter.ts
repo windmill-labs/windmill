@@ -230,7 +230,8 @@ export async function writeAppComparisonResultsToFolders(
 			toolsCalled: result.toolsCalled,
 			toolCallDetails: result.toolCallDetails,
 			tokenUsage: result.tokenUsage,
-			iterations: result.iterations
+			iterations: result.iterations,
+			messages: result.messages
 		}
 		await writeFile(join(variantFolder, 'details.json'), JSON.stringify(details, null, '\t'))
 

@@ -1,7 +1,7 @@
 import type { AppFiles, BackendRunnable, AppAIChatHelpers } from '../../app/core'
 import { getAppTools, prepareAppSystemMessage, prepareAppUserMessage } from '../../app/core'
 import { createAppEvalHelpers } from './appEvalHelpers'
-import { evaluateAppComparison, type ExpectedApp } from './appEvalComparison'
+import { evaluateAppGeneration, type InitialApp } from './appEvalComparison'
 import {
 	runEval,
 	resolveSystemPrompt,
@@ -16,7 +16,7 @@ import {
 import { writeAppComparisonResultsToFolders } from './appResultsWriter'
 
 // Re-export for convenience
-export type { ExpectedApp } from './appEvalComparison'
+export type { InitialApp } from './appEvalComparison'
 
 /**
  * App-specific evaluation result.
@@ -36,7 +36,8 @@ export interface AppEvalOptions {
 	customSystemPrompt?: string
 	maxIterations?: number
 	variant?: VariantConfig
-	expectedApp?: ExpectedApp
+	/** Whether to evaluate the generated app with LLM. Default: true. Set to false to skip evaluation. */
+	evaluateWithLLM?: boolean
 }
 
 /**
@@ -91,11 +92,18 @@ export async function runAppEval(
 		}
 	})
 
-	// Run evaluation if expected app is provided
+	// Run LLM evaluation unless explicitly disabled
 	let evaluationResult: EvaluationResult | undefined
-	if (options?.expectedApp) {
+	if (options?.evaluateWithLLM !== false) {
 		const generatedApp = getFiles()
-		evaluationResult = await evaluateAppComparison(generatedApp, options.expectedApp, userPrompt)
+		const initialApp: InitialApp | undefined =
+			options?.initialFrontend || options?.initialBackend
+				? {
+						frontend: options.initialFrontend ?? {},
+						backend: options.initialBackend ?? {}
+					}
+				: undefined
+		evaluationResult = await evaluateAppGeneration(userPrompt, generatedApp, initialApp)
 	}
 
 	return {
