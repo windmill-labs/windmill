@@ -80,6 +80,7 @@
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
+	import { updateSqlQueriesInWorker } from './sqlTypeService'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -1852,24 +1853,25 @@
 		})
 	})
 
+	// Update SQL query type information in the TypeScript worker
+	// This enables TypeScript to show proper types for SQL template literals
 	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
-		let tranformedCode = code
-		let addedOffset = 0
-		for (const query of parsedAssetsSqlQueries!) {
-			let splitIdx = code?.indexOf('`', query.span[0] - 1)
-			if (splitIdx === -1 || !splitIdx) continue
-			let leftPart = tranformedCode?.substring(0, splitIdx + addedOffset)
-			let middlePart = `<{ test: "${query.source_name}" }>`
-			let rightPart = tranformedCode?.substring(splitIdx + addedOffset)
-
-			addedOffset += middlePart.length
-			tranformedCode = leftPart + middlePart + rightPart
+		if (!parsedAssetsSqlQueries || parsedAssetsSqlQueries.length === 0) {
+			// Clear SQL queries if none exist
+			updateSqlQueriesInWorker(filePath, [])
+			return
 		}
-		console.log('transformed', tranformedCode)
+
+		// Send SQL query information to the custom TypeScript worker
+		// The worker will inject type parameters into the code that TypeScript analyzes
+		console.log(
+			'[Editor] Updating SQL queries in TypeScript worker:',
+			parsedAssetsSqlQueries.length
+		)
+		updateSqlQueriesInWorker(filePath, parsedAssetsSqlQueries)
 	})
 
-	watch([() => parsedAssetsSqlQueries, () => lang, () => code], () => {
-		if (!parsedAssetsSqlQueries?.length) return
+	watch([() => parsedAssetsSqlQueries, () => lang, () => filePath], () => {
 		if (lang !== 'typescript') return
 		handleSqlTypingInTs()
 	})
