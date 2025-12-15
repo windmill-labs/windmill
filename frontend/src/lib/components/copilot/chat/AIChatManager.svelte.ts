@@ -657,7 +657,6 @@ class AIChatManager {
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
 						oldInstructions,
-						this.appAiChatHelpers?.getFiles(),
 						this.appAiChatHelpers?.getSelectedContext()
 					)
 					break
