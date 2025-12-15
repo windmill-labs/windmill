@@ -15238,6 +15238,7 @@ dependencies = [
  "async-trait",
  "async_zip",
  "aws-config",
+ "aws-credential-types",
  "aws-sdk-config",
  "aws-sdk-sqs",
  "aws-sdk-sso",
