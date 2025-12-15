@@ -207,7 +207,15 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	/**
 	 * Override getCompletionEntryDetails to map positions in detailed completion info
 	 */
-	async getCompletionEntryDetails(fileName, position, entryName, formatOptions, source, preferences, data) {
+	async getCompletionEntryDetails(
+		fileName,
+		position,
+		entryName,
+		formatOptions,
+		source,
+		preferences,
+		data
+	) {
 		// Map the position from original code to transformed code
 		const transformedPosition = this._mapPositionToTransformed(position, fileName)
 
@@ -247,6 +255,370 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		}
 
 		return details
+	}
+
+	/**
+	 * Maps a DocumentSpan (or derived types) from transformed to original positions
+	 * DocumentSpan is used by DefinitionInfo, ReferenceEntry, ImplementationLocation, etc.
+	 */
+	_mapDocumentSpan(span, fileName) {
+		if (!span) return span
+
+		if (span.textSpan) {
+			span.textSpan.start = this._mapPositionToOriginal(span.textSpan.start, fileName)
+		}
+		if (span.contextSpan) {
+			span.contextSpan.start = this._mapPositionToOriginal(span.contextSpan.start, fileName)
+		}
+		if (span.originalTextSpan) {
+			span.originalTextSpan.start = this._mapPositionToOriginal(
+				span.originalTextSpan.start,
+				fileName
+			)
+		}
+		if (span.originalContextSpan) {
+			span.originalContextSpan.start = this._mapPositionToOriginal(
+				span.originalContextSpan.start,
+				fileName
+			)
+		}
+
+		return span
+	}
+
+	/**
+	 * Maps an array of DocumentSpans
+	 */
+	_mapDocumentSpans(spans, fileName) {
+		if (!spans) return spans
+		return spans.map((span) => this._mapDocumentSpan(span, fileName))
+	}
+
+	/**
+	 * Override getDefinitionAtPosition - Go to Definition
+	 */
+	async getDefinitionAtPosition(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const definitions = await super.getDefinitionAtPosition(fileName, transformedPosition)
+
+		return this._mapDocumentSpans(definitions, fileName)
+	}
+
+	/**
+	 * Override getDefinitionAndBoundSpan - Go to Definition with bound span
+	 */
+	async getDefinitionAndBoundSpan(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const result = await super.getDefinitionAndBoundSpan(fileName, transformedPosition)
+
+		if (!result) return result
+
+		// Map definitions
+		if (result.definitions) {
+			result.definitions = this._mapDocumentSpans(result.definitions, fileName)
+		}
+
+		// Map text span
+		if (result.textSpan) {
+			result.textSpan.start = this._mapPositionToOriginal(result.textSpan.start, fileName)
+		}
+
+		return result
+	}
+
+	/**
+	 * Override getTypeDefinitionAtPosition - Go to Type Definition
+	 */
+	async getTypeDefinitionAtPosition(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const definitions = await super.getTypeDefinitionAtPosition(fileName, transformedPosition)
+
+		return this._mapDocumentSpans(definitions, fileName)
+	}
+
+	/**
+	 * Override getImplementationAtPosition - Go to Implementation
+	 */
+	async getImplementationAtPosition(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const implementations = await super.getImplementationAtPosition(fileName, transformedPosition)
+
+		return this._mapDocumentSpans(implementations, fileName)
+	}
+
+	/**
+	 * Override getReferencesAtPosition - Find All References
+	 */
+	async getReferencesAtPosition(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const references = await super.getReferencesAtPosition(fileName, transformedPosition)
+
+		return this._mapDocumentSpans(references, fileName)
+	}
+
+	/**
+	 * Override findReferences - Find References (alternative API)
+	 */
+	async findReferences(fileName, position) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const referencedSymbols = await super.findReferences(fileName, transformedPosition)
+
+		if (!referencedSymbols) return referencedSymbols
+
+		// Map each ReferencedSymbol
+		for (const symbol of referencedSymbols) {
+			// Map definition
+			if (symbol.definition) {
+				this._mapDocumentSpan(symbol.definition, fileName)
+			}
+
+			// Map references
+			if (symbol.references) {
+				symbol.references = this._mapDocumentSpans(symbol.references, fileName)
+			}
+		}
+
+		return referencedSymbols
+	}
+
+	/**
+	 * Override getDocumentHighlights - Highlight occurrences
+	 */
+	async getDocumentHighlights(fileName, position, filesToSearch) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const highlights = await super.getDocumentHighlights(
+			fileName,
+			transformedPosition,
+			filesToSearch
+		)
+
+		if (!highlights) return highlights
+
+		// Map each DocumentHighlights
+		for (const highlight of highlights) {
+			if (highlight.highlightSpans) {
+				for (const span of highlight.highlightSpans) {
+					if (span.textSpan) {
+						span.textSpan.start = this._mapPositionToOriginal(span.textSpan.start, fileName)
+					}
+					if (span.contextSpan) {
+						span.contextSpan.start = this._mapPositionToOriginal(span.contextSpan.start, fileName)
+					}
+				}
+			}
+		}
+
+		return highlights
+	}
+
+	/**
+	 * Override getRenameInfo - Check if rename is possible
+	 */
+	async getRenameInfo(fileName, position, options) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const renameInfo = await super.getRenameInfo(fileName, transformedPosition, options)
+
+		if (!renameInfo) return renameInfo
+
+		// Map triggerSpan if present
+		if (renameInfo.triggerSpan) {
+			renameInfo.triggerSpan.start = this._mapPositionToOriginal(
+				renameInfo.triggerSpan.start,
+				fileName
+			)
+		}
+
+		return renameInfo
+	}
+
+	/**
+	 * Override findRenameLocations - Get all rename locations
+	 */
+	async findRenameLocations(
+		fileName,
+		position,
+		findInStrings,
+		findInComments,
+		providePrefixAndSuffixTextForRename
+	) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const locations = await super.findRenameLocations(
+			fileName,
+			transformedPosition,
+			findInStrings,
+			findInComments,
+			providePrefixAndSuffixTextForRename
+		)
+
+		return this._mapDocumentSpans(locations, fileName)
+	}
+
+	/**
+	 * Override getSignatureHelpItems - Parameter hints
+	 */
+	async getSignatureHelpItems(fileName, position, options) {
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+		const signatureHelp = await super.getSignatureHelpItems(fileName, transformedPosition, options)
+
+		if (!signatureHelp) return signatureHelp
+
+		// Map applicableSpan
+		if (signatureHelp.applicableSpan) {
+			signatureHelp.applicableSpan.start = this._mapPositionToOriginal(
+				signatureHelp.applicableSpan.start,
+				fileName
+			)
+		}
+
+		return signatureHelp
+	}
+
+	/**
+	 * Maps TextChange objects (used in refactorings and code fixes)
+	 */
+	_mapTextChanges(textChanges, fileName) {
+		if (!textChanges) return textChanges
+
+		for (const change of textChanges) {
+			if (change.span) {
+				change.span.start = this._mapPositionToOriginal(change.span.start, fileName)
+			}
+		}
+
+		return textChanges
+	}
+
+	/**
+	 * Maps FileTextChanges (used in refactorings and code fixes)
+	 */
+	_mapFileTextChanges(fileTextChanges, fileName) {
+		if (!fileTextChanges) return fileTextChanges
+
+		for (const fileChange of fileTextChanges) {
+			if (fileChange.textChanges) {
+				this._mapTextChanges(fileChange.textChanges, fileName)
+			}
+		}
+
+		return fileTextChanges
+	}
+
+	/**
+	 * Override getApplicableRefactors - Get available refactorings
+	 */
+	async getApplicableRefactors(
+		fileName,
+		positionOrRange,
+		preferences,
+		triggerReason,
+		kind,
+		includeInteractiveActions
+	) {
+		// Map position or range to transformed
+		let transformedPositionOrRange = positionOrRange
+		if (typeof positionOrRange === 'number') {
+			transformedPositionOrRange = this._mapPositionToTransformed(positionOrRange, fileName)
+		} else if (positionOrRange && typeof positionOrRange === 'object') {
+			// It's a TextRange { pos, end }
+			transformedPositionOrRange = {
+				pos: this._mapPositionToTransformed(positionOrRange.pos, fileName),
+				end: this._mapPositionToTransformed(positionOrRange.end, fileName)
+			}
+		}
+
+		const refactors = await super.getApplicableRefactors(
+			fileName,
+			transformedPositionOrRange,
+			preferences,
+			triggerReason,
+			kind,
+			includeInteractiveActions
+		)
+
+		// Note: ApplicableRefactorInfo doesn't contain positions, so no mapping needed
+		return refactors
+	}
+
+	/**
+	 * Override getEditsForRefactor - Get edits for a specific refactoring
+	 */
+	async getEditsForRefactor(
+		fileName,
+		formatOptions,
+		positionOrRange,
+		refactorName,
+		actionName,
+		preferences,
+		interactiveRefactorArguments
+	) {
+		// Map position or range to transformed
+		let transformedPositionOrRange = positionOrRange
+		if (typeof positionOrRange === 'number') {
+			transformedPositionOrRange = this._mapPositionToTransformed(positionOrRange, fileName)
+		} else if (positionOrRange && typeof positionOrRange === 'object') {
+			transformedPositionOrRange = {
+				pos: this._mapPositionToTransformed(positionOrRange.pos, fileName),
+				end: this._mapPositionToTransformed(positionOrRange.end, fileName)
+			}
+		}
+
+		const refactorEditInfo = await super.getEditsForRefactor(
+			fileName,
+			formatOptions,
+			transformedPositionOrRange,
+			refactorName,
+			actionName,
+			preferences,
+			interactiveRefactorArguments
+		)
+
+		if (!refactorEditInfo) return refactorEditInfo
+
+		// Map edits
+		if (refactorEditInfo.edits) {
+			this._mapFileTextChanges(refactorEditInfo.edits, fileName)
+		}
+
+		// Map renameLocation if present
+		if (refactorEditInfo.renameLocation) {
+			refactorEditInfo.renameLocation = this._mapPositionToOriginal(
+				refactorEditInfo.renameLocation,
+				fileName
+			)
+		}
+
+		return refactorEditInfo
+	}
+
+	/**
+	 * Override getCodeFixesAtPosition - Get quick fixes for errors
+	 */
+	async getCodeFixesAtPosition(fileName, start, end, errorCodes, formatOptions, preferences) {
+		const transformedStart = this._mapPositionToTransformed(start, fileName)
+		const transformedEnd = this._mapPositionToTransformed(end, fileName)
+
+		const codeFixes = await super.getCodeFixesAtPosition(
+			fileName,
+			transformedStart,
+			transformedEnd,
+			errorCodes,
+			formatOptions,
+			preferences
+		)
+
+		if (!codeFixes) return codeFixes
+
+		// Map each CodeFixAction
+		for (const fix of codeFixes) {
+			if (fix.changes) {
+				this._mapFileTextChanges(fix.changes, fileName)
+			}
+			if (fix.fixAllDescription) {
+				// fixAllDescription doesn't contain positions
+			}
+		}
+
+		return codeFixes
 	}
 
 	/**
