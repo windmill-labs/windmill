@@ -10,6 +10,7 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
+import type { ChatCompletionTool as ChatCompletionFunctionTool } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
