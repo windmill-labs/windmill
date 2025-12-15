@@ -1,4 +1,7 @@
-import type { ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
+import type {
+	ChatCompletionFunctionTool,
+	ChatCompletionSystemMessageParam
+} from 'openai/resources/chat/completions.mjs'
 import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
 import type { VariantConfig } from './types'
 
@@ -6,12 +9,15 @@ import type { VariantConfig } from './types'
  * Generic tool interface that matches the structure used across chat modules.
  */
 export interface Tool<THelpers> {
-	def: ChatCompletionTool
+	def: ChatCompletionFunctionTool
 	fn: (params: {
 		args: Record<string, unknown>
 		workspace: string
 		helpers: THelpers
-		toolCallbacks: { setToolStatus: (...args: unknown[]) => void; removeToolStatus: (...args: unknown[]) => void }
+		toolCallbacks: {
+			setToolStatus: (...args: unknown[]) => void
+			removeToolStatus: (...args: unknown[]) => void
+		}
 		toolId: string
 	}) => Promise<string>
 }

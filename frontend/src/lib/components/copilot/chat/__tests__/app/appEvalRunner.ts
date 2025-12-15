@@ -63,12 +63,16 @@ export async function runAppEval(
 
 	// Resolve variant configuration
 	const variantName = options?.variant?.name ?? 'baseline'
-	const systemMessage = resolveSystemPrompt(options?.variant, appDefaults, options?.customSystemPrompt)
+	const systemMessage = resolveSystemPrompt(
+		options?.variant,
+		appDefaults,
+		options?.customSystemPrompt
+	)
 	const { toolDefs, tools } = resolveTools(options?.variant, appDefaults)
 	const model = resolveModel(options?.variant, options?.model)
 
 	// Build user message
-	const userMessage = prepareAppUserMessage(userPrompt, getFiles(), helpers.getSelectedContext())
+	const userMessage = prepareAppUserMessage(userPrompt, helpers.getSelectedContext())
 
 	// Run the base evaluation
 	const rawResult = await runEval({

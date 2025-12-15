@@ -823,7 +823,6 @@ Explain what you're doing as you work. Show file contents before setting them wh
 
 export function prepareAppUserMessage(
 	instructions: string,
-	files?: AppFiles,
 	selectedContext?: SelectedContext
 ): ChatCompletionUserMessageParam {
 	let content = ''
@@ -834,21 +833,6 @@ export function prepareAppUserMessage(
 			content += `The user is currently viewing the frontend file: ${selectedContext.frontendPath}\n\n`
 		} else if (selectedContext.type === 'backend') {
 			content += `The user is currently viewing the backend runnable: ${selectedContext.backendKey}\n\n`
-		}
-	}
-
-	if (files) {
-		if (Object.keys(files.frontend).length > 0) {
-			content += `## CURRENT FRONTEND FILES:\n`
-			for (const [path, fileContent] of Object.entries(files.frontend)) {
-				content += `\n### ${path}\n\`\`\`\n${fileContent}\n\`\`\`\n`
-			}
-			content += '\n'
-		}
-
-		if (Object.keys(files.backend).length > 0) {
-			content += `## CURRENT BACKEND RUNNABLES:\n`
-			content += '\`\`\`json\n' + JSON.stringify(files.backend, null, 2) + '\n\`\`\`\n\n'
 		}
 	}
 
