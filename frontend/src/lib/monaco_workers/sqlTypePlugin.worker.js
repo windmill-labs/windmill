@@ -26,7 +26,7 @@ function injectSqlTypes(code, queries) {
 		let middlePart = `<{ test: "${query.source_name}" }>`
 		let rightPart = transformed?.substring(splitIdx + addedOffset)
 
-		offsetMap[splitIdx - 1 + addedOffset] = addedOffset + middlePart.length
+		offsetMap[splitIdx - 1 + addedOffset] = middlePart.length
 		addedOffset += middlePart.length
 		transformed = leftPart + middlePart + rightPart
 	}
@@ -75,6 +75,104 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 		return originalSnapshot
 	}
+	/**
+	 * Maps a position from original code to transformed code
+	 * @param {number} position - Position in original code
+	 * @param {string} fileName - File name
+	 * @returns {number} Position in transformed code
+	 */
+	_mapPositionToTransformed(position, fileName) {
+		try {
+			const originalSnapshot = super.getScriptSnapshot(fileName)
+			if (!originalSnapshot) {
+				return position
+			}
+
+			const queries = this._sqlQueriesByFile.get(fileName)
+			if (!queries || queries.length === 0) {
+				return position
+			}
+
+			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
+			let { offsetMap } = injectSqlTypes(originalCode, queries)
+			let offsetMapEntries = Object.entries(offsetMap)
+
+			for (const [pos, offset] of offsetMapEntries) {
+				// If the position is after an injection point, add the offset
+				if (position > pos) {
+					position += offset
+				} else {
+					break
+				}
+			}
+
+			return position
+		} catch (error) {
+			console.error('[SqlTypePlugin] Error mapping position to transformed:', error)
+			return position
+		}
+	}
+
+	/**
+	 * Maps a position from transformed code back to original code
+	 * @param {number} position - Position in transformed code
+	 * @param {string} fileName - File name
+	 * @returns {number} Position in original code
+	 */
+	_mapPositionToOriginal(position, fileName) {
+		try {
+			const originalSnapshot = super.getScriptSnapshot(fileName)
+			if (!originalSnapshot) {
+				return position
+			}
+
+			const queries = this._sqlQueriesByFile.get(fileName)
+			if (!queries || queries.length === 0) {
+				return position
+			}
+
+			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
+			let { offsetMap } = injectSqlTypes(originalCode, queries)
+			let offsetMapEntries = Object.entries(offsetMap)
+
+			for (const [pos, offset] of offsetMapEntries) {
+				// If position is after an injection point, subtract the offset
+				if (position > pos) {
+					position -= offset
+				} else {
+					break
+				}
+			}
+
+			return position
+		} catch (error) {
+			console.error('[SqlTypePlugin] Error mapping position to original:', error)
+			return position
+		}
+	}
+
+	/**
+	 * Override getQuickInfoAtPosition to map hover positions correctly
+	 * This fixes the offset issue when hovering over code
+	 */
+	async getQuickInfoAtPosition(fileName, position) {
+		// Map the position from original code to transformed code
+		const transformedPosition = this._mapPositionToTransformed(position, fileName)
+
+		// Get quick info from the base class using the transformed position
+		const quickInfo = await super.getQuickInfoAtPosition(fileName, transformedPosition)
+
+		if (!quickInfo) {
+			return quickInfo
+		}
+
+		// Map the text span back to original positions
+		if (quickInfo.textSpan) {
+			quickInfo.textSpan.start = this._mapPositionToOriginal(quickInfo.textSpan.start, fileName)
+		}
+
+		return quickInfo
+	}
 
 	/**
 	 * Maps diagnostics positions from transformed code back to original code
@@ -84,31 +182,9 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 */
 	_mapDiagnostics(diagnostics, fileName) {
 		try {
-			const originalSnapshot = super.getScriptSnapshot(fileName)
-			if (!originalSnapshot) {
-				return diagnostics
-			}
-
-			const queries = this._sqlQueriesByFile.get(fileName)
-			if (!queries || queries.length === 0) {
-				return diagnostics
-			}
-
-			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
-			let { offsetMap } = injectSqlTypes(originalCode, queries)
-			let offsetMapEntries = Object.entries(offsetMap).reverse()
-
 			return diagnostics.map((diagnostic) => {
-				if (!diagnostic.start || !diagnostic.length) return diagnostic
-
-				for (const [pos, offset] of offsetMapEntries) {
-					const numericPos = Number(pos)
-
-					if (diagnostic.start > numericPos) {
-						return { ...diagnostic, start: diagnostic.start - offset }
-					}
-				}
-
+				if (!diagnostic?.start) return diagnostic
+				diagnostic.start = this._mapPositionToOriginal(diagnostic.start, fileName)
 				return diagnostic
 			})
 		} catch (error) {
