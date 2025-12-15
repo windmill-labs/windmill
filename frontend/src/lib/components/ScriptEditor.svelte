@@ -6,7 +6,12 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
+	import {
+		inferArgs,
+		inferAssets,
+		inferAnsibleExecutionMode,
+		type InferAssetsSqlQueryDetails
+	} from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -148,6 +153,8 @@
 		shellcheck: false
 	})
 
+	let parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
+
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -161,6 +168,10 @@
 		untrack(() => {
 			inferAssets(lang, code).then((inferAssetsResult) => {
 				if (inferAssetsResult.status === 'error') return
+
+				if (!deepEqual(parsedAssetsSqlQueries, inferAssetsResult.sql_queries))
+					parsedAssetsSqlQueries = inferAssetsResult.sql_queries
+
 				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
 				for (const asset of newAssets) {
 					const old = assets?.find((a) => assetEq(a, asset))
@@ -909,6 +920,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
+				{parsedAssetsSqlQueries}
 			/>
 			<DiffEditor
 				className="h-full"

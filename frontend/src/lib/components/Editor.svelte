@@ -78,7 +78,7 @@
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
-	import { initWasmTs } from '$lib/infer'
+	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
@@ -103,7 +103,7 @@
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
-	import { resource, watch } from 'runed'
+	import { resource, useDebounce, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -137,6 +137,8 @@
 		enablePreprocessorSnippet?: boolean
 		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
 		rawAppRunnableKey?: string | undefined
+		// Used to provide typed queries in TypeScript when detecting assets
+		parsedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 	}
 
 	let {
@@ -165,7 +167,8 @@
 		class: clazz = undefined,
 		moduleId = undefined,
 		enablePreprocessorSnippet = false,
-		rawAppRunnableKey = undefined
+		rawAppRunnableKey = undefined,
+		parsedAssetsSqlQueries
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1847,6 +1850,28 @@
 		editor?.updateOptions({
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
+	})
+
+	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
+		let tranformedCode = code
+		let addedOffset = 0
+		for (const query of parsedAssetsSqlQueries!) {
+			let splitIdx = code?.indexOf('`', query.span[0] - 1)
+			if (splitIdx === -1 || !splitIdx) continue
+			let leftPart = tranformedCode?.substring(0, splitIdx + addedOffset)
+			let middlePart = `<{ test: "${query.source_name}" }>`
+			let rightPart = tranformedCode?.substring(splitIdx + addedOffset)
+
+			addedOffset += middlePart.length
+			tranformedCode = leftPart + middlePart + rightPart
+		}
+		console.log('transformed', tranformedCode)
+	})
+
+	watch([() => parsedAssetsSqlQueries, () => lang, () => code], () => {
+		if (!parsedAssetsSqlQueries?.length) return
+		if (lang !== 'typescript') return
+		handleSqlTypingInTs()
 	})
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)

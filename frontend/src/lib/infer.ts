@@ -90,10 +90,10 @@ async function initWasmRuby() {
 }
 
 type InferAssetsResult =
-	| { status: 'ok'; assets: AssetWithAccessType[]; query_details?: InferAssetsSqlQueryDetails[] }
+	| { status: 'ok'; assets: AssetWithAccessType[]; sql_queries?: InferAssetsSqlQueryDetails[] }
 	| { status: 'error'; error: string }
 
-type InferAssetsSqlQueryDetails = {
+export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
 	span: [number, number] // [start, end] byte positions in source code
 	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
@@ -109,7 +109,7 @@ export async function inferAssets(
 		if (raw_result.startsWith('err:')) {
 			return { status: 'error', error: raw_result.slice(4).trim() }
 		}
-		return { status: 'ok', assets: JSON.parse(raw_result) as AssetWithAccessType[] }
+		return { status: 'ok', ...JSON.parse(raw_result) }
 	}
 
 	try {
