@@ -49,10 +49,7 @@
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
-	import {
-		datatypeDefaultLength,
-		type CreateTableValues
-	} from './apps/components/display/dbtable/queries/createTable'
+	import { type CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
@@ -64,6 +61,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
+	import { datatypeDefaultLength } from './apps/components/display/dbtable/queries/dbQueriesUtils'
 
 	type Props = {
 		onConfirm: (values: CreateTableValues) => void | Promise<void>
@@ -71,9 +69,10 @@
 		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
+		name?: string
 	}
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: Props = $props()
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema, name = '' }: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
@@ -88,7 +87,7 @@
 	)[dbType]
 
 	const values: CreateTableValues = $state({
-		name: '',
+		name,
 		columns: [],
 		foreignKeys: []
 	})
@@ -100,7 +99,7 @@
 			...(datatypeHasLength(defaultColumnType) && {
 				datatype_length: datatypeDefaultLength(defaultColumnType)
 			}),
-			...(primaryKey && { primaryKey })
+			primaryKey
 		})
 	}
 	addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })

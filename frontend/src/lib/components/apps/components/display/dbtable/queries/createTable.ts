@@ -1,90 +1,59 @@
-import { dbSupportsSchemas } from '../utils'
-import type { DbType } from '$lib/components/dbTypes'
+import { dbSupportsSchemas } from "../utils";
+import type { DbType } from "$lib/components/dbTypes";
+import { renderColumn, renderForeignKey, type SQLDataType } from "./dbQueriesUtils";
 
 export type CreateTableValues = {
-	name: string
-	columns: CreateTableValuesColumn[]
-	foreignKeys: {
-		targetTable?: string
-		columns: {
-			sourceColumn?: string
-			targetColumn?: string
-		}[]
-		onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-		onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-	}[]
-}
+	name: string;
+	columns: CreateTableValuesColumn[];
+	foreignKeys: CreateForeignKey[];
+};
 
-type CreateTableValuesColumn = {
-	name: string
-	datatype: string
-	primaryKey?: boolean
-	defaultValue?: string
-	nullable?: boolean
-	datatype_length?: number // e.g varchar(255)
-}
+export type CreateForeignKey = {
+	targetTable?: string;
+	columns: {
+		sourceColumn?: string;
+		targetColumn?: string;
+	}[];
+	onDelete: "CASCADE" | "SET NULL" | "NO ACTION";
+	onUpdate: "CASCADE" | "SET NULL" | "NO ACTION";
+};
 
-export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, schema?: string) {
-	const pkCount = values.columns.reduce((p, c) => p + (c.primaryKey ? 1 : 0), 0)
+export type CreateTableValuesColumn = {
+	name: string;
+	datatype: SQLDataType;
+	primaryKey?: boolean;
+	defaultValue?: string | null;
+	nullable?: boolean;
+	datatype_length?: number; // e.g varchar(255)
+};
 
-	function transformColumn(c: CreateTableValuesColumn): string {
-		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
-		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)
+export function makeCreateTableQuery(
+	values: CreateTableValues,
+	dbType: DbType,
+	schema?: string,
+) {
+	const pkCount = values.columns.reduce(
+		(p, c) => p + (c.primaryKey ? 1 : 0),
+		0,
+	);
 
-		let str = `  ${c.name} ${datatype}`
-		if (!c.nullable) str += ' NOT NULL'
-		if (defValue) str += ` DEFAULT ${defValue}`
-		if (pkCount === 1 && c.primaryKey) str += ' PRIMARY KEY'
-		return str
-	}
+	const useSchema = dbSupportsSchemas(dbType);
+	const tableRef = useSchema && schema
+		? `${schema.trim()}.${values.name}`
+		: values.name;
 
-	function transformFk(fk: CreateTableValues['foreignKeys'][number]): string {
-		const sourceColumns = fk.columns.map((c) => c.sourceColumn).filter(Boolean)
-		const targetColumns = fk.columns.map((c) => c.targetColumn).filter(Boolean)
-		const targetTable =
-			useSchema || !fk.targetTable?.includes('.')
-				? fk.targetTable
-				: fk.targetTable?.split('.').pop()
-
-		let l = `  FOREIGN KEY (${sourceColumns.join(', ')}) REFERENCES ${targetTable} (${targetColumns.join(
-			', '
-		)})`
-		if (fk.onDelete !== 'NO ACTION') l += ` ON DELETE ${fk.onDelete}`
-		if (fk.onUpdate !== 'NO ACTION') l += ` ON UPDATE ${fk.onUpdate}`
-		return l
-	}
-
-	const useSchema = dbSupportsSchemas(dbType)
-
-	const lines = values.columns.map(transformColumn)
-	lines.push(...values.foreignKeys.map(transformFk))
+	const lines = values.columns.map((c) =>
+		renderColumn(c, dbType, pkCount === 1 && c.primaryKey)
+	);
+	lines.push(
+		...values.foreignKeys.map((fk) =>
+			renderForeignKey(fk, { useSchema, dbType, tableName: values.name })
+		),
+	);
 	if (pkCount > 1) {
-		const pks = values.columns.filter((c) => c.primaryKey)
-		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`)
+		const pks = values.columns.filter((c) => c.primaryKey);
+		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(", ")})`);
 	}
 
-	return `CREATE TABLE ${useSchema && schema ? schema.trim() + '.' : ''}${values.name.trim()} (
-${lines.join(',\n')}
-);`
-}
-
-function formatDefaultValue(str: string, datatype: string, resourceType: DbType): string {
-	if (!str) return ''
-	if (str.startsWith('{') && str.endsWith('}')) {
-		return str.slice(1, str.length - 1)
-	}
-	if (resourceType === 'postgresql') {
-		return `CAST('${str}' AS ${datatype})`
-	}
-	return `'${str}'`
-}
-
-export function datatypeDefaultLength(datatype: string): number {
-	datatype = datatype.toLowerCase()
-	if (datatype == 'bit') return 1
-	if (['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary'].includes(datatype)) {
-		return 255
-	} else {
-		return 10
-	}
+	return `CREATE TABLE ${tableRef} ( ${lines.join(",\n")} );`;
 }
