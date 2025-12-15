@@ -31,7 +31,7 @@ pub struct FolderPermissionChange {
     pub changed_by: String,
     pub changed_at: chrono::DateTime<chrono::Utc>,
     pub change_type: String,
-    pub owner_affected: Option<String>,
+    pub affected: Option<String>,
 }
 
 async fn get_folder_permission_history(
@@ -49,10 +49,10 @@ async fn get_folder_permission_history(
 
     let history = sqlx::query_as!(
         FolderPermissionChange,
-        "SELECT id, changed_by, changed_at, change_type, owner_affected
+        "SELECT id, changed_by, changed_at, change_type, affected
          FROM folder_permission_history
          WHERE workspace_id = $1 AND folder_name = $2
-         ORDER BY changed_at DESC
+         ORDER BY id DESC
          LIMIT $3 OFFSET $4",
         w_id,
         name,

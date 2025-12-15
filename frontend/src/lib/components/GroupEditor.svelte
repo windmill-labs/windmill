@@ -82,6 +82,7 @@
 				}
 			})
 			summary = group.summary ?? ''
+			reloadHistory++
 		} catch (e) {
 			can_write = false
 			members = []
@@ -111,6 +112,7 @@
 			})
 		}
 	})
+	let reloadHistory = $state(0)
 </script>
 
 <div class="flex flex-col gap-6">
@@ -313,18 +315,19 @@
 		{/if}
 	</Label>
 
-	{#if $userStore?.is_admin}
-		<PermissionHistory
-			{name}
-			kind="group"
-			fetchHistory={async (workspace, groupName, page, perPage) => {
-				return await GroupService.getGroupPermissionHistory({
-					workspace,
-					name: groupName,
-					page,
-					perPage
-				})
-			}}
-		/>
+	{#if $userStore?.is_admin && reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, groupName, page, perPage) => {
+					return await GroupService.getGroupPermissionHistory({
+						workspace,
+						name: groupName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
 	{/if}
 </div>

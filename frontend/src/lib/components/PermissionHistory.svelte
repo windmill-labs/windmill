@@ -10,13 +10,12 @@
 		changed_by?: string
 		changed_at?: string
 		change_type?: string
-		owner_affected?: string | null
+		affected?: string | null
 		member_affected?: string | null
 	}
 
 	interface Props {
 		name: string
-		kind: 'folder' | 'group'
 		fetchHistory: (
 			workspace: string,
 			name: string,
@@ -25,7 +24,7 @@
 		) => Promise<PermissionChange[]>
 	}
 
-	let { name, kind, fetchHistory }: Props = $props()
+	let { name, fetchHistory }: Props = $props()
 	let history: PermissionChange[] | undefined = $state(undefined)
 	let loading = $state(false)
 	let page = $state(1)
@@ -63,6 +62,10 @@
 			})
 		}
 	})
+
+	function removeUPrefix(username: string | undefined): string | undefined {
+		return username?.startsWith('u/') ? username.slice(2) : username
+	}
 </script>
 
 <Label label="Permission History">
@@ -79,7 +82,7 @@
 			<tr slot="header-row">
 				<th>Changed By</th>
 				<th>Change Type</th>
-				<th>{kind === 'folder' ? 'Owner Affected' : 'Member Affected'}</th>
+				<th>Affected</th>
 				<th>Date</th>
 			</tr>
 			{#snippet body()}
@@ -88,7 +91,7 @@
 						<tr>
 							<td>{change.changed_by ?? '-'}</td>
 							<td>{change.change_type ? formatChangeType(change.change_type) : '-'}</td>
-							<td>{change.owner_affected ?? change.member_affected ?? '-'}</td>
+							<td>{change.affected ?? removeUPrefix(change.member_affected ?? '')}</td>
 							<td class="text-xs">{change.changed_at ? formatDate(change.changed_at) : '-'}</td>
 						</tr>
 					{/each}

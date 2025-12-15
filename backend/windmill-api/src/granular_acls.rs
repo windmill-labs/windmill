@@ -125,24 +125,33 @@ async fn add_granular_acl(
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
 
-    // Log permission changes for folders and groups
     if kind == "folder" {
+        let change_type = if write.unwrap_or(false) {
+            "grant_read"
+        } else {
+            "grant_write"
+        };
         crate::folders::log_folder_permission_change(
             &mut *tx,
             &w_id,
             path,
             &authed.username,
-            "update_extra_perms",
+            change_type,
             Some(&owner),
         )
         .await?;
     } else if kind == "group_" {
+        let change_type = if write.unwrap_or(false) {
+            "grant_admin"
+        } else {
+            "grant_member_only"
+        };
         crate::groups::log_group_permission_change(
             &mut *tx,
             &w_id,
             path,
             &authed.username,
-            "update_extra_perms",
+            change_type,
             Some(&owner),
         )
         .await?;
@@ -249,9 +258,14 @@ async fn remove_granular_acl(
         require_owner_of_path(&authed, path)?;
     }
 
-    let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND \
-         workspace_id = $3 RETURNING extra_perms"
+    let obj_o = sqlx::query_scalar::<_, bool>(&format!(
+        "WITH old AS (
+            SELECT extra_perms->$1 as old_write FROM {kind}
+            WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
+        )
+        UPDATE {kind} SET extra_perms = extra_perms - $1
+        WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
+        RETURNING (SELECT old_write FROM old)::bool"
     ))
     .bind(&owner)
     .bind(path)
@@ -259,87 +273,89 @@ async fn remove_granular_acl(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let _ = not_found_if_none(obj_o, &kind, &path)?;
-
-    // Log permission changes for folders and groups
-    if kind == "folder" {
-        crate::folders::log_folder_permission_change(
-            &mut *tx,
-            &w_id,
-            path,
-            &authed.username,
-            "remove_extra_perms",
-            Some(&owner),
-        )
-        .await?;
-    } else if kind == "group_" {
-        crate::groups::log_group_permission_change(
-            &mut *tx,
-            &w_id,
-            path,
-            &authed.username,
-            "remove_extra_perms",
-            Some(&owner),
-        )
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    match kind {
-        "folder" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
+    // Only log if something was actually removed (obj_o is Some)
+    if let Some(write) = obj_o {
+        // Log permission changes for folders and groups
+        if kind == "folder" {
+            let change_type = if write { "revoke_write" } else { "revoke_read" };
+            crate::folders::log_folder_permission_change(
+                &mut *tx,
                 &w_id,
-                DeployedObject::Folder { path: format!("f/{}", path) },
-                Some(format!("Folder '{}' changed permissions", path)),
-                true,
+                path,
+                &authed.username,
+                change_type,
+                Some(&owner),
             )
-            .await?
+            .await?;
+        } else if kind == "group_" {
+            crate::groups::log_group_permission_change(
+                &mut *tx,
+                &w_id,
+                path,
+                &authed.username,
+                "revoke_admin",
+                Some(&owner),
+            )
+            .await?;
         }
-        // "app" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-        //         Some(format!("App '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "script" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Script {
-        //             path: path.to_string(),
-        //             parent_path: None,
-        //             hash: ScriptHash(0),
-        //         },
-        //         Some(format!("Script '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "flow" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
-        //         Some(format!("Flow '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        _ => (),
+
+        tx.commit().await?;
+
+        match kind {
+            "folder" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Folder { path: format!("f/{}", path) },
+                    Some(format!("Folder '{}' changed permissions", path)),
+                    true,
+                )
+                .await?
+            }
+            // "app" => {
+            //     handle_deployment_metadata(
+            //         &authed.email,
+            //         &authed.username,
+            //         &db,
+            //         &w_id,
+            //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+            //         Some(format!("App '{}' changed permissions", path)),
+            //         //         true,
+            //     )
+            //     .await?
+            // }
+            // "script" => {
+            //     handle_deployment_metadata(
+            //         &authed.email,
+            //         &authed.username,
+            //         &db,
+            //         &w_id,
+            //         DeployedObject::Script {
+            //             path: path.to_string(),
+            //             parent_path: None,
+            //             hash: ScriptHash(0),
+            //         },
+            //         Some(format!("Script '{}' changed permissions", path)),
+            //         //         true,
+            //     )
+            //     .await?
+            // }
+            // "flow" => {
+            //     handle_deployment_metadata(
+            //         &authed.email,
+            //         &authed.username,
+            //         &db,
+            //         &w_id,
+            //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
+            //         Some(format!("Flow '{}' changed permissions", path)),
+            //         //         true,
+            //     )
+            //     .await?
+            // }
+            _ => (),
+        }
     }
 
     Ok("Successfully removed granular acl".to_string())

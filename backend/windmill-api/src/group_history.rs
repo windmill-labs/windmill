@@ -56,7 +56,7 @@ async fn get_group_permission_history(
         "SELECT id, changed_by, changed_at, change_type, member_affected
          FROM group_permission_history
          WHERE workspace_id = $1 AND group_name = $2
-         ORDER BY changed_at DESC
+         ORDER BY id DESC
          LIMIT $3 OFFSET $4",
         w_id,
         name,

@@ -91,6 +91,7 @@
 					role: getRole(x)
 				}
 			})
+			reloadHistory++
 		} catch (e) {
 			folderNotFound = true
 		}
@@ -145,6 +146,8 @@
 			})
 		}
 	})
+
+	let reloadHistory = $state(0)
 </script>
 
 <Drawer bind:this={newGroup}>
@@ -443,18 +446,19 @@
 		</div>
 	</Label>
 
-	{#if can_write}
-		<PermissionHistory
-			{name}
-			kind="folder"
-			fetchHistory={async (workspace, folderName, page, perPage) => {
-				return await FolderService.getFolderPermissionHistory({
-					workspace,
-					name: folderName,
-					page,
-					perPage
-				})
-			}}
-		/>
+	{#if can_write && reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, folderName, page, perPage) => {
+					return await FolderService.getFolderPermissionHistory({
+						workspace,
+						name: folderName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
 	{/if}
 </div>

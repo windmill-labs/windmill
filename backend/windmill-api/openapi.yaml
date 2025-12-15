@@ -13348,7 +13348,7 @@ paths:
                       format: date-time
                     change_type:
                       type: string
-                    owner_affected:
+                    affected:
                       type: string
                       nullable: true
 

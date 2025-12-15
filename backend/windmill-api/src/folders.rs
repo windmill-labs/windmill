@@ -424,14 +424,24 @@ async fn update_folder(
     .await?;
 
     // Log permission changes if owners or extra_perms were updated
-    let should_log = owners_changed || extra_perms_changed;
-    if should_log {
+    if owners_changed {
         log_folder_permission_change(
             &mut *tx,
             &w_id,
             &name,
             &authed.username,
-            "update_permissions",
+            "update_owners",
+            None,
+        )
+        .await?;
+    }
+    if extra_perms_changed {
+        log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            &name,
+            &authed.username,
+            "update_acl",
             None,
         )
         .await?;
@@ -785,17 +795,17 @@ pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = P
     folder_name: &str,
     changed_by: &str,
     change_type: &str,
-    owner_affected: Option<&str>,
+    affected: Option<&str>,
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO folder_permission_history
-         (workspace_id, folder_name, changed_by, change_type, owner_affected)
+         (workspace_id, folder_name, changed_by, change_type, affected)
          VALUES ($1, $2, $3, $4, $5)",
         workspace_id,
         folder_name,
         changed_by,
         change_type,
-        owner_affected
+        affected
     )
     .execute(db)
     .await?;
