@@ -87,8 +87,7 @@
 		{
 			displayName: 'Email',
 			action: () => onAddDraftTrigger?.('email'),
-			icon: triggerIconMap.email,
-			extra: cloudHosted ? extra : undefined
+			icon: triggerIconMap.email
 		},
 		{
 			displayName: 'Scheduled Poll',
