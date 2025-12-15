@@ -2,7 +2,14 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import {
+		type CompletedJob,
+		type Job,
+		JobService,
+		type Preview,
+		type ScriptLang,
+		WorkspaceService
+	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -64,6 +71,8 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { resource } from 'runed'
+	import { sqlDataTypeToJsTypeHeuristic } from './apps/components/display/dbtable/utils'
 
 	interface Props {
 		// Exported
@@ -153,7 +162,32 @@
 		shellcheck: false
 	})
 
-	let parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
+	let _parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
+	let parsedAssetsSqlQueries = resource(
+		() => _parsedAssetsSqlQueries,
+		async (queries) => {
+			if (!queries?.length) return
+			return await Promise.all(
+				queries.map(async (q) => {
+					const prepareResult =
+						q.source_kind === 'datatable'
+							? await WorkspaceService.prepareDatatableQueries({
+									workspace: $workspaceStore ?? '',
+									requestBody: { datatable: q.source_name, queries: [q.query_string] }
+								})
+							: undefined
+					const column_types =
+						prepareResult &&
+						Object.fromEntries(
+							prepareResult?.results[0].columns.map(
+								(col) => [col.name, sqlDataTypeToJsTypeHeuristic(col.type)] as const
+							) ?? []
+						)
+					return { ...q, column_types } satisfies InferAssetsSqlQueryDetails
+				})
+			)
+		}
+	)
 
 	const dispatch = createEventDispatcher()
 
@@ -169,8 +203,8 @@
 			inferAssets(lang, code).then((inferAssetsResult) => {
 				if (inferAssetsResult.status === 'error') return
 
-				if (!deepEqual(parsedAssetsSqlQueries, inferAssetsResult.sql_queries))
-					parsedAssetsSqlQueries = inferAssetsResult.sql_queries
+				if (!deepEqual(_parsedAssetsSqlQueries, inferAssetsResult.sql_queries))
+					_parsedAssetsSqlQueries = inferAssetsResult.sql_queries
 
 				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
 				for (const asset of newAssets) {
@@ -920,7 +954,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				{parsedAssetsSqlQueries}
+				parsedAssetsSqlQueries={$state.snapshot(parsedAssetsSqlQueries.current)}
 			/>
 			<DiffEditor
 				className="h-full"

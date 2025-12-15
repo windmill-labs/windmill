@@ -3009,6 +3009,61 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/prepare_datatable_queries:
+    post:
+      summary: prepare SQL queries on a datatable and return column information
+      operationId: prepareDatatableQueries
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Datatable name and SQL queries to prepare
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable, queries]
+              properties:
+                datatable:
+                  type: string
+                  description: Name of the datatable to query
+                queries:
+                  type: array
+                  description: List of SQL queries to prepare
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Query preparation results with column information
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    description: Results for each query
+                    items:
+                      type: object
+                      required: [columns]
+                      properties:
+                        columns:
+                          type: array
+                          description: Column information
+                          items:
+                            type: object
+                            required: [name, type]
+                            properties:
+                              name:
+                                type: string
+                                description: Column name
+                              type:
+                                type: string
+                                description: PostgreSQL type name
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings

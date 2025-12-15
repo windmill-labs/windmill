@@ -99,6 +99,7 @@ export type InferAssetsSqlQueryDetails = {
 	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
 	source_name: string // e.g., "main", "dt"
 	source_schema?: string // e.g., "public", optional
+	column_types?: Record<string, string> // e.g., { id: "number", name: "text" }
 }
 
 export async function inferAssets(

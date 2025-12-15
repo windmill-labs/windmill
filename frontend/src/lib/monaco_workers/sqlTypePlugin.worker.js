@@ -23,13 +23,19 @@ function injectSqlTypes(code, queries) {
 		let splitIdx = code?.indexOf('`', query.span[0] - 1)
 		if (splitIdx === -1 || !splitIdx) continue
 		let leftPart = transformed?.substring(0, splitIdx + addedOffset)
-		let middlePart = `<{ test: "${query.source_name}" }>`
+		let middlePart =
+			'<{ ' +
+			Object.entries(query?.column_types ?? {})
+				.map(([key, type]) => `"${key}": ${type}`)
+				.join('; ') +
+			' }>'
 		let rightPart = transformed?.substring(splitIdx + addedOffset)
 
 		offsetMap[splitIdx - 1 + addedOffset] = middlePart.length
 		addedOffset += middlePart.length
 		transformed = leftPart + middlePart + rightPart
 	}
+	console.log('[SqlTypePlugin] Transformed code:', transformed)
 	return { transformed, offsetMap }
 }
 
