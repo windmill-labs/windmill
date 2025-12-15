@@ -271,6 +271,16 @@ async fn create_group(
     )
     .await?;
 
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &ng.name,
+        &authed.username,
+        "create",
+        None,
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -583,7 +593,7 @@ async fn add_user(
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
-    sqlx::query!(
+    let result = sqlx::query!(
         "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         user_username,
@@ -591,6 +601,10 @@ async fn add_user(
     )
     .execute(&mut *tx)
     .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(format!("{} is already a member of group {}", user_username, name));
+    }
 
     audit_log(
         &mut *tx,

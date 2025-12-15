@@ -28,7 +28,7 @@
 	let history: PermissionChange[] | undefined = $state(undefined)
 	let loading = $state(false)
 	let page = $state(1)
-	let perPage = $state(10)
+	let perPage = $state(50)
 
 	async function loadHistory() {
 		if (!$workspaceStore) return
@@ -68,7 +68,7 @@
 	}
 </script>
 
-<Label label="Permission History">
+<Label label="History">
 	{#if loading || history === undefined}
 		<div class="flex flex-col gap-2">
 			{#each new Array(3) as _}
@@ -98,5 +98,25 @@
 				</tbody>
 			{/snippet}
 		</TableCustom>
+		<div class="flex flex-row gap-2 justify-end">
+			{#if page > 1}
+				<button
+					class="text-primary text-xs"
+					onclick={() => {
+						page--
+						loadHistory()
+					}}>Previous</button
+				>
+			{/if}
+			{#if history.length === perPage}
+				<button
+					class="text-primary text-xs"
+					onclick={() => {
+						page++
+						loadHistory()
+					}}>Next</button
+				>
+			{/if}
+		</div>
 	{/if}
 </Label>

@@ -223,7 +223,7 @@ async fn remove_granular_acl(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(GranularAcl { owner, write: _ }): Json<GranularAcl>,
+    Json(GranularAcl { owner, .. }): Json<GranularAcl>,
 ) -> Result<String> {
     let path = path.to_path();
 
