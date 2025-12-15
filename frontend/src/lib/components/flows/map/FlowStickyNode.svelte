@@ -5,9 +5,10 @@
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
-	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
+	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
 	interface Props {
 		disableSettings?: boolean
@@ -80,11 +81,11 @@
 	{/if}
 	{#if showFlowAiButton}
 		<Popover>
-			<FlowAIButton
+			<AIButton
 				togglePanel={() => {
 					toggleAiChat?.()
 				}}
-				selected={aiChatOpen}
+				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
 			/>
 			{#snippet text()}
 				Flow AI Chat

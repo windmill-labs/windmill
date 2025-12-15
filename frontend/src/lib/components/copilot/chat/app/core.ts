@@ -80,6 +80,8 @@ export interface AppAIChatHelpers {
 	// Combined view
 	getFiles: () => AppFiles
 	getSelectedContext: () => SelectedContext
+	snapshot: () => number
+	revertToSnapshot: (id: number) => void
 	// Linting
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult
@@ -235,7 +237,8 @@ const getSetBackendRunnableToolDef = memo(() =>
 	createToolDef(
 		getSetBackendRunnableSchema(),
 		'set_backend_runnable',
-		'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows. Returns lint diagnostics (errors and warnings).'
+		'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows. Returns lint diagnostics (errors and warnings).',
+		{ strict: false }
 	)
 )
 
@@ -292,7 +295,6 @@ const getListWorkspaceRunnablesSchema = memo(() =>
 		query: z.string().describe('The search query to find workspace scripts and flows'),
 		type: z
 			.enum(['all', 'scripts', 'flows'])
-			.optional()
 			.describe(
 				'Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".'
 			)

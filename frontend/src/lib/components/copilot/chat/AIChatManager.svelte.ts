@@ -26,7 +26,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import {
-	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
@@ -67,10 +67,6 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	NAVIGATION_SYSTEM_PROMPT = `
-	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
-	`
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -221,10 +217,10 @@ class AIChatManager {
 		if (mode === AIMode.SCRIPT) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
-			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
+			const context = this.contextManager.getSelectedContext()
+			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)
+			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
@@ -248,7 +244,7 @@ class AIChatManager {
 		} else if (mode === AIMode.FLOW) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
+			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
@@ -408,7 +404,6 @@ class AIChatManager {
 					if (this.mode === AIMode.SCRIPT) {
 						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
-							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
 						)
 					} else if (this.mode === AIMode.FLOW) {
@@ -508,15 +503,13 @@ class AIChatManager {
 
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
-			content: INLINE_CHAT_SYSTEM_PROMPT
+			content: prepareInlineChatSystemPrompt(lang)
 		}
 
 		let reply = ''
 
 		try {
-			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
-				isPreprocessor: false
-			})
+			const userMessage = prepareScriptUserMessage(instructions, selectedContext)
 			const messages = [userMessage]
 
 			const params = {
@@ -606,10 +599,15 @@ class AIChatManager {
 				throw new Error('No flow helpers found')
 			}
 
-			let snapshot: ExtendedOpenFlow | undefined = undefined
+			let snapshot:
+				| { type: 'flow'; value: ExtendedOpenFlow }
+				| { type: 'app'; value: number }
+				| undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setSnapshot(snapshot)
+				snapshot = { type: 'flow', value: this.flowAiChatHelpers!.getFlowAndSelectedId().flow }
+				this.flowAiChatHelpers!.setSnapshot(snapshot.value)
+			} else if (this.mode === AIMode.APP) {
+				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
 			this.displayMessages = [
@@ -632,10 +630,6 @@ class AIChatManager {
 				throw new Error('No script options passed')
 			}
 
-			const lang = this.scriptEditorOptions?.lang ?? options.lang ?? 'bun'
-			const isPreprocessor =
-				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
-
 			let userMessage: ChatCompletionMessageParam = {
 				role: 'user',
 				content: ''
@@ -655,9 +649,7 @@ class AIChatManager {
 					userMessage = prepareAskUserMessage(oldInstructions)
 					break
 				case AIMode.SCRIPT:
-					userMessage = prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-						isPreprocessor
-					})
+					userMessage = prepareScriptUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)

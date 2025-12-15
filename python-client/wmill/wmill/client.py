@@ -32,7 +32,17 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
 class Windmill:
+    """Windmill client for interacting with the Windmill API."""
+
     def __init__(self, base_url=None, token=None, workspace=None, verify=True):
+        """Initialize the Windmill client.
+
+        Args:
+            base_url: API base URL (defaults to BASE_INTERNAL_URL or WM_BASE_URL env)
+            token: Authentication token (defaults to WM_TOKEN env)
+            workspace: Workspace ID (defaults to WM_WORKSPACE env)
+            verify: Whether to verify SSL certificates
+        """
         base = (
             base_url
             or os.environ.get("BASE_INTERNAL_URL")
@@ -75,6 +85,11 @@ class Windmill:
         return mocked_api
 
     def get_client(self) -> httpx.Client:
+        """Get the HTTP client instance.
+
+        Returns:
+            Configured httpx.Client for API requests
+        """
         return httpx.Client(
             base_url=self.base_url,
             headers=self.headers,
@@ -82,6 +97,16 @@ class Windmill:
         )
 
     def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+        """Make an HTTP GET request to the Windmill API.
+
+        Args:
+            endpoint: API endpoint path
+            raise_for_status: Whether to raise an exception on HTTP errors
+            **kwargs: Additional arguments passed to httpx.get
+
+        Returns:
+            HTTP response object
+        """
         endpoint = endpoint.lstrip("/")
         resp = self.client.get(f"/{endpoint}", **kwargs)
         if raise_for_status:
@@ -94,6 +119,16 @@ class Windmill:
         return resp
 
     def post(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+        """Make an HTTP POST request to the Windmill API.
+
+        Args:
+            endpoint: API endpoint path
+            raise_for_status: Whether to raise an exception on HTTP errors
+            **kwargs: Additional arguments passed to httpx.post
+
+        Returns:
+            HTTP response object
+        """
         endpoint = endpoint.lstrip("/")
         resp = self.client.post(f"/{endpoint}", **kwargs)
         if raise_for_status:
@@ -106,6 +141,14 @@ class Windmill:
         return resp
 
     def create_token(self, duration=dt.timedelta(days=1)) -> str:
+        """Create a new authentication token.
+
+        Args:
+            duration: Token validity duration (default: 1 day)
+
+        Returns:
+            New authentication token string
+        """
         endpoint = "/users/tokens/create"
         payload = {
             "label": f"refresh {time.time()}",
@@ -299,6 +342,22 @@ class Windmill:
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
     ):
+        """Wait for a job to complete and return its result.
+
+        Args:
+            job_id: ID of the job to wait for
+            timeout: Maximum time to wait (seconds or timedelta)
+            verbose: Enable verbose logging
+            cleanup: Register cleanup handler to cancel job on exit
+            assert_result_is_not_none: Raise exception if result is None
+
+        Returns:
+            Job result when completed
+
+        Raises:
+            TimeoutError: If timeout is reached
+            Exception: If job fails
+        """
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
             self.post(
@@ -407,19 +466,52 @@ class Windmill:
         return result
 
     def get_job(self, job_id: str) -> dict:
+        """Get job details by ID.
+
+        Args:
+            job_id: UUID of the job
+
+        Returns:
+            Job details dictionary
+        """
         return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
     def get_root_job_id(self, job_id: str | None = None) -> dict:
+        """Get the root job ID for a flow hierarchy.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            Root job ID
+        """
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
     def get_id_token(self, audience: str, expires_in: int | None = None) -> str:
+        """Get an OIDC JWT token for authentication to external services.
+
+        Args:
+            audience: Token audience (e.g., "vault", "aws")
+            expires_in: Optional expiration time in seconds
+
+        Returns:
+            JWT token string
+        """
         params = {}
         if expires_in is not None:
             params["expires_in"] = expires_in
         return self.post(f"/w/{self.workspace}/oidc/token/{audience}", params=params).text
 
     def get_job_status(self, job_id: str) -> JobStatus:
+        """Get the status of a job.
+
+        Args:
+            job_id: UUID of the job
+
+        Returns:
+            Job status: "RUNNING", "WAITING", or "COMPLETED"
+        """
         job = self.get_job(job_id)
         job_type = job.get("type", "")
         assert job_type, f"{job} is not a valid job"
@@ -434,6 +526,15 @@ class Windmill:
         job_id: str,
         assert_result_is_not_none: bool = True,
     ) -> Any:
+        """Get the result of a completed job.
+
+        Args:
+            job_id: UUID of the completed job
+            assert_result_is_not_none: Raise exception if result is None
+
+        Returns:
+            Job result
+        """
         result = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result/{job_id}")
         result_text = result.text
         if assert_result_is_not_none and result_text is None:
@@ -444,6 +545,14 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
+        """Get a variable value by path.
+
+        Args:
+            path: Variable path in Windmill
+
+        Returns:
+            Variable value as string
+        """
         path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             variables = self.mocked_api["variables"]
@@ -454,17 +563,20 @@ class Windmill:
                 logger.info(
                     f"MockedAPI present, but variable not found at {path}, falling back to real API"
                 )
-
-        """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
+        """Set a variable value by path, creating it if it doesn't exist.
+
+        Args:
+            path: Variable path in Windmill
+            value: Variable value to set
+            is_secret: Whether the variable should be secret (default: False)
+        """
         path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["variables"][path] = value
             return
-
-        """Set variable from Windmill"""
         # check if variable exists
         r = self.get(
             f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
@@ -492,6 +604,15 @@ class Windmill:
         path: str,
         none_if_undefined: bool = False,
     ) -> dict | None:
+        """Get a resource value by path.
+
+        Args:
+            path: Resource path in Windmill
+            none_if_undefined: Return None instead of raising if not found
+
+        Returns:
+            Resource value dictionary or None
+        """
         path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             resources = self.mocked_api["resources"]
@@ -508,8 +629,6 @@ class Windmill:
                 logger.info(
                     f"MockedAPI present, but resource not found at ${path}, falling back to real API"
                 )
-
-        """Get resource from Windmill"""
         try:
             return self.get(
                 f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
@@ -526,6 +645,13 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        """Set a resource value by path, creating it if it doesn't exist.
+
+        Args:
+            value: Resource value to set
+            path: Resource path in Windmill
+            resource_type: Resource type for creation
+        """
         path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["resources"][path] = value
@@ -582,9 +708,20 @@ class Windmill:
         ).json()
     
     def set_state(self, value: Any):
+        """Set the workflow state.
+
+        Args:
+            value: State value to set
+        """
         self.set_resource(value, path=self.state_path, resource_type="state")
 
     def set_progress(self, value: int, job_id: Optional[str] = None):
+        """Set job progress percentage (0-99).
+
+        Args:
+            value: Progress percentage
+            job_id: Job ID (defaults to current WM_JOB_ID)
+        """
         workspace = get_workspace()
         flow_id = os.environ.get("WM_FLOW_JOB_ID")
         job_id = job_id or os.environ.get("WM_JOB_ID")
@@ -602,6 +739,14 @@ class Windmill:
         )
 
     def get_progress(self, job_id: Optional[str] = None) -> Any:
+        """Get job progress percentage.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            Progress value (0-100) or None if not set
+        """
         workspace = get_workspace()
         job_id = job_id or os.environ.get("WM_JOB_ID")
 
@@ -640,6 +785,11 @@ class Windmill:
 
     @property
     def version(self):
+        """Get the Windmill server version.
+
+        Returns:
+            Version string
+        """
         return self.get("version").text
 
     def get_duckdb_connection_settings(
@@ -816,11 +966,27 @@ class Windmill:
         return S3Object(s3=response["file_key"])
 
     def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
+        """Sign S3 objects for use by anonymous users in public apps.
+
+        Args:
+            s3_objects: List of S3 objects to sign
+
+        Returns:
+            List of signed S3 objects
+        """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
         ).json()
 
     def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
+        """Sign a single S3 object for use by anonymous users in public apps.
+
+        Args:
+            s3_object: S3 object to sign
+
+        Returns:
+            Signed S3 object
+        """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
             json={"s3_objects": [s3_object]},
@@ -917,14 +1083,29 @@ class Windmill:
         )
 
     def whoami(self) -> dict:
+        """Get the current user information.
+
+        Returns:
+            User details dictionary
+        """
         return self.get("/users/whoami").json()
 
     @property
     def user(self) -> dict:
+        """Get the current user information (alias for whoami).
+
+        Returns:
+            User details dictionary
+        """
         return self.whoami()
 
     @property
     def state_path(self) -> str:
+        """Get the state resource path from environment.
+
+        Returns:
+            State path string
+        """
         state_path = os.environ.get(
             "WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH")
         )
@@ -934,10 +1115,16 @@ class Windmill:
 
     @property
     def state(self) -> Any:
+        """Get the workflow state.
+
+        Returns:
+            State value or None if not set
+        """
         return self.get_resource(path=self.state_path, none_if_undefined=True)
 
     @state.setter
     def state(self, value: Any) -> None:
+        """Set the workflow state."""
         self.set_state(value)
 
     @staticmethod
@@ -981,6 +1168,14 @@ class Windmill:
             return json.load(f)
 
     def get_resume_urls(self, approver: str = None) -> dict:
+        """Get URLs needed for resuming a flow after suspension.
+
+        Args:
+            approver: Optional approver name
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
         return self.get(
@@ -1094,9 +1289,25 @@ class Windmill:
         )
 
     def datatable(self, name: str = "main"):
+        """Get a DataTable client for SQL queries.
+
+        Args:
+            name: Database name (default: "main")
+
+        Returns:
+            DataTableClient instance
+        """
         return DataTableClient(self, name)
 
     def ducklake(self, name: str = "main"):
+        """Get a DuckLake client for DuckDB queries.
+
+        Args:
+            name: Database name (default: "main")
+
+        Returns:
+            DucklakeClient instance
+        """
         return DucklakeClient(self, name)
 
 
@@ -1132,11 +1343,24 @@ def deprecate(in_favor_of: str):
 
 @init_global_client
 def get_workspace() -> str:
+    """Get the current workspace ID.
+
+    Returns:
+        Workspace ID string
+    """
     return _client.workspace
 
 
 @init_global_client
 def get_root_job_id(job_id: str | None = None) -> str:
+    """Get the root job ID for a flow hierarchy.
+
+    Args:
+        job_id: Job ID (defaults to current WM_JOB_ID)
+
+    Returns:
+        Root job ID
+    """
     return _client.get_root_job_id(job_id)
 
 
@@ -1152,6 +1376,16 @@ def run_script_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
+    """Create a script job and return its job ID.
+
+    Args:
+        hash_or_path: Script hash or path (determined by presence of '/')
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
     is_path = "/" in hash_or_path
     hash_ = None if is_path else hash_or_path
     path = hash_or_path if is_path else None
@@ -1173,6 +1407,17 @@ def run_flow_async(
     # lead to incorrectness and failures
     do_not_track_in_parent: bool = True,
 ) -> str:
+    """Create a flow job and return its job ID.
+
+    Args:
+        path: Flow path
+        args: Flow arguments
+        scheduled_in_secs: Delay before execution in seconds
+        do_not_track_in_parent: Whether to track in parent job (default: True)
+
+    Returns:
+        Job ID string
+    """
     return _client.run_flow_async(
         path=path,
         args=args,
@@ -1190,6 +1435,19 @@ def run_script_sync(
     cleanup: bool = True,
     timeout: dt.timedelta = None,
 ) -> Any:
+    """Run a script synchronously by hash and return its result.
+
+    Args:
+        hash: Script hash
+        args: Script arguments
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+        cleanup: Register cleanup handler to cancel job on exit
+        timeout: Maximum time to wait
+
+    Returns:
+        Script result
+    """
     return _client.run_script(
         hash_=hash,
         args=args,
@@ -1206,6 +1464,16 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
+    """Create a script job by path and return its job ID.
+
+    Args:
+        path: Script path
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
     return _client.run_script_by_path_async(
         path=path,
         args=args,
@@ -1219,6 +1487,16 @@ def run_script_by_hash_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
+    """Create a script job by hash and return its job ID.
+
+    Args:
+        hash_: Script hash
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
     return _client.run_script_by_hash_async(
         hash_=hash_,
         args=args,
@@ -1235,6 +1513,19 @@ def run_script_by_path_sync(
     cleanup: bool = True,
     timeout: dt.timedelta = None,
 ) -> Any:
+    """Run a script synchronously by path and return its result.
+
+    Args:
+        path: Script path
+        args: Script arguments
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+        cleanup: Register cleanup handler to cancel job on exit
+        timeout: Maximum time to wait
+
+    Returns:
+        Script result
+    """
     return _client.run_script(
         path=path,
         args=args,
@@ -1255,11 +1546,28 @@ def get_id_token(audience: str) -> str:
 
 @init_global_client
 def get_job_status(job_id: str) -> JobStatus:
+    """Get the status of a job.
+
+    Args:
+        job_id: UUID of the job
+
+    Returns:
+        Job status: "RUNNING", "WAITING", or "COMPLETED"
+    """
     return _client.get_job_status(job_id)
 
 
 @init_global_client
 def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
+    """Get the result of a completed job.
+
+    Args:
+        job_id: UUID of the completed job
+        assert_result_is_not_none: Raise exception if result is None
+
+    Returns:
+        Job result
+    """
     return _client.get_result(
         job_id=job_id, assert_result_is_not_none=assert_result_is_not_none
     )
@@ -1559,11 +1867,24 @@ def set_flow_user_state(key: str, value: Any) -> None:
 
 @init_global_client
 def get_state_path() -> str:
+    """Get the state resource path from environment.
+
+    Returns:
+        State path string
+    """
     return _client.state_path
 
 
 @init_global_client
 def get_resume_urls(approver: str = None) -> dict:
+    """Get URLs needed for resuming a flow after suspension.
+
+    Args:
+        approver: Optional approver name
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
     return _client.get_resume_urls(approver)
 
 
@@ -1590,6 +1911,17 @@ def request_interactive_slack_approval(
 def send_teams_message(
     conversation_id: str, text: str, success: bool, card_block: dict = None
 ):
+    """Send a message to a Microsoft Teams conversation.
+
+    Args:
+        conversation_id: Teams conversation ID
+        text: Message text
+        success: Whether to style as success message
+        card_block: Optional adaptive card block
+
+    Returns:
+        HTTP response from Teams
+    """
     return _client.send_teams_message(conversation_id, text, success, card_block)
 
 
@@ -1702,13 +2034,40 @@ def username_to_email(username: str) -> str:
 
 @init_global_client
 def datatable(name: str = "main") -> DataTableClient:
+    """Get a DataTable client for SQL queries.
+
+    Args:
+        name: Database name (default: "main")
+
+    Returns:
+        DataTableClient instance
+    """
     return _client.datatable(name)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
+    """Get a DuckLake client for DuckDB queries.
+
+    Args:
+        name: Database name (default: "main")
+
+    Returns:
+        DucklakeClient instance
+    """
     return _client.ducklake(name)
 
 def task(*args, **kwargs):
+    """Decorator to mark a function as a workflow task.
+
+    When executed inside a Windmill job, the decorated function runs as a
+    separate workflow step. Outside Windmill, it executes normally.
+
+    Args:
+        tag: Optional worker tag for execution
+
+    Returns:
+        Decorated function
+    """
     from inspect import signature
 
     def f(func, tag: str | None = None):
@@ -1807,7 +2166,15 @@ def stream_result(stream) -> None:
         append_to_result_stream(text)
 
 class DataTableClient:
+    """Client for executing SQL queries against Windmill DataTables."""
+
     def __init__(self, client: Windmill, name: str):
+        """Initialize DataTableClient.
+
+        Args:
+            client: Windmill client instance
+            name: DataTable name
+        """
         self.client = client
         self.name = name
         self.schema = None
@@ -1816,6 +2183,15 @@ class DataTableClient:
         if not self.name:
             self.name = "main"
     def query(self, sql: str, *args) -> SqlQuery:
+        """Execute a SQL query against the DataTable.
+
+        Args:
+            sql: SQL query string with $1, $2, etc. placeholders
+            *args: Positional arguments to bind to query placeholders
+
+        Returns:
+            SqlQuery instance for fetching results
+        """
         if self.schema is not None:
             sql = f'SET search_path TO "{self.schema}";\n' + sql
 
@@ -1835,10 +2211,28 @@ class DataTableClient:
         )
 
 class DucklakeClient:
+    """Client for executing DuckDB queries against Windmill DuckLake."""
+
     def __init__(self, client: Windmill, name: str):
+        """Initialize DucklakeClient.
+
+        Args:
+            client: Windmill client instance
+            name: DuckLake database name
+        """
         self.client = client
         self.name = name
+
     def query(self, sql: str, **kwargs):
+        """Execute a DuckDB query against the DuckLake database.
+
+        Args:
+            sql: SQL query string with $name placeholders
+            **kwargs: Named arguments to bind to query placeholders
+
+        Returns:
+            SqlQuery instance for fetching results
+        """
         args_dict = {}
         args_def = ""
         for key, value in kwargs.items():
@@ -1847,7 +2241,7 @@ class DucklakeClient:
         attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
         sql = args_def + attach + sql
         return SqlQuery(
-            sql, 
+            sql,
             lambda sql: self.client.run_inline_script_preview(
                 content=sql,
                 language="duckdb",
@@ -1856,15 +2250,38 @@ class DucklakeClient:
         )
 
 class SqlQuery:
+    """Query result handler for DataTable and DuckLake queries."""
+
     def __init__(self, sql: str, fetch_fn):
+        """Initialize SqlQuery.
+
+        Args:
+            sql: SQL query string
+            fetch_fn: Function to execute the query
+        """
         self.sql = sql
         self.fetch_fn = fetch_fn
+
     def fetch(self, result_collection: str | None = None):
+        """Execute query and fetch results.
+
+        Args:
+            result_collection: Optional result collection mode
+
+        Returns:
+            Query results
+        """
         sql = self.sql
         if result_collection is not None:
             sql = f'-- result_collection={result_collection}\n{sql}'
         return self.fetch_fn(sql)
+
     def fetch_one(self):
+        """Execute query and fetch first row of results.
+
+        Returns:
+            First row of query results
+        """
         return self.fetch(result_collection="last_statement_first_row")
 
 def infer_sql_type(value) -> str:

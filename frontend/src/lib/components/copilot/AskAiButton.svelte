@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { WandSparkles } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
-	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 	interface Props {
 		label?: string
 		initialInput?: string
@@ -29,7 +29,7 @@
 		icon: WandSparkles
 	}}
 	unifiedSize="md"
-	btnClasses={flowAIBtnClasses('default')}
+	btnClasses={AIBtnClasses('default')}
 	on:click={onClick}
 >
 	{label}
