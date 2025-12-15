@@ -2176,12 +2176,7 @@ class DataTableClient:
             name: DataTable name
         """
         self.client = client
-        self.name = name
-        self.schema = None
-        if ":" in name:
-            self.name, self.schema = name.split(":", 1) 
-        if not self.name:
-            self.name = "main"
+        self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
 
@@ -2221,7 +2216,7 @@ class DucklakeClient:
             name: DuckLake database name
         """
         self.client = client
-        self.name = name
+        self.name = name 
 
     def query(self, sql: str, **kwargs):
         """Execute a DuckDB query against the DuckLake database.
@@ -2305,3 +2300,12 @@ def infer_sql_type(value) -> str:
         return "JSON"
     else:
         return "TEXT"
+
+def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
+    name = name
+    schema = None
+    if ":" in name:
+        name, schema = name.split(":", 1) 
+    if not name:
+        name = "main"
+    return name, schema
