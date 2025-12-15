@@ -726,12 +726,6 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
 
-### Best Practices
-For large apps with many files or runnables:
-1. Use \`list_frontend_files()\` or \`list_backend_runnables()\` first to get an overview
-2. Then use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to inspect specific items
-3. This approach is more efficient and avoids overwhelming the context with too much content
-
 ## Backend Runnable Configuration
 
 When creating a backend runnable with \`set_backend_runnable\`:
@@ -783,12 +777,12 @@ When creating a backend runnable with \`set_backend_runnable\`:
 ## Instructions
 
 Follow the user instructions carefully. When creating a new app:
-1. First use \`get_files\` to see the current state (includes wmill.d.ts showing how to call backend functions)
-2. Create frontend files using \`set_frontend_file\`. This returns lint diagnostics.
-3. Create backend runnables using \`set_backend_runnable\`. This returns lint diagnostics.
-4. Use \`lint()\` to check for errors at any time
-5. Use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse
-6. Always fix any lint errors before finishing
+1. Use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse
+2. Use \`list_frontend_files()\` or \`list_backend_runnables()\` first to get an overview of the current state
+3. Then use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to inspect specific items
+4. Create or update frontend files using \`set_frontend_file\`. This returns lint diagnostics.
+5. Create or update backend runnables using \`set_backend_runnable\`. This returns lint diagnostics.
+6. Use \`lint()\` to check for errors at any time, and fix them before finishing.
 
 Windmill expects all backend runnable calls to use an object parameter structure. For example for:
 \`\`\`typescript
