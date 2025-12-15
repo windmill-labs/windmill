@@ -18,6 +18,7 @@ import {
 function injectSqlTypes(code, queries) {
 	let transformed = code
 	let addedOffset = 0
+	let offsetMap = {}
 	for (const query of queries) {
 		let splitIdx = code?.indexOf('`', query.span[0] - 1)
 		if (splitIdx === -1 || !splitIdx) continue
@@ -25,12 +26,11 @@ function injectSqlTypes(code, queries) {
 		let middlePart = `<{ test: "${query.source_name}" }>`
 		let rightPart = transformed?.substring(splitIdx + addedOffset)
 
+		offsetMap[splitIdx - 1 + addedOffset] = addedOffset + middlePart.length
 		addedOffset += middlePart.length
 		transformed = leftPart + middlePart + rightPart
 	}
-
-	console.log('[SqlTypePlugin] Transformed source:', transformed)
-	return transformed
+	return { transformed, offsetMap }
 }
 
 // Extend the TypeScriptWorker class
@@ -63,17 +63,78 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 		try {
 			const originalText = originalSnapshot.getText(0, originalSnapshot.getLength())
-			const transformedText = injectSqlTypes(originalText, queries)
+			const { transformed } = injectSqlTypes(originalText, queries)
 
-			if (transformedText !== originalText) {
+			if (transformed !== originalText) {
 				console.log(`[SqlTypePlugin] Transformed ${fileName} with ${queries.length} SQL queries`)
-				return ts.typescript.ScriptSnapshot.fromString(transformedText)
+				return ts.typescript.ScriptSnapshot.fromString(transformed)
 			}
 		} catch (error) {
 			console.error('[SqlTypePlugin] Error transforming source:', error)
 		}
 
 		return originalSnapshot
+	}
+
+	/**
+	 * Maps diagnostics positions from transformed code back to original code
+	 * @param {Array} diagnostics - TypeScript diagnostics
+	 * @param {string} fileName - File name
+	 * @returns {Array} Diagnostics with corrected positions
+	 */
+	_mapDiagnostics(diagnostics, fileName) {
+		try {
+			const originalSnapshot = super.getScriptSnapshot(fileName)
+			if (!originalSnapshot) {
+				return diagnostics
+			}
+
+			const queries = this._sqlQueriesByFile.get(fileName)
+			if (!queries || queries.length === 0) {
+				return diagnostics
+			}
+
+			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
+			let { offsetMap } = injectSqlTypes(originalCode, queries)
+			let offsetMapEntries = Object.entries(offsetMap).reverse()
+
+			return diagnostics.map((diagnostic) => {
+				if (!diagnostic.start || !diagnostic.length) return diagnostic
+
+				for (const [pos, offset] of offsetMapEntries) {
+					const numericPos = Number(pos)
+
+					if (diagnostic.start > numericPos) {
+						return { ...diagnostic, start: diagnostic.start - offset }
+					}
+				}
+
+				return diagnostic
+			})
+		} catch (error) {
+			console.error('[SqlTypePlugin] Error mapping diagnostics:', error)
+			return diagnostics
+		}
+	}
+
+	async getSyntacticDiagnostics(fileName) {
+		const diagnostics = await super.getSyntacticDiagnostics(fileName)
+		return this._mapDiagnostics(diagnostics, fileName)
+	}
+
+	async getSemanticDiagnostics(fileName) {
+		const diagnostics = await super.getSemanticDiagnostics(fileName)
+		return this._mapDiagnostics(diagnostics, fileName)
+	}
+
+	async getSuggestionDiagnostics(fileName) {
+		const diagnostics = await super.getSuggestionDiagnostics(fileName)
+		return this._mapDiagnostics(diagnostics, fileName)
+	}
+
+	async getCompilerOptionsDiagnostics(fileName) {
+		const diagnostics = await super.getCompilerOptionsDiagnostics(fileName)
+		return this._mapDiagnostics(diagnostics, fileName)
 	}
 
 	/**
