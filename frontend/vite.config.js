@@ -30,7 +30,8 @@ const config = {
 			'rubendev.wimill.xyz',
 			'windmill.xyz',
 			'app.windmill.xyz',
-			'public.windmill.xyz'
+			'public.windmill.xyz',
+			'hernial-latoyia-flammable.ngrok-free.dev'
 		],
 		port: 3000,
 		cors: { origin: '*' },

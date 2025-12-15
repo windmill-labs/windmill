@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ExternalLink, X } from 'lucide-svelte'
+	import { ExternalLink, Plus, X } from 'lucide-svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 	import { onMount, untrack } from 'svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import Button from './common/button/Button.svelte'
 
 	interface Props {
 		name: string
@@ -148,12 +149,15 @@
 							</div>
 						{/each}
 						<div class="flex gap-2">
-							<button
-								class="text-primary text-sm border rounded p-1"
+							<Button
+								variant="default"
+								unifiedSize="md"
+								startIcon={{ icon: Plus }}
 								onclick={() => {
 									value['allowed_domains'] = [...(value['allowed_domains'] ?? []), 'mydomain.com']
-								}}>+ Add domain</button
-							>
+								}}
+								>Add domain
+							</Button>
 						</div>
 					</div>
 				</label>
@@ -185,18 +189,55 @@
 				</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
-					<div class="helper">
-						Create a new OAuth 2.0 Client <a
-							href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-							target="_blank">in Microsoft portal</a
-						>
-						"Add" {'->'} "App Registration" -> "Accounts in this organizational directory only (Default
-						Directory only - Single tenant)", and in the "Authentication" tab, set the redirect URI to
-						Web and
-						<code>BASE_URL/user/login_callback/microsoft</code>. Then copy the "Directory (tenant
-						ID)" in the tenant ID field. Then copy the Client ID from "Application (client) ID" and
-						create a secret in "Client credentials". Last, include "Sign in" and "read user profile"
-						under "Delegated Permissions".
+					<div class="text-xs text-primary border rounded-md p-4 space-y-3">
+						<div>
+							<strong>1. Create App Registration</strong>
+							<div class="ml-4 mt-1">
+								Create a new OAuth 2.0 Client <a
+									href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
+									target="_blank"
+									class="inline-flex items-center gap-1 whitespace-nowrap"
+								>in Microsoft portal</a>:
+								<ul class="list-disc ml-4 mt-1 space-y-1">
+									<li>Click <strong>"Add"</strong> → <strong>"App Registration"</strong></li>
+									<li>Select <strong>"Accounts in this organizational directory only (Default Directory only - Single tenant)"</strong></li>
+								</ul>
+							</div>
+						</div>
+
+						<div>
+							<strong>2. Authentication Configuration</strong>
+							<div class="ml-4 mt-1">
+								In the <strong>"Authentication"</strong> tab:
+								<ul class="list-disc ml-4 mt-1 space-y-1">
+									<li>Set the redirect URI to <strong>Web</strong></li>
+									<li>Add redirect URI: <code class="bg-surface px-1 rounded text-xs">BASE_URL/user/login_callback/microsoft</code></li>
+								</ul>
+							</div>
+						</div>
+
+						<div>
+							<strong>3. Copy Credentials</strong>
+							<div class="ml-4 mt-1">
+								Copy the following values to Windmill:
+								<ul class="list-disc ml-4 mt-1 space-y-1">
+									<li>Copy <strong>"Directory (tenant ID)"</strong> to the tenant ID field</li>
+									<li>Copy <strong>"Application (client) ID"</strong> to the Client ID field</li>
+									<li>Create a secret in <strong>"Client credentials"</strong> and copy to Client Secret field</li>
+								</ul>
+							</div>
+						</div>
+
+						<div>
+							<strong>4. API Permissions</strong>
+							<div class="ml-4 mt-1">
+								Under <strong>"Delegated Permissions"</strong>, include:
+								<ul class="list-disc ml-4 mt-1 space-y-1">
+									<li>Sign in</li>
+									<li>Read user profile</li>
+								</ul>
+							</div>
+						</div>
 					</div>
 				</CollapseLink>
 			{:else if name == 'teams'}

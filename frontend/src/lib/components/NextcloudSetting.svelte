@@ -59,23 +59,23 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-2 rounded border">
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Nextcloud Instance Domain</span>
+		<div class="p-4 rounded-md border flex flex-col gap-6">
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Nextcloud Instance Domain</span>
 				<input type="text" placeholder="example.nextcloud.com" bind:value={value['domain']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Custom Name</span>
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
 				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
+			<label>
+				<span class="text-emphasis font-semibold text-xs"
 					>Client Id <Tooltip>Client ID from your Nextcloud OAuth2 app configuration</Tooltip></span
 				>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
+			<label>
+				<span class="text-emphasis font-semibold text-xs"
 					>Client Secret <Tooltip
 						>Client Secret from your Nextcloud OAuth2 app configuration</Tooltip
 					></span
@@ -83,7 +83,7 @@
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
 			<CollapseLink text="Instructions">
-				<div class="text-sm text-secondary border p-2">
+				<div class="text-xs text-primary border rounded-md p-4">
 					1. Go to your Nextcloud instance as an administrator<br />
 					2. Navigate to <strong>Administration settings → Security → OAuth 2.0 clients</strong><br
 					/>

@@ -45,23 +45,24 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="border rounded p-2">
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
-					>Authelia Url ({'AUTHELIA_URL/api/oidc/authorization'})</span
+		<div class="border rounded p-4 flex flex-col gap-6">
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Authelia Url</span>
+				<span class="text-secondary font-normal text-xs"
+					>({'AUTHELIA_URL/api/oidc/authorization'})</span
 				>
 				<input type="text" placeholder="yourorg" bind:value={org} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Custom Name</span>
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
 				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Id</span>
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Client Id</span>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Secret </span>
+			<label>
+				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
 		</div>
