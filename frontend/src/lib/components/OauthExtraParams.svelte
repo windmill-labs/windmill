@@ -42,7 +42,9 @@
 	>
 		Add item
 	</Button>
-	<span class="ml-2 text-sm text-primary">
-		({(extra_params_vec ?? []).length} item{(extra_params_vec ?? []).length > 1 ? 's' : ''})
-	</span>
+	{#if (extra_params_vec ?? []).length > 0}
+		<span class="ml-2 text-2xs text-secondary">
+			({(extra_params_vec ?? []).length} item{(extra_params_vec ?? []).length > 1 ? 's' : ''})
+		</span>
+	{/if}
 </div>

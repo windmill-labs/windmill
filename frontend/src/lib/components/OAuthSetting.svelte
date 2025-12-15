@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X } from 'lucide-svelte'
+	import { ExternalLink, X } from 'lucide-svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -71,13 +71,12 @@
 	})
 </script>
 
-<div class="flex flex-col">
+<div class="flex flex-col gap-2">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label
-		class="text-xs flex gap-4 items-center font-semibold text-emphasis {enabled
-			? 'rounded py-2'
-			: ''}"
-		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
+		class="text-xs flex gap-4 items-center font-semibold text-emphasis {enabled ? 'rounded' : ''}"
+		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div>
+		<Toggle
 			checked={enabled}
 			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
@@ -173,11 +172,14 @@
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
 					<div class="helper">
-						Create a new App <a href="https://api.slack.com/apps?new_app=1" target="_blank"
-							>in Slack API Console</a
-						>. Pick "From an app manifest", then YAML and paste manifest template found on
+						To use Slack OAuth, create a new Slack app <a
+							href="https://api.slack.com/apps?new_app=1"
+							target="_blank"
+							>in slack API console
+							<ExternalLink size={12} class="inline-block" />
+						</a>. Pick "From a manifest", then YAML and paste manifest template found on
 						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
-							>Windmill Docs</a
+							>Windmill docs <ExternalLink size={12} class="inline-block" /></a
 						> and then paste Client ID and Client Secret here.
 					</div>
 				</CollapseLink>
