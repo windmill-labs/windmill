@@ -75,7 +75,8 @@ lazy_static::lazy_static! {
     };
 }
 
-const MAX_AGENT_ITERATIONS: usize = 10;
+const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
+const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
 pub async fn handle_ai_agent_job(
     // connection
@@ -547,8 +548,13 @@ pub async fn run_agent(
         None
     };
 
+    let max_iterations = args
+        .max_iterations
+        .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
+        .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
+
     // Main agent loop
-    for i in 0..MAX_AGENT_ITERATIONS {
+    for i in 0..max_iterations {
         if used_structured_output_tool {
             break;
         }
@@ -717,7 +723,7 @@ pub async fn run_agent(
 
                 if tool_calls.is_empty() {
                     break;
-                } else if i == MAX_AGENT_ITERATIONS - 1 {
+                } else if i == max_iterations - 1 {
                     return Err(Error::internal_err(
                         "AI agent reached max iterations, but there are still tool calls"
                             .to_string(),

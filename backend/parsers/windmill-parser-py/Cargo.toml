@@ -10,6 +10,7 @@ path = "./src/lib.rs"
 
 [dependencies]
 windmill-parser.workspace = true
+windmill-parser-sql.workspace = true
 rustpython-parser.workspace = true
 itertools.workspace = true
 serde_json.workspace = true

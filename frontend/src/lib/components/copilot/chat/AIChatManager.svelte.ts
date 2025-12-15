@@ -6,6 +6,12 @@ import {
 	prepareFlowUserMessage,
 	type FlowAIChatHelpers
 } from './flow/core'
+import {
+	getAppTools,
+	prepareAppSystemMessage,
+	prepareAppUserMessage,
+	type AppAIChatHelpers
+} from './app/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
 import {
@@ -20,7 +26,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import {
-	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
@@ -54,19 +60,17 @@ const MAX_TOKENS_HARD_LIMIT = 5000
 export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
+	APP = 'app',
 	NAVIGATOR = 'navigator',
 	API = 'API',
 	ASK = 'ask'
 }
 
 class AIChatManager {
-	NAVIGATION_SYSTEM_PROMPT = `
-	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
-	`
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
+	inlineAbortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	readonly isOpen = $derived(chatState.size > 0)
@@ -92,6 +96,7 @@ class AIChatManager {
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
+	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
@@ -101,6 +106,7 @@ class AIChatManager {
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
+		app: this.appAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
 		API: true
@@ -211,11 +217,11 @@ class AIChatManager {
 		if (mode === AIMode.SCRIPT) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
-			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = [this.changeModeTool, ...prepareScriptTools(currentModel, lang, context)]
+			const context = this.contextManager.getSelectedContext()
+			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)
+			this.systemMessage.content = this.systemMessage.content
+			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -238,8 +244,8 @@ class AIChatManager {
 		} else if (mode === AIMode.FLOW) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			this.tools = [this.changeModeTool, ...flowTools]
+			this.systemMessage.content = this.systemMessage.content
+			this.tools = [...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -256,6 +262,11 @@ class AIChatManager {
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
+		} else if (mode === AIMode.APP) {
+			const customPrompt = getCombinedCustomPrompt(mode)
+			this.systemMessage = prepareAppSystemMessage(customPrompt)
+			this.tools = [...getAppTools()]
+			this.helpers = this.appAiChatHelpers
 		}
 	}
 
@@ -393,7 +404,6 @@ class AIChatManager {
 					if (this.mode === AIMode.SCRIPT) {
 						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
-							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
 						)
 					} else if (this.mode === AIMode.FLOW) {
@@ -452,7 +462,8 @@ class AIChatManager {
 						messages,
 						addedMessages,
 						tools,
-						helpers
+						helpers,
+						isAnthropic ? abortController : undefined
 					)
 					if (!continueCompletion) {
 						break
@@ -461,6 +472,8 @@ class AIChatManager {
 			}
 			return addedMessages
 		} catch (err) {
+			console.log('chatRequest error', err)
+			console.error('chatRequest error', err)
 			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err
@@ -473,7 +486,8 @@ class AIChatManager {
 		if (!instructions.trim()) {
 			throw new Error('Instructions are required')
 		}
-		this.abortController = new AbortController()
+		// Use a separate abort controller for inline requests to avoid interfering with main chat
+		this.inlineAbortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
 		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
 		const startLine = selection.startLineNumber
@@ -489,20 +503,18 @@ class AIChatManager {
 
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
-			content: INLINE_CHAT_SYSTEM_PROMPT
+			content: prepareInlineChatSystemPrompt(lang)
 		}
 
 		let reply = ''
 
 		try {
-			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
-				isPreprocessor: false
-			})
+			const userMessage = prepareScriptUserMessage(instructions, selectedContext)
 			const messages = [userMessage]
 
 			const params = {
 				messages,
-				abortController: this.abortController,
+				abortController: this.inlineAbortController,
 				callbacks: {
 					onNewToken: (token: string) => {
 						reply += token
@@ -545,7 +557,7 @@ class AIChatManager {
 			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
 		} catch (error) {
 			// if abort controller is aborted, don't throw an error
-			if (this.abortController?.signal.aborted) {
+			if (this.inlineAbortController?.signal.aborted) {
 				return
 			}
 			console.error('Unexpected error in sendInlineRequest:', error)
@@ -587,11 +599,15 @@ class AIChatManager {
 				throw new Error('No flow helpers found')
 			}
 
-			let snapshot: ExtendedOpenFlow | undefined = undefined
+			let snapshot:
+				| { type: 'flow'; value: ExtendedOpenFlow }
+				| { type: 'app'; value: number }
+				| undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				this.flowAiChatHelpers!.rejectAllModuleActions()
-				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
+				snapshot = { type: 'flow', value: this.flowAiChatHelpers!.getFlowAndSelectedId().flow }
+				this.flowAiChatHelpers!.setSnapshot(snapshot.value)
+			} else if (this.mode === AIMode.APP) {
+				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
 			this.displayMessages = [
@@ -614,10 +630,6 @@ class AIChatManager {
 				throw new Error('No script options passed')
 			}
 
-			const lang = this.scriptEditorOptions?.lang ?? options.lang ?? 'bun'
-			const isPreprocessor =
-				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
-
 			let userMessage: ChatCompletionMessageParam = {
 				role: 'user',
 				content: ''
@@ -637,12 +649,17 @@ class AIChatManager {
 					userMessage = prepareAskUserMessage(oldInstructions)
 					break
 				case AIMode.SCRIPT:
-					userMessage = prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-						isPreprocessor
-					})
+					userMessage = prepareScriptUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)
+					break
+				case AIMode.APP:
+					userMessage = prepareAppUserMessage(
+						oldInstructions,
+						this.appAiChatHelpers?.getFiles(),
+						this.appAiChatHelpers?.getSelectedContext()
+					)
 					break
 			}
 
@@ -730,7 +747,6 @@ class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(addedMessages ?? [])]
-
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -745,12 +761,38 @@ class AIChatManager {
 		}
 	}
 
-	cancel = () => {
+	cancel = (reason?: string) => {
 		if (this.confirmationCallback) {
 			this.confirmationCallback(false)
 			this.confirmationCallback = undefined
 		}
-		this.abortController?.abort()
+		const cancelReason = reason ?? 'user_cancelled'
+		console.log('cancelling request:', {
+			reason: cancelReason,
+			abortController: this.abortController
+		})
+		this.abortController?.abort(cancelReason)
+		// Mark all tool messages in loading state as canceled
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.isLoading) {
+				return {
+					...message,
+					isLoading: false,
+					content: 'Canceled',
+					error: 'Canceled'
+				}
+			}
+			return message
+		})
+	}
+
+	cancelInlineRequest = (reason?: string) => {
+		const cancelReason = reason ?? 'inline_cancelled'
+		console.log('cancelling inline request:', {
+			reason: cancelReason,
+			inlineAbortController: this.inlineAbortController
+		})
+		this.inlineAbortController?.abort(cancelReason)
 	}
 
 	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
@@ -804,7 +846,12 @@ class AIChatManager {
 	}
 
 	saveAndClear = async () => {
-		this.cancel()
+		console.log('saveAndClear called', {
+			hasAbortController: !!this.abortController,
+			isLoading: this.loading,
+			stack: new Error().stack
+		})
+		this.cancel('saveAndClear')
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []
 		this.messages = []
@@ -976,6 +1023,14 @@ class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+		}
+	}
+
+	setAppHelpers = (appHelpers: AppAIChatHelpers) => {
+		this.appAiChatHelpers = appHelpers
+
+		return () => {
+			this.appAiChatHelpers = undefined
 		}
 	}
 }

@@ -100,7 +100,7 @@ impl TriggerCrud for WebsocketTrigger {
                 url,
                 script_path,
                 is_flow,
-                enabled,
+                mode,
                 filters,
                 initial_messages,
                 url_runnable_args,
@@ -121,7 +121,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.config.url,
             trigger.base.script_path,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             &filters as _,
             &initial_messages as _,
             trigger

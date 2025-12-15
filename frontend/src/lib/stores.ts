@@ -55,6 +55,7 @@ export function clearWorkspaceFromStorage() {
 }
 
 export const tutorialsToDo = writable<number[]>([])
+export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)

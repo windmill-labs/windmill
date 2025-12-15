@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.created_by AS \"created_by\", coalesce(job_logs.logs, '') as logs, COALESCE(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index\n            FROM v2_job j\n            LEFT JOIN job_logs ON job_logs.job_id = j.id\n            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "log_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "log_file_index",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "f0bfdcd5949cba7cb9c3ee5632ca9e0bb94fc00b72d51aa755efea09dfc582f1"
+}

@@ -12,9 +12,9 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { defaultIfEmptyString } from '$lib/utils'
+
 	import { userStore } from '$lib/stores'
-	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
+	import { isPartialS3Object, getS3File } from '../../editor/appUtilsS3'
 
 	interface Props {
 		id: string
@@ -24,14 +24,6 @@
 	}
 
 	let { id, configuration, customCss = undefined, render }: Props = $props()
-
-	function computeForceViewerPolicies() {
-		if (!isEditor) {
-			return undefined
-		}
-		const policy = computeS3ImageViewerPolicy(configuration)
-		return policy
-	}
 
 	const resolvedConfig = $state(
 		initConfig(components['imagecomponent'].initialData.configuration, configuration)
@@ -54,43 +46,34 @@
 
 	let token = getContext<{ token?: string }>('AuthToken')
 
-	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
-		if (!source) return ''
-		const appPathOrUser = defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)
-		const params = new URLSearchParams()
-		params.append('s3', source)
-		if (storage) {
-			params.append('storage', storage)
-		}
-
-		if (token?.token && token.token != '') {
-			params.append('token', token.token)
-		}
-		const forceViewerPolicies = computeForceViewerPolicies()
-		if (forceViewerPolicies) {
-			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
-		}
-
-		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
-	}
-
 	async function loadImage() {
 		if (isPartialS3Object(resolvedConfig.source)) {
-			imageUrl = await getS3Image(
-				resolvedConfig.source.s3,
-				resolvedConfig.source.storage,
-				resolvedConfig.source.presigned
-			)
+			imageUrl = await getS3File({
+				source: resolvedConfig.source.s3,
+				storage: resolvedConfig.source.storage,
+				presigned: resolvedConfig.source.presigned,
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
 		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
 			throw new Error('Invalid image object' + typeof resolvedConfig.source)
 		} else if (
 			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
 			resolvedConfig.source?.startsWith('s3://')
 		) {
-			imageUrl = await getS3Image(resolvedConfig.source?.replace('s3://', ''))
+			imageUrl = await getS3File({
+				source: resolvedConfig.source?.replace('s3://', ''),
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
 		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
 			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
 		} else if (resolvedConfig.sourceKind === 'jpeg encoded as base64') {

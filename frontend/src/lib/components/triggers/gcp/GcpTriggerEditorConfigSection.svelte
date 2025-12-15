@@ -118,14 +118,10 @@
 	$effect(() => {
 		if (!delivery_type) {
 			delivery_type = 'pull'
-		}
-	})
-	$effect(() => {
-		if (!delivery_config) {
+		} else if (delivery_type === 'push' && !delivery_config) {
 			delivery_config = DEFAULT_PUSH_CONFIG
 		}
 	})
-
 	function getBaseUrl() {
 		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}

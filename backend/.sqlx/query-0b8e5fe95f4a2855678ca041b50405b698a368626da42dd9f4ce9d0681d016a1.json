@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff\n        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "ahead",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "behind",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "has_changes",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "exists_in_source",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "exists_in_fork",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0b8e5fe95f4a2855678ca041b50405b698a368626da42dd9f4ce9d0681d016a1"
+}

@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM v2_job\n                 WHERE workspace_id = $1\n                   AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)\n                   AND trigger_kind = $2\n                   AND trigger = $3\n                   AND id = ANY($4)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        },
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9ecb404e46a4eac55f977f05a3afbafe5dc3cdecc17a3d5a7476b160c1b6e7e1"
+}

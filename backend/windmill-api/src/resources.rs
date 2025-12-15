@@ -28,20 +28,22 @@ use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use std::process::Stdio;
 use tokio::process::Command;
 use uuid::Uuid;
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::{UserDB, UserDbWithAuthed, UserDbWithOptAuthed},
+    db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url, parse_postgres_url,
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        get_custom_pg_instance_password, not_found_if_none, paginate, require_admin, Pagination,
+        StripPath,
+    },
     variables,
     worker::{CLOUD_HOSTED, TMP_DIR},
-    workspaces::get_ducklake_instance_pg_catalog_password,
 };
 
 pub fn workspaced_service() -> Router {
@@ -442,14 +444,14 @@ async fn get_resource_value_interpolated(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     return get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db),
-        &db,
+        &db_with_opt_authed,
         w_id.as_str(),
         path,
         job_info.job_id,
-        token.as_str(),
+        Some(token.as_str()),
         job_info.allow_cache.unwrap_or(false),
     )
     .await
@@ -459,27 +461,26 @@ async fn get_resource_value_interpolated(
 use async_recursion::async_recursion;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
-pub async fn get_resource_value_interpolated_internal(
-    authed: &ApiAuthed,
-    user_db: Option<UserDB>, // if none, no permission will be checked to access the resource
-    db: &DB,
+pub async fn get_resource_value_interpolated_internal<'a>(
+    db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
     workspace: &str,
     path: &str,
     job_id: Option<Uuid>,
-    token: &str,
+    token_for_context: Option<&str>,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
-    // This is a special syntax to help debugging ducklake catalogs stored in the instance
-    if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
-        require_super_admin(db, &authed.email).await?;
+    // This is a special syntax to help debugging custom instance databases
+    if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
+        let db = db_with_opt_authed.db();
+        require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
         return Ok(Some(serde_json::json!({
             "dbname": dbname,
             "host": pg_creds.host,
             "port": pg_creds.port,
-            "user": "ducklake_user",
+            "user": "custom_instance_user",
             "sslmode": pg_creds.ssl_mode,
-            "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+            "password": get_custom_pg_instance_password(&db).await?,
         })));
     }
 
@@ -488,7 +489,8 @@ pub async fn get_resource_value_interpolated_internal(
             return Ok(Some(cached_value));
         }
     }
-    let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
+    use sqlx::Acquire;
+    let mut tx = db_with_opt_authed.begin().await?;
 
     let value_o = sqlx::query_scalar!(
         "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -499,19 +501,20 @@ pub async fn get_resource_value_interpolated_internal(
     .await?;
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(path, workspace, db, &authed).await?;
+        if let Some(authed) = db_with_opt_authed.authed() {
+            let db = db_with_opt_authed.db();
+            explain_resource_perm_error(path, workspace, db, authed).await?;
+        }
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
         let r = transform_json_value(
-            authed,
-            user_db.clone(),
-            db,
+            &db_with_opt_authed,
             workspace,
             value,
             &job_id,
-            token,
+            token_for_context,
         )
         .await?;
         if allow_cache {
@@ -524,38 +527,20 @@ pub async fn get_resource_value_interpolated_internal(
 }
 
 #[async_recursion]
-pub async fn transform_json_value<'c>(
-    authed: &ApiAuthed,
-    user_db: Option<UserDB>, // if none, no permission will be checked to access the resources/variables
-    db: &DB,
+pub async fn transform_json_value(
+    db_with_opt_authed: &DbWithOptAuthed<ApiAuthed>,
     workspace: &str,
     v: Value,
     job_id: &Option<Uuid>,
-    token: &str,
+    token: Option<&str>,
 ) -> Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let userdb_authed =
-                UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
 
-            let v = crate::variables::get_value_internal(
-                &userdb_authed,
-                db,
-                workspace,
-                path,
-                &user_db
-                    .clone()
-                    .map(|_| authed.into())
-                    .unwrap_or(AuditAuthor {
-                        email: "backend".to_string(),
-                        username: "backend".to_string(),
-                        username_override: None,
-                        token_prefix: None,
-                    }),
-                false,
-            )
-            .await?;
+            let v =
+                crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
+                    .await?;
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -565,8 +550,7 @@ pub async fn transform_json_value<'c>(
                     "Invalid resource path: {path}"
                 )));
             }
-            let mut tx: Transaction<'_, Postgres> =
-                authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
                 path,
@@ -577,13 +561,13 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db.clone(), db, workspace, v, job_id, token).await
+                transform_json_value(db_with_opt_authed, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
-            let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let mut tx = db_with_opt_authed.begin().await?;
             let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
@@ -609,8 +593,7 @@ pub async fn transform_json_value<'c>(
             let job = not_found_if_none(job, "Job", job_id.to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
-                let mut tx: Transaction<'_, Postgres> =
-                    authed_transaction_or_default(authed, user_db.clone(), db).await?;
+                let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
                 let p = sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(&mut *tx)
                     .await?
@@ -622,9 +605,9 @@ pub async fn transform_json_value<'c>(
             };
 
             let variables = variables::get_reserved_variables(
-                &db.into(),
+                &db_with_opt_authed.db().into(),
                 workspace,
-                token,
+                token.unwrap_or_else(|| "no_token_available"),
                 &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
@@ -654,8 +637,7 @@ pub async fn transform_json_value<'c>(
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
                 let v =
-                    transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
-                        .await?;
+                    transform_json_value(db_with_opt_authed, workspace, b, job_id, token).await?;
                 m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
@@ -664,17 +646,15 @@ pub async fn transform_json_value<'c>(
     }
 }
 
-async fn authed_transaction_or_default<'c>(
-    authed: &ApiAuthed,
-    user_db: Option<UserDB>,
-    db: &DB,
-) -> sqlx::error::Result<Transaction<'c, Postgres>> {
-    if let Some(user_db) = user_db {
-        user_db.begin(authed).await
-    } else {
-        db.clone().begin().await
-    }
-}
+// async fn authed_transaction_or_default<'c>(
+//     db_with_opt_authed: &'c DbWithOptAuthed<ApiAuthed>,
+// ) -> sqlx::error::Result<Transaction<'c, Postgres>> {
+//     if let Some(user_db) = user_db {
+//         user_db.begin(authed).await
+//     } else {
+//         db.clone().begin().await
+//     }
+// }
 
 async fn check_path_conflict<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -1395,13 +1375,11 @@ where
     T: serde::de::DeserializeOwned,
 {
     let resource = get_resource_value_interpolated_internal(
-        &authed,
-        user_db,
-        &db,
+        &DbWithOptAuthed::from_authed(authed, db.clone(), user_db),
         &w_id,
         &resource_path,
         None,
-        "",
+        None,
         false,
     )
     .await?;
@@ -1501,7 +1479,6 @@ async fn get_git_commit_hash(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Tokened { token }: Tokened,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<GitCommitHashQuery>,
 ) -> JsonResult<GitCommitHashResponse> {
@@ -1509,14 +1486,14 @@ async fn get_git_commit_hash(
 
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
     let git_repo_resource_value = get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db.clone()),
-        &db,
+        &db_with_opt_authed,
         &w_id,
         path,
         None,
-        &token,
+        None,
         false,
     )
     .await
@@ -1566,8 +1543,8 @@ async fn write_ssh_file(
         .join("ssh_ids")
         .join(id_file_name);
 
-    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-    let mut content = get_value_internal(&userdb_authed, db, w_id, var_path, authed, false)
+    let userdb_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+    let mut content = get_value_internal(&userdb_authed, &w_id, &var_path, false)
         .await
         .map_err(|e| {
             (

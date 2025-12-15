@@ -89,6 +89,7 @@
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
 	let shareModal: ShareModal | undefined = $state()
 	let runForm: RunForm | undefined = $state()
@@ -156,9 +157,12 @@
 			})
 			if (status.lock != undefined || status.lock_error_logs != undefined) {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				script.lock = status.lock
 				script.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -567,9 +571,7 @@
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
-						if (script?.ws_error_handler_muted) {
-							script.ws_error_handler_muted = v
-						}
+						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
 				errorHandlerKind="script"
@@ -689,6 +691,13 @@
 						<Badge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</Badge>
 					{/if}
 

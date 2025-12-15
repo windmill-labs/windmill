@@ -7,6 +7,7 @@ import {
   open,
   windmillUtils,
   yamlParseFile,
+  SEP,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -16,15 +17,24 @@ import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "npm:ws";
-import { getDevBuildOptions, ensureNodeModules, createFrameworkPlugins, detectFrameworks } from "./bundle.ts";
+import {
+  getDevBuildOptions,
+  ensureNodeModules,
+  createFrameworkPlugins,
+  detectFrameworks,
+} from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
-import { replaceInlineScripts } from "./apps.ts";
+import { replaceInlineScripts } from "./app.ts";
 import { Runnable } from "./metadata.ts";
-import { inferRunnableSchemaFromFile } from "./app_metadata.ts";
+import {
+  APP_BACKEND_FOLDER,
+  inferRunnableSchemaFromFile,
+} from "./app_metadata.ts";
+import { loadRunnablesFromBackend } from "./raw_apps.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -92,8 +102,8 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: The dev command must be run inside a .raw_app folder.\n` +
-        `Current directory: ${currentDirName}\n` +
-        `Please navigate to a folder ending with '.raw_app' before running this command.`
+          `Current directory: ${currentDirName}\n` +
+          `Please navigate to a folder ending with '.raw_app' before running this command.`
       )
     );
     Deno.exit(1);
@@ -105,7 +115,7 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: raw_app.yaml not found in current directory.\n` +
-        `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`
+          `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`
       )
     );
     Deno.exit(1);
@@ -133,7 +143,8 @@ async function dev(opts: DevOptions) {
 
   // Detect frameworks to determine default entry point
   const frameworks = detectFrameworks(process.cwd());
-  const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+  const defaultEntry =
+    frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
   const entryPoint = opts.entry ?? defaultEntry;
 
   // Verify entry point exists
@@ -179,14 +190,21 @@ async function dev(opts: DevOptions) {
   const wmillPlugin = {
     name: "wmill-virtual",
     setup(build: any) {
-      // Intercept imports of /wmill.ts, /wmill, ./wmill.ts, or ./wmill
-      build.onResolve({ filter: /^(\.\/|\/)?wmill(\.ts)?$/ }, (args: any) => {
-        log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
-        return {
-          path: args.path,
-          namespace: "wmill-virtual",
-        };
-      });
+      // Intercept imports of wmill with various path formats:
+      // - wmill, wmill.ts (bare import)
+      // - /wmill, /wmill.ts (absolute)
+      // - ./wmill, ./wmill.ts (same directory)
+      // - ../wmill, ../../wmill, etc. (parent directories)
+      build.onResolve(
+        { filter: /^(\.\.\/)+wmill(\.ts)?$|^(\.\/|\/)?wmill(\.ts)?$/ },
+        (args: any) => {
+          log.info(colors.yellow(`[wmill-virtual] Intercepted: ${args.path}`));
+          return {
+            path: args.path,
+            namespace: "wmill-virtual",
+          };
+        }
+      );
 
       // Provide the virtual module content
       build.onLoad(
@@ -206,7 +224,6 @@ async function dev(opts: DevOptions) {
     },
   };
 
-  
   // Create esbuild context
   const ctx = await esbuild.context({
     ...buildOptions,
@@ -242,7 +259,7 @@ async function dev(opts: DevOptions) {
   await ctx.rebuild();
 
   // Watch runnables folder for changes
-  const runnablesPath = path.join(process.cwd(), "runnables");
+  const runnablesPath = path.join(process.cwd(), APP_BACKEND_FOLDER);
   let runnablesWatcher: Deno.FsWatcher | undefined;
 
   if (fs.existsSync(runnablesPath)) {
@@ -262,7 +279,10 @@ async function dev(opts: DevOptions) {
           // Process each changed path with individual debouncing
           for (const changedPath of event.paths) {
             const relativePath = path.relative(process.cwd(), changedPath);
-            const relativeToRunnables = path.relative(runnablesPath, changedPath);
+            const relativeToRunnables = path.relative(
+              runnablesPath,
+              changedPath
+            );
 
             // Skip non-modify events for schema inference
             if (event.kind !== "modify" && event.kind !== "create") {
@@ -276,7 +296,9 @@ async function dev(opts: DevOptions) {
 
             // Log the change event
             log.info(
-              colors.cyan(`📝 Runnable changed [${event.kind}]: ${relativePath}`)
+              colors.cyan(
+                `📝 Runnable changed [${event.kind}]: ${relativePath}`
+              )
             );
 
             // Debounce schema inference per file (wait for typing to finish)
@@ -288,7 +310,9 @@ async function dev(opts: DevOptions) {
               delete schemaInferenceTimeouts[changedPath];
 
               try {
-                log.info(colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`));
+                log.info(
+                  colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`)
+                );
                 // Infer schema for this runnable (returns schema in memory, doesn't write to file)
                 const result = await inferRunnableSchemaFromFile(
                   process.cwd(),
@@ -299,7 +323,15 @@ async function dev(opts: DevOptions) {
                   // log.info(colors.green(`  Runnable ID: ${result.runnableId}`));
                   // Store inferred schema in memory
                   inferredSchemas[result.runnableId] = result.schema;
-                  log.info(colors.green(`  Inferred Schemas: ${JSON.stringify(inferredSchemas, null, 2)}`));
+                  log.info(
+                    colors.green(
+                      `  Inferred Schemas: ${JSON.stringify(
+                        inferredSchemas,
+                        null,
+                        2
+                      )}`
+                    )
+                  );
                   // Regenerate wmill.d.ts with updated schema from memory
                   await genRunnablesTs(inferredSchemas);
                 }
@@ -468,7 +500,9 @@ async function dev(opts: DevOptions) {
           case "backendAsync": {
             // Run a runnable asynchronously and return job ID immediately
             log.info(
-              colors.blue(`[backendAsync] Running runnable async: ${runnable_id}`)
+              colors.blue(
+                `[backendAsync] Running runnable async: ${runnable_id}`
+              )
             );
             try {
               const runnables = await loadRunnables();
@@ -628,7 +662,10 @@ const command = new Command()
   .option("--host <host:string>", "Host to bind the dev server to", {
     default: DEFAULT_HOST,
   })
-  .option("--entry <entry:string>", "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)")
+  .option(
+    "--entry <entry:string>",
+    "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)"
+  )
   .option("--no-open", "Don't automatically open the browser")
   .action(dev as any);
 
@@ -636,19 +673,35 @@ export default command;
 
 /**
  * Generates wmill.d.ts with type definitions for runnables.
- * Merges in-memory inferred schemas with runnables from raw_app.yaml.
+ * Loads runnables from separate YAML files in the backend folder (new format)
+ * or falls back to raw_app.yaml (old format).
+ * Merges in-memory inferred schemas with runnables.
  *
  * @param schemaOverrides - In-memory schema overrides (runnableId -> schema)
  */
 async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
   log.info(colors.blue("🔄 Generating wmill.d.ts..."));
-  const rawApp = (await yamlParseFile(
-    path.join(process.cwd(), "raw_app.yaml")
-  )) as any;
-  const runnables = rawApp?.["runnables"] as any;
+
+  const localPath = process.cwd();
+  const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
+
+  // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
+  let runnables = await loadRunnablesFromBackend(backendPath);
+
+  if (Object.keys(runnables).length === 0) {
+    // Fall back to old format
+    try {
+      const rawApp = (await yamlParseFile(
+        path.join(localPath, "raw_app.yaml")
+      )) as any;
+      runnables = rawApp?.["runnables"] ?? {};
+    } catch {
+      runnables = {};
+    }
+  }
 
   // Apply schema overrides from in-memory cache
-  if (runnables && Object.keys(schemaOverrides).length > 0) {
+  if (Object.keys(schemaOverrides).length > 0) {
     for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
       if (runnables[runnableId]?.inlineScript) {
         runnables[runnableId].inlineScript.schema = schema;
@@ -668,12 +721,22 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
-    const rawApp = (await yamlParseFile(
-      path.join(localPath, "raw_app.yaml")
-    )) as any;
-    replaceInlineScripts(rawApp.runnables, path.join(localPath, "runnables/"));
+    const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
-    return rawApp?.runnables ?? {};
+    // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
+    let runnables = await loadRunnablesFromBackend(backendPath);
+
+    if (Object.keys(runnables).length === 0) {
+      // Fall back to old format
+      const rawApp = (await yamlParseFile(
+        path.join(localPath, "raw_app.yaml")
+      )) as any;
+      runnables = rawApp?.runnables ?? {};
+    }
+
+    replaceInlineScripts(runnables, backendPath + SEP, true);
+
+    return runnables;
   } catch (error: any) {
     log.error(colors.red(`Failed to load runnables: ${error.message}`));
     return {};
@@ -707,7 +770,10 @@ async function executeRunnable(
     }
   }
 
-  if ((runnable.type === "inline" || runnable.type === "runnableByName") && runnable.inlineScript) {
+  if (
+    (runnable.type === "inline" || runnable.type === "runnableByName") &&
+    runnable.inlineScript
+  ) {
     const inlineScript = runnable.inlineScript;
     if (inlineScript.id !== undefined) {
       requestBody.id = inlineScript.id;
@@ -719,11 +785,12 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if ((runnable.type === "path" || runnable.type === "runnableByPath") && runnable.path) {
-    const runType = runnable.runType ?? "script";
+  } else if (runnable.type === "path" && runnable.runType && runnable.path) {
+    // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
+    const prefix = runnable.runType;
     requestBody.path =
-      runType !== "hubscript"
-        ? `${runType}/${runnable.path}`
+      prefix !== "hubscript"
+        ? `${prefix}/${runnable.path}`
         : `script/${runnable.path}`;
   }
 

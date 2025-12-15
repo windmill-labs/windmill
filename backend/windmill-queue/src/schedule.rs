@@ -20,9 +20,13 @@ use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
+use windmill_common::jobs::ConcurrencySettings;
+use windmill_common::jobs::DebouncingSettings;
 use windmill_common::jobs::JobPayload;
+use windmill_common::jobs::JobTriggerKind;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::FlowVersionInfo;
@@ -90,6 +94,7 @@ async fn get_schedule_metadata<'c>(
             _debounce_key,
             _debounce_delay_s,
             _cache_ttl,
+            _cache_ignore_s3_path,
             _language,
             _dedicated_worker,
             _priority,
@@ -258,16 +263,14 @@ pub async fn push_scheduled_job<'c>(
                     stop_condition,
                     stop_message,
                 }),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 priority: None,
                 tag_override: schedule.tag.clone(),
                 trigger_path: None,
                 apply_preprocessor: false,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
             },
             if schedule.tag.as_ref().is_some_and(|x| x != "") {
                 schedule.tag.clone()
@@ -322,6 +325,7 @@ pub async fn push_scheduled_job<'c>(
             custom_debounce_key,
             debounce_delay_s,
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -360,16 +364,14 @@ pub async fn push_scheduled_job<'c>(
                     error_handler_args: None,
                     skip_handler: None,
                     args: static_args,
-                    custom_concurrency_key: None,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
                     cache_ttl,
+                    cache_ignore_s3_path,
                     priority,
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    custom_debounce_key: None,
-                    debounce_delay_s: None,
+                    concurrency_settings: ConcurrencySettings::default(),
+                    debouncing_settings: DebouncingSettings::default(),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -385,16 +387,22 @@ pub async fn push_scheduled_job<'c>(
                 JobPayload::ScriptHash {
                     hash,
                     path: schedule.script_path.clone(),
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
                     cache_ttl,
+                    cache_ignore_s3_path,
                     dedicated_worker,
                     language,
                     priority,
                     apply_preprocessor: false,
-                    custom_debounce_key,
-                    debounce_delay_s,
+                    debouncing_settings: DebouncingSettings {
+                        custom_key: custom_debounce_key,
+                        delay_s: debounce_delay_s,
+                        ..Default::default()
+                    },
+                    concurrency_settings: ConcurrencySettings {
+                        concurrency_key: custom_concurrency_key,
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    },
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -500,7 +508,11 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
         None,
-        Some(windmill_common::jobs::JobTriggerKind::Schedule),
+        Some(TriggerMetadata::new(
+            Some(schedule.path.clone()),
+            JobTriggerKind::Schedule,
+        )),
+        None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;

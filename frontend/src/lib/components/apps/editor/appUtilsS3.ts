@@ -10,6 +10,10 @@ function filenameExprToRegex(template: string) {
 	return `^${regexPattern}$`
 }
 
+function defaultIfEmptyString(str: string | undefined, dflt: string): string {
+	return str === undefined || str === null || str === '' ? dflt : str!
+}
+
 function staticToRegex(str: string) {
 	return `^${str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`
 }
@@ -86,7 +90,61 @@ export function isPartialS3Object(
 	return input != undefined && typeof input === 'object' && typeof input['s3'] === 'string'
 }
 
-export function computeS3ImageViewerPolicy(config: RichConfigurations) {
+function computeForceViewerPolicies({
+	isEditor,
+	configuration
+}: {
+	isEditor: boolean
+	configuration: RichConfigurations
+}) {
+	if (!isEditor) {
+		return undefined
+	}
+	const policy = computeS3FileViewerPolicy(configuration)
+	return policy
+}
+
+export async function getS3File({
+	source,
+	storage,
+	presigned,
+	appPath,
+	username,
+	workspace,
+	token,
+	isEditor,
+	configuration
+}: {
+	source: string | undefined
+	storage?: string
+	presigned?: string
+	appPath: string
+	username: string | undefined
+	workspace: string
+	token: string | undefined
+	isEditor: boolean
+	configuration: RichConfigurations
+}) {
+	if (!source) return ''
+	const appPathOrUser = defaultIfEmptyString(appPath, `u/${username ?? 'unknown'}/newapp`)
+	const params = new URLSearchParams()
+	params.append('s3', source)
+	if (storage) {
+		params.append('storage', storage)
+	}
+
+	if (token && token != '') {
+		params.append('token', token)
+	}
+	const forceViewerPolicies = computeForceViewerPolicies({ isEditor, configuration })
+	if (forceViewerPolicies) {
+		params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
+	}
+
+	return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
+}
+
+export function computeS3FileViewerPolicy(config: RichConfigurations) {
 	if (config.source.type === 'uploadS3' && isPartialS3Object(config.source.value)) {
 		return {
 			s3_path: config.source.value.s3,

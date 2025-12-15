@@ -58,8 +58,10 @@
 				return 'Modify this script...'
 			case AIMode.FLOW:
 				return 'Modify this flow...'
+			case AIMode.APP:
+				return 'Modify this app...'
 			case AIMode.NAVIGATOR:
-				return 'Navigate the app...'
+				return 'Navigate Windmill UI...'
 			case AIMode.API:
 				return 'Make API calls...'
 			case AIMode.ASK:

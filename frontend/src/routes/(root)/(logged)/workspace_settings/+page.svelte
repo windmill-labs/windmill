@@ -59,6 +59,10 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import DataTableSettings, {
+		convertDataTableSettingsFromBackend,
+		type DataTableSettingsType
+	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 
 	let slackInitialPath: string = $state('')
@@ -111,9 +115,10 @@
 		secondaryStorage: undefined
 	})
 
-	let ducklakeSettings: DucklakeSettingsType = $state({
-		ducklakes: []
-	})
+	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
+	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
+
+	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
@@ -132,6 +137,7 @@
 			| 'deploy_to'
 			| 'error_handler'
 			| 'ai'
+			| 'windmill_data_tables'
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
@@ -307,6 +313,7 @@
 			!!$enterpriseLicense
 		)
 		initialS3ResourceSettings = clone(s3ResourceSettings)
+		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -341,7 +348,9 @@
 		if (!$workspaceStore) return
 
 		try {
-			const config = await WorkspaceService.getWorkspaceSlackOauthConfig({ workspace: $workspaceStore })
+			const config = await WorkspaceService.getWorkspaceSlackOauthConfig({
+				workspace: $workspaceStore
+			})
 			useCustomSlackApp = !!config.slack_oauth_client_id
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
@@ -551,6 +560,10 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (dataTableSettingsComponent) {
+			return dataTableSettingsComponent.unsavedChanges()
+		}
+
 		// Check AI settings
 		const aiChanges = getAiSettingsInitialAndModifiedValues()
 		if (aiChanges.savedValue && aiChanges.modifiedValue) {
@@ -666,6 +679,13 @@
 				/>
 				<Tab
 					small
+					value="windmill_data_tables"
+					aiId="workspace-settings-windmill-data-tables"
+					aiDescription="Data tables workspace settings"
+					label="Data Tables"
+				/>
+				<Tab
+					small
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
@@ -770,93 +790,93 @@
 					>
 						{#snippet workspaceConfig()}
 							<!-- Workspace OAuth Configuration Section -->
-					<div class="flex flex-col">
-						{#if slackOAuthConfigLoaded}
-							<!-- Show saved config with delete button -->
-							<div class="flex flex-col gap-1 w-fit">
-								<div class="text-sm text-primary font-medium">Workspace specific Slack app</div>
-								<div class="p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-surface-secondary">
-									<div class="flex items-center gap-3">
-										<div class="flex items-center gap-2">
-											<span class="text-sm text-primary">Client ID:</span>
-											<span class="text-xs text-secondary font-mono pt-1">{slackOAuthClientId}</span>
-										</div>
-										<Button
-											size="xs"
-											onclick={deleteSlackOAuthConfig}
-											btnClasses="w-fit"
+							<div class="flex flex-col">
+								{#if slackOAuthConfigLoaded}
+									<!-- Show saved config with delete button -->
+									<div class="flex flex-col gap-1 w-fit">
+										<div class="text-sm text-primary font-medium">Workspace specific Slack app</div>
+										<div
+											class="p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-surface-secondary"
 										>
-											<Trash2 size={14} class="mr-1" />
-											Delete
-										</Button>
+											<div class="flex items-center gap-3">
+												<div class="flex items-center gap-2">
+													<span class="text-sm text-primary">Client ID:</span>
+													<span class="text-xs text-secondary font-mono pt-1"
+														>{slackOAuthClientId}</span
+													>
+												</div>
+												<Button size="xs" onclick={deleteSlackOAuthConfig} btnClasses="w-fit">
+													<Trash2 size={14} class="mr-1" />
+													Delete
+												</Button>
+											</div>
+										</div>
 									</div>
-								</div>
+								{:else}
+									<!-- Show toggle and form to create config -->
+									<label class="text-sm flex gap-2 items-center font-medium text-primary">
+										<Toggle bind:checked={useCustomSlackApp} size="sm" />
+										<span class="text-xs text-secondary">Use workspace specific Slack app</span>
+									</label>
+
+									{#if useCustomSlackApp}
+										<div class="p-2 rounded border border-gray-200 dark:border-gray-700">
+											<label class="block pb-2">
+												<span class="text-primary font-semibold text-sm">Client ID</span>
+												<input
+													class="windmill-input"
+													type="text"
+													placeholder="1234567890.1234567890"
+													bind:value={slackOAuthClientId}
+												/>
+											</label>
+
+											<label class="block pb-2">
+												<span class="text-primary font-semibold text-sm">Client secret</span>
+												<input
+													class="windmill-input"
+													type="password"
+													placeholder="Enter client secret"
+													bind:value={slackOAuthClientSecret}
+												/>
+											</label>
+
+											<CollapseLink text="Instructions">
+												<div class="text-xs text-secondary p-2">
+													Create a Slack app at{' '}
+													<a
+														href="https://api.slack.com/apps"
+														target="_blank"
+														rel="noopener noreferrer"
+														class="text-blue-600 dark:text-blue-400 hover:underline"
+													>
+														Slack API
+													</a>. Set the redirect URI to:{' '}
+													<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+														{window.location.origin}{base}/oauth/callback_slack
+													</code>
+												</div>
+											</CollapseLink>
+
+											<div class="pt-2">
+												<Button
+													size="xs"
+													variant="accent"
+													onclick={saveAndConnectSlack}
+													disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+													startIcon={{ icon: Slack }}
+													btnClasses="w-fit"
+												>
+													Connect to Slack
+												</Button>
+											</div>
+										</div>
+									{/if}
+								{/if}
 							</div>
-						{:else}
-							<!-- Show toggle and form to create config -->
-							<label class="text-sm flex gap-2 items-center font-medium text-primary">
-								<Toggle bind:checked={useCustomSlackApp} size="sm" />
-								<span class="text-xs text-secondary">Use workspace specific Slack app</span>
-							</label>
-
-							{#if useCustomSlackApp}
-								<div class="p-2 rounded border border-gray-200 dark:border-gray-700">
-									<label class="block pb-2">
-										<span class="text-primary font-semibold text-sm">Client ID</span>
-										<input
-											class="windmill-input"
-											type="text"
-											placeholder="1234567890.1234567890"
-											bind:value={slackOAuthClientId}
-										/>
-									</label>
-
-									<label class="block pb-2">
-										<span class="text-primary font-semibold text-sm">Client secret</span>
-										<input
-											class="windmill-input"
-											type="password"
-											placeholder="Enter client secret"
-											bind:value={slackOAuthClientSecret}
-										/>
-									</label>
-
-									<CollapseLink text="Instructions">
-										<div class="text-xs text-secondary p-2">
-											Create a Slack app at{' '}
-											<a
-												href="https://api.slack.com/apps"
-												target="_blank"
-												rel="noopener noreferrer"
-												class="text-blue-600 dark:text-blue-400 hover:underline"
-											>
-												Slack API
-											</a>. Set the redirect URI to:{' '}
-											<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-												{window.location.origin}{base}/oauth/callback_slack
-											</code>
-										</div>
-									</CollapseLink>
-
-									<div class="pt-2">
-										<Button
-											size="xs"
-											variant="accent"
-											onclick={saveAndConnectSlack}
-											disabled={!slackOAuthClientId || !slackOAuthClientSecret}
-											startIcon={{ icon: Slack }}
-											btnClasses="w-fit"
-										>
-											Connect to Slack
-										</Button>
-									</div>
-								</div>
-							{/if}
-						{/if}
-					</div>
-					{/snippet}
-				</ConnectionSection>
-			{:else if slack_tabs === 'teams_commands'}
+						{/snippet}
+					</ConnectionSection>
+				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
 						<div class="pt-4"></div>
 						<Alert type="warning" title="Workspace Teams commands is an EE feature">
@@ -1111,6 +1131,8 @@
 					initialMaxTokensPerModel = clone(maxTokensPerModel)
 				}}
 			/>
+		{:else if tab == 'windmill_data_tables'}
+			<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings
 				bind:s3ResourceSettings

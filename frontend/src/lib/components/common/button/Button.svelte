@@ -20,6 +20,7 @@
 		href?: string
 		icon?: any
 		disabled?: boolean
+		tooltip?: string
 	}
 	interface Props {
 		id?: string
@@ -95,6 +96,7 @@
 		tooltip?: import('svelte').Snippet
 		[key: string]: any
 		dropdownOpen?: boolean
+		dropdownWidth?: number | undefined
 	}
 
 	let {
@@ -136,6 +138,7 @@
 		tooltip,
 		onClick,
 		dropdownOpen = $bindable(false),
+		dropdownWidth = undefined,
 		...rest
 	}: Props = $props()
 
@@ -146,7 +149,8 @@
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
 			icon: item.icon,
 			disabled: item.disabled ?? false,
-			href: item.href
+			href: item.href,
+			tooltip: item.tooltip
 		}))
 	}
 
@@ -466,6 +470,7 @@
 			on:close={() => dispatch('dropdownOpen', false)}
 			bind:open={dropdownOpen}
 			enableFlyTransition
+			customWidth={dropdownWidth}
 		>
 			{#snippet buttonReplacement()}
 				<div

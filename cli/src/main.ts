@@ -6,7 +6,7 @@ import {
   log,
 } from "../deps.ts";
 import flow from "./commands/flow/flow.ts";
-import app from "./commands/app/apps.ts";
+import app from "./commands/app/app.ts";
 import script from "./commands/script/script.ts";
 import workspace, {
   getActiveWorkspace,
@@ -22,10 +22,9 @@ import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
 import instance from "./commands/instance/instance.ts";
-import workerGroups from "./commands/worker-groups/worker_groups.ts";
+import workerGroups from "./commands/worker-groups/worker-groups.ts";
 
 import dev from "./commands/dev/dev.ts";
-import { fetchVersion } from "./core/context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
 import { getHeaders, getIsWin } from "./utils/utils.ts";
@@ -38,6 +37,8 @@ import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import jobs from "./commands/jobs/jobs.ts";
+import { fetchVersion } from "./core/context.ts";
 
 export {
   flow,
@@ -69,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.587.1";
+export const VERSION = "1.592.1";
 
 export const WM_FORK_PREFIX = "wm-fork";
 
@@ -128,6 +129,7 @@ const command = new Command()
   .command("workers", workers)
   .command("queues", queues)
   .command("dependencies", dependencies)
+  .command("jobs", jobs)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

@@ -13,7 +13,6 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
 		enterpriseLicense,
-		tutorialsToDo,
 		userStore,
 		workspaceStore,
 		usedTriggerKinds
@@ -61,11 +60,10 @@
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
-	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
-	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import FlowHistory from './flows/FlowHistory.svelte'
+	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
@@ -165,7 +163,7 @@
 	}
 
 	function hasAIChanges(): boolean {
-		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 	}
 
 	function withAIChangesWarning(callback: () => void) {
@@ -805,8 +803,6 @@
 
 		if (tutorial) {
 			flowTutorials?.runTutorialById(tutorial)
-		} else if ($tutorialsToDo.includes(0) && !$ignoredTutorials.includes(0)) {
-			flowTutorials?.runTutorialById('action')
 		}
 	}
 
@@ -900,7 +896,7 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
-		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 
@@ -1110,13 +1106,7 @@
 							<Dropdown items={moreItems} />
 						{/if}
 					</div>
-					{#if customUi?.topBar?.tutorials != false}
-						<FlowBuilderTutorials
-							on:reload={() => {
-								renderCount += 1
-							}}
-						/>
-					{/if}
+					<FlowEditorTutorial />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"
@@ -1133,8 +1123,7 @@
 								)
 
 								diffDrawer?.openDrawer()
-								const currentFlow =
-									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
+								const currentFlow = flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
