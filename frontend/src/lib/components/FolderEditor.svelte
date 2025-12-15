@@ -20,6 +20,7 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -90,6 +91,7 @@
 					role: getRole(x)
 				}
 			})
+			reloadHistory++
 		} catch (e) {
 			folderNotFound = true
 		}
@@ -144,6 +146,8 @@
 			})
 		}
 	})
+
+	let reloadHistory = $state(0)
 </script>
 
 <Drawer bind:this={newGroup}>
@@ -351,7 +355,7 @@
 										{/if}</td
 									>
 									<td class="flex items-center justify-end">
-										{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
+										{#if (can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
 											<Button
 												variant="subtle"
 												destructive
@@ -378,7 +382,7 @@
 													loadFolder()
 												}}
 											/>
-										{:else}
+										{:else if can_write && owner_name == 'u/' + $userStore?.username}
 											<span class="text-primary text-xs">cannot remove yourself</span>
 										{/if}</td
 									>
@@ -441,4 +445,20 @@
 			{/if}
 		</div>
 	</Label>
+
+	{#if reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, folderName, page, perPage) => {
+					return await FolderService.getFolderPermissionHistory({
+						workspace,
+						name: folderName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
+	{/if}
 </div>

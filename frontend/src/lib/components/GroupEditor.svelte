@@ -20,6 +20,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { Trash } from 'lucide-svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -81,6 +82,7 @@
 				}
 			})
 			summary = group.summary ?? ''
+			reloadHistory++
 		} catch (e) {
 			can_write = false
 			members = []
@@ -110,6 +112,7 @@
 			})
 		}
 	})
+	let reloadHistory = $state(0)
 </script>
 
 <div class="flex flex-col gap-6">
@@ -311,4 +314,20 @@
 			</div>
 		{/if}
 	</Label>
+
+	{#if reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, groupName, page, perPage) => {
+					return await GroupService.getGroupPermissionHistory({
+						workspace,
+						name: groupName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
+	{/if}
 </div>
