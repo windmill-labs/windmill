@@ -332,7 +332,7 @@ class Windmill:
             "language": language,
             "args": args or {},
         }
-        return self.post(endpoint, json=body).text
+        return self.post(endpoint, json=body).json()
 
     def wait_job(
         self,
