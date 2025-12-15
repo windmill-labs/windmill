@@ -73,7 +73,11 @@ export async function runAppEval(
 	const model = resolveModel(options?.variant, options?.model)
 
 	// Build user message
-	const userMessage = prepareAppUserMessage(userPrompt, helpers.getSelectedContext())
+	const userMessage = prepareAppUserMessage(
+		userPrompt,
+		helpers.getFiles(),
+		helpers.getSelectedContext()
+	)
 
 	// Run the base evaluation
 	const rawResult = await runEval({
