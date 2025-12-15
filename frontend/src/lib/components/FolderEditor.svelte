@@ -355,7 +355,7 @@
 										{/if}</td
 									>
 									<td class="flex items-center justify-end">
-										{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
+										{#if (can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
 											<Button
 												variant="subtle"
 												destructive
@@ -382,7 +382,7 @@
 													loadFolder()
 												}}
 											/>
-										{:else}
+										{:else if can_write && owner_name == 'u/' + $userStore?.username}
 											<span class="text-primary text-xs">cannot remove yourself</span>
 										{/if}</td
 									>
@@ -446,7 +446,7 @@
 		</div>
 	</Label>
 
-	{#if can_write && reloadHistory > 0}
+	{#if reloadHistory > 0}
 		{#key reloadHistory}
 			<PermissionHistory
 				{name}

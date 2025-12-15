@@ -315,7 +315,7 @@
 		{/if}
 	</Label>
 
-	{#if $userStore?.is_admin && reloadHistory > 0}
+	{#if reloadHistory > 0}
 		{#key reloadHistory}
 			<PermissionHistory
 				{name}

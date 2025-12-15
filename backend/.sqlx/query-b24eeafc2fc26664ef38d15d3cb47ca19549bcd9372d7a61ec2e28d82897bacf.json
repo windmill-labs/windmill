@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, changed_by, changed_at, change_type, member_affected\n         FROM group_permission_history\n         WHERE workspace_id = $1 AND group_name = $2\n         ORDER BY changed_at DESC\n         LIMIT $3 OFFSET $4",
+  "query": "SELECT id, changed_by, changed_at, change_type, affected\n         FROM folder_permission_history\n         WHERE workspace_id = $1 AND folder_name = $2\n         ORDER BY id DESC\n         LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       },
       {
         "ordinal": 4,
-        "name": "member_affected",
+        "name": "affected",
         "type_info": "Varchar"
       }
     ],
@@ -45,5 +45,5 @@
       true
     ]
   },
-  "hash": "b0ca6573362ecc8d31b9ff35780897c03f9508ee061a6a5f47c2a4259f039b5f"
+  "hash": "b24eeafc2fc26664ef38d15d3cb47ca19549bcd9372d7a61ec2e28d82897bacf"
 }
