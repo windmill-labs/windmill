@@ -3,18 +3,19 @@
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
-	export let name: string
-	export let value: any
-	export let login = true
-	export let eeOnly = false
+	interface Props {
+		name: string
+		value: any
+		login?: boolean
+		eeOnly?: boolean
+	}
 
-	$: enabled = value != undefined && !(eeOnly && !$enterpriseLicense)
+	let { name, value = $bindable(), login = true, eeOnly = false }: Props = $props()
 
-	let tenant: string = ''
-	$: (name == 'microsoft' || name == 'teams') && changeTenantId(tenant)
+	let tenant: string = $state('')
 
 	onMount(() => {
 		try {
@@ -60,10 +61,18 @@
 			}
 		}
 	}
+
+	let enabled = $derived(value != undefined && !(eeOnly && !$enterpriseLicense))
+
+	$effect(() => {
+		if (name == 'microsoft' || name == 'teams') {
+			untrack(() => changeTenantId(tenant))
+		}
+	})
 </script>
 
 <div class="flex flex-col">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label
 		class="text-xs flex gap-4 items-center font-semibold text-emphasis {enabled
 			? 'rounded py-2'
@@ -88,29 +97,29 @@
 		{/if}
 	</label>
 	{#if enabled}
-		<div class="p-2 rounded border mb-4">
+		<div class="p-4 rounded border mb-4 flex flex-col gap-6">
 			{#if name != 'slack' && name != 'teams'}
-				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Custom Name</span>
+				<label class="flex flex-col gap-1">
+					<span class="text-emphasis font-semibold text-xs">Custom Name</span>
 					<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
 				</label>
 			{/if}
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Id</span>
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Id</span>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Secret</span>
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Secret</span>
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
 			{#if name == 'microsoft' || name == 'teams'}
-				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Tenant Id</span>
+				<label class="flex flex-col gap-1">
+					<span class="text-emphasis font-semibold text-xs">Tenant Id</span>
 					<input type="text" placeholder="Tenant Id" bind:value={tenant} />
 				</label>
 			{:else if login}
-				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Allowed domains</span>
+				<label class="flex flex-col gap-1">
+					<span class="text-emphasis font-semibold text-xs">Allowed domains</span>
 					<div class="flex flex-col gap-1">
 						{#each value?.['allowed_domains'] ?? [] as domain, idx}
 							<div class="flex gap-2">
@@ -118,7 +127,7 @@
 									class="max-w-96 w-full"
 									type="text"
 									bind:value={value['allowed_domains'][idx]}
-									on:keyup={(e) => {
+									onkeyup={(e) => {
 										if (domain == '') {
 											value['allowed_domains'] = value['allowed_domains']?.filter(
 												(d) => d != domain
@@ -128,7 +137,7 @@
 								/>
 								<button
 									class="text-primary text-xs rounded hover:bg-surface-hover"
-									on:click={() => {
+									onclick={() => {
 										value['allowed_domains'] = value['allowed_domains']?.filter((d) => d != domain)
 										if (value['allowed_domains'].length == 0) {
 											value['allowed_domains'] = undefined
@@ -142,7 +151,7 @@
 						<div class="flex gap-2">
 							<button
 								class="text-primary text-sm border rounded p-1"
-								on:click={() => {
+								onclick={() => {
 									value['allowed_domains'] = [...(value['allowed_domains'] ?? []), 'mydomain.com']
 								}}>+ Add domain</button
 							>
@@ -152,7 +161,7 @@
 			{/if}
 			{#if name == 'google'}
 				<CollapseLink text="Instructions">
-					<div class="text-sm text-secondary border p-2">
+					<div class="helper">
 						Create a new OAuth 2.0 Client <a
 							href="https://console.cloud.google.com/apis/credentials"
 							target="_blank">in Google console</a
@@ -162,8 +171,8 @@
 					</div>
 				</CollapseLink>
 			{:else if name == 'slack'}
-				<CollapseLink text="Instructions">
-					<div class="text-sm text-secondary border p-2">
+				<CollapseLink text="Set up slack">
+					<div class="helper">
 						Create a new App <a href="https://api.slack.com/apps?new_app=1" target="_blank"
 							>in Slack API Console</a
 						>. Pick "From an app manifest", then YAML and paste manifest template found on
@@ -174,7 +183,7 @@
 				</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
-					<div class="text-sm text-secondary border p-2">
+					<div class="helper">
 						Create a new OAuth 2.0 Client <a
 							href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
 							target="_blank">in Microsoft portal</a
@@ -190,7 +199,7 @@
 				</CollapseLink>
 			{:else if name == 'teams'}
 				<CollapseLink text="Instructions">
-					<div class="text-sm text-secondary border p-2">
+					<div class="helper">
 						Follow this guide on <a
 							href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams"
 							target="_blank">Windmill Docs</a
@@ -202,3 +211,9 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.helper {
+		@apply text-xs text-primary rounded-md;
+	}
+</style>
