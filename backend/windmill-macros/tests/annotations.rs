@@ -102,12 +102,12 @@ mod annotations_tests {
 
     #[test]
     fn spacing_integration() {
-        // First line is ignored and not used
+        // First line is ignored
         {
             let cont = "
 # ann2";
-            let expected = Annotations { ..Default::default() };
-            assert_eq!(expected, old(cont));
+            let expected = Annotations { ann2: true, ..Default::default() };
+            // assert_eq!(expected, old(cont));
             assert_eq!(expected, Annotations::parse(cont));
         }
         // Wrong spacing for ann3
@@ -139,11 +139,10 @@ mod annotations_tests {
 # Actual annotation next line:
 # ann5
 
-# Should be ignored
 # ann3
             ";
-        let expected = Annotations { ann2: true, ann5: true, ..Default::default() };
-        assert_eq!(expected, old(cont));
+        let expected = Annotations { ann2: true, ann5: true, ann3: true, ..Default::default() };
+        // assert_eq!(expected, old(cont));
         assert_eq!(expected, Annotations::parse(cont));
     }
 
@@ -166,6 +165,17 @@ mod annotations_tests {
             assert_eq!(expected, old(cont));
             assert_eq!(expected, Annotations::parse(cont));
         }
+    }
+
+    #[test]
+    fn newline_between() {
+        let cont = "// ann1
+
+// ann2";
+        assert_eq!(
+            SlashedAnnotations { ann1: true, ann2: true, ann3: false, ann4: false },
+            SlashedAnnotations::parse(cont)
+        );
     }
 
     //     // #[derive(serde_derive::Serialize, serde_derive::Deserialize, Eq, PartialEq)]
