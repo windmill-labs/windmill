@@ -66,7 +66,6 @@
 		"svelte-preprocess": "^6.0.0",
 		"svelte-range-slider-pips": "^2.3.1",
 		"svelte-splitpanes": "^8.0.9",
-		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.4.1",
 		"tar": "^7.4.3",
 		"tslib": "^2.6.1",
@@ -74,8 +73,7 @@
 		"vite": "npm:rolldown-vite@7.2.8",
 		"vite-plugin-mkcert": "^1.17.5",
 		"vitest": "^4.0.10",
-		"vitest-browser-svelte": "^2.0.1",
-		"yootils": "^0.3.1"
+		"vitest-browser-svelte": "^2.0.1"
 	},
 	"overrides": {
 		"monaco-graphql": {
@@ -92,9 +90,9 @@
 		"@codingame/monaco-vscode-standalone-json-language-features": "=21.6.0",
 		"@codingame/monaco-vscode-standalone-languages": "=21.6.0",
 		"@codingame/monaco-vscode-standalone-typescript-language-features": "=21.6.0",
+		"@codingame/monaco-vscode-languages-service-override": "=21.6.0",
 		"@json2csv/plainjs": "^7.0.6",
 		"@leeoniya/ufuzzy": "^1.0.8",
-		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@scalar/openapi-parser": "^0.15.0",
 		"@tanstack/svelte-table": "npm:tanstack-table-8-svelte-5@^0.1",
