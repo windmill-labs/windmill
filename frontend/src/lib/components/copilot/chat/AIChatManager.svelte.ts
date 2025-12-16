@@ -71,6 +71,8 @@ class AIChatManager {
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
+	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
+	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	readonly isOpen = $derived(chatState.size > 0)
@@ -430,31 +432,39 @@ class AIChatManager {
 
 				// For OpenAI/Azure, try Responses API first, fallback to Completions API
 				if (isOpenAI) {
-					let responsesApiFailed = false
-					try {
-						const completion = await getOpenAIResponsesCompletion(
-							messageParams,
-							abortController,
-							toolDefs
-						)
-						const continueCompletion = await parseOpenAIResponsesCompletion(
-							completion as any,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers
-						)
-						if (!continueCompletion) {
-							break
+					let useCompletionsApi = this.skipResponsesApi
+					if (!this.skipResponsesApi) {
+						try {
+							const completion = await getOpenAIResponsesCompletion(
+								messageParams,
+								abortController,
+								toolDefs
+							)
+							throw new Error('Responses API is not enabled')
+							const continueCompletion = await parseOpenAIResponsesCompletion(
+								completion as any,
+								callbacks,
+								messages,
+								addedMessages,
+								tools,
+								helpers
+							)
+							if (!continueCompletion) {
+								break
+							}
+						} catch (err) {
+							console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
+							// If the error indicates Responses API is not available in this region, skip it for future requests
+							const errorMessage = err instanceof Error ? err.message : String(err)
+							if (errorMessage.includes('Responses API is not enabled')) {
+								this.skipResponsesApi = true
+							}
+							useCompletionsApi = true
 						}
-					} catch (err) {
-						console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
-						responsesApiFailed = true
 					}
 
-					// Fallback to Completions API if Responses API failed
-					if (responsesApiFailed) {
+					// Use Completions API if Responses API is not available or failed
+					if (useCompletionsApi) {
 						const completion = await getCompletion(messageParams, abortController, toolDefs, {
 							forceCompletions: true
 						})
