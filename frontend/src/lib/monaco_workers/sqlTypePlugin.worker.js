@@ -19,6 +19,7 @@ export function injectSqlTypes(code, queries) {
 	let transformed = code
 	let addedOffset = 0
 	let offsetMap = {}
+	queries = queries.filter((query) => query?.prepared?.columns)
 	for (const query of queries) {
 		let splitIdx = code?.indexOf('`', query.span[0] - 1)
 		if (splitIdx === -1 || !splitIdx) continue

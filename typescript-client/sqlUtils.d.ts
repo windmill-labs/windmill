@@ -17,7 +17,7 @@ type SqlResult<
   T,
   ResultCollectionT extends ResultCollection
 > = ResultCollectionT extends "last_statement_first_row"
-  ? T
+  ? T | null
   : ResultCollectionT extends "all_statements_first_row"
   ? T[]
   : ResultCollectionT extends "last_statement_all_rows"
@@ -29,7 +29,7 @@ type SqlResult<
   : ResultCollectionT extends "all_statements_all_rows_scalar"
   ? T[keyof T][][]
   : ResultCollectionT extends "last_statement_first_row_scalar"
-  ? T[keyof T]
+  ? T[keyof T] | null
   : ResultCollectionT extends "all_statements_first_row_scalar"
   ? T[keyof T][]
   : unknown;
@@ -46,6 +46,29 @@ export type SqlStatement<T> = {
   fetchOne(
     params?: Omit<FetchParams<"last_statement_first_row">, "resultCollection">
   ): Promise<SqlResult<T, "last_statement_first_row">>;
+
+  /**
+   * Execute the SQL query and return only the first row as a scalar value
+   * @param params - Optional parameters
+   * @returns First row of the query result
+   */
+  fetchOneScalar(
+    params?: Omit<
+      FetchParams<"last_statement_first_row_scalar">,
+      "resultCollection"
+    >
+  ): Promise<SqlResult<T, "last_statement_first_row_scalar">>;
+
+  /**
+   * Execute the SQL query without fetching rows
+   * @param params - Optional parameters
+   */
+  execute(
+    params?: Omit<
+      FetchParams<"last_statement_first_row_scalar">,
+      "resultCollection"
+    >
+  ): Promise<void>;
 };
 
 export interface SqlTemplateFunction {
