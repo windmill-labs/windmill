@@ -643,14 +643,56 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		}
 	}
 
+	/**
+	 * Creates diagnostics from SQL query preparation errors
+	 * @param {string} fileName - File name
+	 * @returns {Array} SQL error diagnostics
+	 */
+	_createSqlErrorDiagnostics(fileName) {
+		const queries = this._sqlQueriesByFile.get(fileName)
+		if (!queries || queries.length === 0) {
+			return []
+		}
+
+		const originalSnapshot = super.getScriptSnapshot(fileName)
+		if (!originalSnapshot) {
+			return []
+		}
+		const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength()) ?? ''
+
+		const sqlDiagnostics = []
+		for (const query of queries) {
+			if (query?.prepared?.error && typeof query.prepared.error === 'string') {
+				let queryStartIdx = originalCode.indexOf('`', (query.span?.[0] || 1) - 1) + 1
+				// Create a diagnostic error for this query
+				const diagnostic = {
+					code: 'SQL_PREPARATION_ERROR',
+					category: ts.typescript.DiagnosticCategory.Error,
+					messageText: query.prepared.error,
+					file: fileName,
+					start: queryStartIdx,
+					length: query.span?.[1] ? query.span[1] - queryStartIdx - 2 : 0,
+					source: 'sql'
+				}
+				sqlDiagnostics.push(diagnostic)
+			}
+		}
+
+		return sqlDiagnostics
+	}
+
 	async getSyntacticDiagnostics(fileName) {
 		const diagnostics = await super.getSyntacticDiagnostics(fileName)
-		return this._mapDiagnostics(diagnostics, fileName)
+		const mappedDiagnostics = this._mapDiagnostics(diagnostics, fileName)
+		const sqlDiagnostics = this._createSqlErrorDiagnostics(fileName)
+		return [...mappedDiagnostics, ...sqlDiagnostics]
 	}
 
 	async getSemanticDiagnostics(fileName) {
 		const diagnostics = await super.getSemanticDiagnostics(fileName)
-		return this._mapDiagnostics(diagnostics, fileName)
+		const mappedDiagnostics = this._mapDiagnostics(diagnostics, fileName)
+		const sqlDiagnostics = this._createSqlErrorDiagnostics(fileName)
+		return [...mappedDiagnostics, ...sqlDiagnostics]
 	}
 
 	async getSuggestionDiagnostics(fileName) {

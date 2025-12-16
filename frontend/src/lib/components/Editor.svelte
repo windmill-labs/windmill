@@ -1883,7 +1883,7 @@
 			$state.snapshot(preparedAssetsSqlQueries)
 		)
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
-	}, 500)
+	}, 250)
 
 	watch(
 		[
