@@ -16,7 +16,13 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		canWrite,
+		capitalize,
+		emptyString,
+		generateRandomString,
+		sendUserToast
+	} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -49,6 +55,8 @@
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let {
 		useDrawer = true,
@@ -118,8 +126,10 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
+	let userSettings = $state<UserSettings | undefined>(undefined)
 
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
+	let scopes = $derived(['http_triggers:read:' + path])
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
@@ -435,6 +445,15 @@
 			s3FileUploadRawMode = true
 		}}
 		readOnlyMode={false}
+	/>
+{/if}
+
+{#if authentication_method === 'windmill'}
+	<UserSettings
+		bind:this={userSettings}
+		newTokenWorkspace={$workspaceStore}
+		newTokenLabel={`http-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		{scopes}
 	/>
 {/if}
 
@@ -858,6 +877,15 @@
 												</p>
 											</div>
 										{/if}
+									{:else if authentication_method === 'windmill'}
+										<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
+											Create a route-specific token
+											<Tooltip light>
+												The token will have a scope such that it can only be used to read and
+												trigger this route. It is safe to share as it cannot be used to impersonate
+												you.
+											</Tooltip>
+										</Button>
 									{/if}
 
 									<RouteBodyTransformerOption
