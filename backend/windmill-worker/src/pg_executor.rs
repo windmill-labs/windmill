@@ -13,7 +13,6 @@ use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
@@ -32,6 +31,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::PgDatabase;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -49,18 +49,7 @@ use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
-use urlencoding::encode;
 use windmill_common::client::AuthedClient;
-#[derive(Deserialize)]
-pub struct PgDatabase {
-    pub host: String,
-    pub user: Option<String>,
-    pub password: Option<String>,
-    pub port: Option<u16>,
-    pub sslmode: Option<String>,
-    pub dbname: String,
-    pub root_certificate_pem: Option<String>,
-}
 
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
@@ -249,21 +238,7 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let sslmode = match database.sslmode.as_deref() {
-        Some("allow") => "prefer".to_string(),
-        Some("verify-ca") | Some("verify-full") => "require".to_string(),
-        Some(s) => s.to_string(),
-        None => "prefer".to_string(),
-    };
-    let database_string = format!(
-        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = encode(&database.user.unwrap_or("postgres".to_string())),
-        password = encode(&database.password.unwrap_or("".to_string())),
-        host = database.host,
-        port = database.port.unwrap_or(5432),
-        dbname = database.dbname,
-        sslmode = sslmode
-    );
+    let database_string = database.to_uri();
     let database_string_clone = database_string.clone();
 
     let mtex;
@@ -286,7 +261,7 @@ pub async fn do_postgresql(
             std::sync::atomic::Ordering::Relaxed,
         );
         (None, mtex)
-    } else if sslmode == "require" {
+    } else if database.ssl_mode_is_require() {
         tracing::info!("Creating new connection");
         let mut connector = TlsConnector::builder();
         if let Some(root_certificate_pem) = database.root_certificate_pem {
