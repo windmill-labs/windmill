@@ -39,7 +39,12 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
-	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
+	import {
+		type AgentTool,
+		flowModuleToAgentTool,
+		createMcpTool,
+		createWebsearchTool
+	} from '../agentToolUtils'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
@@ -174,6 +179,11 @@
 			// Create MCP AgentTool
 			const mcpTool = createMcpTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, mcpTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'websearchTool') {
+			// Create Websearch AgentTool
+			const websearchTool = createWebsearchTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, websearchTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
 			// Create AgentTool from FlowModule
