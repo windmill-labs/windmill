@@ -2,6 +2,8 @@
  * Vitest setup file to mock browser globals for testing
  */
 
+import { vi } from 'vitest'
+
 // Mock localStorage
 const localStorageMock = {
 	store: {} as Record<string, string>,
@@ -58,3 +60,25 @@ Object.defineProperty(globalThis, 'sessionStorage', {
 	value: sessionStorageMock,
 	writable: true
 })
+
+vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features/worker', () => ({
+	TypeScriptWorker: class TypeScriptWorker {
+		private _mockScriptSnapshot?: {
+			getText: (start: number, end: number) => string
+			getLength: () => number
+		}
+
+		setMockCode(t: string) {
+			this._mockScriptSnapshot = {
+				getText: (start: number, end: number) => t.substring(start, end),
+				getLength: () => t.length
+			}
+		}
+
+		getScriptSnapshot(_fileName: string) {
+			return this._mockScriptSnapshot
+		}
+	},
+	ts: undefined,
+	initialize: undefined
+}))

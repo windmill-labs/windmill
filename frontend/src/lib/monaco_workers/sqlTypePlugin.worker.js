@@ -15,7 +15,7 @@ import {
 	initialize
 } from '@codingame/monaco-vscode-standalone-typescript-language-features/worker'
 
-function injectSqlTypes(code, queries) {
+export function injectSqlTypes(code, queries) {
 	let transformed = code
 	let addedOffset = 0
 	let offsetMap = {}
@@ -35,7 +35,6 @@ function injectSqlTypes(code, queries) {
 		addedOffset += middlePart.length
 		transformed = leftPart + middlePart + rightPart
 	}
-	console.log('[SqlTypePlugin] Transformed code:', transformed)
 	return { transformed, offsetMap }
 }
 
@@ -105,7 +104,7 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 			for (const [pos, offset] of offsetMapEntries) {
 				// If the position is after an injection point, add the offset
-				if (position > pos) {
+				if (position > Number(pos)) {
 					position += offset
 				} else {
 					break
@@ -141,9 +140,11 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 			let { offsetMap } = injectSqlTypes(originalCode, queries)
 			let offsetMapEntries = Object.entries(offsetMap)
 
+			console.log('[SqlTypePlugin] originalCode', originalCode)
+
 			for (const [pos, offset] of offsetMapEntries) {
 				// If position is after an injection point, subtract the offset
-				if (position > pos) {
+				if (position > Number(pos)) {
 					position -= offset
 				} else {
 					break
@@ -637,6 +638,12 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		try {
 			return diagnostics.map((diagnostic) => {
 				if (!diagnostic?.start) return diagnostic
+				console.log(
+					'[SqlTypePlugin] Mapping diagnostic:',
+					diagnostic.start,
+					'to',
+					this._mapPositionToOriginal(diagnostic.start, fileName)
+				)
 				diagnostic.start = this._mapPositionToOriginal(diagnostic.start, fileName)
 				return diagnostic
 			})
@@ -715,18 +722,20 @@ export function create(ctx, createData) {
 	return new SqlAwareTypeScriptWorker(ctx, createData)
 }
 
-// Initialize the worker
-self.onmessage = () => {
-	initialize((ctx, createData) => {
-		return create(ctx, createData)
-	})
-}
+if (typeof self !== 'undefined' && self) {
+	// Initialize the worker
+	self.onmessage = () => {
+		initialize((ctx, createData) => {
+			return create(ctx, createData)
+		})
+	}
 
-// This function is called by Monaco's TypeScript worker if customWorkerPath is used
-// It receives the base TypeScriptWorker class, TypeScript API (ts), and libFileMap
-// We'll keep this as a fallback
-self.customTSWorkerFactory = function (TypeScriptWorkerBase, tsApi, libFileMap) {
-	return SqlAwareTypeScriptWorker
-}
+	// This function is called by Monaco's TypeScript worker if customWorkerPath is used
+	// It receives the base TypeScriptWorker class, TypeScript API (ts), and libFileMap
+	// We'll keep this as a fallback
+	self.customTSWorkerFactory = function (TypeScriptWorkerBase, tsApi, libFileMap) {
+		return SqlAwareTypeScriptWorker
+	}
 
-console.log('[SqlTypePlugin] Worker module loaded')
+	console.log('[SqlTypePlugin] Worker module loaded')
+}
