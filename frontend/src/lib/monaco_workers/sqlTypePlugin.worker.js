@@ -673,7 +673,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @param {Array} queries - Array of SQL query details
 	 */
 	async updateSqlQueries(fileUri, queries) {
-		if (!fileUri.endsWith('.ts')) fileUri += '.ts'
 		console.log(`[SqlTypePlugin] Updating SQL queries for ${fileUri}:`, queries?.length || 0)
 
 		if (!queries || queries.length === 0) {
@@ -702,6 +701,7 @@ if (typeof self !== 'undefined' && self) {
 	// This function is called by Monaco's TypeScript worker if customWorkerPath is used
 	// It receives the base TypeScriptWorker class, TypeScript API (ts), and libFileMap
 	// We'll keep this as a fallback
+	// @ts-ignore
 	self.customTSWorkerFactory = function (TypeScriptWorkerBase, tsApi, libFileMap) {
 		return SqlAwareTypeScriptWorker
 	}

@@ -6,7 +6,7 @@
  */
 
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
-import { languages, Uri } from 'monaco-editor'
+import { languages, Uri, Range, editor } from 'monaco-editor'
 
 /**
  * Cached promise for the TypeScript worker client
@@ -25,12 +25,12 @@ let workerClientPromise: Promise<any> | null = null
  * @returns Promise that resolves when the update is complete
  */
 export async function updateSqlQueriesInWorker(
-	fileUri: string | Uri,
+	fileUri: string,
 	queries: InferAssetsSqlQueryDetails[]
 ): Promise<void> {
 	try {
-		// Convert string to Uri if needed
-		const uri = typeof fileUri === 'string' ? Uri.parse(fileUri) : fileUri
+		if (!fileUri.endsWith('.ts')) fileUri += '.ts'
+		const uri = Uri.parse(fileUri)
 		const uriString = uri.toString()
 
 		console.log(`[SqlTypeService] Updating ${queries.length} SQL queries for ${uriString}`)
@@ -46,11 +46,24 @@ export async function updateSqlQueriesInWorker(
 		// Monaco manages worker instances per model/file
 		const worker = await workerClient(uri)
 
+		if (!worker) {
+			console.warn(`[SqlTypeService] Couldn't load worker for URI: ${uriString}`)
+			return
+		}
+
+		const model = editor.getModel(uri)
+		if (!model) {
+			console.warn(`[SqlTypeService] No Monaco model found for URI: ${uriString}`)
+			return
+		}
+
 		// Call our custom updateSqlQueries method if it exists
 		// This method is added by our sqlTypePlugin.worker.js
-		if (worker && typeof worker.updateSqlQueries === 'function') {
+		if (typeof worker.updateSqlQueries === 'function') {
 			await worker.updateSqlQueries(uriString, queries)
-			console.log(`[SqlTypeService] Successfully updated SQL queries`)
+
+			// Force TypeScript to recompute by incrementing model version
+			model?.applyEdits([{ range: new Range(1, 1, 1, 1), text: '' }])
 		} else {
 			console.warn(
 				'[SqlTypeService] Custom worker method updateSqlQueries not found. Is the custom worker loaded?'
@@ -60,21 +73,4 @@ export async function updateSqlQueriesInWorker(
 		console.error('[SqlTypeService] Failed to update SQL queries in worker:', error)
 		// Don't throw - we want to fail gracefully if the worker isn't available
 	}
-}
-
-/**
- * Clear SQL query information for a file
- *
- * @param fileUri - Monaco URI or string path of the file
- */
-export async function clearSqlQueriesInWorker(fileUri: string | Uri): Promise<void> {
-	return updateSqlQueriesInWorker(fileUri, [])
-}
-
-/**
- * Reset the worker client (useful for testing or when switching workspaces)
- */
-export function resetWorkerClient(): void {
-	workerClientPromise = null
-	console.log('[SqlTypeService] Worker client reset')
 }

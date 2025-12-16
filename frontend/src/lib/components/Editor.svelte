@@ -1870,7 +1870,7 @@
 		)
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
-	})
+	}, 500)
 
 	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath], () => {
 		if (lang !== 'typescript') return

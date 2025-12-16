@@ -108,6 +108,6 @@ let testQueries = [
 function createMockTsWorker(code: string, queries: typeof testQueries) {
 	let tsWorker = create()
 	;(tsWorker as any).setMockCode(code)
-	tsWorker.updateSqlQueries('test', queries)
+	tsWorker.updateSqlQueries('test.ts', queries)
 	return tsWorker
 }
