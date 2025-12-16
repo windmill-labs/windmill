@@ -7,6 +7,7 @@ use windmill_queue::MiniPulledJob;
 use crate::{
     ai::{
         providers::{
+            anthropic::AnthropicQueryBuilder,
             google_ai::GoogleAIQueryBuilder,
             openai::{OpenAIQueryBuilder, OpenAIToolCall},
             openrouter::OpenRouterQueryBuilder,
@@ -99,6 +100,8 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         AIProvider::OpenAI | AIProvider::AzureOpenAI => {
             Box::new(OpenAIQueryBuilder::new(provider.kind.clone()))
         }
+        // Anthropic uses its own API format
+        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(provider.kind.clone())),
         // All other providers use the completion endpoint
         _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),
     }
