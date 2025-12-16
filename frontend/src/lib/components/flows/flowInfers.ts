@@ -33,54 +33,84 @@ export const AI_AGENT_SCHEMA = {
 			default: true,
 			showExpr: "fields.output_type === 'text'"
 		},
-		messages_context_length: {
-			type: 'number',
+		history: {
+			type: 'object',
 			description:
-				'Allows storing the conversation history and giving it back to the AI agent, up to the N last messages. If not set or 0, memory is disabled.',
-			'x-no-s3-storage-workspace-warning':
-				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
-			showExpr: "fields.output_type === 'text'"
-		},
-		messages: {
-			type: 'array',
-			description:
-				'An array of conversation messages to use as history. When provided, these messages replace any messages that would be loaded from memory, and memory will not be updated at the end of the run. If user_message is also provided, it will be appended as the final message.',
-			items: {
-				type: 'object' as const,
-				properties: {
-					role: {
-						type: 'string',
-						enum: ['user', 'assistant', 'system']
+				'Configure how conversation history is managed. Choose "auto" to automatically store and load messages from memory (up to N last messages), or "manual" to provide an explicit array of conversation messages. When using manual mode, memory is bypassed entirely - messages are not loaded from or saved to memory. The system_prompt (if provided) is always prepended, and user_message (if provided) is always appended as the final message.',
+			oneOf: [
+				{
+					type: 'object' as const,
+					properties: {
+						mode: {
+							type: 'string',
+							enum: ['auto'],
+							default: 'auto',
+							description: 'Automatically manage conversation history using memory'
+						},
+						context_length: {
+							type: 'number',
+							description:
+								'Number of most recent messages to store and load from memory. Set to 0 to disable memory.',
+							default: 0
+						}
 					},
-					content: {
-						type: 'string'
-					},
-					tool_calls: {
-						type: 'array',
-						nullable: true,
-						items: {
-							type: 'object' as const,
-							properties: {
-								id: { type: 'string' },
-								type: { type: 'string' },
-								function: {
-									type: 'object' as const,
-									properties: {
-										name: { type: 'string' },
-										arguments: { type: 'string' }
+					required: ['mode'],
+					'x-no-s3-storage-workspace-warning':
+						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
+				},
+				{
+					type: 'object' as const,
+					properties: {
+						mode: {
+							type: 'string',
+							enum: ['manual'],
+							description:
+								'Manually provide conversation messages, bypassing automatic memory management'
+						},
+						messages: {
+							type: 'array',
+							description: 'Array of conversation messages to use as history',
+							items: {
+								type: 'object' as const,
+								properties: {
+									role: {
+										type: 'string',
+										enum: ['user', 'assistant', 'system']
+									},
+									content: {
+										type: 'string'
+									},
+									tool_calls: {
+										type: 'array',
+										nullable: true,
+										items: {
+											type: 'object' as const,
+											properties: {
+												id: { type: 'string' },
+												type: { type: 'string' },
+												function: {
+													type: 'object' as const,
+													properties: {
+														name: { type: 'string' },
+														arguments: { type: 'string' }
+													}
+												}
+											}
+										}
+									},
+									tool_call_id: {
+										type: 'string',
+										nullable: true,
+										description: 'The ID of the tool call this message is responding to'
 									}
-								}
+								},
+								required: ['role']
 							}
 						}
 					},
-					tool_call_id: {
-						type: 'string',
-						nullable: true,
-						description: 'The ID of the tool call this message is responding to'
-					}
-				},
-				required: ['role']
-			},
+					required: ['mode', 'messages']
+				}
+			],
 			showExpr: "fields.output_type === 'text'"
 		},
 		output_schema: {
@@ -123,8 +153,7 @@ export const AI_AGENT_SCHEMA = {
 		'user_message',
 		'system_prompt',
 		'streaming',
-		'messages_context_length',
-		'messages',
+		'history',
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',
