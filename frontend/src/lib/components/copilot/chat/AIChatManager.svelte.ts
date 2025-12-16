@@ -433,40 +433,78 @@ class AIChatManager {
 
 				// For OpenAI/Azure, try Responses API first, fallback to Completions API
 				if (isOpenAI) {
+					let responsesApiFailed = false
 					try {
 						completion = await getOpenAIResponsesCompletion(
 							messageParams,
 							abortController,
 							toolDefs
 						)
-						parseFn = parseOpenAIResponsesCompletion
+						const continueCompletion = await parseOpenAIResponsesCompletion(
+							completion as any,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					} catch (err) {
 						console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
+						responsesApiFailed = true
+					}
+
+					// Fallback to Completions API if Responses API failed
+					if (responsesApiFailed) {
 						completion = await getCompletion(messageParams, abortController, toolDefs, {
 							forceCompletions: true
 						})
-						parseFn = parseOpenAICompletion
+						const continueCompletion = await parseOpenAICompletion(
+							completion as any,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				} else if (isAnthropic) {
 					completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
 					parseFn = parseAnthropicCompletion
+					if (completion) {
+						const continueCompletion = await parseFn(
+							completion as any,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers,
+							abortController
+						)
+						if (!continueCompletion) {
+							break
+						}
+					}
 				} else {
 					completion = await getCompletion(messageParams, abortController, toolDefs)
 					parseFn = parseOpenAICompletion
-				}
-
-				if (completion) {
-					const continueCompletion = await parseFn(
-						completion as any,
-						callbacks,
-						messages,
-						addedMessages,
-						tools,
-						helpers,
-						isAnthropic ? abortController : undefined
-					)
-					if (!continueCompletion) {
-						break
+					if (completion) {
+						const continueCompletion = await parseFn(
+							completion as any,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				}
 			}
