@@ -29,6 +29,7 @@ pub struct BuildRequestArgs<'a> {
     pub system_prompt: Option<&'a str>,
     pub user_message: &'a str,
     pub images: Option<&'a [S3Object]>,
+    pub has_websearch: bool,
 }
 
 /// Response from AI provider
