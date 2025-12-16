@@ -9,7 +9,6 @@ import {
 	getEnhancedMonacoEnvironment,
 	MonacoVscodeApiWrapper
 } from 'monaco-languageclient/vscodeApiWrapper'
-import getLanguagesServiceOverride from '@codingame/monaco-vscode-languages-service-override'
 import { getCssColor } from '$lib/utils'
 
 export function buildWorkerDefinition() {
@@ -136,7 +135,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					// ...getTextmateServiceOverride()
 					// ...getConfigurationServiceOverride(),
 					// ...getKeybindingsServiceOverride()
-					...getLanguagesServiceOverride()
+					// ...getLanguagesServiceOverride()
 				},
 				userConfiguration: {
 					json: JSON.stringify({
