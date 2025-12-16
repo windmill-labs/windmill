@@ -4,7 +4,6 @@
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	type Props = {
 		title: string
@@ -93,25 +92,21 @@
 		></div>
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
-			<div class="flex min-h-full items-center justify-center p-4">
+			<div class="flex min-h-full items-center justify-center">
 				<div
 					class={classNames(
-						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+						'relative transform overflow-hidden rounded-lg bg-surface px-6 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:py-6 sm:px-8',
 						open
 							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
 							: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
 					)}
 				>
 					<div class="flex">
-						{#if showIcon}
-							<div
-								class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
-							>
-								<Icon class={theme[type].classes.icon} />
-							</div>
-						{/if}
-						<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
-							<h3 class="text-lg font-medium text-primary">
+						<div class={'ml-0 text-left flex-1'}>
+							<h3 class="flex items-center gap-2 text-lg font-medium text-primary">
+								{#if showIcon}
+									<Icon class={theme[type].classes.icon} />
+								{/if}
 								{title}
 							</h3>
 							<div class="mt-2 text-sm text-secondary">
