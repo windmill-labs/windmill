@@ -265,6 +265,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
     /// This flag is updated during worker initialization by checking the minimum version across all workers
     /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
@@ -411,7 +412,7 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
-                canceled_by, canceled_reason, worker, cache_ignore_s3_path
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
@@ -437,7 +438,7 @@ fn format_pull_query(peek: String) -> String {
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
@@ -1292,6 +1293,9 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     if min_version != cur_version {
         tracing::info!("Minimal worker version: {min_version}");
     }
+
+    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
+        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
 
     // Workspace dependencies feature requires minimum version across all workers
     *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version

@@ -44,6 +44,8 @@ use axum::{
 use http::HeaderName;
 use itertools::Itertools;
 
+use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings};
+use windmill_common::scripts::ScriptRunnableSettingsHandle;
 use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::{
@@ -73,10 +75,6 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     envs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dedicated_worker: Option<bool>,
@@ -99,15 +97,13 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_delay_s: Option<i32>,
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[serde(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -368,7 +364,7 @@ pub(crate) async fn tarball_workspace(
     }
 
     {
-        let scripts = sqlx::query_as::<_, Script>(
+        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
             "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
              AND (draft_only IS NULL OR draft_only = false)
              AND created_at = (select max(created_at) from script where path = o.path AND \
@@ -379,6 +375,7 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         for script in scripts {
+            let script = script.prefetch_cached(&db).await?;
             let ext = match script.language {
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => {
@@ -427,8 +424,8 @@ pub(crate) async fn tarball_workspace(
                 kind: script.kind.to_string(),
                 lock: script.lock,
                 envs: script.envs,
-                concurrent_limit: script.concurrent_limit,
-                concurrency_time_window_s: script.concurrency_time_window_s,
+                concurrency_settings: script.runnable_settings.concurrency_settings,
+                debouncing_settings: script.runnable_settings.debouncing_settings,
                 cache_ttl: script.cache_ttl,
                 dedicated_worker: script.dedicated_worker,
                 ws_error_handler_muted: script.ws_error_handler_muted,
@@ -440,11 +437,8 @@ pub(crate) async fn tarball_workspace(
                 visible_to_runner_only: script.visible_to_runner_only,
                 no_main_func: script.no_main_func,
                 codebase: script.codebase,
-                concurrency_key: script.concurrency_key,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
-                debounce_key: script.debounce_key,
-                debounce_delay_s: script.debounce_delay_s,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive

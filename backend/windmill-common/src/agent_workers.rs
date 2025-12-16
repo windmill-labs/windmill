@@ -41,33 +41,35 @@ pub fn build_agent_http_client(
     base_internal_url: Option<String>,
 ) -> HttpClient {
     let client = ClientBuilder::new(
-        configure_client(reqwest::Client::builder()
-            .pool_max_idle_per_host(10)
-            .pool_idle_timeout(Duration::from_secs(60))
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30)))
-            .default_headers({
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    "User-Agent",                          // Replace with your desired header name
-                    "Windmill-Agent/1.0".parse().unwrap(), // Replace with your desired header value
-                );
-                let token = format!(
-                    "{}{}_{}",
-                    AGENT_JWT_PREFIX,
-                    worker_suffix,
-                    agent_token
-                        .unwrap_or(AGENT_TOKEN.clone())
-                        .trim_start_matches(AGENT_JWT_PREFIX)
-                );
-                headers.insert(
-                    "Authorization",
-                    format!("Bearer {}", token).parse().unwrap(),
-                );
-                headers
-            })
-            .build()
-            .expect("Failed to create HTTP client"),
+        configure_client(
+            reqwest::Client::builder()
+                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(Duration::from_secs(60))
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30)),
+        )
+        .default_headers({
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "User-Agent",                          // Replace with your desired header name
+                "Windmill-Agent/1.0".parse().unwrap(), // Replace with your desired header value
+            );
+            let token = format!(
+                "{}{}_{}",
+                AGENT_JWT_PREFIX,
+                worker_suffix,
+                agent_token
+                    .unwrap_or(AGENT_TOKEN.clone())
+                    .trim_start_matches(AGENT_JWT_PREFIX)
+            );
+            headers.insert(
+                "Authorization",
+                format!("Bearer {}", token).parse().unwrap(),
+            );
+            headers
+        })
+        .build()
+        .expect("Failed to create HTTP client"),
     )
     .with(RetryTransientMiddleware::new_with_policy(
         ExponentialBackoff::builder().build_with_max_retries(5),

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", \n        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running\n             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
+  "query": "SELECT \n            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, \n            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle\n            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id\n            WHERE j.id = $1 AND j.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -25,22 +25,27 @@
       },
       {
         "ordinal": 4,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
         "name": "parent_job",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "flow_innermost_root_job",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "runnable_path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
-        "name": "kind: JobKind",
+        "ordinal": 8,
+        "name": "kind!: JobKind",
         "type_info": {
           "Custom": {
             "name": "job_kind",
@@ -72,11 +77,6 @@
             }
           }
         }
-      },
-      {
-        "ordinal": 8,
-        "name": "started_at",
-        "type_info": "Timestamptz"
       },
       {
         "ordinal": 9,
@@ -192,28 +192,14 @@
       },
       {
         "ordinal": 21,
-        "name": "last_ping",
-        "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 22,
-        "name": "worker",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 23,
-        "name": "memory_peak",
-        "type_info": "Int4"
-      },
-      {
-        "ordinal": 24,
-        "name": "running",
-        "type_info": "Bool"
+        "name": "runnable_settings_handle",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
@@ -224,10 +210,10 @@
       true,
       true,
       true,
-      false,
       true,
       false,
       false,
+      false,
       true,
       false,
       true,
@@ -238,11 +224,8 @@
       false,
       true,
       true,
-      true,
-      true,
-      true,
-      false
+      true
     ]
   },
-  "hash": "a84e67035584bbdb02482026b9cc0808086c50f78947d43bb88628a481f41a1d"
+  "hash": "a1745a4f525b251d2f5a602ab2b2ede46b4471e21b11f607573a844013911abe"
 }
