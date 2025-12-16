@@ -15,28 +15,30 @@ type FetchParams<ResultCollectionT extends ResultCollection> = {
   resultCollection?: ResultCollectionT;
 };
 
-type SqlResult<ResultCollectionT extends ResultCollection> =
-  ResultCollectionT extends "last_statement_first_row"
-    ? any
-    : ResultCollectionT extends "all_statements_first_row"
-    ? any[]
-    : ResultCollectionT extends "last_statement_all_rows"
-    ? any[]
-    : ResultCollectionT extends "all_statements_all_rows"
-    ? any[][]
-    : ResultCollectionT extends "last_statement_all_rows_scalar"
-    ? any[]
-    : ResultCollectionT extends "all_statements_all_rows_scalar"
-    ? any[][]
-    : ResultCollectionT extends "last_statement_first_row_scalar"
-    ? any
-    : ResultCollectionT extends "all_statements_first_row_scalar"
-    ? any[]
-    : unknown;
+type SqlResult<
+  T,
+  ResultCollectionT extends ResultCollection
+> = ResultCollectionT extends "last_statement_first_row"
+  ? T
+  : ResultCollectionT extends "all_statements_first_row"
+  ? T[]
+  : ResultCollectionT extends "last_statement_all_rows"
+  ? T[]
+  : ResultCollectionT extends "all_statements_all_rows"
+  ? T[][]
+  : ResultCollectionT extends "last_statement_all_rows_scalar"
+  ? T[keyof T][]
+  : ResultCollectionT extends "all_statements_all_rows_scalar"
+  ? T[keyof T][][]
+  : ResultCollectionT extends "last_statement_first_row_scalar"
+  ? T[keyof T]
+  : ResultCollectionT extends "all_statements_first_row_scalar"
+  ? T[keyof T][]
+  : unknown;
 /**
  * SQL statement object with query content, arguments, and execution methods
  */
-export type SqlStatement = {
+export type SqlStatement<T> = {
   /** Raw SQL content with formatted arguments */
   content: string;
 
@@ -50,7 +52,7 @@ export type SqlStatement = {
    */
   fetch<ResultCollectionT extends ResultCollection = "last_statement_all_rows">(
     params?: FetchParams<ResultCollectionT | ResultCollection> // The union is for auto-completion
-  ): Promise<SqlResult<ResultCollectionT>>;
+  ): Promise<SqlResult<T, ResultCollectionT>>;
 
   /**
    * Execute the SQL query and return only the first row
@@ -59,14 +61,14 @@ export type SqlStatement = {
    */
   fetchOne(
     params?: Omit<FetchParams<"last_statement_first_row">, "resultCollection">
-  ): Promise<SqlResult<"last_statement_first_row">>;
+  ): Promise<SqlResult<T, "last_statement_first_row">>;
 };
 
 /**
  * Template tag function for creating SQL statements with parameterized values
  */
 export interface SqlTemplateFunction {
-  (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
+  <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
 }
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
@@ -164,7 +166,7 @@ function sqlProviderImpl(
           workspace: getWorkspace(),
           requestBody: { args, content, language },
         });
-        return result as SqlResult<ResultCollectionT>;
+        return result as SqlResult<any, ResultCollectionT>;
       } catch (e: any) {
         let err = e;
         if (
@@ -190,7 +192,7 @@ function sqlProviderImpl(
       fetch,
       fetchOne: (params) =>
         fetch({ ...params, resultCollection: "last_statement_first_row" }),
-    } satisfies SqlStatement;
+    } satisfies SqlStatement<any>;
   };
 
   return sqlFn;
