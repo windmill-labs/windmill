@@ -171,11 +171,27 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
-                // For text output, use OpenAI-compatible format
-                let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
-                openai_builder
+                // For text output, use OpenAI-compatible completion format with Google Search grounding
+                let other_builder = super::other::OtherQueryBuilder::new(AIProvider::GoogleAI);
+                let mut request_body = other_builder
                     .build_request(args, client, workspace_id, stream)
-                    .await
+                    .await?;
+
+                // If websearch is enabled, add Google Search grounding to the request
+                if args.has_websearch {
+                    let mut request: serde_json::Value = serde_json::from_str(&request_body)
+                        .map_err(|e| Error::internal_err(format!("Failed to parse request: {}", e)))?;
+
+                    // Add Google Search grounding
+                    request["tools"] = serde_json::json!([{
+                        "google_search_retrieval": {}
+                    }]);
+
+                    request_body = serde_json::to_string(&request)
+                        .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+                }
+
+                Ok(request_body)
             }
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
         }
@@ -184,10 +200,10 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
         let url = response.url().path();
 
-        // For chat completions (text), use OpenAI parser
+        // For chat completions (text), use Other parser (completion endpoint)
         if url.contains("/chat/completions") {
-            let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
-            return openai_builder.parse_response(response).await;
+            let other_builder = super::other::OtherQueryBuilder::new(AIProvider::GoogleAI);
+            return other_builder.parse_response(response).await;
         }
 
         // Check if this is an image generation response
@@ -249,8 +265,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         response: reqwest::Response,
         stream_event_processor: StreamEventProcessor,
     ) -> Result<ParsedResponse, Error> {
-        let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
-        openai_builder
+        let other_builder = super::other::OtherQueryBuilder::new(AIProvider::GoogleAI);
+        other_builder
             .parse_streaming_response(response, stream_event_processor)
             .await
     }
