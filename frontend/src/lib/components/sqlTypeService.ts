@@ -8,11 +8,29 @@
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 import { languages, Uri, Range, editor } from 'monaco-editor'
 
+type ExtendedTypeScriptWorker = languages.typescript.TypeScriptWorker & {
+	updateSqlQueries: (fileUri: string, queries: InferAssetsSqlQueryDetails[]) => Promise<void>
+}
+
 /**
  * Cached promise for the TypeScript worker client
  * We lazily initialize this when first needed
  */
-let workerClientPromise: Promise<any> | null = null
+let _workerClient: ((...uris: Uri[]) => Promise<ExtendedTypeScriptWorker>) | undefined
+
+async function getWorkerClient(): Promise<(...uris: Uri[]) => Promise<ExtendedTypeScriptWorker>> {
+	try {
+		// Get or create the worker client
+		if (!_workerClient) {
+			_workerClient = (await languages.typescript.getTypeScriptWorker()) as any
+		}
+		return _workerClient!
+	} catch (error) {
+		console.error('[SqlTypeService] Failed to get TypeScript worker client:', error)
+		_workerClient = undefined // Reset on error
+		throw error
+	}
+}
 
 /**
  * Update SQL query type information in the TypeScript worker
@@ -35,15 +53,7 @@ export async function updateSqlQueriesInWorker(
 
 		console.log(`[SqlTypeService] Updating ${queries.length} SQL queries for ${uriString}`)
 
-		// Get or create the worker client
-		if (!workerClientPromise) {
-			workerClientPromise = languages.typescript.getTypeScriptWorker()
-		}
-
-		const workerClient = await workerClientPromise
-
-		// Get the worker instance for this specific file
-		// Monaco manages worker instances per model/file
+		const workerClient = await getWorkerClient()
 		const worker = await workerClient(uri)
 
 		if (!worker) {

@@ -1856,6 +1856,7 @@
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
 	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
+		if (lang !== 'typescript' || !initialized) return
 		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
 			// Clear SQL queries if none exist
 			updateSqlQueriesInWorker(filePath, [])
@@ -1872,8 +1873,7 @@
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
 	}, 500)
 
-	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath], () => {
-		if (lang !== 'typescript') return
+	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath, () => initialized], () => {
 		handleSqlTypingInTs()
 	})
 
