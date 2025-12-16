@@ -441,7 +441,7 @@ class AIChatManager {
 								toolDefs
 							)
 							const continueCompletion = await parseOpenAIResponsesCompletion(
-								completion as any,
+								completion,
 								callbacks,
 								messages,
 								addedMessages,
