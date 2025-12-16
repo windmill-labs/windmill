@@ -440,7 +440,6 @@ class AIChatManager {
 								abortController,
 								toolDefs
 							)
-							throw new Error('Responses API is not enabled')
 							const continueCompletion = await parseOpenAIResponsesCompletion(
 								completion as any,
 								callbacks,
@@ -469,7 +468,7 @@ class AIChatManager {
 							forceCompletions: true
 						})
 						const continueCompletion = await parseOpenAICompletion(
-							completion as any,
+							completion,
 							callbacks,
 							messages,
 							addedMessages,
@@ -484,7 +483,7 @@ class AIChatManager {
 					const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
 					if (completion) {
 						const continueCompletion = await parseAnthropicCompletion(
-							completion as any,
+							completion,
 							callbacks,
 							messages,
 							addedMessages,
@@ -500,7 +499,7 @@ class AIChatManager {
 					const completion = await getCompletion(messageParams, abortController, toolDefs)
 					if (completion) {
 						const continueCompletion = await parseOpenAICompletion(
-							completion as any,
+							completion,
 							callbacks,
 							messages,
 							addedMessages,
