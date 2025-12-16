@@ -110,7 +110,8 @@ impl Default for OutputType {
 pub struct AIAgentArgs {
     pub provider: ProviderWithResource,
     pub system_prompt: Option<String>,
-    pub user_message: String,
+    pub user_message: Option<String>,
+    pub messages: Option<Vec<OpenAIMessage>>,
     pub temperature: Option<f32>,
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,

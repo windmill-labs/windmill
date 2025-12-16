@@ -394,11 +394,36 @@ pub async fn run_agent(
             vec![]
         };
 
+    // Check if explicit messages were provided
+    let use_explicit_messages = args
+        .messages
+        .as_ref()
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+
+    // Check if user_message is provided and non-empty
+    let has_user_message = args
+        .user_message
+        .as_ref()
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+
+    // Validate: at least one of messages or user_message must be provided
+    if !use_explicit_messages && !has_user_message {
+        return Err(Error::internal_err(
+            "Either 'messages' or 'user_message' must be provided".to_string(),
+        ));
+    }
+
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
-    // Load previous messages from memory for text output mode (only if context length is set)
-    if matches!(output_type, OutputType::Text) {
+    // Load messages: either from explicit input or from memory
+    if use_explicit_messages {
+        // Use explicitly provided messages (bypass memory)
+        messages.extend(args.messages.clone().unwrap());
+    } else if matches!(output_type, OutputType::Text) {
+        // Load from memory only if no explicit messages and context length is set
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
                 if let Some(memory_id) = flow_context
@@ -463,22 +488,26 @@ pub async fn run_agent(
         }
     };
 
-    // Create user message with optional images
-    let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
-    if let Some(images) = &args.user_images {
-        for image in images.iter() {
-            if !image.s3.is_empty() {
-                parts.push(ContentPart::S3Object { s3_object: image.clone() });
+    // Create user message with optional images (only if user_message is provided)
+    if has_user_message {
+        let mut parts = vec![ContentPart::Text {
+            text: args.user_message.clone().unwrap(),
+        }];
+        if let Some(images) = &args.user_images {
+            for image in images.iter() {
+                if !image.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: image.clone() });
+                }
             }
         }
-    }
-    let user_content = OpenAIContent::Parts(parts);
+        let user_content = OpenAIContent::Parts(parts);
 
-    messages.push(OpenAIMessage {
-        role: "user".to_string(),
-        content: Some(user_content),
-        ..Default::default()
-    });
+        messages.push(OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(user_content),
+            ..Default::default()
+        });
+    }
 
     let mut actions = vec![];
     let mut content = None;
@@ -596,7 +625,7 @@ pub async fn run_agent(
                 output_schema: args.output_schema.as_ref(),
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
-                user_message: &args.user_message,
+                user_message: args.user_message.as_deref().unwrap_or(""),
                 images: args.user_images.as_deref(),
             };
 
@@ -883,8 +912,9 @@ pub async fn run_agent(
     }
 
     // Persist complete conversation to memory at the end (only if context length is set)
+    // Skip memory persistence if explicit messages were provided (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) {
+    if matches!(output_type, OutputType::Text) && !use_explicit_messages {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
                 // Extract OpenAIMessages from final_messages

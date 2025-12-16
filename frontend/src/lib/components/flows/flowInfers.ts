@@ -21,7 +21,7 @@ export const AI_AGENT_SCHEMA = {
 		user_message: {
 			type: 'string',
 			description:
-				'The message to give as input to the AI agent. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
+				'The message to give as input to the AI agent. Optional when messages array is provided. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
 		},
 		system_prompt: {
 			type: 'string',
@@ -31,6 +31,15 @@ export const AI_AGENT_SCHEMA = {
 			type: 'boolean',
 			description: 'Whether to stream the output of the AI agent.',
 			default: true,
+			showExpr: "fields.output_type === 'text'"
+		},
+		messages: {
+			type: 'array',
+			description:
+				'An array of conversation messages to use as context. When provided, these messages replace any messages that would be loaded from memory, and memory will not be updated at the end of the run. If user_message is also provided, it will be appended as the final message.',
+			items: {
+				type: 'object' as const
+			},
 			showExpr: "fields.output_type === 'text'"
 		},
 		messages_context_length: {
@@ -73,13 +82,15 @@ export const AI_AGENT_SCHEMA = {
 			default: 10
 		}
 	},
-	required: ['provider', 'user_message', 'output_type'],
+	required: ['provider', 'output_type'],
 	type: 'object',
 	order: [
 		'provider',
 		'output_type',
 		'user_message',
 		'system_prompt',
+		'streaming',
+		'messages',
 		'messages_context_length',
 		'output_schema',
 		'user_images',
