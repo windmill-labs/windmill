@@ -6,7 +6,7 @@
  */
 
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
-import { languages, Uri, Range, editor } from 'monaco-editor'
+import { languages, Uri, editor } from 'monaco-editor'
 
 type ExtendedTypeScriptWorker = languages.typescript.TypeScriptWorker & {
 	updateSqlQueries: (fileUri: string, queries: InferAssetsSqlQueryDetails[]) => Promise<void>
@@ -106,9 +106,6 @@ export async function updateSqlQueriesInWorker(
 		// This method is added by our sqlTypePlugin.worker.js
 		if (typeof worker.updateSqlQueries === 'function') {
 			await worker.updateSqlQueries(uriString, queries)
-
-			// Force TypeScript to recompute by incrementing model version
-			model.applyEdits([{ range: new Range(1, 1, 1, 1), text: '' }])
 		} else {
 			console.warn(
 				'[SqlTypeService] Custom worker method updateSqlQueries not found. Is the custom worker loaded?'

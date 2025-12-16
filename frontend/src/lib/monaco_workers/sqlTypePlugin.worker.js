@@ -45,6 +45,8 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 		// Map of file URI -> SQL query details
 		this._sqlQueriesByFile = new Map()
+		// Map of file URI -> version number (incremented when SQL queries change)
+		this._fileVersions = new Map()
 	}
 
 	/**
@@ -662,6 +664,17 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	}
 
 	/**
+	 * Override getScriptVersion to return an incremented version when SQL queries change
+	 * This forces TypeScript to invalidate its cache and re-read the snapshot
+	 */
+	getScriptVersion(fileName) {
+		const baseVersion = super.getScriptVersion(fileName)
+		const sqlVersion = this._fileVersions.get(fileName) || 0
+		// Combine base version with SQL version to create a unique version string
+		return `${baseVersion}-sql${sqlVersion}`
+	}
+
+	/**
 	 * Custom method to update SQL query information from the main thread
 	 * This is called via worker messaging from the Editor
 	 *
@@ -674,6 +687,11 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		} else {
 			this._sqlQueriesByFile.set(fileUri, queries)
 		}
+
+		// Increment the version to force TypeScript to re-read the snapshot
+		const currentVersion = this._fileVersions.get(fileUri) || 0
+		this._fileVersions.set(fileUri, currentVersion + 1)
+
 		return true
 	}
 }
