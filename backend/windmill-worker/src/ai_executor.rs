@@ -424,14 +424,14 @@ pub async fn run_agent(
 
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
-        match history {
+        match &history {
             Some(History::Manual { messages: manual_messages }) => {
                 // Use explicitly provided messages (bypass memory)
                 if !manual_messages.is_empty() {
-                    messages.extend(manual_messages);
+                    messages.extend(manual_messages.clone());
                 }
             }
-            Some(History::Auto { context_length }) if context_length > 0 => {
+            Some(History::Auto { context_length }) if *context_length > 0 => {
                 // Auto mode: load from memory
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     if let Some(memory_id) = flow_context
@@ -443,7 +443,7 @@ pub async fn run_agent(
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
                                 // Take the last n messages
-                                let start_idx = loaded_messages.len().saturating_sub(context_length);
+                                let start_idx = loaded_messages.len().saturating_sub(*context_length);
                                 let mut messages_to_load = loaded_messages[start_idx..].to_vec();
                                 let first_non_tool_message_index =
                                     messages_to_load.iter().position(|m| m.role != "tool");
@@ -934,8 +934,8 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(History::Auto { context_length }) = history {
-            if context_length > 0 {
+        if let Some(History::Auto { context_length }) = &history {
+            if *context_length > 0 {
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     // Extract OpenAIMessages from final_messages
                     let all_messages: Vec<OpenAIMessage> =
@@ -943,7 +943,7 @@ pub async fn run_agent(
 
                     if !all_messages.is_empty() {
                         // Keep only the last n messages
-                        let start_idx = all_messages.len().saturating_sub(context_length);
+                        let start_idx = all_messages.len().saturating_sub(*context_length);
                         let messages_to_persist = all_messages[start_idx..].to_vec();
 
                         if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {

@@ -39,7 +39,8 @@ export const AI_AGENT_SCHEMA = {
 				'Configure how conversation history is managed. Choose "auto" to automatically store and load messages from memory (up to N last messages), or "manual" to provide an explicit array of conversation messages. When using manual mode, memory is bypassed entirely - messages are not loaded from or saved to memory. The system_prompt (if provided) is always prepended, and user_message (if provided) is always appended as the final message.',
 			oneOf: [
 				{
-					type: 'object' as const,
+					type: 'object',
+					title: 'auto',
 					properties: {
 						mode: {
 							type: 'string',
@@ -59,7 +60,8 @@ export const AI_AGENT_SCHEMA = {
 						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
 				},
 				{
-					type: 'object' as const,
+					type: 'object',
+					title: 'manual',
 					properties: {
 						mode: {
 							type: 'string',
@@ -71,7 +73,7 @@ export const AI_AGENT_SCHEMA = {
 							type: 'array',
 							description: 'Array of conversation messages to use as history',
 							items: {
-								type: 'object' as const,
+								type: 'object',
 								properties: {
 									role: {
 										type: 'string',
@@ -84,12 +86,12 @@ export const AI_AGENT_SCHEMA = {
 										type: 'array',
 										nullable: true,
 										items: {
-											type: 'object' as const,
+											type: 'object',
 											properties: {
 												id: { type: 'string' },
 												type: { type: 'string' },
 												function: {
-													type: 'object' as const,
+													type: 'object',
 													properties: {
 														name: { type: 'string' },
 														arguments: { type: 'string' }
@@ -112,7 +114,7 @@ export const AI_AGENT_SCHEMA = {
 				}
 			],
 			showExpr: "fields.output_type === 'text'"
-		},
+		} as any,
 		output_schema: {
 			type: 'object',
 			description: 'JSON schema that the AI agent will follow for its response format.',
