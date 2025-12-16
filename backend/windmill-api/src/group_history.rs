@@ -14,7 +14,7 @@ use axum::{
 };
 use windmill_common::{
     db::UserDB,
-    error::{Error, JsonResult},
+    error::JsonResult,
     utils::{paginate, Pagination},
 };
 
@@ -40,7 +40,6 @@ async fn get_group_permission_history(
     Path((w_id, name)): Path<(String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<GroupPermissionChange>> {
-
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(pagination);
