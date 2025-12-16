@@ -1374,15 +1374,13 @@ async fn prepare_query_inner(
         String,
         (
             tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>,
-            std::sync::Arc<tokio_postgres::Client>,
+            tokio_postgres::Client,
         ),
     >,
     w_id: &str,
     db: &DB,
 ) -> Result<QueryResult> {
-    let client = if let Some((_, conn)) = pg_connections.get(&request.datatable) {
-        conn.clone()
-    } else {
+    if !pg_connections.contains_key(&request.datatable) {
         let db_resource =
             get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
         let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
@@ -1391,9 +1389,11 @@ async fn prepare_query_inner(
 
         let (client, connection) = database.connect().await?;
         let join_handle = tokio::spawn(async move { connection.await });
-        let client = std::sync::Arc::new(client);
-        pg_connections.insert(request.datatable.clone(), (join_handle, client.clone()));
-        client
+        pg_connections.insert(request.datatable.clone(), (join_handle, client));
+    }
+
+    let Some((_, client)) = pg_connections.get_mut(&request.datatable) else {
+        return Err(Error::InternalErr("Failed to get pg client".to_string()));
     };
 
     // Prepare query and extract column information
@@ -1432,7 +1432,8 @@ async fn prepare_queries(
     }
 
     // Clean up connections
-    for (join_handle, _client) in pg_connections.into_values() {
+    for (join_handle, client) in pg_connections.into_values() {
+        drop(client);
         let _ = join_handle.await;
     }
 
