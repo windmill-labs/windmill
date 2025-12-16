@@ -176,9 +176,13 @@
 			})
 			for (let i = 0; i < prepareQueriesResponse.results.length; ++i) {
 				let res = prepareQueriesResponse.results[i]
-				queries[i].column_types = Object.fromEntries(
-					res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
-				)
+				queries[i].prepared = res.columns
+					? {
+							columns: Object.fromEntries(
+								res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
+							)
+						}
+					: { error: res.error ?? "Couldn't prepare query" }
 			}
 		} catch (e) {
 			console.error('Error preparing asset sql queries', e)

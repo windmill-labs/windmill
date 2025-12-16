@@ -79,29 +79,21 @@ let testQueries = [
 		span: [120, 165],
 		source_kind: 'datatable',
 		source_name: 'main',
-		column_types: {
-			id: 'number',
-			nickname: 'string'
-		}
+		prepared: { columns: { id: 'number', nickname: 'string' } }
 	},
 	{
 		query_string: 'SELECT name FROM friends',
 		span: [229, 258],
 		source_kind: 'datatable',
 		source_name: 'main',
-		column_types: {
-			name: 'string'
-		}
+		prepared: { columns: { name: 'string' } }
 	},
 	{
 		query_string: 'SELECT id, name as nickname FROM friends',
 		span: [359, 404],
 		source_kind: 'datatable',
 		source_name: 'main',
-		column_types: {
-			id: 'number',
-			nickname: 'string'
-		}
+		prepared: { columns: { id: 'number', nickname: 'string' } }
 	}
 ]
 
