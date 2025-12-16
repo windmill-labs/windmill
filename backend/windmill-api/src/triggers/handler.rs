@@ -359,7 +359,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .sql()
             .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
-        tracing::info!("SQL: {}", sql);
         let triggers = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
 
         Ok(triggers)
