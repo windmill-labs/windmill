@@ -165,6 +165,13 @@ impl OpenAIQueryBuilder {
         // Convert tools to JSON values
         let mut tools: Vec<serde_json::Value> = Vec::new();
 
+        // Add websearch tool if enabled
+        if args.has_websearch {
+            tools.push(serde_json::json!({
+                "type": "web_search"
+            }));
+        }
+
         if let Some(tool_defs) = args.tools {
             for tool in tool_defs {
                 tools.push(serde_json::to_value(tool).map_err(|e| {

@@ -380,7 +380,7 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
-    _has_websearch: bool,
+    has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -649,6 +649,7 @@ pub async fn run_agent(
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: args.user_message.as_deref().unwrap_or(""),
                 images: args.user_images.as_deref(),
+                has_websearch,
             };
 
             let request_body = query_builder
