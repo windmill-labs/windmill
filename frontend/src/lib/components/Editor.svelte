@@ -80,7 +80,7 @@
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
-	import { updateSqlQueriesInWorker } from './sqlTypeService'
+	import { updateSqlQueriesInWorker, waitForWorkerInitialization } from './sqlTypeService'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -1853,10 +1853,21 @@
 		})
 	})
 
+	let isTsWorkerInitialized = resource(
+		[() => lang, () => initialized, () => filePath],
+		async () => {
+			if (lang !== 'typescript' || !initialized) return false
+			console.log('[Editor.isTsWorkerInitialized] Waiting for TS Worker...')
+			await waitForWorkerInitialization(filePath)
+			console.log('[Editor.isTsWorkerInitialized] TS Worker initialized successfully')
+			return true
+		}
+	)
+
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
 	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
-		if (lang !== 'typescript' || !initialized) return
+		if (lang !== 'typescript' || !isTsWorkerInitialized.current) return
 		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
 			// Clear SQL queries if none exist
 			updateSqlQueriesInWorker(filePath, [])
@@ -1867,12 +1878,24 @@
 		// The worker will inject type parameters into the code that TypeScript analyzes
 
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
+		console.log(
+			'[Editor.handleSqlTypingInTs] Updating SQL queries in TS worker...',
+			$state.snapshot(preparedAssetsSqlQueries)
+		)
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
 	}, 500)
 
-	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath, () => initialized], () => {
-		handleSqlTypingInTs()
-	})
+	watch(
+		[
+			() => preparedAssetsSqlQueries,
+			() => lang,
+			() => filePath,
+			() => isTsWorkerInitialized.current
+		],
+		() => {
+			handleSqlTypingInTs()
+		}
+	)
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>

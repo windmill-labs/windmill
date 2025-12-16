@@ -32,6 +32,43 @@ async function getWorkerClient(): Promise<(...uris: Uri[]) => Promise<ExtendedTy
 	}
 }
 
+export async function waitForWorkerInitialization(fileUri: string): Promise<true> {
+	const WORKER_INIT_TIMEOUT = 10000
+	const MAX_RETRIES = 10
+	const RETRY_DELAY = 300
+
+	if (!fileUri.endsWith('.ts')) fileUri += '.ts'
+	const uri = Uri.parse(fileUri)
+
+	const startTime = Date.now()
+
+	for (let retries = 0; retries < MAX_RETRIES; retries++) {
+		try {
+			let workerClient = await getWorkerClient()
+			await workerClient(uri)
+			return true
+		} catch (error) {
+			if (retries >= 5) {
+				console.warn(
+					`[SqlTypeService] Worker not ready yet for ${uri.toString()}, retrying... (${
+						retries + 1
+					}/${MAX_RETRIES})`
+				)
+			}
+			if (Date.now() - startTime > WORKER_INIT_TIMEOUT) {
+				throw new Error(
+					`[SqlTypeService] Worker initialization timeout for ${uri.toString()}. Custom method not found after ${WORKER_INIT_TIMEOUT}ms`
+				)
+			}
+			await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY))
+		}
+	}
+
+	throw new Error(
+		`[SqlTypeService] Worker initialization failed for ${uri.toString()} after ${MAX_RETRIES} retries.`
+	)
+}
+
 /**
  * Update SQL query type information in the TypeScript worker
  *
@@ -71,7 +108,7 @@ export async function updateSqlQueriesInWorker(
 			await worker.updateSqlQueries(uriString, queries)
 
 			// Force TypeScript to recompute by incrementing model version
-			model?.applyEdits([{ range: new Range(1, 1, 1, 1), text: '' }])
+			model.applyEdits([{ range: new Range(1, 1, 1, 1), text: '' }])
 		} else {
 			console.warn(
 				'[SqlTypeService] Custom worker method updateSqlQueries not found. Is the custom worker loaded?'
