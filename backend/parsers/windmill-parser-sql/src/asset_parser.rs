@@ -58,19 +58,28 @@ impl AssetCollector {
     // Or when we access 'b' and we did USE a;
     fn get_associated_asset_from_obj_name(&self, name: &ObjectName) -> Option<ParseAssetsResult> {
         let access_type = self.current_access_type_stack.last().copied();
-        if name.0.len() == 1 {
-            let ident = name.0.first()?.as_ident()?;
-            if ident.quote_style.is_some() {
-                return None;
-            }
-            let specific_table = &ident.value;
+        if let Some((kind, path)) = &self.currently_used_asset {
             // We don't want to infer that any simple identifier refers to an asset if
             // we are not in a known R/W context
             if access_type.is_none() {
                 return None;
             }
 
-            if let Some((kind, path)) = &self.currently_used_asset {
+            if name.0.len() == 1 || name.0.len() == 2 {
+                if name
+                    .0
+                    .iter()
+                    .any(|id| id.as_ident().and_then(|id| id.quote_style).is_some())
+                {
+                    return None;
+                }
+
+                let specific_table = &name
+                    .0
+                    .iter()
+                    .map(|id| id.as_ident().map(|id| id.value.clone()))
+                    .collect::<Option<Vec<String>>>()?
+                    .join(".");
                 let path = format!("{}/{}", path, specific_table);
                 return Some(ParseAssetsResult { kind: *kind, access_type, path });
             }
@@ -82,8 +91,12 @@ impl AssetCollector {
         }
         let ident = name.0.first()?.as_ident()?;
         let (kind, path) = self.var_identifiers.get(&ident.value)?;
-        let path = if name.0.len() == 2 {
-            let specific_table = &name.0.get(1)?.as_ident()?.value;
+        let path = if name.0.len() == 2 || name.0.len() == 3 {
+            let specific_table = &name.0[1..]
+                .iter()
+                .map(|id| id.as_ident().map(|id| id.value.clone()))
+                .collect::<Option<Vec<String>>>()?
+                .join(".");
             format!("{}/{}", path, specific_table)
         } else {
             path.clone()
@@ -620,6 +633,43 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_table_with_schema() {
+        let input = r#"
+            ATTACH 'ducklake' AS dl;
+            UPDATE dl.sch.table1 SET id = NULL;
+            SELECT * FROM dl.sch.table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "main/sch.table1".to_string(),
+                access_type: Some(RW)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_table_with_schema_implicit() {
+        let input = r#"
+            ATTACH 'ducklake' AS dl;
+            USE dl;
+            UPDATE sch.table1 SET id = NULL;
+            SELECT * FROM sch.table1;
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "main/sch.table1".to_string(),
+                access_type: Some(RW)
             },])
         );
     }

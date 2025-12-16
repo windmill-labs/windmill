@@ -332,7 +332,7 @@ class Windmill:
             "language": language,
             "args": args or {},
         }
-        return self.post(endpoint, json=body).text
+        return self.post(endpoint, json=body).json()
 
     def wait_job(
         self,
@@ -2176,9 +2176,8 @@ class DataTableClient:
             name: DataTable name
         """
         self.client = client
-        self.name = name
-
-    def query(self, sql: str, *args):
+        self.name, self.schema = parse_sql_client_name(name)
+    def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
 
         Args:
@@ -2188,6 +2187,9 @@ class DataTableClient:
         Returns:
             SqlQuery instance for fetching results
         """
+        if self.schema is not None:
+            sql = f'SET search_path TO "{self.schema}";\n' + sql
+
         args_dict = {}
         args_def = ""
         for i, arg in enumerate(args):
@@ -2214,7 +2216,7 @@ class DucklakeClient:
             name: DuckLake database name
         """
         self.client = client
-        self.name = name
+        self.name = name 
 
     def query(self, sql: str, **kwargs):
         """Execute a DuckDB query against the DuckLake database.
@@ -2298,3 +2300,12 @@ def infer_sql_type(value) -> str:
         return "JSON"
     else:
         return "TEXT"
+
+def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
+    name = name
+    schema = None
+    if ":" in name:
+        name, schema = name.split(":", 1) 
+    if not name:
+        name = "main"
+    return name, schema

@@ -49,10 +49,10 @@
 		class="flex-1"
 		bind:value
 		onCreateItem={(i) => (value = i)}
-		placeholder="PostgreSQL database name"
+		placeholder="Search or create..."
+		showPlaceholderOnOpen
 		items={onlySelectedTags}
 		disabled={!$isCustomInstanceDbEnabled}
-		itemButtonWrapperClasses="flex items-center justify-between gap-2"
 	>
 		{#snippet endSnippet({ item })}
 			{#if !customInstanceDbs.current?.[item.value]?.success}
