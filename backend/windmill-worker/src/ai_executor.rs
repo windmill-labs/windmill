@@ -147,9 +147,10 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Separate Windmill tools from MCP tools and extract MCP resource configs
+    // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
+    let mut has_websearch = false;
 
     for tool in tools {
         match &tool.value {
@@ -173,6 +174,11 @@ pub async fn handle_ai_agent_job(
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
+            }
+            ToolValue::Websearch(_) => {
+                // WebSearch tool - mark as enabled
+                tracing::debug!("WebSearch tool enabled");
+                has_websearch = true;
             }
         }
     }
@@ -327,6 +333,7 @@ pub async fn handle_ai_agent_job(
         hostname,
         killpill_rx,
         has_stream,
+        has_websearch,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -373,6 +380,7 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    _has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
