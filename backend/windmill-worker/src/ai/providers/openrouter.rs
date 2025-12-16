@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    providers::openai::{OpenAIQueryBuilder, OpenAIResponse},
+    providers::other::{OtherQueryBuilder, OpenAIResponse},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
@@ -54,13 +54,13 @@ pub struct OpenRouterImageUrl {
 }
 
 pub struct OpenRouterQueryBuilder {
-    // OpenRouter uses OpenAI-compatible API, so we delegate most work to OpenAI builder
-    openai_builder: OpenAIQueryBuilder,
+    // OpenRouter uses OpenAI-compatible completion API, so we delegate most work to Other builder
+    other_builder: OtherQueryBuilder,
 }
 
 impl OpenRouterQueryBuilder {
     pub fn new() -> Self {
-        Self { openai_builder: OpenAIQueryBuilder::new(AIProvider::OpenRouter) }
+        Self { other_builder: OtherQueryBuilder::new(AIProvider::OpenRouter) }
     }
 }
 
@@ -85,8 +85,8 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
-                // For text, use standard OpenAI format without modalities
-                self.openai_builder
+                // For text, use standard completion format without modalities
+                self.other_builder
                     .build_request(args, client, workspace_id, stream)
                     .await
             }
@@ -198,7 +198,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         response: reqwest::Response,
         stream_event_processor: StreamEventProcessor,
     ) -> Result<ParsedResponse, Error> {
-        self.openai_builder
+        self.other_builder
             .parse_streaming_response(response, stream_event_processor)
             .await
     }
