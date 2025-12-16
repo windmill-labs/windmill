@@ -421,9 +421,6 @@ class AIChatManager {
 				const isOpenAI = model.provider === 'openai' || model.provider === 'azure_openai'
 				const isAnthropic = model.provider === 'anthropic'
 
-				let completion: any
-				let parseFn: any
-
 				const messageParams = [
 					systemMessage,
 					...messages,
@@ -435,7 +432,7 @@ class AIChatManager {
 				if (isOpenAI) {
 					let responsesApiFailed = false
 					try {
-						completion = await getOpenAIResponsesCompletion(
+						const completion = await getOpenAIResponsesCompletion(
 							messageParams,
 							abortController,
 							toolDefs
@@ -458,7 +455,7 @@ class AIChatManager {
 
 					// Fallback to Completions API if Responses API failed
 					if (responsesApiFailed) {
-						completion = await getCompletion(messageParams, abortController, toolDefs, {
+						const completion = await getCompletion(messageParams, abortController, toolDefs, {
 							forceCompletions: true
 						})
 						const continueCompletion = await parseOpenAICompletion(
@@ -474,10 +471,9 @@ class AIChatManager {
 						}
 					}
 				} else if (isAnthropic) {
-					completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseAnthropicCompletion
+					const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
 					if (completion) {
-						const continueCompletion = await parseFn(
+						const continueCompletion = await parseAnthropicCompletion(
 							completion as any,
 							callbacks,
 							messages,
@@ -491,10 +487,9 @@ class AIChatManager {
 						}
 					}
 				} else {
-					completion = await getCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseOpenAICompletion
+					const completion = await getCompletion(messageParams, abortController, toolDefs)
 					if (completion) {
-						const continueCompletion = await parseFn(
+						const continueCompletion = await parseOpenAICompletion(
 							completion as any,
 							callbacks,
 							messages,
