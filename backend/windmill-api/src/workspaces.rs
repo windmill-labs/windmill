@@ -133,7 +133,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
         .route("/edit_datatable_config", post(edit_datatable_config))
-        .route("/prepare_datatable_queries", post(prepare_datatable_queries))
+        .route("/prepare_queries", post(prepare_queries))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1345,7 +1345,7 @@ async fn edit_datatable_config(
 #[derive(Deserialize, Debug)]
 struct PrepareQueriesRequest {
     datatable: String,
-    queries: Vec<String>,
+    query: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -1373,54 +1373,70 @@ struct PgDatabaseConfig {
     port: Option<u16>,
     sslmode: Option<String>,
     dbname: String,
-    root_certificate_pem: Option<String>,
 }
 
-async fn prepare_datatable_queries(
+async fn prepare_queries(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(request): Json<PrepareQueriesRequest>,
+    Json(requests): Json<Vec<PrepareQueriesRequest>>,
 ) -> JsonResult<PrepareQueriesResponse> {
     use tokio_postgres::NoTls;
     use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 
-    // Get datatable configuration
-    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
-
-    // Parse database resource to get connection details
-    let db_config: PgDatabaseConfig = serde_json::from_value(db_resource)
-        .map_err(|e| Error::InternalErr(format!("Failed to parse datatable resource: {}", e)))?;
-
-    // Build connection string
-    let connection_string = format!(
-        "host={} dbname={} {}{}{}{}",
-        db_config.host,
-        db_config.dbname,
-        db_config.user.as_ref().map(|u| format!("user={} ", u)).unwrap_or_default(),
-        db_config.password.as_ref().map(|p| format!("password={} ", p)).unwrap_or_default(),
-        db_config.port.map(|p| format!("port={} ", p)).unwrap_or_default(),
-        db_config.sslmode.as_ref().map(|s| format!("sslmode={}", s)).unwrap_or_default(),
-    );
-
-    // Connect to database
-    let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to connect to datatable: {}", e)))?;
-
-    // Spawn connection handler
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Database connection error: {}", e);
-        }
-    });
-
     let mut results = Vec::new();
 
-    // Prepare each query and extract column information
-    for query in &request.queries {
+    for request in &requests {
+        // Get datatable configuration
+        let db_resource =
+            get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
+
+        // Parse database resource to get connection details
+        let db_config: PgDatabaseConfig = serde_json::from_value(db_resource).map_err(|e| {
+            Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
+        })?;
+
+        // Build connection string
+        let connection_string = format!(
+            "host={} dbname={} {}{}{}{}",
+            db_config.host,
+            db_config.dbname,
+            db_config
+                .user
+                .as_ref()
+                .map(|u| format!("user={} ", u))
+                .unwrap_or_default(),
+            db_config
+                .password
+                .as_ref()
+                .map(|p| format!("password={} ", p))
+                .unwrap_or_default(),
+            db_config
+                .port
+                .map(|p| format!("port={} ", p))
+                .unwrap_or_default(),
+            db_config
+                .sslmode
+                .as_ref()
+                .map(|s| format!("sslmode={}", s))
+                .unwrap_or_default(),
+        );
+
+        // Connect to database
+        let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to connect to datatable: {}", e)))?;
+
+        // Spawn connection handler
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::error!("Database connection error: {}", e);
+            }
+        });
+
+        // Prepare query and extract column information
         let prepared = client
-            .prepare(query)
+            .prepare(&request.query)
             .await
             .map_err(|e| Error::ExecutionErr(format!("Failed to prepare query: {}", e)))?;
 
@@ -1435,7 +1451,6 @@ async fn prepare_datatable_queries(
 
         results.push(QueryResult { columns });
     }
-
     Ok(Json(PrepareQueriesResponse { results }))
 }
 

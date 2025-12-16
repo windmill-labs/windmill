@@ -139,7 +139,7 @@
 		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
 		rawAppRunnableKey?: string | undefined
 		// Used to provide typed queries in TypeScript when detecting assets
-		parsedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
+		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 	}
 
 	let {
@@ -169,7 +169,7 @@
 		moduleId = undefined,
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
-		parsedAssetsSqlQueries
+		preparedAssetsSqlQueries
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1856,7 +1856,7 @@
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
 	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
-		if (!parsedAssetsSqlQueries || parsedAssetsSqlQueries.length === 0) {
+		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
 			// Clear SQL queries if none exist
 			updateSqlQueriesInWorker(filePath, [])
 			return
@@ -1866,12 +1866,12 @@
 		// The worker will inject type parameters into the code that TypeScript analyzes
 		console.log(
 			'[Editor] Updating SQL queries in TypeScript worker:',
-			parsedAssetsSqlQueries.length
+			preparedAssetsSqlQueries.length
 		)
-		updateSqlQueriesInWorker(filePath, parsedAssetsSqlQueries)
+		updateSqlQueriesInWorker(filePath, preparedAssetsSqlQueries)
 	})
 
-	watch([() => parsedAssetsSqlQueries, () => lang, () => filePath], () => {
+	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath], () => {
 		if (lang !== 'typescript') return
 		handleSqlTypingInTs()
 	})

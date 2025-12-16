@@ -163,29 +163,26 @@
 	})
 
 	let _parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
-	let parsedAssetsSqlQueries = resource(
+	let preparedAssetsSqlQueries = resource(
 		() => _parsedAssetsSqlQueries,
 		async (queries) => {
+			queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
 			if (!queries?.length) return
-			return await Promise.all(
-				queries.map(async (q) => {
-					const prepareResult =
-						q.source_kind === 'datatable'
-							? await WorkspaceService.prepareDatatableQueries({
-									workspace: $workspaceStore ?? '',
-									requestBody: { datatable: q.source_name, queries: [q.query_string] }
-								})
-							: undefined
-					const column_types =
-						prepareResult &&
-						Object.fromEntries(
-							prepareResult?.results[0].columns.map(
-								(col) => [col.name, sqlDataTypeToJsTypeHeuristic(col.type)] as const
-							) ?? []
-						)
-					return { ...q, column_types } satisfies InferAssetsSqlQueryDetails
-				})
-			)
+			let preparedDatatableQueriesResponse = await WorkspaceService.prepareQueries({
+				workspace: $workspaceStore ?? '',
+				requestBody: queries.map((q) => ({
+					datatable: q.source_name,
+					query: q.query_string
+				}))
+			})
+			for (let i = 0; i < preparedDatatableQueriesResponse.results.length; ++i) {
+				let res = preparedDatatableQueriesResponse.results[i]
+				queries[i].column_types = Object.fromEntries(
+					res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
+				)
+			}
+
+			return queries
 		}
 	)
 
@@ -954,7 +951,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				parsedAssetsSqlQueries={$state.snapshot(parsedAssetsSqlQueries.current)}
+				preparedAssetsSqlQueries={$state.snapshot(preparedAssetsSqlQueries.current)}
 			/>
 			<DiffEditor
 				className="h-full"
