@@ -46,6 +46,7 @@ use windmill_common::workspaces::{
     DataTable, DataTableCatalogResourceType, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -1365,16 +1366,6 @@ struct PrepareQueriesResponse {
     results: Vec<QueryResult>,
 }
 
-#[derive(Deserialize, Debug)]
-struct PgDatabaseConfig {
-    host: String,
-    user: Option<String>,
-    password: Option<String>,
-    port: Option<u16>,
-    sslmode: Option<String>,
-    dbname: String,
-}
-
 async fn prepare_queries(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1392,35 +1383,12 @@ async fn prepare_queries(
             get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
 
         // Parse database resource to get connection details
-        let db_config: PgDatabaseConfig = serde_json::from_value(db_resource).map_err(|e| {
+        let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
             Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
         })?;
 
         // Build connection string
-        let connection_string = format!(
-            "host={} dbname={} {}{}{}{}",
-            db_config.host,
-            db_config.dbname,
-            db_config
-                .user
-                .as_ref()
-                .map(|u| format!("user={} ", u))
-                .unwrap_or_default(),
-            db_config
-                .password
-                .as_ref()
-                .map(|p| format!("password={} ", p))
-                .unwrap_or_default(),
-            db_config
-                .port
-                .map(|p| format!("port={} ", p))
-                .unwrap_or_default(),
-            db_config
-                .sslmode
-                .as_ref()
-                .map(|s| format!("sslmode={}", s))
-                .unwrap_or_default(),
-        );
+        let connection_string = database.to_conn_str();
 
         // Connect to database
         let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
