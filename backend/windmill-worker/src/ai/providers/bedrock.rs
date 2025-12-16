@@ -464,6 +464,7 @@ pub fn bedrock_response_to_openai(
                                 name: tool_use.name().to_string(),
                                 arguments,
                             },
+                            extra_content: None, // Bedrock doesn't use thought signatures
                         });
                     }
                     _ => {}
@@ -544,6 +545,7 @@ pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec
             id: tc.id,
             function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
             r#type: FUNCTION_TYPE.to_string(),
+            extra_content: None, // Bedrock doesn't use thought signatures
         })
         .collect()
 }
