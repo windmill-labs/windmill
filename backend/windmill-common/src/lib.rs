@@ -340,6 +340,30 @@ pub struct PgDatabase {
     pub root_certificate_pem: Option<String>,
 }
 
+// Wrapper enum to hold either Tls or NoTls connection
+pub enum TokioPgConnection {
+    Tls(tokio_postgres::Connection<tokio_postgres::Socket, postgres_native_tls::TlsStream<tokio_postgres::Socket>>),
+    NoTls(tokio_postgres::Connection<tokio_postgres::Socket, tokio_postgres::tls::NoTlsStream>),
+}
+
+
+impl Future for TokioPgConnection
+{
+    type Output = Result<(), tokio_postgres::Error>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        // SAFETY: We're simply projecting the Pin from the outer enum to the inner connection field.
+        // The inner connection is never moved out, so this is safe.
+        unsafe {
+            match self.get_unchecked_mut() {
+                TokioPgConnection::Tls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+                TokioPgConnection::NoTls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+            }
+        }
+    }
+}
+
+
 impl PgDatabase {
     pub fn to_uri(&self) -> String {
         let sslmode = match self.sslmode.as_deref() {
@@ -375,8 +399,55 @@ impl PgDatabase {
         )
     }
 
-    pub fn ssl_mode_is_require(&self) -> bool {
-        matches!(self.sslmode.as_deref(), Some("require") | Some("verify-ca") | Some("verify-full"))
+    pub async fn connect(&self) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use tokio_postgres::tls::{ NoTls };
+        use postgres_native_tls::MakeTlsConnector;
+        use native_tls::{Certificate, TlsConnector};
+        let ssl_mode_is_require = matches!(self.sslmode.as_deref(), Some("require") | Some("verify-ca") | Some("verify-full")); 
+        
+        if ssl_mode_is_require {
+            tracing::info!("Creating new connection");
+            let mut connector = TlsConnector::builder();
+            if let Some(root_certificate_pem) = &self.root_certificate_pem {
+                if !root_certificate_pem.is_empty() {
+                    connector.add_root_certificate(
+                        Certificate::from_pem(root_certificate_pem.as_bytes())
+                            .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                    );
+                } else {
+                    connector.danger_accept_invalid_certs(true);
+                    connector.danger_accept_invalid_hostnames(true);
+                }
+            } else {
+                connector
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true);
+            }
+    
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(
+                    &self.to_uri(),
+                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+                ),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::Tls(connection)))
+        } else {
+            tracing::info!("Creating new connection");
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(&self.to_uri(), NoTls),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::NoTls(connection)))
+        }
     }
 
     pub fn parse_uri(url: &str) -> Result<Self, Error> {

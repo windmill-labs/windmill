@@ -1377,30 +1377,36 @@ async fn prepare_queries(
 
     let mut results = Vec::new();
 
+    let mut datatable_connections: HashMap<String, std::sync::Arc<tokio_postgres::Client>> =
+        HashMap::new();
+
     for request in &requests {
-        // Get datatable configuration
-        let db_resource =
-            get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
+        let client = if let Some(conn) = datatable_connections.get(&request.datatable) {
+            conn.clone()
+        } else {
+            let db_resource =
+                get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
+            let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
+                Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
+            })?;
 
-        // Parse database resource to get connection details
-        let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
-            Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
-        })?;
+            let connection_string = database.to_conn_str();
 
-        // Build connection string
-        let connection_string = database.to_conn_str();
+            let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!("Failed to connect to datatable: {}", e))
+                })?;
 
-        // Connect to database
-        let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Failed to connect to datatable: {}", e)))?;
-
-        // Spawn connection handler
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Database connection error: {}", e);
-            }
-        });
+            tokio::spawn(async move {
+                if let Err(e) = connection.await {
+                    tracing::error!("Database connection error: {}", e);
+                }
+            });
+            let client = std::sync::Arc::new(client);
+            datatable_connections.insert(request.datatable.clone(), client.clone());
+            client
+        };
 
         // Prepare query and extract column information
         let prepared = client

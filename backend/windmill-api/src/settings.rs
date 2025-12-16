@@ -740,41 +740,8 @@ async fn setup_custom_instance_pg_database_inner(
     }
 
     // We have to connect to the newly created database as admin to grant permissions
-    let conn_str = pg_creds.to_uri();
-
-    let (client, join_handle) = if pg_creds.ssl_mode_is_require() {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
-        let mut connector = TlsConnector::builder();
-        connector.danger_accept_invalid_certs(true);
-        connector.danger_accept_invalid_hostnames(true);
-
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(
-                &conn_str,
-                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-            ),
-        )
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
-
-        let join_handle = tokio::spawn(async move { connection.await });
-        (client, join_handle)
-    } else {
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-        )
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
-
-        let join_handle = tokio::spawn(async move { connection.await });
-        (client, join_handle)
-    };
+    let (client, connection) = pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
 
     logs.db_connect = "OK".to_string();
 
