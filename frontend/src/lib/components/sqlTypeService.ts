@@ -51,8 +51,6 @@ export async function updateSqlQueriesInWorker(
 		const uri = Uri.parse(fileUri)
 		const uriString = uri.toString()
 
-		console.log(`[SqlTypeService] Updating ${queries.length} SQL queries for ${uriString}`)
-
 		const workerClient = await getWorkerClient()
 		const worker = await workerClient(uri)
 

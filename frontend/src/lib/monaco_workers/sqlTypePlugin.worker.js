@@ -45,9 +45,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 		// Map of file URI -> SQL query details
 		this._sqlQueriesByFile = new Map()
-
-		// For debugging
-		console.log('[SqlTypePlugin] Custom TypeScript worker initialized')
 	}
 
 	/**
@@ -71,7 +68,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 			const { transformed } = injectSqlTypes(originalText, queries)
 
 			if (transformed !== originalText) {
-				console.log(`[SqlTypePlugin] Transformed ${fileName} with ${queries.length} SQL queries`)
 				return ts.typescript.ScriptSnapshot.fromString(transformed)
 			}
 		} catch (error) {
@@ -673,14 +669,11 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @param {Array} queries - Array of SQL query details
 	 */
 	async updateSqlQueries(fileUri, queries) {
-		console.log(`[SqlTypePlugin] Updating SQL queries for ${fileUri}:`, queries?.length || 0)
-
 		if (!queries || queries.length === 0) {
 			this._sqlQueriesByFile.delete(fileUri)
 		} else {
 			this._sqlQueriesByFile.set(fileUri, queries)
 		}
-
 		return true
 	}
 }

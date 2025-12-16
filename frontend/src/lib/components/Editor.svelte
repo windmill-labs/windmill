@@ -1865,10 +1865,7 @@
 
 		// Send SQL query information to the custom TypeScript worker
 		// The worker will inject type parameters into the code that TypeScript analyzes
-		console.log(
-			'[Editor] Updating SQL queries in TypeScript worker:',
-			preparedAssetsSqlQueries.length
-		)
+
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
 	}, 500)
