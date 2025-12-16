@@ -149,6 +149,7 @@ rustls = { workspace = true }
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 aws-config = { workspace = true, optional = true }
+aws-credential-types.workspace = true
 async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
