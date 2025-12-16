@@ -125,6 +125,7 @@ windmill-autoscaling = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
+sql-builder.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
