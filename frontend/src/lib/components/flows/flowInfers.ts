@@ -36,7 +36,7 @@ export const AI_AGENT_SCHEMA = {
 		messages_context_length: {
 			type: 'number',
 			description:
-				'Allows storing the conversation history and giving it back to the AI agent as context, up to the N last messages. If not set or 0, memory is disabled.',
+				'Allows storing the conversation history and giving it back to the AI agent, up to the N last messages. If not set or 0, memory is disabled.',
 			'x-no-s3-storage-workspace-warning':
 				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
 			showExpr: "fields.output_type === 'text'"
@@ -44,7 +44,7 @@ export const AI_AGENT_SCHEMA = {
 		messages: {
 			type: 'array',
 			description:
-				'An array of conversation messages to use as context. When provided, these messages replace any messages that would be loaded from memory, and memory will not be updated at the end of the run. If user_message is also provided, it will be appended as the final message.',
+				'An array of conversation messages to use as history. When provided, these messages replace any messages that would be loaded from memory, and memory will not be updated at the end of the run. If user_message is also provided, it will be appended as the final message.',
 			items: {
 				type: 'object' as const,
 				properties: {
@@ -123,8 +123,8 @@ export const AI_AGENT_SCHEMA = {
 		'user_message',
 		'system_prompt',
 		'streaming',
-		'messages',
 		'messages_context_length',
+		'messages',
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',

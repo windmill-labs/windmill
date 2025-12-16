@@ -418,7 +418,7 @@ pub async fn run_agent(
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
-    // Load messages: either from explicit input or from memory
+    // Load messages if given, this will bypass memory
     if let Some(ref explicit_messages) = args.messages {
         if !explicit_messages.is_empty() {
             // Use explicitly provided messages (bypass memory)
@@ -427,7 +427,6 @@ pub async fn run_agent(
     }
 
     if !use_explicit_messages && matches!(output_type, OutputType::Text) {
-        // Load from memory only if no explicit messages and context length is set
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
                 if let Some(memory_id) = flow_context
