@@ -15,7 +15,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     ast.into_iter()
         .for_each(|stmt| assets_finder.visit_stmt(stmt));
 
-    for (kind, path) in assets_finder.var_identifiers.into_values() {
+    for (kind, path, _) in assets_finder.var_identifiers.into_values() {
         // if a db = wmill.datatable() was never used (e.g db.query(...)),
         // we still want to register the asset as unknown access type
         if asset_was_used(&assets_finder.assets, (kind, &path)) == false {
@@ -28,9 +28,11 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
     Ok(merge_assets(assets_finder.assets))
 }
 
+type VarAssetName = String;
+type VarAssetSchema = Option<String>;
 struct AssetsFinder {
     assets: Vec<ParseAssetsResult>,
-    var_identifiers: HashMap<String, (AssetKind, String)>,
+    var_identifiers: HashMap<String, (AssetKind, VarAssetName, VarAssetSchema)>,
 }
 
 impl Visitor for AssetsFinder {
@@ -44,7 +46,7 @@ impl Visitor for AssetsFinder {
             // if a db = wmill.datatable() or similar was removed, but never used (e.g db.query(...)),
             // we still want to register the asset as unknown access type
             match removed {
-                Some((kind, path)) => {
+                Some((kind, path, _)) => {
                     if !asset_was_used(&self.assets, (kind, &path)) {
                         self.assets
                             .push(ParseAssetsResult { kind, access_type: None, path });
@@ -53,11 +55,11 @@ impl Visitor for AssetsFinder {
                 None => {}
             }
 
-            if let Some((kind, name)) = self.extract_asset_from_call(&node.value) {
+            if let Some((kind, name, schema)) = self.extract_asset_from_call(&node.value) {
                 // Track target variable
                 let Ok(var_name) = expr_name.id.parse::<String>();
                 self.var_identifiers
-                    .insert(var_name, (kind.clone(), name.clone()));
+                    .insert(var_name, (kind.clone(), name.clone(), schema.clone()));
             }
         }
         // Continue with generic visit to catch any other assets in the expression
@@ -107,7 +109,10 @@ impl Visitor for AssetsFinder {
 
 impl AssetsFinder {
     /// Extract asset info from calls like wmill.datatable('name'), wmill.ducklake('name'), etc.
-    fn extract_asset_from_call(&self, expr: &Expr) -> Option<(AssetKind, String)> {
+    fn extract_asset_from_call(
+        &self,
+        expr: &Expr,
+    ) -> Option<(AssetKind, VarAssetName, VarAssetSchema)> {
         let call = expr.as_call_expr()?;
 
         // Check for wmill.datatable, wmill.ducklake pattern
@@ -143,10 +148,21 @@ impl AssetsFinder {
                 } else {
                     None
                 }
-            })
-            .unwrap_or_else(|| "main".to_string());
+            });
+        let (name, schema) = match name {
+            None => ("main".to_string(), None),
+            Some(name) => {
+                if let Some((name, s)) = name.split_once(':') {
+                    let schema = Some(s.to_string());
+                    let name = if name.is_empty() { "main" } else { name };
+                    (name.to_string(), schema)
+                } else {
+                    (name, None)
+                }
+            }
+        };
 
-        Some((kind, name))
+        Some((kind, name, schema))
     }
 
     fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
@@ -177,7 +193,7 @@ impl AssetsFinder {
 
         if obj_name == "wmill" {
             // Continue
-        } else if let Some((kind, ref path)) = self.var_identifiers.get(&obj_name) {
+        } else if let Some((kind, ref path, ref schema)) = self.var_identifiers.get(&obj_name) {
             if ident == "query" {
                 let expr_name = node.args.get(0).or_else(|| {
                     node.keywords
@@ -198,7 +214,19 @@ impl AssetsFinder {
 
                 // We use the SQL parser to detect if it's a read or write query
                 match windmill_parser_sql::parse_assets(&sql) {
-                    Ok(sql_assets) => {
+                    Ok(mut sql_assets) => {
+                        if let Some(schema_name) = schema {
+                            for asset in &mut sql_assets {
+                                if asset.kind == *kind && asset.path.starts_with(path.as_str()) {
+                                    asset.path = format!(
+                                        "{}/{}.{}",
+                                        path,
+                                        schema_name,
+                                        &asset.path[path.len() + 1..]
+                                    );
+                                }
+                            }
+                        }
                         self.assets.extend(sql_assets);
                     }
                     _ => {}
@@ -399,6 +427,82 @@ def g():
                     access_type: None
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_datatable_with_schema() {
+        let input = r#"
+import wmill
+def main(x: int):
+    db = wmill.datatable('dt:public')
+    return db.query('SELECT * FROM friends WHERE age = $1', x).fetch()
+"#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/public.friends".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_ducklake_with_schema() {
+        let input = r#"
+import wmill
+def main():
+    db = wmill.ducklake('lake1:analytics')
+    return db.query('SELECT * FROM metrics').fetch()
+"#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "lake1/analytics.metrics".to_string(),
+                access_type: Some(R)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_schema_with_write() {
+        let input = r#"
+import wmill
+def main(x: int):
+    db = wmill.datatable('dt:public')
+    db.query('INSERT INTO users VALUES ($1)', x).fetch()
+    return db.query('SELECT * FROM users').fetch()
+"#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt/public.users".to_string(),
+                access_type: Some(RW)
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_unused_datatable_with_schema() {
+        let input = r#"
+import wmill
+def main():
+    db = wmill.datatable('dt:public')
+"#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt".to_string(),
+                access_type: None
+            },])
         );
     }
 }
