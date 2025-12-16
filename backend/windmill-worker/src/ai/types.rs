@@ -128,6 +128,10 @@ pub struct ProviderResource {
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
     pub region: Option<String>,
+    #[serde(alias = "awsAccessKeyId")]
+    pub aws_access_key_id: Option<String>,
+    #[serde(alias = "awsSecretAccessKey")]
+    pub aws_secret_access_key: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -158,6 +162,14 @@ impl ProviderWithResource {
 
     pub fn get_region(&self) -> Option<&str> {
         self.resource.region.as_deref()
+    }
+
+    pub fn get_aws_access_key_id(&self) -> Option<&str> {
+        self.resource.aws_access_key_id.as_deref()
+    }
+
+    pub fn get_aws_secret_access_key(&self) -> Option<&str> {
+        self.resource.aws_secret_access_key.as_deref()
     }
 }
 
