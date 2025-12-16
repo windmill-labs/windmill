@@ -41,7 +41,7 @@
 
 	let displayTeams = $derived.by(() => {
 		const baseTeams = teams || searchResults
-		if (selectedTeam && !baseTeams.find(t => t.team_id === selectedTeam?.team_id)) {
+		if (selectedTeam && !baseTeams.find((t) => t.team_id === selectedTeam?.team_id)) {
 			return [selectedTeam, ...baseTeams]
 		}
 		return baseTeams
@@ -49,7 +49,7 @@
 
 	$effect(() => {
 		const newTeam = selectedTeamId
-			? displayTeams.find(t => t.team_id === selectedTeamId)
+			? displayTeams.find((t) => t.team_id === selectedTeamId)
 			: undefined
 
 		if (newTeam?.team_id !== selectedTeam?.team_id) {
@@ -127,11 +127,13 @@
 						label: team.team_name,
 						value: team.team_id
 					}))}
-					placeholder={isFetching ? "Searching..." : "Search teams..."}
+					placeholder={isFetching ? 'Searching...' : 'Search teams...'}
 					clearable
-					disabled={disabled || isFetching}
+					{disabled}
 					bind:filterText={searchFilterText}
 					bind:value={selectedTeamId}
+					noItemsMsg="Start typing to search for a team"
+					loading={isFetching}
 				/>
 			{:else}
 				<Select
@@ -142,8 +144,10 @@
 					}))}
 					placeholder="Select a team"
 					clearable
-					disabled={disabled || isFetching}
+					{disabled}
 					bind:value={selectedTeamId}
+					noItemsMsg="Start typing to search for a team"
+					loading={isFetching}
 				/>
 			{/if}
 		</div>
@@ -153,11 +157,10 @@
 				onclick={refreshSearch}
 				disabled={isFetching || disabled || (searchMode && searchFilterText.length < 2)}
 				class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
-				title={searchMode ? "Refresh search results" : "Refresh teams from Microsoft"}
+				title={searchMode ? 'Refresh search results' : 'Refresh teams from Microsoft'}
 			>
 				<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 			</button>
 		{/if}
 	</div>
-
 </div>

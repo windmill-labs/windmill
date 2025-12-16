@@ -42,7 +42,10 @@
 
 	let displayChannels = $derived.by(() => {
 		const baseChannels = channels || searchResults
-		if (selectedChannel && !baseChannels.find(c => c.channel_id === selectedChannel?.channel_id)) {
+		if (
+			selectedChannel &&
+			!baseChannels.find((c) => c.channel_id === selectedChannel?.channel_id)
+		) {
 			return [selectedChannel, ...baseChannels]
 		}
 		return baseChannels
@@ -50,7 +53,7 @@
 
 	$effect(() => {
 		const newChannel = selectedChannelId
-			? displayChannels.find(c => c.channel_id === selectedChannelId)
+			? displayChannels.find((c) => c.channel_id === selectedChannelId)
 			: undefined
 
 		if (newChannel?.channel_id !== selectedChannel?.channel_id) {
@@ -111,7 +114,6 @@
 			return []
 		}
 	}
-
 </script>
 
 <div class={containerClass}>
@@ -120,30 +122,39 @@
 			{#if searchMode}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayChannels.filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
-						label: channel.channel_name ?? 'Unknown Channel',
-						value: channel.channel_id ?? ''
-					}))}
-					placeholder={isFetching ? "Searching..." : (teamId ? "Search channels..." : "Select a team first")}
+					items={displayChannels
+						.filter((channel) => channel.channel_id && channel.channel_name)
+						.map((channel) => ({
+							label: channel.channel_name ?? 'Unknown Channel',
+							value: channel.channel_id ?? ''
+						}))}
+					placeholder={isFetching
+						? 'Searching...'
+						: teamId
+							? 'Search channels...'
+							: 'Select a team first'}
 					clearable
-					disabled={disabled || isFetching || !teamId}
+					disabled={disabled || !teamId}
+					loading={isFetching}
 					bind:filterText={searchFilterText}
 					bind:value={selectedChannelId}
 				/>
 			{:else}
 				<Select
 					containerStyle={'min-width: ' + minWidth}
-					items={displayChannels.filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
-						label: channel.channel_name ?? 'Unknown Channel',
-						value: channel.channel_id ?? ''
-					}))}
+					items={displayChannels
+						.filter((channel) => channel.channel_id && channel.channel_name)
+						.map((channel) => ({
+							label: channel.channel_name ?? 'Unknown Channel',
+							value: channel.channel_id ?? ''
+						}))}
 					{placeholder}
 					clearable
 					disabled={disabled || displayChannels.length === 0}
+					loading={isFetching}
 					bind:value={selectedChannelId}
 				/>
 			{/if}
 		</div>
 	</div>
-
 </div>

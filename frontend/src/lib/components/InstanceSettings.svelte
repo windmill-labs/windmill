@@ -343,7 +343,7 @@
 							baseUrl={$values?.base_url}
 						>
 							{#snippet scim()}
-								<div class="flex-col flex gap-2 pb-4">
+								<div class="flex-col flex gap-6 pb-4">
 									{#each scimSamlSetting as setting}
 										<InstanceSetting
 											on:closeDrawer={() => closeDrawer?.()}
@@ -358,15 +358,18 @@
 						</AuthSettings>
 					{/if}
 					<div>
-						<div class="flex-col flex gap-4 pb-4">
+						<div class="flex-col flex gap-6 pb-4">
 							{#each settings[category] as setting}
-								<InstanceSetting
-									on:closeDrawer={() => closeDrawer?.()}
-									{loading}
-									{setting}
-									{values}
-									{version}
-								/>
+								<!-- slack connect and smtp connect are handled with the alert channels settings -->
+								{#if setting.fieldType != 'slack_connect' && setting.fieldType != 'smtp_connect'}
+									<InstanceSetting
+										on:closeDrawer={() => closeDrawer?.()}
+										{loading}
+										{setting}
+										{values}
+										{version}
+									/>
+								{/if}
 							{/each}
 						</div>
 					</div>

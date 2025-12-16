@@ -1,3 +1,5 @@
+import type { ButtonType } from './common/button/model'
+
 export interface Setting {
 	label: string
 	description?: string
@@ -45,6 +47,11 @@ export interface Setting {
 	error?: string
 	defaultValue?: () => any
 	codeAreaLang?: string
+	actionButton?: {
+		label: string
+		onclick: (values: Record<string, any>) => Promise<void>
+		variant?: ButtonType.Variant
+	}
 }
 
 export type SettingStorage = 'setting'
@@ -373,11 +380,27 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP, Slack or Microsoft Teams must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+				'Channels to send critical alerts to. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
-			ee_only: 'Channels other than tracing are only available in the EE version'
+			ee_only: 'Channels other than tracing are only available in the EE version',
+			actionButton: {
+				label: 'Test all channels',
+				onclick: async (values) => {
+					const { SettingService } = await import('$lib/gen')
+					const { sendUserToast } = await import('$lib/toast')
+					try {
+						await SettingService.testCriticalChannels({
+							requestBody: values.critical_error_channels
+						})
+						sendUserToast('Test message sent successfully to critical channels', false)
+					} catch (error: any) {
+						sendUserToast('Failed to send test message: ' + error.message, true)
+					}
+				},
+				variant: 'accent'
+			}
 		},
 		{
 			label: 'Mute critical alerts in UI',
