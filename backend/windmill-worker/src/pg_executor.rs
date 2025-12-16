@@ -10,15 +10,13 @@ use chrono::Utc;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use native_tls::{Certificate, TlsConnector};
-use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
 use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::Client;
-use tokio_postgres::{types::ToSql, NoTls, Row};
+use tokio_postgres::{types::ToSql, Row};
 use tokio_postgres::{
     types::{FromSql, Type},
     Column,
@@ -261,54 +259,8 @@ pub async fn do_postgresql(
             std::sync::atomic::Ordering::Relaxed,
         );
         (None, mtex)
-    } else if database.ssl_mode_is_require() {
-        tracing::info!("Creating new connection");
-        let mut connector = TlsConnector::builder();
-        if let Some(root_certificate_pem) = database.root_certificate_pem {
-            if !root_certificate_pem.is_empty() {
-                connector.add_root_certificate(
-                    Certificate::from_pem(root_certificate_pem.as_bytes())
-                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
-                );
-            } else {
-                connector.danger_accept_invalid_certs(true);
-                connector.danger_accept_invalid_hostnames(true);
-            }
-        } else {
-            connector
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
-        }
-
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(
-                &database_string,
-                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-            ),
-        )
-        .await
-        .map_err(to_anyhow)?
-        .map_err(to_anyhow)?;
-
-        let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                tracing::error!("connection error: {}", e);
-            }
-        });
-        (Some((client, handle)), None)
     } else {
-        tracing::info!("Creating new connection");
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(&database_string, NoTls),
-        )
-        .await
-        .map_err(to_anyhow)?
-        .map_err(to_anyhow)?;
-
+        let (client, connection) = database.connect().await?;
         let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
                 let mut mtex = CONNECTION_CACHE.lock().await;
