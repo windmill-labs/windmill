@@ -10,6 +10,7 @@ use crate::{
             google_ai::GoogleAIQueryBuilder,
             openai::{OpenAIQueryBuilder, OpenAIToolCall},
             openrouter::OpenRouterQueryBuilder,
+            other::OtherQueryBuilder,
         },
         types::*,
     },
@@ -93,7 +94,12 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     match provider.kind {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
-        _ => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())), // Pass provider kind for Azure handling
+        // OpenAI and Azure OpenAI use the Responses API
+        AIProvider::OpenAI | AIProvider::AzureOpenAI => {
+            Box::new(OpenAIQueryBuilder::new(provider.kind.clone()))
+        }
+        // All other providers use the completion endpoint
+        _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),
     }
 }
 
