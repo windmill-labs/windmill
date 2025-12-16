@@ -33,6 +33,14 @@ export const AI_AGENT_SCHEMA = {
 			default: true,
 			showExpr: "fields.output_type === 'text'"
 		},
+		messages_context_length: {
+			type: 'number',
+			description:
+				'Allows storing the conversation history and giving it back to the AI agent as context, up to the N last messages. If not set or 0, memory is disabled.',
+			'x-no-s3-storage-workspace-warning':
+				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
+			showExpr: "fields.output_type === 'text'"
+		},
 		messages: {
 			type: 'array',
 			description:
@@ -71,14 +79,6 @@ export const AI_AGENT_SCHEMA = {
 				},
 				required: ['role']
 			},
-			showExpr: "fields.output_type === 'text'"
-		},
-		messages_context_length: {
-			type: 'number',
-			description:
-				'Maximum number of conversation messages to store and retrieve from memory. If not set or 0, memory is disabled.',
-			'x-no-s3-storage-workspace-warning':
-				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
 			showExpr: "fields.output_type === 'text'"
 		},
 		output_schema: {
