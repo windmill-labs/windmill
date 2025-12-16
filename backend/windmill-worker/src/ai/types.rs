@@ -106,20 +106,37 @@ impl Default for OutputType {
     }
 }
 
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum History {
+    Auto {
+        #[serde(default)]
+        context_length: usize,
+    },
+    Manual {
+        messages: Vec<OpenAIMessage>,
+    },
+}
+
 #[derive(Deserialize, Debug)]
 pub struct AIAgentArgs {
     pub provider: ProviderWithResource,
     pub system_prompt: Option<String>,
     pub user_message: Option<String>,
-    pub messages: Option<Vec<OpenAIMessage>>,
     pub temperature: Option<f32>,
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
-    pub messages_context_length: Option<usize>,
     pub max_iterations: Option<usize>,
+
+    // New history field (replaces messages and messages_context_length)
+    pub history: Option<History>,
+
+    // Deprecated: for backward compatibility only
+    #[serde(default)]
+    pub messages_context_length: Option<usize>,
 }
 
 #[derive(Deserialize, Debug)]

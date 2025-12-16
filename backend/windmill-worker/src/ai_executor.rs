@@ -394,12 +394,19 @@ pub async fn run_agent(
             vec![]
         };
 
-    // Check if explicit messages were provided
-    let use_explicit_messages = args
-        .messages
-        .as_ref()
-        .map(|m| !m.is_empty())
-        .unwrap_or(false);
+    // Fetch flow context for input transforms context, chat and memory
+    let mut flow_context = get_flow_context(db, job).await;
+
+    // Determine history mode with backward compatibility
+    let history = args.history.clone().or_else(|| {
+        // Backward compatibility: if messages_context_length is set, use auto mode
+        args.messages_context_length.map(|context_length| {
+            History::Auto { context_length }
+        })
+    });
+
+    // Determine if we're using manual messages (which bypasses memory)
+    let use_manual_messages = matches!(history, Some(History::Manual { .. }));
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -408,54 +415,56 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // Validate: at least one of messages or user_message must be provided
-    if !use_explicit_messages && !has_user_message {
+    // Validate: at least one of history with manual messages or user_message must be provided
+    if !use_manual_messages && !has_user_message {
         return Err(Error::internal_err(
-            "Either 'messages' or 'user_message' must be provided".to_string(),
+            "Either 'history' with manual messages or 'user_message' must be provided".to_string(),
         ));
     }
 
-    // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job).await;
+    // Load messages based on history mode
+    if matches!(output_type, OutputType::Text) {
+        match history {
+            Some(History::Manual { messages: manual_messages }) => {
+                // Use explicitly provided messages (bypass memory)
+                if !manual_messages.is_empty() {
+                    messages.extend(manual_messages);
+                }
+            }
+            Some(History::Auto { context_length }) if context_length > 0 => {
+                // Auto mode: load from memory
+                if let Some(step_id) = job.flow_step_id.as_deref() {
+                    if let Some(memory_id) = flow_context
+                        .flow_status
+                        .as_ref()
+                        .and_then(|fs| fs.memory_id)
+                    {
+                        // Read messages from memory
+                        match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
+                            Ok(Some(loaded_messages)) => {
+                                // Take the last n messages
+                                let start_idx = loaded_messages.len().saturating_sub(context_length);
+                                let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+                                let first_non_tool_message_index =
+                                    messages_to_load.iter().position(|m| m.role != "tool");
 
-    // Load messages if given, this will bypass memory
-    if let Some(ref explicit_messages) = args.messages {
-        if !explicit_messages.is_empty() {
-            // Use explicitly provided messages (bypass memory)
-            messages.extend(explicit_messages.clone());
-        }
-    }
+                                // Remove the first messages if their role is "tool" to avoid OpenAI API error
+                                if let Some(index) = first_non_tool_message_index {
+                                    messages_to_load = messages_to_load[index..].to_vec();
+                                }
 
-    if !use_explicit_messages && matches!(output_type, OutputType::Text) {
-        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
-                if let Some(memory_id) = flow_context
-                    .flow_status
-                    .as_ref()
-                    .and_then(|fs| fs.memory_id)
-                {
-                    // Read messages from memory
-                    match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
-                        Ok(Some(loaded_messages)) => {
-                            // Take the last n messages
-                            let start_idx = loaded_messages.len().saturating_sub(context_length);
-                            let mut messages_to_load = loaded_messages[start_idx..].to_vec();
-                            let first_non_tool_message_index =
-                                messages_to_load.iter().position(|m| m.role != "tool");
-
-                            // Remove the first messages if their role is "tool" to avoid OpenAI API error
-                            if let Some(index) = first_non_tool_message_index {
-                                messages_to_load = messages_to_load[index..].to_vec();
+                                messages.extend(messages_to_load);
                             }
-
-                            messages.extend(messages_to_load);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                            }
                         }
                     }
                 }
+            }
+            _ => {
+                // No history or context_length is 0 - don't load any messages
             }
         }
     }
@@ -921,37 +930,39 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if context length is set)
-    // Skip memory persistence if explicit messages were provided (bypass memory entirely)
+    // Persist complete conversation to memory at the end (only if in auto mode with context length)
+    // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) && !use_explicit_messages {
-        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Extract OpenAIMessages from final_messages
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
+    if matches!(output_type, OutputType::Text) && !use_manual_messages {
+        if let Some(History::Auto { context_length }) = history {
+            if context_length > 0 {
+                if let Some(step_id) = job.flow_step_id.as_deref() {
+                    // Extract OpenAIMessages from final_messages
+                    let all_messages: Vec<OpenAIMessage> =
+                        final_messages.iter().map(|m| m.message.clone()).collect();
 
-                if !all_messages.is_empty() {
-                    // Keep only the last n messages
-                    let start_idx = all_messages.len().saturating_sub(context_length);
-                    let messages_to_persist = all_messages[start_idx..].to_vec();
+                    if !all_messages.is_empty() {
+                        // Keep only the last n messages
+                        let start_idx = all_messages.len().saturating_sub(context_length);
+                        let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
-                        if let Err(e) = write_to_memory(
-                            db,
-                            &job.workspace_id,
-                            memory_id,
-                            step_id,
-                            &messages_to_persist,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
+                        if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
+                            if let Err(e) = write_to_memory(
+                                db,
+                                &job.workspace_id,
+                                memory_id,
                                 step_id,
-                                e
-                            );
+                                &messages_to_persist,
+                            )
+                            .await
+                            {
+                                tracing::error!(
+                                    "Failed to persist {} messages to memory for step {}: {}",
+                                    messages_to_persist.len(),
+                                    step_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
