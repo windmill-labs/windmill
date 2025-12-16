@@ -266,7 +266,7 @@
 				} else if (inputCat == 'boolean') {
 					nvalue = false
 				} else if (inputCat == 'list') {
-					nvalue = []
+					nvalue = nullable ? null : []
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()

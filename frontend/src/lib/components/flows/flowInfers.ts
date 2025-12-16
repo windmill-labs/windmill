@@ -57,6 +57,7 @@ export const AI_AGENT_SCHEMA = {
 					},
 					tool_calls: {
 						type: 'array',
+						nullable: true,
 						items: {
 							type: 'object' as const,
 							properties: {
@@ -74,6 +75,7 @@ export const AI_AGENT_SCHEMA = {
 					},
 					tool_call_id: {
 						type: 'string',
+						nullable: true,
 						description: 'The ID of the tool call this message is responding to'
 					}
 				},
