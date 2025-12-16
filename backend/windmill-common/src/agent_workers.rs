@@ -28,7 +28,7 @@ lazy_static! {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentAuth {
     pub worker_group: String,
-    pub suffix: Option<String>,
+pub suffix: Option<String>,
     pub tags: Vec<String>,
     pub exp: Option<usize>,
 }

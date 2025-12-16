@@ -45,7 +45,7 @@
 	}
 </script>
 
-<PanelSection size="lg" fullHeight={false} title="Backend" id="app-editor-runnable-panel">
+<PanelSection size="lg" fullHeight={false} title="backend" id="app-editor-runnable-panel">
 	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<Button
@@ -129,7 +129,8 @@
 							{/if}
 							{#if warningCount > 0}
 								<div>
-									<div class="font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Warnings</div>
+									<div class="font-semibold text-yellow-600 dark:text-yellow-400 mb-1">Warnings</div
+									>
 									{#each Object.entries(lintSnapshot.warnings) as [key, warnings]}
 										{#if warnings.length > 0}
 											<div class="mb-1">

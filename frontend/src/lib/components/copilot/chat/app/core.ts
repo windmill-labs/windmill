@@ -80,12 +80,17 @@ export interface AppAIChatHelpers {
 	// Combined view
 	getFiles: () => AppFiles
 	getSelectedContext: () => SelectedContext
+	snapshot: () => number
+	revertToSnapshot: (id: number) => void
 	// Linting
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult
 }
 
 // ============= Utility =============
+
+/** Maximum characters per file in get_files tool */
+const BATCH_FILE_SIZE_LIMIT = 2500
 
 /** Memoize a factory function - the factory is only called once, on first access */
 const memo = <T>(factory: () => T): (() => T) => {
@@ -94,15 +99,6 @@ const memo = <T>(factory: () => T): (() => T) => {
 }
 
 // ============= Frontend File Tools =============
-
-const getListFrontendFilesSchema = memo(() => z.object({}))
-const getListFrontendFilesToolDef = memo(() =>
-	createToolDef(
-		getListFrontendFilesSchema(),
-		'list_frontend_files',
-		'List all frontend file paths in the raw app. Returns an array of file paths without content. Use this for overview, then get specific files.'
-	)
-)
 
 const getGetFrontendFileSchema = memo(() =>
 	z.object({
@@ -116,15 +112,6 @@ const getGetFrontendFileToolDef = memo(() =>
 		getGetFrontendFileSchema(),
 		'get_frontend_file',
 		'Get the content of a specific frontend file by path. Use this to inspect individual files.'
-	)
-)
-
-const getGetFrontendFilesSchema = memo(() => z.object({}))
-const getGetFrontendFilesToolDef = memo(() =>
-	createToolDef(
-		getGetFrontendFilesSchema(),
-		'get_frontend_files',
-		'Get all frontend files in the raw app. Returns a record of file paths to their content. Use list_frontend_files + get_frontend_file for large apps.'
 	)
 )
 
@@ -161,15 +148,6 @@ const getDeleteFrontendFileToolDef = memo(() =>
 
 // ============= Backend Runnable Tools =============
 
-const getListBackendRunnablesSchema = memo(() => z.object({}))
-const getListBackendRunnablesToolDef = memo(() =>
-	createToolDef(
-		getListBackendRunnablesSchema(),
-		'list_backend_runnables',
-		'List all backend runnable keys and names in the raw app. Returns an array without full content. Use this for overview, then get specific runnables.'
-	)
-)
-
 const getGetBackendRunnableSchema = memo(() =>
 	z.object({
 		key: z.string().describe('The key of the backend runnable to get')
@@ -180,15 +158,6 @@ const getGetBackendRunnableToolDef = memo(() =>
 		getGetBackendRunnableSchema(),
 		'get_backend_runnable',
 		'Get the full configuration of a specific backend runnable by key. Use this to inspect individual runnables.'
-	)
-)
-
-const getGetBackendRunnablesSchema = memo(() => z.object({}))
-const getGetBackendRunnablesToolDef = memo(() =>
-	createToolDef(
-		getGetBackendRunnablesSchema(),
-		'get_backend_runnables',
-		'Get all backend runnables in the raw app. Returns a record of runnable keys to their configuration. Use list_backend_runnables + get_backend_runnable for large apps.'
 	)
 )
 
@@ -235,7 +204,8 @@ const getSetBackendRunnableToolDef = memo(() =>
 	createToolDef(
 		getSetBackendRunnableSchema(),
 		'set_backend_runnable',
-		'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows. Returns lint diagnostics (errors and warnings).'
+		'Create or update a backend runnable. Use type "inline" for custom code, or reference existing workspace/hub scripts/flows. Returns lint diagnostics (errors and warnings).',
+		{ strict: false }
 	)
 )
 
@@ -270,7 +240,7 @@ const getGetFilesToolDef = memo(() =>
 	createToolDef(
 		getGetFilesSchema(),
 		'get_files',
-		'Get all files in the raw app, including both frontend files and backend runnables as separate records.'
+		'Get an overview of all files in the app. Content may be truncated for large apps - use get_frontend_file or get_backend_runnable for full content of specific files.'
 	)
 )
 
@@ -292,7 +262,6 @@ const getListWorkspaceRunnablesSchema = memo(() =>
 		query: z.string().describe('The search query to find workspace scripts and flows'),
 		type: z
 			.enum(['all', 'scripts', 'flows'])
-			.optional()
 			.describe(
 				'Filter by type: "scripts" for scripts only, "flows" for flows only, "all" for both. Defaults to "all".'
 			)
@@ -441,7 +410,7 @@ function formatLintResultResponse(message: string, lintResult: LintResult): stri
 // ============= Tools Array =============
 
 export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
-	// Combined files tool
+	// Combined files tool (with per-file truncation for large apps)
 	{
 		def: getGetFilesToolDef(),
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
@@ -449,10 +418,50 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			const files = helpers.getFiles()
 			const frontendCount = Object.keys(files.frontend).length
 			const backendCount = Object.keys(files.backend).length
+
+			// Truncate each file individually to BATCH_FILE_SIZE_LIMIT
+			let anyTruncated = false
+			const truncatedFiles: AppFiles = {
+				frontend: {},
+				backend: {}
+			}
+
+			for (const [path, content] of Object.entries(files.frontend)) {
+				if (content.length > BATCH_FILE_SIZE_LIMIT) {
+					truncatedFiles.frontend[path] =
+						content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
+					anyTruncated = true
+				} else {
+					truncatedFiles.frontend[path] = content
+				}
+			}
+
+			for (const [key, runnable] of Object.entries(files.backend)) {
+				const runnableCopy = { ...runnable }
+				if (runnableCopy.inlineScript?.content) {
+					const content = runnableCopy.inlineScript.content
+					if (content.length > BATCH_FILE_SIZE_LIMIT) {
+						runnableCopy.inlineScript = {
+							...runnableCopy.inlineScript,
+							content: content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
+						}
+						anyTruncated = true
+					}
+				}
+				truncatedFiles.backend[key] = runnableCopy
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables`
+				content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables${anyTruncated ? ' (some truncated)' : ''}`
 			})
-			return JSON.stringify(files, null, 2)
+
+			let result = JSON.stringify(truncatedFiles, null, 2)
+			if (anyTruncated) {
+				result +=
+					'\n\nNote: Some file contents were truncated. Use get_frontend_file(path) or get_backend_runnable(key) to get full content.'
+			}
+
+			return result
 		}
 	},
 	// Selected context tool
@@ -471,16 +480,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			return JSON.stringify(context, null, 2)
 		}
 	},
-	// Frontend tools - list
-	{
-		def: getListFrontendFilesToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Listing frontend files...' })
-			const paths = helpers.listFrontendFiles()
-			toolCallbacks.setToolStatus(toolId, { content: `Found ${paths.length} frontend files` })
-			return JSON.stringify(paths, null, 2)
-		}
-	},
+	// Frontend tools
 	{
 		def: getGetFrontendFileToolDef(),
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
@@ -498,16 +498,6 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				content: `Retrieved frontend file '${parsedArgs.path}'`
 			})
 			return content
-		}
-	},
-	{
-		def: getGetFrontendFilesToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting frontend files...' })
-			const files = helpers.getFrontendFiles()
-			const fileCount = Object.keys(files).length
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved ${fileCount} frontend files` })
-			return JSON.stringify(files, null, 2)
 		}
 	},
 	{
@@ -546,16 +536,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			return `Frontend file '${parsedArgs.path}' has been deleted successfully`
 		}
 	},
-	// Backend tools - list
-	{
-		def: getListBackendRunnablesToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Listing backend runnables...' })
-			const list = helpers.listBackendRunnables()
-			toolCallbacks.setToolStatus(toolId, { content: `Found ${list.length} backend runnables` })
-			return JSON.stringify(list, null, 2)
-		}
-	},
+	// Backend tools
 	{
 		def: getGetBackendRunnableToolDef(),
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
@@ -573,16 +554,6 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				content: `Retrieved backend runnable '${parsedArgs.key}'`
 			})
 			return JSON.stringify(runnable, null, 2)
-		}
-	},
-	{
-		def: getGetBackendRunnablesToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting backend runnables...' })
-			const runnables = helpers.getBackendRunnables()
-			const count = Object.keys(runnables).length
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved ${count} backend runnables` })
-			return JSON.stringify(runnables, null, 2)
 		}
 	},
 	{
@@ -705,15 +676,11 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ## Available Tools
 
 ### File Management
-- \`get_files()\`: Get both frontend files and backend runnables (use for small apps or full overview)
-- \`list_frontend_files()\`: List all frontend file paths without content (efficient for large apps)
-- \`get_frontend_file(path)\`: Get content of a specific frontend file
-- \`get_frontend_files()\`: Get all frontend files with content (use list + get for large apps)
+- \`get_files()\`: Get an overview of all files (content may be truncated for large files)
+- \`get_frontend_file(path)\`: Get full content of a specific frontend file
 - \`set_frontend_file(path, content)\`: Create or update a frontend file. Returns lint diagnostics.
 - \`delete_frontend_file(path)\`: Delete a frontend file
-- \`list_backend_runnables()\`: List all backend runnable keys and names (efficient for large apps)
 - \`get_backend_runnable(key)\`: Get full configuration of a specific backend runnable
-- \`get_backend_runnables()\`: Get all backend runnables (use list + get for large apps)
 - \`set_backend_runnable(key, name, type, ...)\`: Create or update a backend runnable. Returns lint diagnostics.
 - \`delete_backend_runnable(key)\`: Delete a backend runnable
 
@@ -723,12 +690,6 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ### Discovery
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
-
-### Best Practices
-For large apps with many files or runnables:
-1. Use \`list_frontend_files()\` or \`list_backend_runnables()\` first to get an overview
-2. Then use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to inspect specific items
-3. This approach is more efficient and avoids overwhelming the context with too much content
 
 ## Backend Runnable Configuration
 
@@ -778,15 +739,6 @@ When creating a backend runnable with \`set_backend_runnable\`:
    }
    \`\`\`
 
-## Instructions
-
-Follow the user instructions carefully. When creating a new app:
-1. First use \`get_files\` to see the current state (includes wmill.d.ts showing how to call backend functions)
-2. Create frontend files using \`set_frontend_file\`. This returns lint diagnostics.
-3. Create backend runnables using \`set_backend_runnable\`. This returns lint diagnostics.
-4. Use \`lint()\` to check for errors at any time
-5. Use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse
-6. Always fix any lint errors before finishing
 
 Windmill expects all backend runnable calls to use an object parameter structure. For example for:
 \`\`\`typescript
@@ -806,7 +758,15 @@ await backend.myFunction()
 
 When you are using the windmill-client, do not forget that as id for variables or resources, those are path that are of the form \'u/<user>/<name>\' or \'f/<folder>/<name>\'.
 
-Explain what you're doing as you work. Show file contents before setting them when making significant changes.
+## Instructions
+
+1. Start with \`get_files()\` to get an overview of all frontend files and backend runnables (content may be truncated for large files)
+2. Use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to get full content of specific files when needed
+3. Make changes using \`set_frontend_file\` and \`set_backend_runnable\`. These return lint diagnostics.
+4. Use \`lint()\` at the end to check for and fix any remaining errors
+
+When creating a new app, use \`list_workspace_runnables\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
+
 `
 
 	if (customPrompt?.trim()) {
@@ -821,7 +781,6 @@ Explain what you're doing as you work. Show file contents before setting them wh
 
 export function prepareAppUserMessage(
 	instructions: string,
-	files?: AppFiles,
 	selectedContext?: SelectedContext
 ): ChatCompletionUserMessageParam {
 	let content = ''
@@ -832,21 +791,6 @@ export function prepareAppUserMessage(
 			content += `The user is currently viewing the frontend file: ${selectedContext.frontendPath}\n\n`
 		} else if (selectedContext.type === 'backend') {
 			content += `The user is currently viewing the backend runnable: ${selectedContext.backendKey}\n\n`
-		}
-	}
-
-	if (files) {
-		if (Object.keys(files.frontend).length > 0) {
-			content += `## CURRENT FRONTEND FILES:\n`
-			for (const [path, fileContent] of Object.entries(files.frontend)) {
-				content += `\n### ${path}\n\`\`\`\n${fileContent}\n\`\`\`\n`
-			}
-			content += '\n'
-		}
-
-		if (Object.keys(files.backend).length > 0) {
-			content += `## CURRENT BACKEND RUNNABLES:\n`
-			content += '\`\`\`json\n' + JSON.stringify(files.backend, null, 2) + '\n\`\`\`\n\n'
 		}
 	}
 

@@ -1048,8 +1048,62 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
-                        "description": "The retry configuration for the schedule"
+                        "type": "object",
+                        "description": "Retry configuration for failed module executions",
+                        "properties": {
+                                "constant": {
+                                        "type": "object",
+                                        "description": "Retry with constant delay between attempts",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "description": "Seconds to wait between retries"
+                                                }
+                                        }
+                                },
+                                "exponential": {
+                                        "type": "object",
+                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "multiplier": {
+                                                        "type": "integer",
+                                                        "description": "Multiplier for exponential backoff"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "minimum": 1,
+                                                        "description": "Initial delay in seconds"
+                                                },
+                                                "random_factor": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 100,
+                                                        "description": "Random jitter percentage (0-100) to avoid thundering herd"
+                                                }
+                                        }
+                                },
+                                "retry_if": {
+                                        "type": "object",
+                                        "description": "Conditional retry based on error or result",
+                                        "properties": {
+                                                "expr": {
+                                                        "type": "string",
+                                                        "description": "JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"
+                                                }
+                                        },
+                                        "required": [
+                                                "expr"
+                                        ]
+                                }
+                        }
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
@@ -1169,8 +1223,62 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
-                        "description": "The retry configuration for the schedule"
+                        "type": "object",
+                        "description": "Retry configuration for failed module executions",
+                        "properties": {
+                                "constant": {
+                                        "type": "object",
+                                        "description": "Retry with constant delay between attempts",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "description": "Seconds to wait between retries"
+                                                }
+                                        }
+                                },
+                                "exponential": {
+                                        "type": "object",
+                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "multiplier": {
+                                                        "type": "integer",
+                                                        "description": "Multiplier for exponential backoff"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "minimum": 1,
+                                                        "description": "Initial delay in seconds"
+                                                },
+                                                "random_factor": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 100,
+                                                        "description": "Random jitter percentage (0-100) to avoid thundering herd"
+                                                }
+                                        }
+                                },
+                                "retry_if": {
+                                        "type": "object",
+                                        "description": "Conditional retry based on error or result",
+                                        "properties": {
+                                                "expr": {
+                                                        "type": "string",
+                                                        "description": "JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"
+                                                }
+                                        },
+                                        "required": [
+                                                "expr"
+                                        ]
+                                }
+                        }
                 },
                 "no_flow_overlap": {
                         "type": "boolean",

@@ -329,7 +329,7 @@
 				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
+					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -351,9 +351,11 @@
 											<span class="text-xs">
 												{@html marked}
 											</span>
+										{:else if summary}
+											{summary}
 										{:else}
 											{http_method.toUpperCase()}
-											{isCloudHosted() || workspaced_route
+											/{isCloudHosted() || workspaced_route
 												? workspace_id + '/' + route_path
 												: route_path}
 										{/if}
