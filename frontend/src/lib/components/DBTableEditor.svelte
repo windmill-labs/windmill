@@ -39,7 +39,7 @@
 </script>
 
 <script lang="ts">
-	import { ArrowRight, ClipboardCopy, Info, Plus, Settings, X } from 'lucide-svelte'
+	import { ArrowRight, Info, Plus, Settings, X } from 'lucide-svelte'
 
 	import { Button } from './common'
 	import { Cell } from './table'
@@ -52,7 +52,6 @@
 	import { type CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -403,13 +402,6 @@
 				<code class="whitespace-pre-wrap">
 					{askingForConfirmation.codeContent}
 				</code>
-				<Button
-					on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
-					size="xs"
-					startIcon={{ icon: ClipboardCopy }}
-					color="none"
-					wrapperClasses="absolute z-10 top-0 right-0"
-				></Button>
 			</div>
 		{/if}
 	</ConfirmationModal>
