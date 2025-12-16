@@ -31,7 +31,7 @@ type RenameColumnOperation = {
   to: string;
 };
 
-type AlterColumnOperation = {
+export type AlterColumnOperation = {
   kind: "alterColumn";
   name: string;
   changes: Partial<Omit<CreateTableValuesColumn, "name">>;
@@ -47,7 +47,7 @@ type DropForeignKeyOperation = {
   name: string;
 };
 
-type AlterTableOperation =
+export type AlterTableOperation =
   | AddColumnOperation
   | DropColumnOperation
   | RenameColumnOperation
