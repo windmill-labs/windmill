@@ -638,12 +638,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		try {
 			return diagnostics.map((diagnostic) => {
 				if (!diagnostic?.start) return diagnostic
-				console.log(
-					'[SqlTypePlugin] Mapping diagnostic:',
-					diagnostic.start,
-					'to',
-					this._mapPositionToOriginal(diagnostic.start, fileName)
-				)
 				diagnostic.start = this._mapPositionToOriginal(diagnostic.start, fileName)
 				return diagnostic
 			})
@@ -681,7 +675,7 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @param {Array} queries - Array of SQL query details
 	 */
 	async updateSqlQueries(fileUri, queries) {
-		if (!fileUri.startsWith('.ts')) fileUri += '.ts'
+		if (!fileUri.endsWith('.ts')) fileUri += '.ts'
 		console.log(`[SqlTypePlugin] Updating SQL queries for ${fileUri}:`, queries?.length || 0)
 
 		if (!queries || queries.length === 0) {
@@ -689,29 +683,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		} else {
 			this._sqlQueriesByFile.set(fileUri, queries)
 		}
-
-		// Force TypeScript to re-analyze the file by invalidating its cache
-		// This triggers getScriptSnapshot to be called again
-		// try {
-		// 	const model = this._getModel(fileUri)
-		// 	if (model) {
-		// 		// Increment version to invalidate cache
-		// 		const currentVersion = model.version || 0
-		// 		model.version = currentVersion + 1
-		// 	}
-
-		// 	// Also try to get the source file and mark it as needing update
-		// 	const program = this._languageService.getProgram()
-		// 	if (program) {
-		// 		const sourceFile = program.getSourceFile(fileUri)
-		// 		if (sourceFile) {
-		// 			// Mark as needing recompilation
-		// 			sourceFile.version = (sourceFile.version || 0) + 1
-		// 		}
-		// 	}
-		// } catch (error) {
-		// 	console.error('[SqlTypePlugin] Error invalidating cache:', error)
-		// }
 
 		return true
 	}
