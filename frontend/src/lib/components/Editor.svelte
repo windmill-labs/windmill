@@ -1868,7 +1868,8 @@
 			'[Editor] Updating SQL queries in TypeScript worker:',
 			preparedAssetsSqlQueries.length
 		)
-		updateSqlQueriesInWorker(filePath, preparedAssetsSqlQueries)
+		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
+		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
 	})
 
 	watch([() => preparedAssetsSqlQueries, () => lang, () => filePath], () => {

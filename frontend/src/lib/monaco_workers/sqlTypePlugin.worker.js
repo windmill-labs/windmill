@@ -140,8 +140,6 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 			let { offsetMap } = injectSqlTypes(originalCode, queries)
 			let offsetMapEntries = Object.entries(offsetMap)
 
-			console.log('[SqlTypePlugin] originalCode', originalCode)
-
 			for (const [pos, offset] of offsetMapEntries) {
 				// If position is after an injection point, subtract the offset
 				if (position > Number(pos)) {

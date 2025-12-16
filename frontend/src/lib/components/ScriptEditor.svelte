@@ -163,28 +163,30 @@
 	})
 
 	let _parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
-	let preparedAssetsSqlQueries = resource(
-		() => _parsedAssetsSqlQueries,
-		async (queries) => {
-			queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
-			if (!queries?.length) return
-			let preparedDatatableQueriesResponse = await WorkspaceService.prepareQueries({
+	let preparedAssetsSqlQueries = resource([() => _parsedAssetsSqlQueries], async ([queries]) => {
+		queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
+		if (!queries?.length) return
+		try {
+			let prepareQueriesResponse = await WorkspaceService.prepareQueries({
 				workspace: $workspaceStore ?? '',
 				requestBody: queries.map((q) => ({
 					datatable: q.source_name,
 					query: q.query_string
 				}))
 			})
-			for (let i = 0; i < preparedDatatableQueriesResponse.results.length; ++i) {
-				let res = preparedDatatableQueriesResponse.results[i]
+			for (let i = 0; i < prepareQueriesResponse.results.length; ++i) {
+				let res = prepareQueriesResponse.results[i]
 				queries[i].column_types = Object.fromEntries(
 					res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
 				)
 			}
-
-			return queries
+		} catch (e) {
+			console.error('Error preparing asset sql queries', e)
+			return undefined
 		}
-	)
+
+		return queries
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -200,8 +202,9 @@
 			inferAssets(lang, code).then((inferAssetsResult) => {
 				if (inferAssetsResult.status === 'error') return
 
-				if (!deepEqual(_parsedAssetsSqlQueries, inferAssetsResult.sql_queries))
+				if (!deepEqual(_parsedAssetsSqlQueries, inferAssetsResult.sql_queries)) {
 					_parsedAssetsSqlQueries = inferAssetsResult.sql_queries
+				}
 
 				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
 				for (const asset of newAssets) {
@@ -951,7 +954,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={$state.snapshot(preparedAssetsSqlQueries.current)}
+				preparedAssetsSqlQueries={preparedAssetsSqlQueries.current}
 			/>
 			<DiffEditor
 				className="h-full"
