@@ -86,13 +86,15 @@
 				type?: string
 				stateType?: GraphModuleState['type']
 			}[] = node.data.module.value.tools.map((t, idx) => {
-				// Handle both FlowModule tools and MCP tools
+				// Handle FlowModule, MCP, and Websearch tools
 				const toolType =
 					t.value.tool_type === 'mcp'
 						? 'mcp'
-						: t.value.tool_type === 'flowmodule'
-							? t.value.type
-							: undefined
+						: t.value.tool_type === 'websearch'
+							? 'websearch'
+							: t.value.tool_type === 'flowmodule'
+								? t.value.type
+								: undefined
 				return {
 					id: t.id,
 					name: t.summary ?? '',
