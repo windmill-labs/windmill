@@ -6,7 +6,7 @@
  */
 
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
-import { languages, Uri, editor } from 'monaco-editor'
+import { languages, Uri, editor, MarkerSeverity } from 'monaco-editor'
 
 type ExtendedTypeScriptWorker = languages.typescript.TypeScriptWorker & {
 	updateSqlQueries: (fileUri: string, queries: InferAssetsSqlQueryDetails[]) => Promise<void>
@@ -106,6 +106,7 @@ export async function updateSqlQueriesInWorker(
 		// This method is added by our sqlTypePlugin.worker.js
 		if (typeof worker.updateSqlQueries === 'function') {
 			await worker.updateSqlQueries(uriString, queries)
+			revalidateModel(model)
 		} else {
 			console.warn(
 				'[SqlTypeService] Custom worker method updateSqlQueries not found. Is the custom worker loaded?'
@@ -114,5 +115,63 @@ export async function updateSqlQueriesInWorker(
 	} catch (error) {
 		console.error('[SqlTypeService] Failed to update SQL queries in worker:', error)
 		// Don't throw - we want to fail gracefully if the worker isn't available
+	}
+}
+
+// https://stackoverflow.com/questions/56050816/is-there-a-way-to-trigger-validation-manually-in-monaco-editor
+// Trick to force re-validation of the model to show updated markers
+async function revalidateModel(model: editor.ITextModel) {
+	if (!model || model.isDisposed()) return
+
+	const getWorker = await languages.typescript.getTypeScriptWorker()
+	const worker = await getWorker(model.uri)
+	const diagnostics = (
+		await Promise.all([
+			worker.getSyntacticDiagnostics(model.uri.toString()),
+			worker.getSemanticDiagnostics(model.uri.toString())
+		])
+	).reduce((a, it) => a.concat(it))
+
+	const markers = diagnostics.map((d) => {
+		const start = model.getPositionAt(d.start ?? 1)
+		const end = model.getPositionAt((d.start ?? 1) + (d.length ?? 0))
+		return {
+			severity: MarkerSeverity.Error,
+			startLineNumber: start.lineNumber,
+			startColumn: start.column,
+			endLineNumber: end.lineNumber,
+			endColumn: end.column,
+			message: flattenDiagnosticMessageText(d.messageText, '\n')
+		}
+	})
+	const owner = model.getLanguageId()
+	editor.setModelMarkers(model, owner, markers)
+}
+
+function flattenDiagnosticMessageText(
+	messageText: string | languages.typescript.DiagnosticMessageChain | undefined,
+	newLine: string
+): string {
+	if (typeof messageText === 'string') {
+		return messageText
+	} else if (messageText === undefined) {
+		return ''
+	} else {
+		let result = ''
+		let indent = 0
+		let stack = [messageText]
+		while (stack.length > 0) {
+			let messageText = stack.shift()!
+			if (indent) {
+				result += newLine
+				for (let i = 0; i < indent; i++) {
+					result += '  '
+				}
+			}
+			result += messageText.messageText
+			indent++
+			stack.push(...(messageText.next || []))
+		}
+		return result
 	}
 }
