@@ -90,6 +90,7 @@
 		"@codingame/monaco-vscode-standalone-json-language-features": "=21.6.0",
 		"@codingame/monaco-vscode-standalone-languages": "=21.6.0",
 		"@codingame/monaco-vscode-standalone-typescript-language-features": "=21.6.0",
+		"@codingame/monaco-vscode-languages-service-override": "=21.6.0",
 		"@json2csv/plainjs": "^7.0.6",
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@redocly/json-to-json-schema": "^0.0.1",
