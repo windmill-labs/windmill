@@ -38,7 +38,38 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'An array of conversation messages to use as context. When provided, these messages replace any messages that would be loaded from memory, and memory will not be updated at the end of the run. If user_message is also provided, it will be appended as the final message.',
 			items: {
-				type: 'object' as const
+				type: 'object' as const,
+				properties: {
+					role: {
+						type: 'string',
+						enum: ['user', 'assistant', 'system']
+					},
+					content: {
+						type: 'string'
+					},
+					tool_calls: {
+						type: 'array',
+						items: {
+							type: 'object' as const,
+							properties: {
+								id: { type: 'string' },
+								type: { type: 'string' },
+								function: {
+									type: 'object' as const,
+									properties: {
+										name: { type: 'string' },
+										arguments: { type: 'string' }
+									}
+								}
+							}
+						}
+					},
+					tool_call_id: {
+						type: 'string',
+						description: 'The ID of the tool call this message is responding to'
+					}
+				},
+				required: ['role']
 			},
 			showExpr: "fields.output_type === 'text'"
 		},

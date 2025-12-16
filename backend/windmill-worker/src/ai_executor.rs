@@ -419,10 +419,14 @@ pub async fn run_agent(
     let mut flow_context = get_flow_context(db, job).await;
 
     // Load messages: either from explicit input or from memory
-    if use_explicit_messages {
-        // Use explicitly provided messages (bypass memory)
-        messages.extend(args.messages.clone().unwrap());
-    } else if matches!(output_type, OutputType::Text) {
+    if let Some(ref explicit_messages) = args.messages {
+        if !explicit_messages.is_empty() {
+            // Use explicitly provided messages (bypass memory)
+            messages.extend(explicit_messages.clone());
+        }
+    }
+
+    if !use_explicit_messages && matches!(output_type, OutputType::Text) {
         // Load from memory only if no explicit messages and context length is set
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
@@ -488,25 +492,32 @@ pub async fn run_agent(
         }
     };
 
-    // Create user message with optional images (only if user_message is provided)
-    if has_user_message {
-        let mut parts = vec![ContentPart::Text {
-            text: args.user_message.clone().unwrap(),
-        }];
-        if let Some(images) = &args.user_images {
-            for image in images.iter() {
+    // Add user message if provided and non-empty
+    if let Some(ref user_message) = args.user_message {
+        if !user_message.is_empty() {
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Text(user_message.clone())),
+                ..Default::default()
+            });
+        }
+    }
+
+    // Add user images if provided
+    if let Some(ref user_images) = args.user_images {
+        if !user_images.is_empty() {
+            let mut parts = vec![];
+            for image in user_images.iter() {
                 if !image.s3.is_empty() {
                     parts.push(ContentPart::S3Object { s3_object: image.clone() });
                 }
             }
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Parts(parts)),
+                ..Default::default()
+            });
         }
-        let user_content = OpenAIContent::Parts(parts);
-
-        messages.push(OpenAIMessage {
-            role: "user".to_string(),
-            content: Some(user_content),
-            ..Default::default()
-        });
     }
 
     let mut actions = vec![];
