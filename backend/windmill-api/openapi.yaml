@@ -3050,8 +3050,10 @@ paths:
                     description: Results for each query
                     items:
                       type: object
-                      required: [columns]
                       properties:
+                        error:
+                          type: string
+                          description: Error message if the query preparation failed
                         columns:
                           type: array
                           description: Column information

@@ -38,6 +38,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
@@ -1358,12 +1359,60 @@ struct ColumnInfo {
 
 #[derive(Serialize, Debug)]
 struct QueryResult {
-    columns: Vec<ColumnInfo>,
+    columns: Option<Vec<ColumnInfo>>,
+    error: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
 struct PrepareQueriesResponse {
     results: Vec<QueryResult>,
+}
+
+async fn prepare_query_inner(
+    request: &PrepareQueriesRequest,
+    pg_connections: &mut HashMap<
+        String,
+        (
+            tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>,
+            std::sync::Arc<tokio_postgres::Client>,
+        ),
+    >,
+    w_id: &str,
+    db: &DB,
+) -> Result<QueryResult> {
+    let client = if let Some((_, conn)) = pg_connections.get(&request.datatable) {
+        conn.clone()
+    } else {
+        let db_resource =
+            get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
+        let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
+            Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
+        })?;
+
+        let (client, connection) = database.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+        let client = std::sync::Arc::new(client);
+        pg_connections.insert(request.datatable.clone(), (join_handle, client.clone()));
+        client
+    };
+
+    // Prepare query and extract column information
+    let prepared = client
+        .prepare(&request.query)
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Failed to prepare query: {}", e)))?;
+
+    let columns: Option<Vec<ColumnInfo>> = Some(
+        prepared
+            .columns()
+            .iter()
+            .map(|col| ColumnInfo {
+                name: col.name().to_string(),
+                type_name: col.type_().name().to_string(),
+            })
+            .collect(),
+    );
+    Ok(QueryResult { columns, error: None })
 }
 
 async fn prepare_queries(
@@ -1372,59 +1421,21 @@ async fn prepare_queries(
     Path(w_id): Path<String>,
     Json(requests): Json<Vec<PrepareQueriesRequest>>,
 ) -> JsonResult<PrepareQueriesResponse> {
-    use tokio_postgres::NoTls;
-    use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
-
     let mut results = Vec::new();
-
-    let mut datatable_connections: HashMap<String, std::sync::Arc<tokio_postgres::Client>> =
-        HashMap::new();
+    let mut pg_connections = HashMap::new();
 
     for request in &requests {
-        let client = if let Some(conn) = datatable_connections.get(&request.datatable) {
-            conn.clone()
-        } else {
-            let db_resource =
-                get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
-            let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
-                Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
-            })?;
-
-            let connection_string = database.to_conn_str();
-
-            let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!("Failed to connect to datatable: {}", e))
-                })?;
-
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::error!("Database connection error: {}", e);
-                }
-            });
-            let client = std::sync::Arc::new(client);
-            datatable_connections.insert(request.datatable.clone(), client.clone());
-            client
-        };
-
-        // Prepare query and extract column information
-        let prepared = client
-            .prepare(&request.query)
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Failed to prepare query: {}", e)))?;
-
-        let columns: Vec<ColumnInfo> = prepared
-            .columns()
-            .iter()
-            .map(|col| ColumnInfo {
-                name: col.name().to_string(),
-                type_name: col.type_().name().to_string(),
-            })
-            .collect();
-
-        results.push(QueryResult { columns });
+        match prepare_query_inner(request, &mut pg_connections, &w_id, &db).await {
+            Ok(result) => results.push(result),
+            Err(err) => results.push(QueryResult { columns: None, error: Some(err.to_string()) }),
+        }
     }
+
+    // Clean up connections
+    for (join_handle, _client) in pg_connections.into_values() {
+        let _ = join_handle.await;
+    }
+
     Ok(Json(PrepareQueriesResponse { results }))
 }
 
