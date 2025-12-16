@@ -43,6 +43,7 @@
 		try {
 			if (code == '') {
 				value = undefined
+				dispatchIfMounted('changeValue', value)
 				error = ''
 				return
 			}
