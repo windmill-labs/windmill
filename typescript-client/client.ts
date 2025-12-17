@@ -17,6 +17,11 @@ import {
   type S3Object,
 } from "./s3Types";
 
+export {
+  type S3Object,
+  type S3ObjectRecord,
+  type S3ObjectURI,
+} from "./s3Types";
 export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
 
 export {
@@ -45,6 +50,11 @@ export const SHARED_FOLDER = "/shared";
 
 let mockedApi: MockedApi | undefined = undefined;
 
+/**
+ * Initialize the Windmill client with authentication token and base URL
+ * @param token - Authentication token (defaults to WM_TOKEN env variable)
+ * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
+ */
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl =
@@ -58,6 +68,10 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
+}
+
+function getPublicBaseUrl(): string {
+  return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
 }
 
 const getEnv = (key: string) => {
@@ -172,6 +186,13 @@ async function _runScriptInternal(
   return await waitJob(jobId, verbose);
 }
 
+/**
+ * Run a script synchronously by its path and wait for the result
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
 export async function runScriptByPath(
   path: string,
   args: Record<string, any> | null = null,
@@ -180,6 +201,13 @@ export async function runScriptByPath(
   return _runScriptInternal(path, null, args, verbose);
 }
 
+/**
+ * Run a script synchronously by its hash and wait for the result
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
 export async function runScriptByHash(
   hash_: string,
   args: Record<string, any> | null = null,
@@ -206,6 +234,13 @@ export async function streamResult(stream: AsyncIterable<string>) {
   }
 }
 
+/**
+ * Run a flow synchronously by its path and wait for the result
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
 export async function runFlow(
   path: string | null = null,
   args: Record<string, any> | null = null,
@@ -221,6 +256,12 @@ export async function runFlow(
   return await waitJob(jobId, verbose);
 }
 
+/**
+ * Wait for a job to complete and return its result
+ * @param jobId - ID of the job to wait for
+ * @param verbose - Enable verbose logging
+ * @returns Job result when completed
+ */
 export async function waitJob(
   jobId: string,
   verbose: boolean = false
@@ -257,11 +298,21 @@ export async function waitJob(
   }
 }
 
+/**
+ * Get the result of a completed job
+ * @param jobId - ID of the completed job
+ * @returns Job result
+ */
 export async function getResult(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResult({ workspace, id: jobId });
 }
 
+/**
+ * Get the result of a job if completed, or its current status
+ * @param jobId - ID of the job
+ * @returns Object with started, completed, success, and result properties
+ */
 export async function getResultMaybe(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
@@ -278,6 +329,11 @@ function getParamNames(func: Function): string[] {
   return result;
 }
 
+/**
+ * Wrap a function to execute as a Windmill task within a flow context
+ * @param f - Function to wrap as a task
+ * @returns Async wrapper function that executes as a Windmill job
+ */
 export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
   return async (...y) => {
     const args: Record<string, any> = {};
@@ -369,6 +425,13 @@ async function _runScriptAsyncInternal(
   }).then((res) => res.text());
 }
 
+/**
+ * Run a script asynchronously by its path
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
 export async function runScriptByPathAsync(
   path: string,
   args: Record<string, any> | null = null,
@@ -377,6 +440,13 @@ export async function runScriptByPathAsync(
   return _runScriptAsyncInternal(path, null, args, scheduledInSeconds);
 }
 
+/**
+ * Run a script asynchronously by its hash
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
 export async function runScriptByHashAsync(
   hash_: string,
   args: Record<string, any> | null = null,
@@ -385,6 +455,14 @@ export async function runScriptByHashAsync(
   return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds);
 }
 
+/**
+ * Run a flow asynchronously by its path
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @returns Job ID of the created job
+ */
 export async function runFlowAsync(
   path: string | null,
   args: Record<string, any> | null,
@@ -446,6 +524,10 @@ export async function resolveDefaultResource(obj: any): Promise<any> {
   }
 }
 
+/**
+ * Get the state file path from environment variables
+ * @returns State path string
+ */
 export function getStatePath(): string {
   const state_path = getEnv("WM_STATE_PATH_NEW") ?? getEnv("WM_STATE_PATH");
   if (state_path === undefined) {
@@ -609,25 +691,6 @@ export async function getFlowUserState(
   }
 }
 
-// /**
-//  * Set the shared state
-//  * @param state state to set
-//  */
-// export async function setSharedState(
-//   state: any,
-//   path = "state.json"
-// ): Promise<void> {
-//   await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
-// }
-
-// /**
-//  * Get the shared state
-//  * @param state state to set
-//  */
-// export async function getSharedState(path = "state.json"): Promise<any> {
-//   return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
-// }
-
 /**
  * Get the internal state
  * @deprecated use getState instead
@@ -709,6 +772,11 @@ export async function setVariable(
   }
 }
 
+/**
+ * Build a PostgreSQL connection URL from a database resource
+ * @param path - Path to the database resource
+ * @returns PostgreSQL connection URL string
+ */
 export async function databaseUrlFromResource(path: string): Promise<string> {
   const resource = await getResource(path);
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
@@ -735,6 +803,11 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 //   });
 // }
 
+/**
+ * Get S3 client settings from a resource or workspace default
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @returns S3 client configuration settings
+ */
 export async function denoS3LightClientSettings(
   s3_resource_path: string | undefined
 ): Promise<DenoS3LightClientSettings> {
@@ -900,7 +973,6 @@ export async function signS3Objects(
   });
   return signedKeys;
 }
-
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
@@ -909,6 +981,56 @@ export async function signS3Objects(
 export async function signS3Object(s3object: S3Object): Promise<S3Object> {
   const [signedObject] = await signS3Objects([s3object]);
   return signedObject;
+}
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+export async function getPresignedS3PublicUrls(
+  s3Objects: S3Object[],
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string[]> {
+  baseUrl ??= getPublicBaseUrl();
+
+  const s3Objs = s3Objects.map(parseS3Object);
+
+  // Sign all S3 objects that need to be signed in one go
+  const s3ObjsToSign: (readonly [S3ObjectRecord, number])[] = s3Objs
+    .map((s3Obj, index) => [s3Obj, index] as const)
+    .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
+  if (s3ObjsToSign.length > 0) {
+    const signedS3Objs = await signS3Objects(
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+    );
+    for (let i = 0; i < s3ObjsToSign.length; i++) {
+      const [_, originalIndex] = s3ObjsToSign[i];
+      s3Objs[originalIndex] = parseS3Object(signedS3Objs[i]);
+    }
+  }
+
+  const signedUrls: string[] = [];
+  for (const s3Obj of s3Objs) {
+    const { s3, presigned, storage = "_default_" } = s3Obj;
+    const signedUrl = `${baseUrl}/api/w/${getWorkspace()}/s3_proxy/${storage}/${s3}?${presigned}`;
+    signedUrls.push(signedUrl);
+  }
+  return signedUrls;
+}
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+export async function getPresignedS3PublicUrl(
+  s3Objects: S3Object,
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string> {
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
+  return s3Object;
 }
 
 /**
@@ -948,7 +1070,10 @@ export function getResumeEndpoints(approver?: string): Promise<{
  * @param expiresIn Optional number of seconds until the token expires
  * @returns jwt token
  */
-export async function getIdToken(audience: string, expiresIn?: number): Promise<string> {
+export async function getIdToken(
+  audience: string,
+  expiresIn?: number
+): Promise<string> {
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
@@ -957,10 +1082,20 @@ export async function getIdToken(audience: string, expiresIn?: number): Promise<
   });
 }
 
+/**
+ * Convert a base64-encoded string to Uint8Array
+ * @param data - Base64-encoded string
+ * @returns Decoded Uint8Array
+ */
 export function base64ToUint8Array(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 }
 
+/**
+ * Convert a Uint8Array to base64-encoded string
+ * @param arrayBuffer - Uint8Array to encode
+ * @returns Base64-encoded string
+ */
 export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
   let base64 = "";
   const encodings =
@@ -1281,6 +1416,11 @@ function parseResourceSyntax(s: string | undefined) {
   if (s?.startsWith("res://")) return s.substring(6);
 }
 
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (s3://storage/key) or record
+ * @returns S3 object record with storage and s3 key
+ */
 export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
   if (typeof s3Object === "object") return s3Object;
   const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/);

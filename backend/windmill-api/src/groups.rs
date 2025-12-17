@@ -55,6 +55,12 @@ pub fn global_service() -> Router {
         .route("/overwrite", post(overwrite_igroups))
 }
 
+/// Normalize group names: replace spaces with underscores and convert to lowercase
+/// Used when manually creating groups and SCIM-managed groups
+pub fn convert_name(name: &str) -> String {
+    name.replace(" ", "_").to_lowercase()
+}
+
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct Group {
     pub workspace_id: String,
@@ -265,6 +271,16 @@ async fn create_group(
     )
     .await?;
 
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &ng.name,
+        &authed.username,
+        "create",
+        None,
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -291,10 +307,12 @@ async fn create_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let normalized_name = convert_name(&ng.name);
+
     let id = Uuid::new_v4().to_string();
     sqlx::query!(
         "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-        ng.name,
+        normalized_name,
         ng.summary,
         id,
     )
@@ -307,13 +325,13 @@ async fn create_igroup(
         "igroup.create",
         ActionKind::Create,
         "global",
-        Some(&ng.name.to_string()),
+        Some(&normalized_name),
         None,
     )
     .await?;
 
     tx.commit().await?;
-    Ok(format!("Created group {}", ng.name))
+    Ok(format!("Created group {}", normalized_name))
 }
 
 #[derive(Deserialize)]
@@ -534,6 +552,17 @@ async fn update_group(
         None,
     )
     .await?;
+
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "update_summary",
+        None,
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -564,7 +593,7 @@ async fn add_user(
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
-    sqlx::query!(
+    let result = sqlx::query!(
         "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         user_username,
@@ -572,6 +601,10 @@ async fn add_user(
     )
     .execute(&mut *tx)
     .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(format!("{} is already a member of group {}", user_username, name));
+    }
 
     audit_log(
         &mut *tx,
@@ -583,6 +616,17 @@ async fn add_user(
         Some([("user", user_username.as_str())].into()),
     )
     .await?;
+
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "add_member",
+        Some(&user_username),
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -843,6 +887,16 @@ async fn remove_user(
     )
     .await?;
 
+    log_group_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "remove_member",
+        Some(&user_username),
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -972,4 +1026,27 @@ async fn overwrite_igroups() -> JsonResult<String> {
     Err(Error::BadRequest(
         "This feature is only available in the enterprise version".to_string(),
     ))
+}
+
+pub async fn log_group_permission_change<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    group_name: &str,
+    changed_by: &str,
+    change_type: &str,
+    member_affected: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO group_permission_history
+         (workspace_id, group_name, changed_by, change_type, member_affected)
+         VALUES ($1, $2, $3, $4, $5)",
+        workspace_id,
+        group_name,
+        changed_by,
+        change_type,
+        member_affected
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

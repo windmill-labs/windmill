@@ -709,14 +709,16 @@
 				</div>
 			</div>
 		{/if}
-		<AiChatLayout
-			{children}
-			noPadding={devOnly}
-			{isCollapsed}
-			onMenuOpen={() => {
-				menuOpen = true
-			}}
-		/>
+		<div class="flex flex-col h-full w-full">
+			<AiChatLayout
+				{children}
+				noPadding={devOnly}
+				{isCollapsed}
+				onMenuOpen={() => {
+					menuOpen = true
+				}}
+			/>
+		</div>
 	</div>
 {:else}
 	<CenteredModal title="Loading user...">

@@ -1,0 +1,175 @@
+{
+    "summary": "AI-Powered Customer Support with Tools",
+    "value": {
+        "modules": [
+            {
+                "id": "fetch_customer_profile",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(customer_id: string) {\n  // Mock customer profile and order history\n  return {\n    customer_id,\n    name: 'John Doe',\n    email: 'john.doe@example.com',\n    membership_tier: 'gold',\n    recent_orders: [\n      { order_id: 'ORD-001', date: '2024-01-15', total: 149.99, status: 'delivered' },\n      { order_id: 'ORD-002', date: '2024-02-20', total: 89.50, status: 'shipped' }\n    ],\n    support_history: [\n      { ticket_id: 'TKT-100', issue: 'Delivery delay', resolved: true }\n    ]\n  };\n}",
+                    "input_transforms": {
+                        "customer_id": {
+                            "type": "javascript",
+                            "expr": "flow_input.customer_id"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "support_agent",
+                "value": {
+                    "type": "aiagent",
+                    "input_transforms": {
+                        "provider": {
+                            "type": "static",
+                            "value": "$res:f/ai_providers/openai"
+                        },
+                        "output_type": {
+                            "type": "static",
+                            "value": "text"
+                        },
+                        "user_message": {
+                            "type": "javascript",
+                            "expr": "`Customer Profile:\nName: ${results.fetch_customer_profile.name}\nMembership: ${results.fetch_customer_profile.membership_tier}\nRecent Orders: ${JSON.stringify(results.fetch_customer_profile.recent_orders)}\n\nCustomer Query: ${flow_input.query_text}`"
+                        },
+                        "system_prompt": {
+                            "type": "static",
+                            "value": "You are a helpful customer support agent. Use the available tools to look up order information, check refund eligibility, create support tickets, or search FAQs to help resolve customer queries. Be professional and empathetic."
+                        }
+                    },
+                    "tools": [
+                        {
+                            "id": "lookup_order",
+                            "summary": "Look up order details by order ID. Returns order status, items, and shipping information.",
+                            "value": {
+                                "tool_type": "flowmodule",
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(order_id: string) {\n  // Mock order lookup\n  return {\n    order_id,\n    status: 'shipped',\n    items: [\n      { name: 'Wireless Headphones', quantity: 1, price: 79.99 },\n      { name: 'Phone Case', quantity: 2, price: 19.99 }\n    ],\n    shipping: {\n      carrier: 'FedEx',\n      tracking_number: 'FX123456789',\n      estimated_delivery: '2024-03-01'\n    },\n    total: 119.97\n  };\n}",
+                                "input_transforms": {
+                                    "order_id": {
+                                        "type": "static",
+                                        "value": null
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "id": "check_refund_eligibility",
+                            "summary": "Check if an order is eligible for refund. Returns eligibility status and reason.",
+                            "value": {
+                                "tool_type": "flowmodule",
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(order_id: string) {\n  // Mock refund eligibility check\n  return {\n    order_id,\n    eligible: true,\n    reason: 'Within 30-day return window',\n    refund_amount: 119.97,\n    refund_method: 'original_payment_method',\n    processing_time: '5-7 business days'\n  };\n}",
+                                "input_transforms": {
+                                    "order_id": {
+                                        "type": "static",
+                                        "value": null
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "id": "create_support_ticket",
+                            "summary": "Create a support ticket with specified description and priority (low, medium, high).",
+                            "value": {
+                                "tool_type": "flowmodule",
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(description: string, priority: 'low' | 'medium' | 'high') {\n  // Mock ticket creation\n  return {\n    ticket_id: `TKT-${Date.now()}`,\n    description,\n    priority,\n    status: 'open',\n    created_at: new Date().toISOString(),\n    estimated_response: priority === 'high' ? '2 hours' : priority === 'medium' ? '24 hours' : '48 hours'\n  };\n}",
+                                "input_transforms": {
+                                    "description": {
+                                        "type": "static",
+                                        "value": null
+                                    },
+                                    "priority": {
+                                        "type": "static",
+                                        "value": null
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "id": "search_faq",
+                            "summary": "Search the FAQ database for relevant answers to common questions.",
+                            "value": {
+                                "tool_type": "flowmodule",
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(search_query: string) {\n  // Mock FAQ search\n  return {\n    query: search_query,\n    results: [\n      {\n        question: 'How do I track my order?',\n        answer: 'You can track your order by logging into your account and clicking on \"Order History\". Each order has a tracking link.',\n        relevance: 0.95\n      },\n      {\n        question: 'What is the return policy?',\n        answer: 'We offer a 30-day return policy for all unused items in original packaging. Refunds are processed within 5-7 business days.',\n        relevance: 0.85\n      }\n    ]\n  };\n}",
+                                "input_transforms": {
+                                    "search_query": {
+                                        "type": "static",
+                                        "value": null
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                    "parallel": true
+                }
+            },
+            {
+                "id": "log_interaction",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(customer_id: string, query: string, agent_response: string) {\n  // Mock audit logging\n  return {\n    logged: true,\n    log_id: `LOG-${Date.now()}`,\n    timestamp: new Date().toISOString(),\n    customer_id,\n    query_summary: query.substring(0, 100),\n    response_length: agent_response.length\n  };\n}",
+                    "input_transforms": {
+                        "customer_id": {
+                            "type": "javascript",
+                            "expr": "flow_input.customer_id"
+                        },
+                        "query": {
+                            "type": "javascript",
+                            "expr": "flow_input.query_text"
+                        },
+                        "agent_response": {
+                            "type": "javascript",
+                            "expr": "results.support_agent"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "return_response",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(agent_response: string, log_info: any, customer_profile: any) {\n  return {\n    response: agent_response,\n    customer_name: customer_profile.name,\n    interaction_logged: log_info.logged,\n    log_id: log_info.log_id\n  };\n}",
+                    "input_transforms": {
+                        "agent_response": {
+                            "type": "javascript",
+                            "expr": "results.support_agent"
+                        },
+                        "log_info": {
+                            "type": "javascript",
+                            "expr": "results.log_interaction"
+                        },
+                        "customer_profile": {
+                            "type": "javascript",
+                            "expr": "results.fetch_customer_profile"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "customer_id": {
+                "type": "string",
+                "description": "The unique identifier of the customer"
+            },
+            "query_text": {
+                "type": "string",
+                "description": "The customer's support query text"
+            }
+        },
+        "required": ["customer_id", "query_text"]
+    }
+}

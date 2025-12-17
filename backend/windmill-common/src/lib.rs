@@ -7,6 +7,7 @@
  */
 
 use quick_cache::sync::Cache;
+use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
     hash::{Hash, Hasher},
@@ -28,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod ai_providers;
 pub mod apps;
+pub mod audit;
 pub mod assets;
 pub mod auth;
 #[cfg(feature = "benchmark")]
@@ -74,6 +76,7 @@ pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
 pub mod result_stream;
+pub mod runnable_settings;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
@@ -162,7 +165,7 @@ lazy_static::lazy_static! {
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
-    pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo> = Cache::new(1000);
+    pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo<ScriptRunnableSettingsHandle>> = Cache::new(1000);
     pub static ref FLOW_INFO_CACHE: Cache<(String, i64), FlowVersionInfo> = Cache::new(1000);
 
     pub static ref QUIET_LOGS: bool = std::env::var("QUIET_LOGS").map(|s| s.parse::<bool>().unwrap_or(false)).unwrap_or(false);
@@ -327,54 +330,165 @@ async fn reset() -> () {
     todo!()
 }
 
-pub struct PostgresUrlComponents {
-    pub scheme: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
+#[derive(Deserialize, Serialize)]
+pub struct PgDatabase {
     pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
     pub port: Option<u16>,
-    pub database: String,
-    pub ssl_mode: Option<String>,
+    pub sslmode: Option<String>,
+    pub dbname: String,
+    pub root_certificate_pem: Option<String>,
 }
 
-pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
-    let parsed_url =
-        url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+// Wrapper enum to hold either Tls or NoTls connection
+pub enum TokioPgConnection {
+    Tls(tokio_postgres::Connection<tokio_postgres::Socket, postgres_native_tls::TlsStream<tokio_postgres::Socket>>),
+    NoTls(tokio_postgres::Connection<tokio_postgres::Socket, tokio_postgres::tls::NoTlsStream>),
+}
 
-    let scheme = parsed_url.scheme().to_string();
-    let username = parsed_url.username().to_string();
-    let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
-    let password = parsed_url.password().map(|p| p.to_string());
-    let password = match password {
-        Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
-        None => None,
-    };
-    let host = parsed_url
-        .host_str()
-        .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
-        .to_string();
-    let port = parsed_url.port();
-    let database = parsed_url.path().trim_start_matches('/').to_string();
-    let mut ssl_mode = None;
-    for query in parsed_url.query_pairs() {
-        if query.0 == "sslmode" {
-            ssl_mode = Some(query.1.to_string());
+
+impl Future for TokioPgConnection
+{
+    type Output = Result<(), tokio_postgres::Error>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        // SAFETY: We're simply projecting the Pin from the outer enum to the inner connection field.
+        // The inner connection is never moved out, so this is safe.
+        unsafe {
+            match self.get_unchecked_mut() {
+                TokioPgConnection::Tls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+                TokioPgConnection::NoTls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+            }
+        }
+    }
+}
+
+
+impl PgDatabase {
+    pub fn to_uri(&self) -> String {
+        let sslmode = match self.sslmode.as_deref() {
+            Some("allow") => "prefer".to_string(),
+            Some("require") | Some("verify-ca") | Some("verify-full") => "require".to_string(),
+            Some(s) => s.to_string(),
+            None => "prefer".to_string(),
+        };
+        format!(
+            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
+            host = &self.host,
+            port = self.port.unwrap_or(5432),
+            dbname = self.dbname,
+            sslmode = sslmode
+        )
+    }
+
+    pub fn to_conn_str(&self) -> String {
+        format!(
+            "dbname={dbname} {user} host={host} {password} {port} {sslmode}",
+            dbname = self.dbname,
+            user = self.user.as_ref().map(|u| format!("user={}", urlencoding::encode(u))).unwrap_or_default(),
+            host = self.host,
+            password = self.password
+                .as_ref().map(|p| format!("password={}", urlencoding::encode(p)))
+                .unwrap_or_default(),
+            port = self.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+            sslmode = self.sslmode
+                .as_ref().map(|s| format!("sslmode={}", s.clone()))
+                .unwrap_or_default(),
+        )
+    }
+
+    pub async fn connect(&self) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use tokio_postgres::tls::{ NoTls };
+        use postgres_native_tls::MakeTlsConnector;
+        use native_tls::{Certificate, TlsConnector};
+        let ssl_mode_is_require = matches!(self.sslmode.as_deref(), Some("require") | Some("verify-ca") | Some("verify-full")); 
+        
+        if ssl_mode_is_require {
+            tracing::info!("Creating new connection");
+            let mut connector = TlsConnector::builder();
+            if let Some(root_certificate_pem) = &self.root_certificate_pem {
+                if !root_certificate_pem.is_empty() {
+                    connector.add_root_certificate(
+                        Certificate::from_pem(root_certificate_pem.as_bytes())
+                            .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                    );
+                } else {
+                    connector.danger_accept_invalid_certs(true);
+                    connector.danger_accept_invalid_hostnames(true);
+                }
+            } else {
+                connector
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true);
+            }
+    
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(
+                    &self.to_uri(),
+                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+                ),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::Tls(connection)))
+        } else {
+            tracing::info!("Creating new connection");
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(&self.to_uri(), NoTls),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::NoTls(connection)))
         }
     }
 
-    Ok(PostgresUrlComponents {
-        scheme,
-        username: if username.is_empty() {
-            None
-        } else {
-            Some(username)
-        },
-        password,
-        host,
-        port,
-        database,
-        ssl_mode,
-    })
+    pub fn parse_uri(url: &str) -> Result<Self, Error> {
+        let parsed_url =
+            url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+
+        let username = parsed_url.username().to_string();
+        let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
+        let password = parsed_url.password().map(|p| p.to_string());
+        let password = match password {
+            Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
+            None => None, 
+        };
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
+            .to_string();
+        let port = parsed_url.port();
+        let dbname = parsed_url.path().trim_start_matches('/').to_string();
+        let mut sslmode = None;
+        for query in parsed_url.query_pairs() {
+            if query.0 == "sslmode" {
+                sslmode = Some(query.1.to_string());
+            }
+        }
+
+        Ok(PgDatabase {
+            user: if username.is_empty() {
+                None
+            } else {
+                Some(username)
+            },
+            password,
+            host,
+            port,
+            dbname,
+            sslmode,
+            root_certificate_pem: None,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -403,12 +517,9 @@ impl DatabaseUrl {
             DatabaseUrl::Static(_) => Ok(()),
         }
     }
-
-
 }
 
-static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> =
-    tokio::sync::OnceCell::const_new();
+static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> = tokio::sync::OnceCell::const_new();
 
 pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
     let database_url = DATABASE_URL_CACHE
@@ -441,22 +552,27 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
                 })?;
 
                 tracing::info!("iamrds mode detected, generating IAM RDS URL for region: {region}");
-                #[cfg(all(feature = "enterprise", feature = "private"))] 
+                #[cfg(all(feature = "enterprise", feature = "private"))]
                 {
-                let rds_url = db_iam_ee::generate_database_url(&url, &region)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("Failed to generate IAM database URL: {}", e))
-                    })?;
-                tracing::info!("IAM RDS URL generated successfully");
-                Ok::<DatabaseUrl, Error>(DatabaseUrl::IamRds(
-                    std::sync::Arc::new(tokio::sync::RwLock::new(rds_url))
-                ))
+                    let rds_url = db_iam_ee::generate_database_url(&url, &region)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "Failed to generate IAM database URL: {}",
+                                e
+                            ))
+                        })?;
+                    tracing::info!("IAM RDS URL generated successfully");
+                    Ok::<DatabaseUrl, Error>(DatabaseUrl::IamRds(std::sync::Arc::new(
+                        tokio::sync::RwLock::new(rds_url),
+                    )))
                 }
 
                 #[cfg(not(all(feature = "enterprise", feature = "private")))]
                 {
-                    return Err(Error::BadConfig("IAM RDS authentication is not enabled in OSS mode".to_string()));
+                    return Err(Error::BadConfig(
+                        "IAM RDS authentication is not enabled in OSS mode".to_string(),
+                    ));
                 }
             } else {
                 Ok::<DatabaseUrl, Error>(DatabaseUrl::Static(url.to_string()))
@@ -502,8 +618,7 @@ pub async fn connect_db(
     server_mode: bool,
     indexer_mode: bool,
     worker_mode: bool,
-    #[cfg(feature = "private")]
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    #[cfg(feature = "private")] mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
@@ -527,7 +642,6 @@ pub async fn connect_db(
             }
         }
     };
-
 
     let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -570,7 +684,6 @@ pub async fn connect_db(
                         }
                     }
                 }
-                
             }
         });
     }
@@ -628,7 +741,8 @@ pub async fn connect(
             }
         })
         .connect_with(
-            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?.statement_cache_capacity(400),
+            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?
+                .statement_cache_capacity(400),
         )
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
@@ -639,7 +753,7 @@ type Tag = String;
 pub use db::DB;
 
 use crate::{
-    auth::{FLOW_PERMS_CACHE, HASH_PERMS_CACHE, PermsCache}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, scripts::ScriptHash
+    auth::{PermsCache, FLOW_PERMS_CACHE, HASH_PERMS_CACHE}, db::{AuthedRef, UserDbWithAuthed}, error::to_anyhow, runnable_settings::RunnableSettings, scripts::{ScriptHash, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline}
 };
 
 #[derive(Clone)]
@@ -648,16 +762,11 @@ pub struct ExpiringLatestVersionId {
     expires_at: std::time::Instant,
 }
 
-#[derive(Clone, Debug)]
-pub struct ScriptHashInfo {
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct ScriptHashInfo<SR> {
     pub path: String,
     pub hash: i64,
     pub tag: Option<String>,
-    pub concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub debounce_key: Option<String>,
-    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub language: ScriptLang,
@@ -668,6 +777,50 @@ pub struct ScriptHashInfo {
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub created_by: String,
+    #[sqlx(flatten)]
+    pub runnable_settings: SR,
+}
+
+impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
+    pub async fn prefetch_cached<'a>(self, db: &DB) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsInline>> {
+
+    let (debouncing_settings, concurrency_settings) =
+        RunnableSettings::from_runnable_settings_handle(
+            self.runnable_settings.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .prefetch_cached(db)
+        .await?;
+
+    Ok(
+        ScriptHashInfo {
+            path: self.path,
+            hash: self.hash,
+            tag: self.tag,
+            cache_ttl: self.cache_ttl,
+            cache_ignore_s3_path: self.cache_ignore_s3_path,
+            language: self.language,
+            dedicated_worker: self.dedicated_worker,
+            priority: self.priority,
+            delete_after_use: self.delete_after_use,
+            timeout: self.timeout,
+            has_preprocessor: self.has_preprocessor,
+            on_behalf_of_email: self.on_behalf_of_email,
+            created_by: self.created_by,
+            runnable_settings: ScriptRunnableSettingsInline{
+            concurrency_settings: concurrency_settings
+                .maybe_fallback(
+                    self.runnable_settings.concurrency_key,
+                    self.runnable_settings.concurrent_limit,
+                    self.runnable_settings.concurrency_time_window_s,
+                ),
+            debouncing_settings: debouncing_settings
+                .maybe_fallback(self.runnable_settings.debounce_key, self.runnable_settings.debounce_delay_s),
+            },
+                
+        })
+    }
 }
 
 pub fn get_latest_deployed_hash_for_path<'e>(
@@ -675,7 +828,7 @@ pub fn get_latest_deployed_hash_for_path<'e>(
     db2: DB,
     w_id: &'e str,
     script_path: &'e str,
-) -> impl Future<Output = error::Result<ScriptHashInfo>> + Send + 'e {
+) -> impl Future<Output = error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>>> + Send + 'e {
     async move {
         let cache_key = (w_id.to_string(), script_path.to_string());
         let mut computed_hash = None;
@@ -758,7 +911,7 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     db: E,
     w_id: &str,
     hash: i64,
-) -> error::Result<ScriptHashInfo> {
+) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>> {
     let key = (w_id.to_string(), hash);
 
     let mut computed_hash = None;
@@ -802,13 +955,32 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
     db: E,
     w_id: &str,
     hash: i64,
-) -> error::Result<Option<ScriptHashInfo>> {
-    let r = sqlx::query_as!(
-        ScriptHashInfo,
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
-        hash,
-        w_id
+) -> error::Result<Option<ScriptHashInfo<ScriptRunnableSettingsHandle>>> {
+    let r = sqlx::query_as::<_, ScriptHashInfo<ScriptRunnableSettingsHandle>>(
+        "SELECT
+                hash,
+                tag,
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                debounce_key,
+                debounce_delay_s,
+                runnable_settings_handle,
+                cache_ttl,
+                cache_ignore_s3_path,
+                language,
+                dedicated_worker,
+                priority,
+                delete_after_use,
+                timeout,
+                has_preprocessor,
+                on_behalf_of_email,
+                created_by,
+                path
+            FROM script WHERE hash = $1 AND workspace_id = $2",
     )
+    .bind(hash)
+    .bind(w_id)
     .fetch_optional(db)
     .await?;
     Ok(r)
@@ -1030,9 +1202,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<i32>,
     Option<String>,
     String,
+    Option<i64>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -1060,6 +1233,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.timeout,
         script.on_behalf_of_email,
         script.created_by,
+        script.runnable_settings_handle,
     ))
 }
 
@@ -1115,3 +1289,4 @@ impl KillpillSender {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
 }
+

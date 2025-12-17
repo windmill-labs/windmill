@@ -17,13 +17,13 @@ type FetchParams<ResultCollectionT extends ResultCollection> = {
 
 type SqlResult<ResultCollectionT extends ResultCollection> =
   ResultCollectionT extends "last_statement_first_row"
-    ? object
+    ? any
     : ResultCollectionT extends "all_statements_first_row"
-    ? object[]
+    ? any[]
     : ResultCollectionT extends "last_statement_all_rows"
-    ? object[]
+    ? any[]
     : ResultCollectionT extends "all_statements_all_rows"
-    ? object[][]
+    ? any[][]
     : ResultCollectionT extends "last_statement_all_rows_scalar"
     ? any[]
     : ResultCollectionT extends "all_statements_all_rows_scalar"
@@ -33,25 +33,50 @@ type SqlResult<ResultCollectionT extends ResultCollection> =
     : ResultCollectionT extends "all_statements_first_row_scalar"
     ? any[]
     : unknown;
+/**
+ * SQL statement object with query content, arguments, and execution methods
+ */
 export type SqlStatement = {
+  /** Raw SQL content with formatted arguments */
   content: string;
 
+  /** Argument values keyed by parameter name */
   args: Record<string, any>;
 
+  /**
+   * Execute the SQL query and return results
+   * @param params - Optional parameters including result collection mode
+   * @returns Query results based on the result collection mode
+   */
   fetch<ResultCollectionT extends ResultCollection = "last_statement_all_rows">(
     params?: FetchParams<ResultCollectionT | ResultCollection> // The union is for auto-completion
   ): Promise<SqlResult<ResultCollectionT>>;
 
+  /**
+   * Execute the SQL query and return only the first row
+   * @param params - Optional parameters
+   * @returns First row of the query result
+   */
   fetchOne(
     params?: Omit<FetchParams<"last_statement_first_row">, "resultCollection">
   ): Promise<SqlResult<"last_statement_first_row">>;
 };
 
+/**
+ * Template tag function for creating SQL statements with parameterized values
+ */
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
 
+interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
+  query(sql: string, ...params: any[]): SqlStatement;
+}
+
 /**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
  * let name = 'Robin'
@@ -61,11 +86,17 @@ export interface SqlTemplateFunction {
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-export function datatable(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl(name, "datatable");
+export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
+  return sqlProviderImpl(
+    "datatable",
+    parseName(name)
+  ) as DatatableSqlTemplateFunction;
 }
 
 /**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
  * let name = 'Robin'
@@ -76,14 +107,14 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
  * `.fetch()
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl(name, "ducklake");
+  return sqlProviderImpl("ducklake", { name });
 }
 
 function sqlProviderImpl(
-  name: string,
-  provider: "datatable" | "ducklake"
+  provider: "datatable" | "ducklake",
+  { name, schema }: { name: string; schema?: string }
 ): SqlTemplateFunction {
-  let sql: SqlTemplateFunction = (
+  let sqlFn: SqlTemplateFunction = (
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
@@ -110,6 +141,10 @@ function sqlProviderImpl(
     let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+
+    if (schema && provider === "datatable") {
+      content += `SET search_path TO "${schema}";\n`;
+    }
 
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
@@ -165,7 +200,18 @@ function sqlProviderImpl(
         fetch({ ...params, resultCollection: "last_statement_first_row" }),
     } satisfies SqlStatement;
   };
-  return sql;
+  if (provider === "datatable") {
+    (sqlFn as DatatableSqlTemplateFunction).query = (
+      sqlString: string,
+      ...params: any[]
+    ) => {
+      // This is less than ideal, did that quickly for a client need.
+      // TODO: break down the SqlTemplateFunction impl and reuse here properly.
+      let arr = Object.assign([sqlString], { raw: [sqlString] });
+      return sqlFn(arr, ...params);
+    };
+  }
+  return sqlFn;
 }
 
 // DuckDB executor requires explicit argument types at declaration
@@ -214,5 +260,21 @@ function parseTypeAnnotation(
     nextTemplateString.toUpperCase().startsWith("AS ")
   ) {
     return nextTemplateString.substring(2).trimStart().split(/\s+/)[0];
+  }
+}
+
+function parseName(name: string | undefined): {
+  name: string;
+  schema?: string;
+} {
+  if (!name) return { name: "main" };
+  let [assetName, schemaName] = name.split(":");
+  if (schemaName) {
+    return {
+      name: assetName || "main",
+      schema: schemaName,
+    };
+  } else {
+    return { name };
   }
 }

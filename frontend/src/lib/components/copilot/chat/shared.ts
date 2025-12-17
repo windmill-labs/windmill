@@ -325,7 +325,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 type BaseDisplayMessage = {
 	content: string
 	contextElements?: ContextElement[]
-	snapshot?: ExtendedOpenFlow
+	snapshot?: { type: 'flow'; value: ExtendedOpenFlow } | { type: 'app'; value: number }
 }
 
 export type UserDisplayMessage = BaseDisplayMessage & {
@@ -506,7 +506,8 @@ export interface ToolCallbacks {
 export function createToolDef(
 	zodSchema: z.ZodSchema,
 	name: string,
-	description: string
+	description: string,
+	{ strict = true }: { strict?: boolean } = {} // we sometimes have to set strict to false for open ai models to avoid issues with complex properties
 ): ChatCompletionFunctionTool {
 	// console.log('creating tool def for', name, zodSchema)
 	let parameters = z.toJSONSchema(zodSchema)
@@ -516,7 +517,7 @@ export function createToolDef(
 	return {
 		type: 'function',
 		function: {
-			strict: true,
+			strict,
 			name,
 			description,
 			parameters
@@ -570,6 +571,46 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
+/**
+ * Recursively removes format: null or format: '' from a JSON schema object
+ */
+function removeNullFormats(schema: Record<string, any> | undefined): void {
+	if (!schema || typeof schema !== 'object') {
+		return
+	}
+
+	// Remove format if it's null or empty string
+	if (schema.format === null || schema.format === '') {
+		delete schema.format
+	}
+
+	// Recurse into properties
+	if (schema.properties && typeof schema.properties === 'object') {
+		for (const key of Object.keys(schema.properties)) {
+			removeNullFormats(schema.properties[key])
+		}
+	}
+
+	// Recurse into items (for arrays)
+	if (schema.items) {
+		removeNullFormats(schema.items)
+	}
+
+	// Recurse into additionalProperties if it's an object schema
+	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+		removeNullFormats(schema.additionalProperties)
+	}
+
+	// Recurse into allOf, anyOf, oneOf
+	for (const key of ['allOf', 'anyOf', 'oneOf']) {
+		if (Array.isArray(schema[key])) {
+			for (const subSchema of schema[key]) {
+				removeNullFormats(subSchema)
+			}
+		}
+	}
+}
+
 export async function buildSchemaForTool(
 	toolDef: ChatCompletionFunctionTool,
 	schemaBuilder: () => Promise<FunctionParameters>
@@ -587,6 +628,10 @@ export async function buildSchemaForTool(
 		}
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
+
+		// recursively remove any format: null or format: '' (empty string) from schema
+		removeNullFormats(toolDef.function.parameters)
+
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
 		if (model.provider === 'openai' || model.provider === 'azure_openai') {

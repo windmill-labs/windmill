@@ -1,8 +1,72 @@
 use axum::body::Bytes;
+use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
+use aws_sigv4::sign::v4;
 use bytes;
 use futures;
+use std::time::SystemTime;
 use uuid;
 use windmill_common::error::{Error, Result};
+
+/// Sign a request for AWS Bedrock using SigV4
+///
+/// Returns a vector of (header_name, header_value) tuples to add to the request
+pub fn sign_bedrock_request(
+    method: &str,
+    uri: &str,
+    body: &[u8],
+    access_key_id: &str,
+    secret_access_key: &str,
+    region: &str,
+) -> Result<Vec<(String, String)>> {
+    let identity = aws_credential_types::Credentials::new(
+        access_key_id,
+        secret_access_key,
+        None, // session token
+        None, // expiration
+        "windmill",
+    )
+    .into();
+
+    let signing_settings = SigningSettings::default();
+    let signing_params = v4::SigningParams::builder()
+        .identity(&identity)
+        .region(region)
+        .name("bedrock")
+        .time(SystemTime::now())
+        .settings(signing_settings)
+        .build()
+        .map_err(|e| Error::internal_err(format!("Failed to build signing params: {}", e)))?;
+
+    // Parse the URI to extract path and query
+    let parsed_uri: http::Uri = uri
+        .parse()
+        .map_err(|e| Error::internal_err(format!("Failed to parse URI: {}", e)))?;
+
+    let path_and_query = parsed_uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+
+    let signable_request = SignableRequest::new(
+        method,
+        path_and_query,
+        std::iter::once(("host", parsed_uri.host().unwrap_or(""))),
+        SignableBody::Bytes(body),
+    )
+    .map_err(|e| Error::internal_err(format!("Failed to create signable request: {}", e)))?;
+
+    let (signing_instructions, _signature) = sign(signable_request, &signing_params.into())
+        .map_err(|e| Error::internal_err(format!("Failed to sign request: {}", e)))?
+        .into_parts();
+
+    // Collect the headers to add
+    let mut headers = Vec::new();
+    for (name, value) in signing_instructions.headers() {
+        headers.push((name.to_string(), value.to_string()));
+    }
+
+    Ok(headers)
+}
 
 /// Transform OpenAI format request to AWS Bedrock Converse format
 /// Returns: (model_id, transformed_body, is_streaming)

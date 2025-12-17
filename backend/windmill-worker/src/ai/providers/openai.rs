@@ -17,11 +17,28 @@ pub struct OpenAIFunction {
     pub arguments: String,
 }
 
+/// Google-specific extra content for thought signatures (Gemini 3 Pro / 2.5)
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct GoogleExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
+}
+
+/// Extra content for provider-specific metadata (e.g., Google thought signatures)
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct ExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google: Option<GoogleExtraContent>,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct OpenAIToolCall {
     pub id: String,
     pub function: OpenAIFunction,
     pub r#type: String,
+    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<ExtraContent>,
 }
 
 #[derive(Deserialize)]
@@ -130,7 +147,15 @@ impl OpenAIQueryBuilder {
             .map(|props| !props.is_empty())
             .unwrap_or(false);
 
-        let response_format = if has_output_properties && args.output_schema.is_some() {
+        let should_use_structured_output_tool =
+            should_use_structured_output_tool(&self.provider_kind, args.model);
+
+        // Only use response_format for providers that support it (not Claude/Anthropic)
+        // Claude models use a tool for structured output instead
+        let response_format = if has_output_properties
+            && args.output_schema.is_some()
+            && !should_use_structured_output_tool
+        {
             let schema = args.output_schema.unwrap();
             let strict_schema = schema.clone().make_strict();
             Some(ResponseFormat {
@@ -145,10 +170,8 @@ impl OpenAIQueryBuilder {
             None
         };
 
-        let should_use_structured_output_tool =
-            should_use_structured_output_tool(&self.provider_kind, args.model);
-        // Force usage of structured output tool for Claude models when structured output provided
-        let tool_choice = if should_use_structured_output_tool && response_format.is_some() {
+        // Force usage of structured output tool for Claude models when structured output is provided
+        let tool_choice = if should_use_structured_output_tool && has_output_properties {
             Some(ToolChoice::Required)
         } else {
             None

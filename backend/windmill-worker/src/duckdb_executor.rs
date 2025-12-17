@@ -17,6 +17,7 @@ use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
     DucklakeCatalogResourceType,
 };
+use windmill_common::PgDatabase;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -25,9 +26,9 @@ use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics}
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
-use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use windmill_common::client::AuthedClient;
+use windmill_common::s3_helpers::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
@@ -88,7 +89,7 @@ pub async fn do_duckdb(
                     })?;
                     let uri = format!(
                         "s3://{}/{}",
-                        s3_obj.storage.as_deref().unwrap_or("_default_"),
+                        s3_obj.storage.as_deref().unwrap_or(DEFAULT_STORAGE),
                         s3_obj.s3
                     );
                     m.push(Arg {
@@ -416,19 +417,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            format!(
-                "dbname={} {} host={} {} {} {}",
-                res.dbname,
-                res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
-                res.host,
-                res.password
-                    .map(|p| format!("password={}", p))
-                    .unwrap_or_default(),
-                res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
-                res.sslmode
-                    .map(|s| format!("sslmode={}", s))
-                    .unwrap_or_default(),
-            )
+            res.to_conn_str()
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -570,7 +559,11 @@ async fn transform_attach_ducklake(
     }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
-    let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
+    let storage = ducklake
+        .storage
+        .storage
+        .as_deref()
+        .unwrap_or(DEFAULT_STORAGE);
     let data_path = ducklake.storage.path;
 
     // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
@@ -639,7 +632,7 @@ async fn transform_s3_uris(query: &str) -> Result<String> {
                 continue;
             }
             let original_str_lit: String = format!("'s3://{}/{}'", storage, s3_path);
-            storage = "_default_";
+            storage = DEFAULT_STORAGE;
 
             let new_s3_lit = format!("'s3://{}/{}'", storage, s3_path);
             transformed_query = Some(
