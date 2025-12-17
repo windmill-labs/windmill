@@ -129,7 +129,10 @@
 	})
 
 	onMount(async () => {
-		allTablesMetaData = await loadMetaData()
+		const [meta, fks] = await Promise.all([loadMetaData(), fetchAllForeignKeys()])
+
+		allTablesMetaData = meta
+		allForeignKeys = fks
 	})
 </script>
 

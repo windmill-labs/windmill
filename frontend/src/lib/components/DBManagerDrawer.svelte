@@ -19,7 +19,7 @@
 	import { setContext, untrack } from 'svelte'
 	import type { DbInput } from './dbTypes'
 	import {
-		fetchForeignKeys,
+		fetchAllForeignKeys,
 		getDbSchemas,
 		loadAllTablesMetaData,
 		loadTableMetaData
@@ -131,9 +131,9 @@
 		}
 	})
 
-	setContext('fetchForeignKeys', async (table: string) => {
+	setContext('fetchAllForeignKeys', async () => {
 		if (input) {
-			return await fetchForeignKeys(input, $workspaceStore, table)
+			return await fetchAllForeignKeys(input, $workspaceStore)
 		}
 	})
 </script>

@@ -503,12 +503,7 @@ export async function getTablesByResource(
 async function makeForeignKeysQuery(
 	input: DbInput,
 	workspace: string,
-	table: string | undefined,
 ): Promise<string> {
-	if (!table) {
-		throw new Error("Table name is required for fetching foreign keys");
-	}
-
 	if (input.type === "ducklake") {
 		// DuckDB/DuckLake doesn't have comprehensive foreign key support via information_schema
 		return `SELECT NULL WHERE FALSE`; // Return empty result set
@@ -646,12 +641,11 @@ async function makeForeignKeysQuery(
 	}
 }
 
-export async function fetchForeignKeys(
+export async function fetchAllForeignKeys(
 	input: DbInput,
 	workspace: string | undefined,
-	table: string | undefined,
 ): Promise<ForeignKeyMetadata[] | undefined> {
-	if (!input || !table || !workspace) return undefined;
+	if (!input || !workspace) return undefined;
 
 	let language = input.type == "ducklake"
 		? "duckdb"
@@ -659,7 +653,7 @@ export async function fetchForeignKeys(
 	let content: string;
 
 	try {
-		content = await makeForeignKeysQuery(input, workspace, table);
+		content = await makeForeignKeysQuery(input, workspace);
 	} catch (error) {
 		console.error("Error creating foreign keys query:", error);
 		return undefined;
