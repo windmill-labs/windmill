@@ -60,81 +60,83 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
-/// Extract Enum class definitions from code
-/// Returns a map of enum class name -> list of enum values
-fn extract_enum_definitions(code: &str) -> HashMap<String, Vec<String>> {
-    let mut enums = HashMap::new();
-    
-    let ast = match Suite::parse(code, "main.py") {
-        Ok(ast) => ast,
-        Err(_) => return enums,
-    };
-
-    for stmt in ast {
-        if let Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) = stmt {
-            // Check if this class inherits from Enum (directly or via str, Enum)
-            let is_enum = bases.iter().any(|base| {
-                matches!(base, Expr::Name(ExprName { id, .. }) if id == "Enum")
-            });
-
-            if is_enum {
-                let mut values = Vec::new();
-                
-                // Extract enum values from class body
-                for item in body {
-                    if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
-                        // Get the assignment target name (e.g., RED in RED = 'red')
-                        if let Some(Expr::Name(ExprName { id: target_name, .. })) = targets.first() {
-                            // Skip special attributes
-                            if !target_name.starts_with('_') {
-                                // Extract the string value
-                                if let Expr::Constant(ExprConstant { value: Constant::Str(val), .. }) = value.as_ref() {
-                                    values.push(val.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if !values.is_empty() {
-                    enums.insert(name.to_string(), values);
-                }
-            }
-        }
-    }
-    
-    enums
+/// Data extracted from parsing the Python code
+struct CodeMetadata {
+    enums: HashMap<String, EnumInfo>,
+    descriptions: HashMap<String, String>,
 }
 
-/// Extract parameter descriptions from docstring
-/// Returns a map of parameter name -> description
-fn extract_docstring_descriptions(code: &str, main_name: &str) -> HashMap<String, String> {
+/// Information about an Enum class
+struct EnumInfo {
+    values: Vec<String>,
+    members: HashMap<String, String>, // member name -> value mapping
+}
+
+/// Extract Enum definitions and docstring descriptions in a single AST pass
+/// Returns enum info and parameter descriptions
+fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
+    let mut enums = HashMap::new();
     let mut descriptions = HashMap::new();
     
     let ast = match Suite::parse(code, "main.py") {
         Ok(ast) => ast,
-        Err(_) => return descriptions,
+        Err(_) => return CodeMetadata { enums, descriptions },
     };
 
-    // Find the main function
     for stmt in ast {
-        if let Stmt::FunctionDef(StmtFunctionDef { name, body, .. }) = stmt {
-            if &name != main_name {
-                continue;
-            }
-            
-            // Get the docstring (first statement if it's a constant string)
-            if let Some(Stmt::Expr(expr_stmt)) = body.first() {
-                if let Expr::Constant(ExprConstant { value: Constant::Str(docstring), .. }) = expr_stmt.value.as_ref() {
-                    // Parse the docstring for Args: section
-                    descriptions = parse_docstring_args(docstring);
+        match stmt {
+            // Extract Enum class definitions
+            Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) => {
+                // Check if this class inherits from any Enum type
+                let is_enum = bases.iter().any(|base| {
+                    matches!(base, Expr::Name(ExprName { id, .. }) 
+                        if id == "Enum" || id == "IntEnum" || id == "StrEnum" 
+                        || id == "Flag" || id == "IntFlag")
+                });
+
+                if is_enum {
+                    let mut values = Vec::new();
+                    let mut members = HashMap::new();
+                    
+                    // Extract enum values from class body
+                    for item in body {
+                        if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
+                            // Get the assignment target name (e.g., RED in RED = 'red')
+                            if let Some(Expr::Name(ExprName { id: target_name, .. })) = targets.first() {
+                                // Skip special attributes
+                                if !target_name.starts_with('_') {
+                                    // Extract the string value
+                                    if let Expr::Constant(ExprConstant { value: Constant::Str(val), .. }) = value.as_ref() {
+                                        values.push(val.to_string());
+                                        members.insert(target_name.to_string(), val.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !values.is_empty() {
+                        enums.insert(name.to_string(), EnumInfo { values, members });
+                    }
                 }
-            }
-            break;
+            },
+            // Extract docstring from main function
+            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) => {
+                if &func_name == main_name {
+                    // Get the docstring (first statement if it's a constant string)
+                    if let Some(Stmt::Expr(expr_stmt)) = body.first() {
+                        if let Expr::Constant(ExprConstant { value: Constant::Str(docstring), .. }) = expr_stmt.value.as_ref() {
+                            // Parse the docstring for Args: section
+                            descriptions = parse_docstring_args(docstring);
+                        }
+                    }
+                }
+            },
+            _ => {}
         }
     }
     
-    descriptions
+    CodeMetadata { enums, descriptions }
 }
 
 /// Parse docstring Args: section
@@ -142,6 +144,7 @@ fn extract_docstring_descriptions(code: &str, main_name: &str) -> HashMap<String
 fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
     let mut descriptions = HashMap::new();
     let mut in_args_section = false;
+    let mut base_indent: Option<usize> = None;
     
     for line in docstring.lines() {
         let trimmed = line.trim();
@@ -149,16 +152,32 @@ fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
         // Detect Args: section
         if trimmed == "Args:" {
             in_args_section = true;
+            base_indent = None;
             continue;
         }
         
-        // Exit Args section on next section or unindented line
-        if in_args_section && !trimmed.is_empty() && !line.starts_with(char::is_whitespace) && trimmed.ends_with(':') {
-            break;
-        }
-        
-        if in_args_section && !trimmed.is_empty() {
-            // Parse line like "param_name (type): Description"
+        if in_args_section {
+            // Empty line continues the section
+            if trimmed.is_empty() {
+                continue;
+            }
+            
+            // Calculate indentation
+            let indent = line.len() - line.trim_start().len();
+            
+            // Set base indent from first parameter line
+            if base_indent.is_none() && !trimmed.is_empty() {
+                base_indent = Some(indent);
+            }
+            
+            // Exit on next section (non-indented line ending with colon)
+            if let Some(base) = base_indent {
+                if indent < base && trimmed.ends_with(':') {
+                    break;
+                }
+            }
+            
+            // Parse parameter line like "param_name (type): Description"
             if let Some(colon_pos) = trimmed.find(':') {
                 let before_colon = &trimmed[..colon_pos];
                 let description = trimmed[colon_pos + 1..].trim();
@@ -210,9 +229,8 @@ pub fn parse_python_signature(
     if !skip_params && params.is_some() {
         let params = params.unwrap();
         
-        // Extract enum definitions and docstring descriptions from full code
-        let enums = extract_enum_definitions(code);
-        let descriptions = extract_docstring_descriptions(code, &main_name);
+        // Extract enum definitions and docstring descriptions in a single pass
+        let metadata = extract_code_metadata(code, &main_name);
         
         //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults().count();
@@ -229,13 +247,13 @@ pub fn parse_python_signature(
                         .as_arg()
                         .annotation
                         .as_ref()
-                        .map_or((Typ::Unknown, false), |e| parse_expr(e, &enums));
+                        .map_or((Typ::Unknown, false), |e| parse_expr(e, &metadata.enums));
 
                     let default = if i >= def_arg_start {
                         params
                             .defaults()
                             .nth(i - def_arg_start)
-                            .map(to_value)
+                            .map(|expr| to_value(expr, &metadata.enums))
                             .flatten()
                     } else {
                         None
@@ -264,7 +282,7 @@ pub fn parse_python_signature(
                     }
 
                     Arg {
-                        otyp: descriptions.get(&arg_name).map(|d| d.to_string()),
+                        otyp: metadata.descriptions.get(&arg_name).map(|d| d.to_string()),
                         name: arg_name,
                         typ,
                         has_default: has_default || default.is_some(),
@@ -287,7 +305,7 @@ pub fn parse_python_signature(
     }
 }
 
-fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, Vec<String>>) -> (Typ, bool) {
+fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
     match e.as_ref() {
         Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums), false),
         Expr::Attribute(x) => {
@@ -344,10 +362,10 @@ fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, Vec<String>>) -> (Typ, bool
     }
 }
 
-fn parse_typ(id: &str, enums: &HashMap<String, Vec<String>>) -> Typ {
+fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>) -> Typ {
     // Check if this is an Enum type
-    if let Some(enum_values) = enums.get(id) {
-        return Typ::Str(Some(enum_values.clone()));
+    if let Some(enum_info) = enums.get(id) {
+        return Typ::Str(Some(enum_info.values.clone()));
     }
     
     match id {
@@ -378,7 +396,7 @@ fn map_resource_name(x: &str) -> String {
     }
 }
 
-fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
+fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_json::Value> {
     match et {
         Expr::Constant(ExprConstant { value, .. }) => Some(constant_to_value(value)),
         Expr::Dict(ExprDict { keys, values, .. }) => {
@@ -388,26 +406,32 @@ fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
                 .map(|(k, v)| {
                     let key = k
                         .as_ref()
-                        .map(to_value)
+                        .map(|e| to_value(e, enums))
                         .flatten()
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
                         })
                         .unwrap_or_else(|| "no_key".to_string());
-                    (key, to_value(&v))
+                    (key, to_value(&v, enums))
                 })
                 .collect::<HashMap<String, _>>();
             Some(json!(v))
         }
         Expr::List(ExprList { elts, .. }) => {
-            let v = elts.into_iter().map(|x| to_value(&x)).collect::<Vec<_>>();
+            let v = elts.into_iter().map(|x| to_value(&x, enums)).collect::<Vec<_>>();
             Some(json!(v))
         }
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-            // Handle Enum.VALUE patterns
-            if let Expr::Name(ExprName { id: _, .. }) = value.as_ref() {
-                // Return the attribute name as the value (e.g., "RED" from Color.RED)
+            // Handle Enum.MEMBER patterns (e.g., Color.RED)
+            if let Expr::Name(ExprName { id: enum_name, .. }) = value.as_ref() {
+                // Look up the actual enum value
+                if let Some(enum_info) = enums.get(enum_name.as_str()) {
+                    if let Some(enum_value) = enum_info.members.get(attr.as_str()) {
+                        return Some(json!(enum_value));
+                    }
+                }
+                // Fallback: return the member name if enum not found
                 Some(json!(attr.as_str()))
             } else {
                 None
@@ -916,7 +940,8 @@ def main(color: Color = Color.RED):
             result.args[0].typ,
             Typ::Str(Some(vec!["red".to_string(), "green".to_string(), "blue".to_string()]))
         );
-        assert_eq!(result.args[0].default, Some(json!("RED")));
+        // Default should now be the actual enum value "red", not the member name "RED"
+        assert_eq!(result.args[0].default, Some(json!("red")));
         assert_eq!(result.args[0].otyp, Some("Color selection from Color enum".to_string()));
         Ok(())
     }
