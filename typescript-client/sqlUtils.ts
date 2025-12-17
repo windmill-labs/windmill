@@ -68,6 +68,11 @@ export type SqlStatement = {
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
+
+interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
+  query(sql: string, ...params: any[]): SqlStatement;
+}
+
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
@@ -81,8 +86,11 @@ export interface SqlTemplateFunction {
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-export function datatable(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl("datatable", parseName(name));
+export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
+  return sqlProviderImpl(
+    "datatable",
+    parseName(name)
+  ) as DatatableSqlTemplateFunction;
 }
 
 /**
@@ -192,7 +200,17 @@ function sqlProviderImpl(
         fetch({ ...params, resultCollection: "last_statement_first_row" }),
     } satisfies SqlStatement;
   };
-
+  if (provider === "datatable") {
+    (sqlFn as DatatableSqlTemplateFunction).query = (
+      sqlString: string,
+      ...params: any[]
+    ) => {
+      // This is less than ideal, did that quickly for a client need.
+      // TODO: break down the SqlTemplateFunction impl and reuse here properly.
+      let arr = Object.assign([sqlString], { raw: [sqlString] });
+      return sqlFn(arr, ...params);
+    };
+  }
   return sqlFn;
 }
 
