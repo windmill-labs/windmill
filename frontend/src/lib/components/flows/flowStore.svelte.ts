@@ -14,7 +14,12 @@ export async function initFlow(
 	flowStore: StateStore<Flow>,
 	flowStateStore: StateStore<FlowState>
 ) {
-	const migratedFlow = migrateFlowLegacyFormats(flow)
+	let migratedFlow = flow
+	try {
+		migratedFlow = migrateFlowLegacyFormats(flow)
+	} catch (error) {
+		console.error('Error migrating flow legacy formats', error)
+	}
 	await initFlowState(migratedFlow, flowStateStore)
 	flowStore.val = migratedFlow
 }

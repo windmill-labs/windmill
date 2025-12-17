@@ -22,16 +22,14 @@ export function migrateFlowLegacyFormats(flow: Flow): Flow {
 }
 
 function migrateAiAgentModule(module: FlowModule): void {
-	console.log('[here] migrateAiAgentModule', module)
 	const value = module.value
 	if (value.type !== 'aiagent') return
 
-	const inputTransforms = value.input_transforms as Record<string, InputTransform> | undefined
-	if (!inputTransforms) return
+	const inputTransforms = value.input_transforms
 
 	// Check if this has the legacy format
 	if ('messages_context_length' in inputTransforms && !('history' in inputTransforms)) {
-		const legacyValue = inputTransforms.messages_context_length
+		const legacyValue = inputTransforms.messages_context_length as InputTransform
 
 		// Create new history field with auto mode
 		if (legacyValue.type === 'static') {
