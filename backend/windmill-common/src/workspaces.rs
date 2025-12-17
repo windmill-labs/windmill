@@ -3,15 +3,14 @@ use async_recursion::async_recursion;
 use backon::{ConstantBuilder, Retryable};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use strum::AsRefStr;
 
 use crate::{
     error::{to_anyhow, Error, Result},
-    get_database_url, parse_postgres_url,
+    get_database_url,
     utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
-    DB,
+    PgDatabase, DB,
 };
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -192,15 +191,12 @@ pub async fn get_datatable_resource_from_db_unchecked(
 
     let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
     {
-        let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
-        json!({
-            "dbname": datatable.database.resource_path,
-            "host": pg_creds.host,
-            "port": pg_creds.port,
-            "user": "custom_instance_user",
-            "sslmode": pg_creds.ssl_mode,
-            "password": get_custom_pg_instance_password(&db).await?,
-        })
+        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+        pg_creds.dbname = datatable.database.resource_path.clone();
+        pg_creds.user = Some("custom_instance_user".to_string());
+        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
     } else {
         transform_json_unchecked(
             &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
@@ -273,15 +269,12 @@ pub async fn get_ducklake_from_db_unchecked(
 
     let catalog_resource =
         if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
-            json!({
-                "dbname": ducklake.catalog.resource_path,
-                "host": pg_creds.host,
-                "port": pg_creds.port,
-                "user": "custom_instance_user",
-                "sslmode": pg_creds.ssl_mode,
-                "password": get_custom_pg_instance_password(&db).await?,
-            })
+            let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+            pg_creds.dbname = ducklake.catalog.resource_path.clone();
+            pg_creds.user = Some("custom_instance_user".to_string());
+            pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
         } else {
             transform_json_unchecked(
                 &serde_json::Value::String(format!("$res:{}", ducklake.catalog.resource_path)),

@@ -71,6 +71,9 @@ base64.workspace = true
 bitflags.workspace = true
 once_cell.workspace = true
 phf.workspace = true
+tokio-postgres.workspace = true
+postgres-native-tls.workspace = true
+native-tls.workspace = true
 
 aws-smithy-types-convert = { workspace = true, optional = true }
 aws-sdk-rds = { workspace = true, optional = true }

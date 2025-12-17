@@ -7,6 +7,7 @@
  */
 
 use quick_cache::sync::Cache;
+use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
     hash::{Hash, Hasher},
@@ -329,56 +330,165 @@ async fn reset() -> () {
     todo!()
 }
 
-pub struct PostgresUrlComponents {
-    pub scheme: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
+#[derive(Deserialize, Serialize)]
+pub struct PgDatabase {
     pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
     pub port: Option<u16>,
-    pub database: String,
-    pub ssl_mode: Option<String>,
+    pub sslmode: Option<String>,
+    pub dbname: String,
+    pub root_certificate_pem: Option<String>,
 }
 
-pub fn parse_postgres_url(url: &str) -> Result<PostgresUrlComponents, Error> {
-    let parsed_url =
-        url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+// Wrapper enum to hold either Tls or NoTls connection
+pub enum TokioPgConnection {
+    Tls(tokio_postgres::Connection<tokio_postgres::Socket, postgres_native_tls::TlsStream<tokio_postgres::Socket>>),
+    NoTls(tokio_postgres::Connection<tokio_postgres::Socket, tokio_postgres::tls::NoTlsStream>),
+}
 
-    let scheme = parsed_url.scheme().to_string();
-    let username = parsed_url.username().to_string();
-    let username = urlencoding::decode(&username)
-        .map_err(to_anyhow)?
-        .to_string();
-    let password = parsed_url.password().map(|p| p.to_string());
-    let password = match password {
-        Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
-        None => None,
-    };
-    let host = parsed_url
-        .host_str()
-        .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
-        .to_string();
-    let port = parsed_url.port();
-    let database = parsed_url.path().trim_start_matches('/').to_string();
-    let mut ssl_mode = None;
-    for query in parsed_url.query_pairs() {
-        if query.0 == "sslmode" {
-            ssl_mode = Some(query.1.to_string());
+
+impl Future for TokioPgConnection
+{
+    type Output = Result<(), tokio_postgres::Error>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        // SAFETY: We're simply projecting the Pin from the outer enum to the inner connection field.
+        // The inner connection is never moved out, so this is safe.
+        unsafe {
+            match self.get_unchecked_mut() {
+                TokioPgConnection::Tls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+                TokioPgConnection::NoTls(conn) => std::pin::Pin::new_unchecked(conn).poll(cx),
+            }
+        }
+    }
+}
+
+
+impl PgDatabase {
+    pub fn to_uri(&self) -> String {
+        let sslmode = match self.sslmode.as_deref() {
+            Some("allow") => "prefer".to_string(),
+            Some("require") | Some("verify-ca") | Some("verify-full") => "require".to_string(),
+            Some(s) => s.to_string(),
+            None => "prefer".to_string(),
+        };
+        format!(
+            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
+            host = &self.host,
+            port = self.port.unwrap_or(5432),
+            dbname = self.dbname,
+            sslmode = sslmode
+        )
+    }
+
+    pub fn to_conn_str(&self) -> String {
+        format!(
+            "dbname={dbname} {user} host={host} {password} {port} {sslmode}",
+            dbname = self.dbname,
+            user = self.user.as_ref().map(|u| format!("user={}", urlencoding::encode(u))).unwrap_or_default(),
+            host = self.host,
+            password = self.password
+                .as_ref().map(|p| format!("password={}", urlencoding::encode(p)))
+                .unwrap_or_default(),
+            port = self.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+            sslmode = self.sslmode
+                .as_ref().map(|s| format!("sslmode={}", s.clone()))
+                .unwrap_or_default(),
+        )
+    }
+
+    pub async fn connect(&self) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use tokio_postgres::tls::{ NoTls };
+        use postgres_native_tls::MakeTlsConnector;
+        use native_tls::{Certificate, TlsConnector};
+        let ssl_mode_is_require = matches!(self.sslmode.as_deref(), Some("require") | Some("verify-ca") | Some("verify-full")); 
+        
+        if ssl_mode_is_require {
+            tracing::info!("Creating new connection");
+            let mut connector = TlsConnector::builder();
+            if let Some(root_certificate_pem) = &self.root_certificate_pem {
+                if !root_certificate_pem.is_empty() {
+                    connector.add_root_certificate(
+                        Certificate::from_pem(root_certificate_pem.as_bytes())
+                            .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                    );
+                } else {
+                    connector.danger_accept_invalid_certs(true);
+                    connector.danger_accept_invalid_hostnames(true);
+                }
+            } else {
+                connector
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true);
+            }
+    
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(
+                    &self.to_uri(),
+                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+                ),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::Tls(connection)))
+        } else {
+            tracing::info!("Creating new connection");
+            let (client, connection) = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                tokio_postgres::connect(&self.to_uri(), NoTls),
+            )
+            .await
+            .map_err(to_anyhow)?
+            .map_err(to_anyhow)?;
+    
+            Ok((client, TokioPgConnection::NoTls(connection)))
         }
     }
 
-    Ok(PostgresUrlComponents {
-        scheme,
-        username: if username.is_empty() {
-            None
-        } else {
-            Some(username)
-        },
-        password,
-        host,
-        port,
-        database,
-        ssl_mode,
-    })
+    pub fn parse_uri(url: &str) -> Result<Self, Error> {
+        let parsed_url =
+            url::Url::parse(url).map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
+
+        let username = parsed_url.username().to_string();
+        let username = urlencoding::decode(&username).map_err(to_anyhow)?.to_string();
+        let password = parsed_url.password().map(|p| p.to_string());
+        let password = match password {
+            Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
+            None => None, 
+        };
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| Error::BadConfig("Missing host in PostgreSQL URL".to_string()))?
+            .to_string();
+        let port = parsed_url.port();
+        let dbname = parsed_url.path().trim_start_matches('/').to_string();
+        let mut sslmode = None;
+        for query in parsed_url.query_pairs() {
+            if query.0 == "sslmode" {
+                sslmode = Some(query.1.to_string());
+            }
+        }
+
+        Ok(PgDatabase {
+            user: if username.is_empty() {
+                None
+            } else {
+                Some(username)
+            },
+            password,
+            host,
+            port,
+            dbname,
+            sslmode,
+            root_certificate_pem: None,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -1179,3 +1289,4 @@ impl KillpillSender {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
 }
+
