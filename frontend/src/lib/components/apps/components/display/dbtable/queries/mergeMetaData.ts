@@ -68,12 +68,12 @@ export function buildCreateTableValues(
     const first = group[0];
 
     return {
-      targetTable: first.referenced_table,
+      targetTable: first.referenced_table_name,
       onDelete: normalizeRule(first.delete_rule),
       onUpdate: normalizeRule(first.update_rule),
       columns: group.map((fk) => ({
         sourceColumn: fk.column_name,
-        targetColumn: fk.referenced_column,
+        targetColumn: fk.referenced_column_name,
       })),
     };
   });

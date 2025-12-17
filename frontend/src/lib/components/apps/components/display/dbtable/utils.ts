@@ -28,8 +28,8 @@ export type ColumnMetadata = {
 export type ForeignKeyMetadata = {
     constraint_name: string
     column_name: string
-    referenced_table: string
-    referenced_column: string
+    referenced_table_name: string
+    referenced_column_name: string
     table_name: string
     schema_name?: string
     update_rule?: string
