@@ -6,9 +6,9 @@
 		ChevronRight,
 		Code,
 		GitBranch,
+		Globe,
 		Plug,
 		Repeat,
-		Search,
 		Square,
 		Zap
 	} from 'lucide-svelte'
@@ -42,7 +42,7 @@
 		'Branch to all': { icon: GitBranch },
 		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug, showChevron: true },
-		'Web Search': { icon: Search }
+		'Web Search': { icon: Globe }
 	}
 
 	const config = $derived(iconMap[label])
