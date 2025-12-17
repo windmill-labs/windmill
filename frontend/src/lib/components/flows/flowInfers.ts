@@ -164,6 +164,37 @@ export const AI_AGENT_SCHEMA: Schema = {
 	]
 }
 
+function migrateAiAgentInputTransforms(
+	inputTransforms: Record<string, InputTransform>
+): Record<string, InputTransform> {
+	// Check if this has the legacy format
+	if ('messages_context_length' in inputTransforms && !('history' in inputTransforms)) {
+		const legacyValue = inputTransforms.messages_context_length
+		if (legacyValue) {
+			if (legacyValue?.type === 'static') {
+				inputTransforms.history = {
+					type: 'static',
+					value: {
+						kind: 'auto',
+						context_length: legacyValue.value ?? 0
+					}
+				}
+			} else if (legacyValue.type === 'javascript') {
+				// For dynamic expressions, wrap in the new format
+				inputTransforms.history = {
+					type: 'javascript',
+					expr: `{ kind: 'auto', context_length: ${legacyValue.expr} }`
+				}
+			}
+
+			// Remove the legacy field
+			delete inputTransforms.messages_context_length
+		}
+	}
+
+	return inputTransforms
+}
+
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
@@ -215,7 +246,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			schema: schema ?? emptySchema()
 		}
 	} else if (mod.type === 'aiagent') {
-		let input_transforms = mod.input_transforms ?? {}
+		let input_transforms = migrateAiAgentInputTransforms(mod.input_transforms ?? {})
 		return {
 			input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
 				accu[key] = input_transforms[key] ?? {

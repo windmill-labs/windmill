@@ -3,8 +3,6 @@ import { writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
-import { migrateFlowLegacyFormats } from './flowMigrations'
-
 export type FlowMode = 'push' | 'pull'
 
 export const importFlowStore = writable<Flow | undefined>(undefined)
@@ -14,14 +12,8 @@ export async function initFlow(
 	flowStore: StateStore<Flow>,
 	flowStateStore: StateStore<FlowState>
 ) {
-	let migratedFlow = flow
-	try {
-		migratedFlow = migrateFlowLegacyFormats(flow)
-	} catch (error) {
-		console.error('Error migrating flow legacy formats', error)
-	}
-	await initFlowState(migratedFlow, flowStateStore)
-	flowStore.val = migratedFlow
+	await initFlowState(flow, flowStateStore)
+	flowStore.val = flow
 }
 
 export async function copyFirstStepSchema(
