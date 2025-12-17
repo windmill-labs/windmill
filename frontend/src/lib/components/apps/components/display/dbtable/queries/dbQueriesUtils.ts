@@ -65,7 +65,7 @@ export function renderForeignKey(
   // Convention: use fk_source_target to generate the foreign key name
   sql += `CONSTRAINT fk_${
     [options.tableName, ...sourceColumns, targetTable, ...targetColumns]
-      .join("_")
+      .join("_").replaceAll(".", "_")
   } `;
 
   sql += ` FOREIGN KEY (${
