@@ -12,6 +12,102 @@ use crate::ai::{
 };
 
 // ============================================================================
+// Schema Conversion for Gemini API
+// ============================================================================
+
+/// Convert OpenAPI schema to Gemini-compatible format.
+/// Gemini API has specific requirements:
+/// - Type names must be uppercase (STRING, OBJECT, INTEGER, etc.)
+/// - Nullable types use `nullable: true` instead of type arrays like ["string", "null"]
+/// - `additionalProperties` is not supported
+fn convert_schema_to_gemini(schema: &OpenAPISchema) -> serde_json::Value {
+    let mut result = serde_json::Map::new();
+
+    // Handle type field - convert to uppercase and handle nullable
+    let (type_str, is_nullable) = match &schema.r#type {
+        Some(SchemaType::Single(t)) => (Some(type_to_gemini(t)), false),
+        Some(SchemaType::Multiple(types)) => {
+            // Find the non-null type and check if null is in the list
+            let non_null_types: Vec<&String> = types.iter().filter(|t| t.as_str() != "null").collect();
+            let has_null = types.iter().any(|t| t.as_str() == "null");
+            if let Some(primary_type) = non_null_types.first() {
+                (Some(type_to_gemini(primary_type)), has_null)
+            } else {
+                // All types are null
+                (Some("STRING".to_string()), true)
+            }
+        }
+        None => (None, false),
+    };
+
+    if let Some(t) = type_str {
+        result.insert("type".to_string(), serde_json::Value::String(t));
+    }
+
+    if is_nullable {
+        result.insert("nullable".to_string(), serde_json::Value::Bool(true));
+    }
+
+    // Handle format
+    if let Some(ref format) = schema.format {
+        result.insert("format".to_string(), serde_json::Value::String(format.clone()));
+    }
+
+    // Handle enum
+    if let Some(ref enum_values) = schema.r#enum {
+        let enum_array: Vec<serde_json::Value> =
+            enum_values.iter().map(|v| serde_json::Value::String(v.clone())).collect();
+        result.insert("enum".to_string(), serde_json::Value::Array(enum_array));
+    }
+
+    // Handle properties (for object types)
+    if let Some(ref properties) = schema.properties {
+        let mut props_map = serde_json::Map::new();
+        for (key, prop_schema) in properties {
+            props_map.insert(key.clone(), convert_schema_to_gemini(prop_schema));
+        }
+        result.insert("properties".to_string(), serde_json::Value::Object(props_map));
+    }
+
+    // Handle required
+    if let Some(ref required) = schema.required {
+        let req_array: Vec<serde_json::Value> =
+            required.iter().map(|v| serde_json::Value::String(v.clone())).collect();
+        result.insert("required".to_string(), serde_json::Value::Array(req_array));
+    }
+
+    // Handle items (for array types)
+    if let Some(ref items) = schema.items {
+        result.insert("items".to_string(), convert_schema_to_gemini(items));
+    }
+
+    // Handle oneOf - but Gemini may not fully support this, so we'll include it
+    if let Some(ref one_of) = schema.one_of {
+        let one_of_array: Vec<serde_json::Value> =
+            one_of.iter().map(|s| convert_schema_to_gemini(s)).collect();
+        result.insert("oneOf".to_string(), serde_json::Value::Array(one_of_array));
+    }
+
+    // Note: We intentionally skip `additionalProperties` as Gemini doesn't support it
+
+    serde_json::Value::Object(result)
+}
+
+/// Convert OpenAPI type string to Gemini uppercase type
+fn type_to_gemini(t: &str) -> String {
+    match t.to_lowercase().as_str() {
+        "string" => "STRING".to_string(),
+        "integer" => "INTEGER".to_string(),
+        "number" => "NUMBER".to_string(),
+        "boolean" => "BOOLEAN".to_string(),
+        "array" => "ARRAY".to_string(),
+        "object" => "OBJECT".to_string(),
+        "null" => "STRING".to_string(), // Gemini doesn't have a null type, use string with nullable
+        other => other.to_uppercase(),
+    }
+}
+
+// ============================================================================
 // Gemini API Types - Shared between text and image
 // ============================================================================
 
@@ -551,11 +647,9 @@ impl GoogleAIQueryBuilder {
             .unwrap_or(false);
 
         let (response_mime_type, response_schema) = if has_output_schema {
-            let schema = args.output_schema.unwrap().clone().make_strict();
-            (
-                Some("application/json".to_string()),
-                serde_json::to_value(&schema).ok(),
-            )
+            let schema = args.output_schema.unwrap();
+            let gemini_schema = convert_schema_to_gemini(schema);
+            (Some("application/json".to_string()), Some(gemini_schema))
         } else {
             (None, None)
         };
