@@ -986,3 +986,24 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
         ))
     )
 }
+
+// Avoid JSON parsing for merging raw JSON values into an object
+pub fn merge_raw_values_to_object(
+    pairs: &[(String, Box<serde_json::value::RawValue>)],
+) -> Box<serde_json::value::RawValue> {
+    let mut result = String::from("{");
+
+    for (i, (key, value)) in pairs.iter().enumerate() {
+        if i > 0 {
+            result.push(',');
+        }
+        // Serialize the key (handles escaping)
+        result.push_str(&serde_json::to_string(&key).unwrap());
+        result.push(':');
+        result.push_str(value.get());
+    }
+
+    result.push('}');
+
+    serde_json::value::RawValue::from_string(result).unwrap()
+}
