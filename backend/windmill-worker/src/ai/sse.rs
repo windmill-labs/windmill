@@ -164,3 +164,197 @@ impl SSEParser for OpenAISSEParser {
         Ok(())
     }
 }
+
+// ============================================================================
+// Anthropic SSE Parser
+// ============================================================================
+
+/// Content block start types for Anthropic streaming
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum AnthropicContentBlockStart {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(default)]
+        text: String,
+    },
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String },
+    #[serde(other)]
+    Unknown,
+}
+
+/// Delta types for Anthropic streaming content blocks
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum AnthropicDelta {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
+    #[serde(other)]
+    Unknown,
+}
+
+/// Anthropic SSE event structure
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum AnthropicSSEEvent {
+    #[serde(rename = "message_start")]
+    MessageStart {},
+    #[serde(rename = "content_block_start")]
+    ContentBlockStart {
+        index: usize,
+        content_block: AnthropicContentBlockStart,
+    },
+    #[serde(rename = "content_block_delta")]
+    ContentBlockDelta { index: usize, delta: AnthropicDelta },
+    #[serde(rename = "content_block_stop")]
+    ContentBlockStop { index: usize },
+    #[serde(rename = "message_delta")]
+    MessageDelta {},
+    #[serde(rename = "message_stop")]
+    MessageStop {},
+    #[serde(rename = "ping")]
+    Ping {},
+    #[serde(rename = "error")]
+    Error {
+        #[serde(default)]
+        message: Option<String>,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+/// Tracks state of a content block during streaming
+#[derive(Debug)]
+enum ContentBlockState {
+    Text,
+    ToolUse { id: String, name: String },
+    Unknown,
+}
+
+/// Anthropic SSE Parser for streaming responses
+pub struct AnthropicSSEParser {
+    pub accumulated_content: String,
+    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    pub events_str: String,
+    pub stream_event_processor: StreamEventProcessor,
+    /// Track content block types by index
+    content_blocks: HashMap<usize, ContentBlockState>,
+}
+
+impl AnthropicSSEParser {
+    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+        Self {
+            accumulated_content: String::new(),
+            accumulated_tool_calls: HashMap::new(),
+            events_str: String::new(),
+            stream_event_processor,
+            content_blocks: HashMap::new(),
+        }
+    }
+}
+
+impl SSEParser for AnthropicSSEParser {
+    async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        let event: Option<AnthropicSSEEvent> = serde_json::from_str(data)
+            .inspect_err(|e| {
+                tracing::error!("Failed to parse SSE as an Anthropic event {}: {}", data, e);
+            })
+            .ok();
+
+        if let Some(event) = event {
+            match event {
+                AnthropicSSEEvent::ContentBlockStart { index, content_block } => {
+                    match content_block {
+                        AnthropicContentBlockStart::Text { text } => {
+                            self.content_blocks.insert(index, ContentBlockState::Text);
+                            // Some responses include initial text in the content_block_start
+                            if !text.is_empty() {
+                                self.accumulated_content.push_str(&text);
+                                let event = StreamingEvent::TokenDelta { content: text };
+                                self.stream_event_processor
+                                    .send(event, &mut self.events_str)
+                                    .await?;
+                            }
+                        }
+                        AnthropicContentBlockStart::ToolUse { id, name } => {
+                            self.content_blocks
+                                .insert(index, ContentBlockState::ToolUse { id: id.clone(), name: name.clone() });
+                            // Send tool call start event
+                            let event = StreamingEvent::ToolCall {
+                                call_id: id.clone(),
+                                function_name: name.clone(),
+                            };
+                            self.stream_event_processor
+                                .send(event, &mut self.events_str)
+                                .await?;
+                            // Initialize tool call accumulator
+                            self.accumulated_tool_calls.insert(
+                                index as i64,
+                                OpenAIToolCall {
+                                    id,
+                                    function: OpenAIFunction { name, arguments: String::new() },
+                                    r#type: "function".to_string(),
+                                    extra_content: None,
+                                },
+                            );
+                        }
+                        AnthropicContentBlockStart::Unknown => {
+                            self.content_blocks.insert(index, ContentBlockState::Unknown);
+                        }
+                    }
+                }
+                AnthropicSSEEvent::ContentBlockDelta { index, delta } => {
+                    match delta {
+                        AnthropicDelta::TextDelta { text } => {
+                            // Only accumulate text if this is a text block (not server_tool_use results)
+                            if let Some(ContentBlockState::Text) = self.content_blocks.get(&index) {
+                                self.accumulated_content.push_str(&text);
+                                let event = StreamingEvent::TokenDelta { content: text };
+                                self.stream_event_processor
+                                    .send(event, &mut self.events_str)
+                                    .await?;
+                            }
+                        }
+                        AnthropicDelta::InputJsonDelta { partial_json } => {
+                            // Accumulate tool call arguments
+                            if let Some(tool_call) =
+                                self.accumulated_tool_calls.get_mut(&(index as i64))
+                            {
+                                tool_call.function.arguments.push_str(&partial_json);
+                            }
+                        }
+                        AnthropicDelta::Unknown => {}
+                    }
+                }
+                AnthropicSSEEvent::ContentBlockStop { index } => {
+                    // Send tool call arguments event if this was a tool use block
+                    if let Some(tool_call) = self.accumulated_tool_calls.get(&(index as i64)) {
+                        let event = StreamingEvent::ToolCallArguments {
+                            call_id: tool_call.id.clone(),
+                            function_name: tool_call.function.name.clone(),
+                            arguments: tool_call.function.arguments.clone(),
+                        };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+                }
+                AnthropicSSEEvent::Error { message } => {
+                    let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
+                    tracing::error!("Anthropic streaming error: {}", error_msg);
+                }
+                // Ignore other events
+                AnthropicSSEEvent::MessageStart {}
+                | AnthropicSSEEvent::MessageDelta {}
+                | AnthropicSSEEvent::MessageStop {}
+                | AnthropicSSEEvent::Ping {}
+                | AnthropicSSEEvent::Unknown => {}
+            }
+        }
+
+        Ok(())
+    }
+}

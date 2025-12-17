@@ -50,6 +50,28 @@ pub struct ResponsesMessage {
     pub tool_calls: Option<Vec<OpenAIToolCall>>,
 }
 
+/// URL citation annotation for web search results
+#[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
+pub struct UrlCitation {
+    pub r#type: String,
+    pub start_index: usize,
+    pub end_index: usize,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Output text content item (used in "message" type outputs)
+#[derive(Deserialize, Clone, Debug)]
+pub struct OutputTextContent {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub annotations: Vec<UrlCitation>,
+}
+
 #[derive(Deserialize)]
 pub struct ResponsesOutput {
     pub r#type: String,
@@ -59,6 +81,11 @@ pub struct ResponsesOutput {
     pub result: Option<String>, // Base64 encoded image for image_generation_call
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<ResponsesMessage>, // Message for message_call
+    // Fields for "message" type output (used with web search)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<OutputTextContent>>,
 }
 
 #[derive(Deserialize)]
@@ -311,6 +338,30 @@ impl QueryBuilder for OpenAIQueryBuilder {
                         });
                     }
                 }
+                // Handle "message" type output (used with web search responses)
+                "message" => {
+                    if output.status.as_deref() == Some("completed") {
+                        if let Some(content_items) = output.content {
+                            // Extract text from output_text content items
+                            let text_content: String = content_items
+                                .iter()
+                                .filter(|item| item.r#type == "output_text")
+                                .filter_map(|item| item.text.as_ref())
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(" ");
+
+                            if !text_content.is_empty() {
+                                return Ok(ParsedResponse::Text {
+                                    content: Some(text_content),
+                                    tool_calls: Vec::new(),
+                                    events_str: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                // Skip web_search_call and other types
                 _ => continue,
             }
         }

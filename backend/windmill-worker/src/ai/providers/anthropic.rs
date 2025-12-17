@@ -1,15 +1,13 @@
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
-    sse::{OpenAISSEParser, SSEParser},
+    sse::{AnthropicSSEParser, SSEParser},
     types::*,
 };
-
-use super::other::OpenAIResponse;
 
 /// Anthropic-specific request structure
 #[derive(Serialize)]
@@ -23,6 +21,46 @@ pub struct AnthropicRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     pub stream: bool,
+}
+
+/// Anthropic content block - can be text, tool_use, server_tool_use, or web_search_tool_result
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum AnthropicContentBlock {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(default)]
+        citations: Vec<serde_json::Value>,
+    },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "server_tool_use")]
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "web_search_tool_result")]
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: Vec<serde_json::Value>,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+/// Anthropic native API response
+#[derive(Deserialize, Debug)]
+pub struct AnthropicResponse {
+    #[serde(default)]
+    pub content: Vec<AnthropicContentBlock>,
+    #[serde(default)]
+    pub stop_reason: Option<String>,
 }
 
 /// Query builder for Anthropic using their native API format
@@ -52,7 +90,7 @@ impl AnthropicQueryBuilder {
         // Add websearch tool if enabled (Anthropic format)
         if args.has_websearch {
             tools.push(serde_json::json!({
-                "type": "web_search",
+                "type": "web_search_20250305",
                 "name": "web_search"
             }));
         }
@@ -71,7 +109,7 @@ impl AnthropicQueryBuilder {
             messages: &prepared_messages,
             tools: if tools.is_empty() { None } else { Some(tools) },
             temperature: args.temperature,
-            max_tokens: args.max_tokens,
+            max_tokens: Some(args.max_tokens.unwrap_or(64000)),
             stream,
         };
 
@@ -104,36 +142,55 @@ impl QueryBuilder for AnthropicQueryBuilder {
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // Parse Anthropic response (similar to OpenAI format)
-        let openai_response: OpenAIResponse = response
-            .json()
+        // Parse Anthropic native response format
+        let response_text = response
+            .text()
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
 
-        let first_choice = openai_response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::internal_err("No response from API"))?;
+        let anthropic_response: AnthropicResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to parse Anthropic response: {}. Raw response: {}",
+                    e, response_text
+                ))
+            })?;
 
-        Ok(ParsedResponse::Text {
-            content: first_choice.message.content.map(|c| match c {
-                OpenAIContent::Text(text) => text,
-                OpenAIContent::Parts(parts) => {
-                    // Extract text from parts
-                    parts
-                        .into_iter()
-                        .filter_map(|part| match part {
-                            ContentPart::Text { text } => Some(text),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
+        // Extract text content and tool calls from content blocks
+        let mut text_parts: Vec<String> = Vec::new();
+        let mut tool_calls: Vec<super::openai::OpenAIToolCall> = Vec::new();
+
+        for block in anthropic_response.content {
+            match block {
+                AnthropicContentBlock::Text { text, .. } => {
+                    text_parts.push(text);
                 }
-            }),
-            tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
-            events_str: None,
-        })
+                AnthropicContentBlock::ToolUse { id, name, input } => {
+                    // Convert to OpenAI tool call format for compatibility
+                    tool_calls.push(super::openai::OpenAIToolCall {
+                        id,
+                        function: super::openai::OpenAIFunction {
+                            name,
+                            arguments: serde_json::to_string(&input).unwrap_or_default(),
+                        },
+                        r#type: "function".to_string(),
+                        extra_content: None,
+                    });
+                }
+                // Skip server_tool_use and web_search_tool_result - they are internal to Anthropic
+                AnthropicContentBlock::ServerToolUse { .. } => {}
+                AnthropicContentBlock::WebSearchToolResult { .. } => {}
+                AnthropicContentBlock::Unknown => {}
+            }
+        }
+
+        let content = if text_parts.is_empty() {
+            None
+        } else {
+            Some(text_parts.join(""))
+        };
+
+        Ok(ParsedResponse::Text { content, tool_calls, events_str: None })
     }
 
     async fn parse_streaming_response(
@@ -141,26 +198,18 @@ impl QueryBuilder for AnthropicQueryBuilder {
         response: reqwest::Response,
         stream_event_processor: StreamEventProcessor,
     ) -> Result<ParsedResponse, Error> {
-        let mut openai_sse_parser = OpenAISSEParser::new(stream_event_processor);
-        openai_sse_parser.parse_events(response).await?;
+        let mut anthropic_sse_parser = AnthropicSSEParser::new(stream_event_processor);
+        anthropic_sse_parser.parse_events(response).await?;
 
-        let OpenAISSEParser {
+        let AnthropicSSEParser {
             accumulated_content,
             accumulated_tool_calls,
-            mut events_str,
-            stream_event_processor,
-        } = openai_sse_parser;
+            events_str,
+            ..
+        } = anthropic_sse_parser;
 
-        // Process streaming events with error handling
-
-        for tool_call in accumulated_tool_calls.values() {
-            let event = StreamingEvent::ToolCallArguments {
-                call_id: tool_call.id.clone(),
-                function_name: tool_call.function.name.clone(),
-                arguments: tool_call.function.arguments.clone(),
-            };
-            stream_event_processor.send(event, &mut events_str).await?;
-        }
+        // Note: Tool call arguments events are already sent by the parser during streaming
+        // when content_block_stop is received
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
