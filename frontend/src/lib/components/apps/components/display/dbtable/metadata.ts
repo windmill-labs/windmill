@@ -1,74 +1,93 @@
-import { JobService, ResourceService } from '$lib/gen'
+import { JobService, ResourceService } from "$lib/gen";
 
-import { runScriptAndPollResult } from '$lib/components/jobs/utils'
-import type { DbInput } from '$lib/components/dbTypes'
-import { getLanguageByResourceType, resourceTypeToLang, scripts, type TableMetadata } from './utils'
+import { runScriptAndPollResult } from "$lib/components/jobs/utils";
+import type { DbInput } from "$lib/components/dbTypes";
+import {
+	type ForeignKeyMetadata,
+	getLanguageByResourceType,
+	resourceTypeToLang,
+	scripts,
+	type TableMetadata,
+} from "./utils";
 
-import { type Preview } from '$lib/gen'
-import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
+import { type Preview } from "$lib/gen";
+import type {
+	DBSchema,
+	DBSchemas,
+	GraphqlSchema,
+	SQLSchema,
+} from "$lib/stores";
 
-import { tryEvery } from '$lib/utils'
-import { stringifySchema } from '$lib/components/copilot/lib'
-import type { DbType } from '$lib/components/dbTypes'
-import { getDatabaseArg } from '$lib/components/dbOps'
+import { tryEvery } from "$lib/utils";
+import { stringifySchema } from "$lib/components/copilot/lib";
+import type { DbType } from "$lib/components/dbTypes";
+import { getDatabaseArg } from "$lib/components/dbOps";
 
 export async function loadTableMetaData(
 	input: DbInput,
 	workspace: string | undefined,
-	table: string | undefined
+	table: string | undefined,
 ): Promise<TableMetadata | undefined> {
-	if (!input || !table || !workspace) return undefined
+	if (!input || !table || !workspace) return undefined;
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
-	let content = await makeLoadTableMetaDataQuery(input, workspace, table)
+	let language = input.type == "ducklake"
+		? "duckdb"
+		: getLanguageByResourceType(input.resourceType);
+	let content = await makeLoadTableMetaDataQuery(input, workspace, table);
 
 	const job = await JobService.runScriptPreview({
 		workspace: workspace,
 		requestBody: {
 			language,
 			content,
-			args: getDatabaseArg(input)
-		}
-	})
+			args: getDatabaseArg(input),
+		},
+	});
 
-	const maxRetries = 8
-	let attempts = 0
+	const maxRetries = 8;
+	let attempts = 0;
 	while (attempts < maxRetries) {
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
+			await new Promise((resolve) =>
+				setTimeout(resolve, 1000 * (attempts || 0.6))
+			);
 
 			const testResult = (await JobService.getCompletedJob({
 				workspace: workspace,
-				id: job
-			})) as any
+				id: job,
+			})) as any;
 
 			if (testResult.success) {
-				attempts = maxRetries
+				attempts = maxRetries;
 
-				if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-					return testResult.result[0].map(lowercaseKeys)
+				if (
+					input.type === "database" && input.resourceType === "ms_sql_server"
+				) {
+					return testResult.result[0].map(lowercaseKeys);
 				} else {
-					return testResult.result.map(lowercaseKeys)
+					return testResult.result.map(lowercaseKeys);
 				}
 			} else {
-				attempts++
+				attempts++;
 			}
 		} catch (error) {
-			attempts++
+			attempts++;
 		}
 	}
 
-	console.error('Failed to load table metadata after maximum retries.')
-	return undefined
+	console.error("Failed to load table metadata after maximum retries.");
+	return undefined;
 }
 
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
-	input: DbInput
+	input: DbInput,
 ): Promise<Record<string, TableMetadata> | undefined> {
-	if (!input || !workspace) return undefined
+	if (!input || !workspace) return undefined;
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
+	let language = input.type == "ducklake"
+		? "duckdb"
+		: getLanguageByResourceType(input.resourceType);
 
 	try {
 		let result = (await runScriptAndPollResult({
@@ -76,34 +95,36 @@ export async function loadAllTablesMetaData(
 			requestBody: {
 				language,
 				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
-				args: getDatabaseArg(input)
-			}
-		})) as ({ table_name: string; schema_name?: string } & object)[]
-		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-			result = (result as any)[0]
+				args: getDatabaseArg(input),
+			},
+		})) as ({ table_name: string; schema_name?: string } & object)[];
+		if (input.type === "database" && input.resourceType === "ms_sql_server") {
+			result = (result as any)[0];
 		}
-		const map: Record<string, TableMetadata> = {}
+		const map: Record<string, TableMetadata> = {};
 
 		for (const _col of result) {
-			const col = lowercaseKeys(_col)
-			const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
+			const col = lowercaseKeys(_col);
+			const tableKey = col.schema_name
+				? `${col.schema_name}.${col.table_name}`
+				: col.table_name;
 			if (!(tableKey in map)) {
-				map[tableKey] = []
+				map[tableKey] = [];
 			}
-			map[tableKey].push(col)
+			map[tableKey].push(col);
 		}
-		return map
+		return map;
 	} catch (e) {
-		throw new Error('Error loading all tables metadata: ' + e)
+		throw new Error("Error loading all tables metadata: " + e);
 	}
 }
 
 async function makeLoadTableMetaDataQuery(
 	input: DbInput,
 	workspace: string,
-	table: string | undefined
+	table: string | undefined,
 ): Promise<string> {
-	if (input.type === 'ducklake') {
+	if (input.type === "ducklake") {
 		return `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
 		SELECT
 			COLUMN_NAME as field,
@@ -115,14 +136,14 @@ async function makeLoadTableMetaDataQuery(
 			false as IsEnum,
 			TABLE_NAME as table_name
 		FROM information_schema.columns c
-		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`
-	} else if (input.resourceType === 'mysql') {
+		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`;
+	} else if (input.resourceType === "mysql") {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
-			path: input.resourcePath
-		})) as any
+			path: input.resourcePath,
+		})) as any;
 		return `
-	SELECT 
+		SELECT
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
 			COLUMN_DEFAULT as DefaultValue,
@@ -130,30 +151,28 @@ async function makeLoadTableMetaDataQuery(
 			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
 			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${
-				table
-					? ''
-					: `,
+			table ? "" : `,
 			TABLE_NAME as table_name`
-			}
-	FROM 
+		}
+	FROM
 			INFORMATION_SCHEMA.COLUMNS${
-				table
-					? `
+			table
+				? `
 	WHERE
-			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-			}'`
-					: `
+			TABLE_NAME = '${table.split(".").reverse()[0]}' AND TABLE_SCHEMA = '${
+					table.split(".").reverse()[1] ?? resourceObj?.database ?? ""
+				}'`
+				: `
 	WHERE
 			TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')`
-			}
+		}
 	ORDER BY
 			TABLE_NAME,
 			ORDINAL_POSITION;
-	`
-	} else if (input.resourceType === 'postgresql') {
+	`;
+	} else if (input.resourceType === "postgresql") {
 		return `
-	SELECT 
+	SELECT
 		a.attname as field,
 		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
 		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
@@ -175,32 +194,30 @@ async function makeLoadTableMetaDataQuery(
 		(SELECT true
 		 FROM pg_catalog.pg_enum e
 		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum${
-				table
-					? ''
-					: `,
+			table ? "" : `,
     ns.nspname AS schema_name,
     c.relname AS table_name`
-			}
+		}
 	FROM pg_catalog.pg_attribute a${
-		table
-			? `
+			table
+				? `
 	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
-		table.split('.').reverse()[0]
-	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
+					table.split(".").reverse()[0]
+				}' AND ns.nspname = '${table.split(".").reverse()[1] ?? "public"}')
 		AND a.attnum > 0 AND NOT a.attisdropped
 		`
-			: `
+				: `
 	JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
 	JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
 	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
 		AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'`
-	}
-	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
-	
-	`
-	} else if (input.resourceType === 'ms_sql_server') {
+		}
+	ORDER BY ${table ? "a.attnum" : "ns.nspname, c.relname, a.attnum"};
+
+	`;
+	} else if (input.resourceType === "ms_sql_server") {
 		return `
-		SELECT 
+		SELECT
     COLUMN_NAME as field,
     DATA_TYPE as DataType,
     COLUMN_DEFAULT as DefaultValue,
@@ -208,25 +225,23 @@ async function makeLoadTableMetaDataQuery(
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
     CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
     CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
-			table
-				? ''
-				: `,
+			table ? "" : `,
 		TABLE_NAME as table_name`
 		}
-FROM    
+FROM
     INFORMATION_SCHEMA.COLUMNS${
 			table
 				? `
-WHERE   
+WHERE
     TABLE_NAME = '${table}'`
-				: ''
+				: ""
 		}
 ORDER BY
     ORDINAL_POSITION;
-	`
+	`;
 	} else if (
-		input.resourceType === 'snowflake' ||
-		(input.resourceType as any) === 'snowflake_oauth'
+		input.resourceType === "snowflake" ||
+		(input.resourceType as any) === "snowflake_oauth"
 	) {
 		return `
 		select COLUMN_NAME as field,
@@ -236,26 +251,24 @@ ORDER BY
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
-			table
-				? ''
-				: `,
+			table ? "" : `,
 		table_name as table_name,
 		table_schema as schema_name`
 		}
 	from information_schema.columns${
-		table
-			? `
-	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-		table.split('.').reverse()[1] ?? 'PUBLIC'
-	}'`
-			: "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n"
-	}
+			table
+				? `
+	where table_name = '${table.split(".").reverse()[0]}' and table_schema = '${
+					table.split(".").reverse()[1] ?? "PUBLIC"
+				}'`
+				: "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n"
+		}
 	order by ORDINAL_POSITION;
-	`
-	} else if (input.resourceType === 'bigquery') {
+	`;
+	} else if (input.resourceType === "bigquery") {
 		// TODO: find a solution for this (query uses hardcoded dataset name)
-		if (!table) throw new Error('Table name is required for BigQuery')
-		return `SELECT 
+		if (!table) throw new Error("Table name is required for BigQuery");
+		return `SELECT
     c.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
@@ -264,24 +277,24 @@ ORDER BY
     IS_NULLABLE as IsNullable,
     false as IsEnum
 FROM
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
+    ${table.split(".")[0]}.INFORMATION_SCHEMA.COLUMNS c
     LEFT JOIN
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    ${table.split(".")[0]}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
     on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
-WHERE   
-    c.TABLE_NAME = '${table.split('.')[1]}'
-order by c.ORDINAL_POSITION;`
+WHERE
+    c.TABLE_NAME = '${table.split(".")[1]}'
+order by c.ORDINAL_POSITION;`;
 	} else {
-		throw new Error('Unsupported database type:' + input.resourceType)
+		throw new Error("Unsupported database type:" + input.resourceType);
 	}
 }
 
 function lowercaseKeys(obj: Record<string, any>): any {
-	const newObj = {}
+	const newObj = {};
 	Object.keys(obj).forEach((key) => {
-		newObj[key.toLowerCase()] = obj[key]
-	})
-	return newObj
+		newObj[key.toLowerCase()] = obj[key];
+	});
+	return newObj;
 }
 
 export async function getDbSchemas(
@@ -289,197 +302,415 @@ export async function getDbSchemas(
 	resourcePath: string,
 	workspace: string | undefined,
 	dbSchemas: DBSchemas,
-	errorCallback: (message: string) => void
+	errorCallback: (message: string) => void,
 ): Promise<void> {
-	if (!scripts[resourceType]) return
+	if (!scripts[resourceType]) return;
 
 	return new Promise(async (resolve, reject) => {
 		if (!resourceType || !resourcePath || !workspace) {
-			resolve()
-			return
+			resolve();
+			return;
 		}
 
 		const job = await JobService.runScriptPreview({
 			workspace: workspace,
 			requestBody: {
-				language: scripts[resourceType].lang as Preview['language'],
+				language: scripts[resourceType].lang as Preview["language"],
 				content: scripts[resourceType].code,
 				args: {
-					[scripts[resourceType].argName]: resourcePath.startsWith('datatable://')
-						? resourcePath
-						: '$res:' + resourcePath
-				}
-			}
-		})
+					[scripts[resourceType].argName]:
+						resourcePath.startsWith("datatable://")
+							? resourcePath
+							: "$res:" + resourcePath,
+				},
+			},
+		});
 
 		tryEvery({
 			tryCode: async () => {
 				if (resourcePath) {
 					const testResult = await JobService.getCompletedJob({
 						workspace,
-						id: job
-					})
+						id: job,
+					});
 					if (!testResult.success) {
-						console.error(testResult.result?.['error']?.['message'])
+						console.error(testResult.result?.["error"]?.["message"]);
 					} else {
-						if (testResult.result === 'WINDMILL_TOO_BIG') {
-							console.info('Result is too big, fetching result separately')
+						if (testResult.result === "WINDMILL_TOO_BIG") {
+							console.info("Result is too big, fetching result separately");
 							const data = await JobService.getCompletedJobResult({
 								workspace,
-								id: job
-							})
-							testResult.result = data
+								id: job,
+							});
+							testResult.result = data;
 						}
 						if (resourceType !== undefined) {
-							if (resourceType !== 'graphql') {
-								const { processingFn } = scripts[resourceType]
-								let schema: any
+							if (resourceType !== "graphql") {
+								const { processingFn } = scripts[resourceType];
+								let schema: any;
 								try {
-									schema =
-										processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+									schema = processingFn !== undefined
+										? processingFn(testResult.result)
+										: testResult.result;
 								} catch (e) {
-									console.error(e)
-									errorCallback('Error processing schema')
-									resolve()
-									return
+									console.error(e);
+									errorCallback("Error processing schema");
+									resolve();
+									return;
 								}
 								const dbSchema = {
-									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
+									lang: resourceTypeToLang(resourceType) as SQLSchema["lang"],
 									schema,
-									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
-								}
+									publicOnly: !!schema.public || !!schema.PUBLIC ||
+										!!schema.dbo,
+								};
 								dbSchemas[resourcePath] = {
 									...dbSchema,
-									stringified: stringifySchema(dbSchema)
-								}
+									stringified: stringifySchema(dbSchema),
+								};
 							} else {
 								if (
-									typeof testResult.result !== 'object' ||
-									!('__schema' in (testResult?.result ?? {}))
+									typeof testResult.result !== "object" ||
+									!("__schema" in (testResult?.result ?? {}))
 								) {
-									console.error('Invalid GraphQL schema')
+									console.error("Invalid GraphQL schema");
 
-									errorCallback('Invalid GraphQL schema')
+									errorCallback("Invalid GraphQL schema");
 								} else {
 									const dbSchema = {
-										lang: 'graphql' as GraphqlSchema['lang'],
-										schema: testResult.result
-									}
+										lang: "graphql" as GraphqlSchema["lang"],
+										schema: testResult.result,
+									};
 									dbSchemas[resourcePath] = {
 										...(dbSchema as any),
-										stringified: stringifySchema(dbSchema as any)
-									}
+										stringified: stringifySchema(dbSchema as any),
+									};
 								}
 							}
 						}
 					}
-					resolve()
+					resolve();
 				}
 			},
 			timeoutCode: async () => {
-				console.error('Could not query schema within 5s')
-				errorCallback('Could not query schema within 5s')
+				console.error("Could not query schema within 5s");
+				errorCallback("Could not query schema within 5s");
 				try {
 					await JobService.cancelQueuedJob({
 						workspace,
 						id: job,
 						requestBody: {
-							reason: 'Could not query schema within 5s'
-						}
-					})
+							reason: "Could not query schema within 5s",
+						},
+					});
 				} catch (err) {
-					console.error(err)
+					console.error(err);
 				}
-				reject()
+				reject();
 			},
 			interval: 500,
-			timeout: 5000
-		})
-	})
+			timeout: 5000,
+		});
+	});
 }
 
 export async function getTablesByResource(
 	schema: Partial<Record<string, DBSchema>>,
 	dbType: DbType | undefined,
 	dbPath: string,
-	workspace: string
+	workspace: string,
 ): Promise<string[]> {
-	const s = Object.values(schema)?.[0]
+	const s = Object.values(schema)?.[0];
 	switch (dbType) {
-		case 'ms_sql_server': {
-			const paths: string[] = []
+		case "ms_sql_server": {
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					if (key === 'dbo') {
-						paths.push(`${subKey}`)
+					if (key === "dbo") {
+						paths.push(`${subKey}`);
 					}
 				}
 			}
-			return paths
+			return paths;
 		}
-		case 'mysql': {
+		case "mysql": {
 			const resourceObj = (await ResourceService.getResourceValue({
 				workspace,
-				path: dbPath.split('$res:')[1]
-			})) as any
-			const paths: string[] = []
+				path: dbPath.split("$res:")[1],
+			})) as any;
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
 					if (key === resourceObj?.database) {
-						paths.push(`${subKey}`)
+						paths.push(`${subKey}`);
 					} else {
-						paths.push(`${key}.${subKey}`)
+						paths.push(`${key}.${subKey}`);
 					}
 				}
 			}
-			return paths
+			return paths;
 		}
-		case 'snowflake': {
-			const paths: string[] = []
+		case "snowflake": {
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					if (key === 'PUBLIC') {
-						paths.push(`${subKey}`)
+					if (key === "PUBLIC") {
+						paths.push(`${subKey}`);
 					} else {
-						paths.push(`${key}.${subKey}`)
+						paths.push(`${key}.${subKey}`);
 					}
 				}
 			}
-			return paths
+			return paths;
 		}
-		case 'postgresql': {
-			const paths: string[] = []
+		case "postgresql": {
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					if (key === 'public') {
-						paths.push(`${subKey}`)
+					if (key === "public") {
+						paths.push(`${subKey}`);
 					} else {
-						paths.push(`${key}.${subKey}`)
+						paths.push(`${key}.${subKey}`);
 					}
 				}
 			}
-			return paths
+			return paths;
 		}
-		case 'bigquery': {
-			const paths: string[] = []
+		case "bigquery": {
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					paths.push(`${key}.${subKey}`)
+					paths.push(`${key}.${subKey}`);
 				}
 			}
-			return paths
+			return paths;
 		}
-		case 'duckdb': {
-			const paths: string[] = []
+		case "duckdb": {
+			const paths: string[] = [];
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					paths.push(`${subKey}`)
+					paths.push(`${subKey}`);
 				}
 			}
 
-			return paths
+			return paths;
 		}
 		default:
-			return []
+			return [];
 	}
+}
+
+async function makeForeignKeysQuery(
+	input: DbInput,
+	workspace: string,
+	table: string | undefined,
+): Promise<string> {
+	if (!table) {
+		throw new Error("Table name is required for fetching foreign keys");
+	}
+
+	if (input.type === "ducklake") {
+		// DuckDB/DuckLake doesn't have comprehensive foreign key support via information_schema
+		return `SELECT NULL WHERE FALSE`; // Return empty result set
+	} else if (input.resourceType === "postgresql") {
+		let [schemaName, tableName] = table.split(".");
+		schemaName ??= "public";
+
+		return `
+		SELECT
+			tc.constraint_name,
+			kcu.column_name,
+			ccu.table_name AS referenced_table,
+			ccu.column_name AS referenced_column,
+			tc.table_name,
+			tc.table_schema AS schema_name,
+			rc.update_rule,
+			rc.delete_rule
+		FROM information_schema.table_constraints AS tc
+		JOIN information_schema.key_column_usage AS kcu
+			ON tc.constraint_name = kcu.constraint_name
+			AND tc.table_schema = kcu.table_schema
+		JOIN information_schema.constraint_column_usage AS ccu
+			ON ccu.constraint_name = tc.constraint_name
+			AND ccu.table_schema = tc.table_schema
+		JOIN information_schema.referential_constraints AS rc
+			ON rc.constraint_name = tc.constraint_name
+			AND rc.constraint_schema = tc.table_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND tc.table_name = '${tableName}'
+			AND tc.table_schema = '${schemaName}'
+		ORDER BY tc.constraint_name, kcu.ordinal_position;
+		`;
+	} else if (input.resourceType === "mysql") {
+		const resourceObj = (await ResourceService.getResourceValue({
+			workspace,
+			path: input.resourcePath,
+		})) as any;
+		let [schemaName, tableName] = table.split(".");
+		schemaName ??= resourceObj?.database ?? "";
+
+		return `
+		SELECT
+			CONSTRAINT_NAME as constraint_name,
+			COLUMN_NAME as column_name,
+			REFERENCED_TABLE_NAME as referenced_table,
+			REFERENCED_COLUMN_NAME as referenced_column,
+			TABLE_NAME as table_name,
+			TABLE_SCHEMA as schema_name,
+			(SELECT UPDATE_RULE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+				WHERE CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+				AND CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA) as update_rule,
+			(SELECT DELETE_RULE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+				WHERE CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+				AND CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA) as delete_rule
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+		WHERE TABLE_SCHEMA = '${schemaName}'
+			AND TABLE_NAME = '${tableName}'
+			AND REFERENCED_TABLE_NAME IS NOT NULL
+		ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION;
+		`;
+	} else if (input.resourceType === "ms_sql_server") {
+		return `
+		SELECT
+			fk.name as constraint_name,
+			c1.name as column_name,
+			OBJECT_NAME(fk.referenced_object_id) as referenced_table,
+			c2.name as referenced_column,
+			OBJECT_NAME(fk.parent_object_id) as table_name,
+			SCHEMA_NAME(t1.schema_id) as schema_name,
+			CASE fk.update_referential_action
+				WHEN 0 THEN 'NO ACTION'
+				WHEN 1 THEN 'CASCADE'
+				WHEN 2 THEN 'SET NULL'
+				WHEN 3 THEN 'SET DEFAULT'
+			END as update_rule,
+			CASE fk.delete_referential_action
+				WHEN 0 THEN 'NO ACTION'
+				WHEN 1 THEN 'CASCADE'
+				WHEN 2 THEN 'SET NULL'
+				WHEN 3 THEN 'SET DEFAULT'
+			END as delete_rule
+		FROM sys.foreign_keys fk
+		INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+		INNER JOIN sys.columns c1 ON fkc.parent_object_id = c1.object_id AND fkc.parent_column_id = c1.column_id
+		INNER JOIN sys.columns c2 ON fkc.referenced_object_id = c2.object_id AND fkc.referenced_column_id = c2.column_id
+		INNER JOIN sys.tables t1 ON fk.parent_object_id = t1.object_id
+		WHERE OBJECT_NAME(fk.parent_object_id) = '${table}'
+		ORDER BY fk.name, fkc.constraint_column_id;
+		`;
+	} else if (
+		input.resourceType === "snowflake" ||
+		(input.resourceType as any) === "snowflake_oauth"
+	) {
+		let [schemaName, tableName] = table.split(".");
+		schemaName ??= "PUBLIC";
+
+		return `
+		SELECT
+			rc.constraint_name,
+			kcu.column_name,
+			rc.unique_table_name as referenced_table,
+			rc.unique_column_name as referenced_column,
+			rc.table_name,
+			rc.table_schema as schema_name,
+			rc.update_rule,
+			rc.delete_rule
+		FROM information_schema.referential_constraints rc
+		JOIN information_schema.key_column_usage kcu
+			ON rc.constraint_name = kcu.constraint_name
+			AND rc.constraint_schema = kcu.constraint_schema
+		WHERE rc.table_name = '${tableName}'
+			AND rc.table_schema = '${schemaName}'
+		ORDER BY rc.constraint_name;
+		`;
+	} else if (input.resourceType === "bigquery") {
+		// BigQuery has limited foreign key support and they are not enforced
+		// We can query for declared foreign keys but they're metadata only
+		const [dataset, tableName] = table.split(".");
+		return `
+		SELECT
+			constraint_name,
+			NULL as column_name,
+			NULL as referenced_table,
+			NULL as referenced_column,
+			table_name,
+			table_schema as schema_name,
+			NULL as update_rule,
+			NULL as delete_rule
+		FROM ${dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+		WHERE constraint_type = 'FOREIGN KEY'
+			AND table_name = '${tableName}'
+			AND table_schema = '${dataset}'
+		ORDER BY constraint_name;
+		`;
+	} else {
+		throw new Error("Unsupported database type: " + input.resourceType);
+	}
+}
+
+export async function fetchForeignKeys(
+	input: DbInput,
+	workspace: string | undefined,
+	table: string | undefined,
+): Promise<ForeignKeyMetadata[] | undefined> {
+	if (!input || !table || !workspace) return undefined;
+
+	let language = input.type == "ducklake"
+		? "duckdb"
+		: getLanguageByResourceType(input.resourceType);
+	let content: string;
+
+	try {
+		content = await makeForeignKeysQuery(input, workspace, table);
+	} catch (error) {
+		console.error("Error creating foreign keys query:", error);
+		return undefined;
+	}
+
+	const job = await JobService.runScriptPreview({
+		workspace: workspace,
+		requestBody: {
+			language,
+			content,
+			args: getDatabaseArg(input),
+		},
+	});
+
+	const maxRetries = 8;
+	let attempts = 0;
+	while (attempts < maxRetries) {
+		try {
+			await new Promise((resolve) =>
+				setTimeout(resolve, 1000 * (attempts || 0.6))
+			);
+
+			const testResult = (await JobService.getCompletedJob({
+				workspace: workspace,
+				id: job,
+			})) as any;
+
+			if (testResult.success) {
+				attempts = maxRetries;
+
+				let result = testResult.result;
+
+				// Handle MS SQL Server's nested array response
+				if (
+					input.type === "database" && input.resourceType === "ms_sql_server"
+				) {
+					result = result[0];
+				}
+
+				// Normalize keys to lowercase and return
+				return result.map(lowercaseKeys) as ForeignKeyMetadata[];
+			} else {
+				attempts++;
+			}
+		} catch (error) {
+			attempts++;
+		}
+	}
+
+	console.error("Failed to load foreign keys after maximum retries.");
+	return undefined;
 }

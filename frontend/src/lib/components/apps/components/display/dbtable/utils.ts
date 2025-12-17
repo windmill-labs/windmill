@@ -24,6 +24,18 @@ export type ColumnMetadata = {
 	isnullable: 'YES' | 'NO'
 	isenum: boolean
 }
+
+export type ForeignKeyMetadata = {
+    constraint_name: string
+    column_name: string
+    referenced_table: string
+    referenced_column: string
+    table_name: string
+    schema_name?: string
+    update_rule?: string
+    delete_rule?: string
+}
+
 export type TableMetadata = ColumnMetadata[]
 
 export type ColumnDef = {
