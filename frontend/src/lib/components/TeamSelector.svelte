@@ -85,10 +85,9 @@
 	})
 
 	let searchFilterText = $state('')
-	let latestSearchQuery = $state('')
+	let searchRequestId = $state(0)
 
 	const debouncedSearch = debounce(async (query: string) => {
-		latestSearchQuery = query
 		await searchTeams(query)
 	}, 500)
 
@@ -118,7 +117,7 @@
 	})
 
 	function restorePreSearchState() {
-		latestSearchQuery = ''
+		searchRequestId++ // Invalidate any in-flight search
 		if (preSearchTeams !== null) {
 			// Restore the accumulated teams from before the search
 			loadedTeams = preSearchTeams
@@ -169,6 +168,7 @@
 			preSearchTotalCount = totalCount
 		}
 
+		const thisRequestId = ++searchRequestId
 		isFetching = true
 		nextLink = null
 		try {
@@ -177,8 +177,8 @@
 				search: query
 			})
 
-			// Ignore stale results if user typed a different query while waiting
-			if (query !== latestSearchQuery) {
+			// Ignore stale results if a newer search was initiated
+			if (thisRequestId !== searchRequestId) {
 				return
 			}
 
@@ -190,16 +190,23 @@
 			// Search results don't have pagination
 			nextLink = null
 		} catch (error) {
-			onError?.(error as Error)
-			console.error('Error searching teams:', error)
-			loadedTeams = []
+			// Only handle error if this is still the current request
+			if (thisRequestId === searchRequestId) {
+				onError?.(error as Error)
+				console.error('Error searching teams:', error)
+				loadedTeams = []
+			}
 		} finally {
-			isFetching = false
+			// Only clear loading state if this is the current request
+			if (thisRequestId === searchRequestId) {
+				isFetching = false
+			}
 		}
 	}
 
 	async function loadMoreTeams() {
-		if (isLoadingMore || !nextLink) return
+		// Don't load more if: already loading, no next page, or user started searching
+		if (isLoadingMore || !nextLink || preSearchTeams !== null) return
 
 		isLoadingMore = true
 		try {
@@ -207,12 +214,6 @@
 				workspace: $workspaceStore!,
 				nextLink: nextLink
 			})
-
-			// If user started a search while we were loading, discard these results
-			// (preSearchTeams was saved before this response, so it would be stale)
-			if (preSearchTeams !== null) {
-				return
-			}
 
 			const newTeams =
 				response.teams?.map((t) => ({
@@ -234,7 +235,6 @@
 	async function refreshTeams() {
 		if (searchMode) {
 			if (searchFilterText.length >= 1) {
-				latestSearchQuery = searchFilterText
 				await searchTeams(searchFilterText)
 			} else {
 				await fetchInitialTeams()
