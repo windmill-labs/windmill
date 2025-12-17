@@ -72,8 +72,8 @@ export function makeAlterTableQuery(
       case "addColumn":
         queries.push(
           `ALTER TABLE ${tableRef} ADD COLUMN ${
-            // TODO: handle primary key updates
-            renderColumn(op.column, dbType)};`,
+            renderColumn(op.column, dbType)
+          };`,
         );
         break;
 

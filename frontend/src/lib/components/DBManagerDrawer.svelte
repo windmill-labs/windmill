@@ -16,9 +16,10 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { DbInput } from './dbTypes'
 	import {
+		fetchForeignKeys,
 		getDbSchemas,
 		loadAllTablesMetaData,
 		loadTableMetaData
@@ -123,6 +124,18 @@
 			return result ?? []
 		}
 	}
+
+	setContext('loadAllTablesMetaData', async () => {
+		if (input) {
+			return await loadAllTablesMetaData($workspaceStore, input)
+		}
+	})
+
+	setContext('fetchForeignKeys', async (table: string) => {
+		if (input) {
+			return await fetchForeignKeys(input, $workspaceStore, table)
+		}
+	})
 </script>
 
 <svelte:window

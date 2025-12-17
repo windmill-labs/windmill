@@ -1,10 +1,14 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import { MoreVertical, Plus, Table2, Trash2Icon, Pen } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef } from './apps/components/display/dbtable/utils'
+	import {
+		type ColumnDef,
+		type ForeignKeyMetadata,
+		type TableMetadata
+	} from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -13,6 +17,11 @@
 	import DbTableEditor from './DBTableEditor.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
+	import type { CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
+	import { diffTables } from './apps/components/display/dbtable/queries/diffTables'
+	import { getContext, onMount } from 'svelte'
+	import { buildCreateTableValues } from './apps/components/display/dbtable/queries/mergeMetaData'
+	import { SvelteMap } from 'svelte/reactivity'
 
 	type Props = {
 		dbType: DbType
@@ -24,6 +33,7 @@
 		refresh?: () => void
 		initialTableKey?: string
 	}
+
 	let {
 		dbType,
 		dbSchema,
@@ -85,7 +95,42 @@
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
 		| undefined = $state()
 
-	let dbTableEditorState: { open: boolean } = $state({ open: false })
+	let dbTableEditorState: { open: boolean; action?: 'create' | 'update' } = $state({
+		open: false,
+		action: 'create'
+	})
+
+	const tableKeyToValuesMap = new SvelteMap<string, CreateTableValues>()
+	let selectedValues: CreateTableValues | undefined = $state()
+
+	const loadMetaData = getContext('loadAllTablesMetaData') as () => Promise<
+		Record<string, TableMetadata> | undefined
+	>
+
+	const fetchForeignKeys = getContext('fetchForeignKeys') as (
+		table: string
+	) => Promise<ForeignKeyMetadata[] | undefined>
+
+	let allTablesMetaData: Record<string, TableMetadata> | undefined
+
+	// @ts-ignore
+	$effect(async () => {
+		dbTableEditorState.open
+
+		if (selected.tableKey && tableKey) {
+			const fks = await fetchForeignKeys(selected.tableKey)
+			const tableMetaData = allTablesMetaData?.[tableKey]
+
+			if (fks && tableMetaData) {
+				selectedValues = buildCreateTableValues(selected.tableKey, tableMetaData, fks)
+				tableKeyToValuesMap.set(selected.tableKey, selectedValues)
+			}
+		}
+	})
+
+	onMount(async () => {
+		allTablesMetaData = await loadMetaData()
+	})
 </script>
 
 <Splitpanes>
@@ -117,8 +162,14 @@
 					<DropdownV2
 						items={() => [
 							{
+								displayName: 'Edit table',
+								icon: Pen,
+								action: () => (dbTableEditorState = { open: true, action: 'update' })
+							},
+							{
 								displayName: 'Delete table',
 								icon: Trash2Icon,
+								type: 'delete',
 								action: () =>
 									(askingForConfirmation = {
 										title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
@@ -153,7 +204,7 @@
 			{/each}
 		</div>
 		<Button
-			on:click={() => (dbTableEditorState = { open: true })}
+			on:click={() => (dbTableEditorState = { open: true, action: 'create' })}
 			wrapperClasses="mx-2 my-2 text-sm"
 			startIcon={{ icon: Plus }}
 			variant={tableKeys.length === 0 ? 'accent' : 'default'}
@@ -181,22 +232,49 @@
 	/>
 </Portal>
 
-<Drawer
-	size="600px"
-	open={dbTableEditorState.open}
-	on:close={() => (dbTableEditorState = { open: false })}
->
-	<DrawerContent on:close={() => (dbTableEditorState = { open: false })} title="Create a new table">
+<Drawer size="600px" open={dbTableEditorState.open}>
+	<DrawerContent
+		on:close={() => (dbTableEditorState = { open: false, action: undefined })}
+		title={dbTableEditorState?.action === 'update' ? 'Edit table' : 'Create a new table'}
+	>
 		<DbTableEditor
 			{dbSchema}
 			currentSchema={selected.schemaKey}
+			oldTableValues={dbTableEditorState.action === 'update' ? selectedValues : undefined}
 			onConfirm={async (values) => {
-				await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+				switch (dbTableEditorState.action) {
+					case 'update':
+						const oldValues = tableKeyToValuesMap.get(selected.tableKey ?? '')
+						if (!oldValues) break
+
+						const diffValues = diffTables(oldValues, values)
+						if (!diffValues) break
+
+						await dbSchemaOps.onAlter({ values: diffValues, schema: selected.schemaKey })
+						tableKeyToValuesMap.set(selected.tableKey ?? '', $state.snapshot(values))
+						break
+
+					default:
+						await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+						tableKeyToValuesMap.set(values.name ?? '', $state.snapshot(values))
+						break
+				}
+
 				refresh?.()
 				dbTableEditorState = { open: false }
 			}}
 			{dbType}
-			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
+			previewSql={(values) => {
+				if (dbTableEditorState.action === 'update') {
+					const oldValues = tableKeyToValuesMap.get(selected.tableKey ?? '')
+					if (!oldValues) return ''
+
+					const diffValues = diffTables(oldValues, values)
+					if (!diffValues) return ''
+					return dbSchemaOps.previewAlterSql({ values: diffValues, schema: selected.schemaKey })
+				}
+				return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+			}}
 		/>
 	</DrawerContent>
 </Drawer>

@@ -1,4 +1,4 @@
-import { getLanguageByResourceType, type ColumnDef } from './apps/components/display/dbtable/utils'
+import { type ColumnDef, getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
 import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
@@ -12,9 +12,13 @@ import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
 import {
-	makeCreateTableQuery,
-	type CreateTableValues
+	type CreateTableValues,
+	makeCreateTableQuery
 } from './apps/components/display/dbtable/queries/createTable'
+import {
+	type AlterTableValues,
+	makeAlterTableQuery
+} from './apps/components/display/dbtable/queries/alterTable'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -58,23 +62,36 @@ export function dbTableOpsWithPreviewScripts({
 		colDefs,
 		getCount: async ({ quicksearch }) => {
 			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
-			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			if (input.type === 'ducklake') {
+				countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			}
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content: countQuery }
+				requestBody: {
+					args: { ...dbArg, quicksearch },
+					language,
+					content: countQuery
+				}
 			})
 			const count = result?.[0].count as number
 			return count
 		},
 		getRows: async (params) => {
 			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType)
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			if (input.type === 'ducklake') {
+				query = wrapDucklakeQuery(query, input.ducklake)
+			}
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content: query }
+				requestBody: {
+					args: { ...dbArg, ...params },
+					language,
+					content: query
+				}
 			})) as unknown[]
-			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
+			if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
 				items = items?.[0] as unknown[]
+			}
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
@@ -82,7 +99,9 @@ export function dbTableOpsWithPreviewScripts({
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
 			let updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, dbType)
-			if (input.type === 'ducklake') updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
+			if (input.type === 'ducklake') {
+				updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
+			}
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
@@ -94,18 +113,30 @@ export function dbTableOpsWithPreviewScripts({
 		},
 		onDelete: async ({ values }) => {
 			let deleteQuery = makeDeleteQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			if (input.type === 'ducklake') {
+				deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			}
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: deleteQuery }
+				requestBody: {
+					args: { ...dbArg, ...values },
+					language,
+					content: deleteQuery
+				}
 			})
 		},
 		onInsert: async ({ values }) => {
 			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
+			if (input.type === 'ducklake') {
+				insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
+			}
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
+				requestBody: {
+					args: { ...dbArg, ...values },
+					language,
+					content: insertQuery
+				}
 			})
 		}
 	}
@@ -113,8 +144,10 @@ export function dbTableOpsWithPreviewScripts({
 
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
+	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -130,7 +163,9 @@ export function dbSchemaOpsWithPreviewScripts({
 	return {
 		onDelete: async ({ tableKey, schema }) => {
 			let deleteQuery = makeDeleteTableQuery(tableKey, dbType, schema)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			if (input.type === 'ducklake') {
+				deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			}
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg }, language, content: deleteQuery }
@@ -138,13 +173,28 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		onCreate: async ({ values, schema }) => {
 			let query = makeCreateTableQuery(values, dbType, schema)
-			if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			if (input?.type === 'ducklake') {
+				query = wrapDucklakeQuery(query, input.ducklake)
+			}
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: dbArg, content: query, language }
 			})
 		},
-		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema)
+		onAlter: async ({ values, schema }) => {
+			const queries = makeAlterTableQuery(values, dbType, schema)
+			let query = queries.join('\n')
+
+			if (input?.type === 'ducklake') {
+				query = wrapDucklakeQuery(query, input.ducklake)
+			}
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		previewAlterSql: ({ values, schema }) => makeAlterTableQuery(values, dbType, schema).join('\n')
 	}
 }
 
@@ -167,7 +217,9 @@ export async function getDucklakeSchema({
 	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
 	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
 
-	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	if (!mainSchema) {
+		throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	}
 	assert('mainSchema is an object', typeof mainSchema === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
 		schema: { main: mainSchema },

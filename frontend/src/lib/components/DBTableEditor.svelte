@@ -68,10 +68,10 @@
 		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
-		name?: string
+		oldTableValues?: CreateTableValues
 	}
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema, name = '' }: Props = $props()
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema, oldTableValues }: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
@@ -85,11 +85,15 @@
 		} satisfies Record<DbType, string>
 	)[dbType]
 
-	const values: CreateTableValues = $state({
-		name,
-		columns: [],
-		foreignKeys: []
-	})
+	const values: CreateTableValues = $state(
+		oldTableValues ?? {
+			name: '',
+			columns: [],
+			foreignKeys: []
+		}
+	)
+
+	const mode = oldTableValues ? 'update' : 'create'
 
 	function addColumn({ name, primaryKey }: { name: string; primaryKey?: boolean }) {
 		values.columns.push({
@@ -101,9 +105,9 @@
 			primaryKey
 		})
 	}
-	addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
+	mode === 'create' && addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
 
-	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
+	const errors: ReturnType<typeof validate> = $derived((values.name, validate(values, dbSchema)))
 
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
@@ -375,7 +379,7 @@
 					try {
 						askingForConfirmation && (askingForConfirmation.loading = true)
 						await onConfirm(values)
-						sendUserToast(values.name + ' created!')
+						sendUserToast(values.name + (mode === 'create' ? ' created!' : ' updated!'))
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
 						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
@@ -384,10 +388,11 @@
 					askingForConfirmation = undefined
 				},
 				title: 'Confirm running the following:',
-				confirmationText: 'Create ' + values.name,
+				confirmationText: 'Confirm',
+				showIcon: true,
 				open: true,
 				...(previewSql && { codeContent: previewSql(values) })
-			})}>Create table</Button
+			})}>{mode === 'create' ? 'Create' : 'Edit'} table</Button
 	>
 </div>
 
