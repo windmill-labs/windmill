@@ -236,7 +236,7 @@ RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 7
 
 
 
-# Create a non-root user 'windmill' with UID and GID 1000
+# Cr,.eate a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \
     adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
 
