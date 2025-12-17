@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script\n             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)\n             ORDER BY created_at DESC LIMIT 1",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script\n             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)\n             ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -50,6 +50,11 @@
       },
       {
         "ordinal": 9,
+        "name": "runnable_settings_handle",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -85,27 +90,27 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "timeout",
         "type_info": "Int4"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "on_behalf_of_email",
         "type_info": "Text"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_by",
         "type_info": "Varchar"
       }
@@ -127,6 +132,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -135,5 +141,5 @@
       false
     ]
   },
-  "hash": "7f9b7ab9bec6a0f745273d0cd5602ceab46a7ec9fd225f7b9d16a2ddb9bad7b3"
+  "hash": "a33673ebc4d1eb4c3513987dbc43e2c80974598e1d9fe7203145bfc29928ba65"
 }

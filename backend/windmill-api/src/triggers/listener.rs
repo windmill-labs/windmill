@@ -587,6 +587,7 @@ async fn listening<T: Listener>(
 
     let loop_ping_status = Arc::new(RwLock::new(None));
     let extra_state = listener.get_extra_state().await;
+    let path = listening_trigger.path.clone();
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
@@ -596,15 +597,18 @@ async fn listening<T: Listener>(
             let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
         }
         consumer = {
+            tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
             listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
         } => {
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
+                    tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
                 _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), None) => {
+                    tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
@@ -612,14 +616,17 @@ async fn listening<T: Listener>(
                     match consumer {
                         Ok(Some(consumer)) => {
                             listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
-                            tracing::debug!("Stopping consumer for trigger");
+                            tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
+                            listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
+                            tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
                         }
                         Err(error) => {
-                            tracing::warn!("Disabling trigger due to consumer error: {}", error);
+                            tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
                             listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
                         }
-                        _ => {}
+                        Ok(None) => {
+                            tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        }
                     }
                 } => {
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;

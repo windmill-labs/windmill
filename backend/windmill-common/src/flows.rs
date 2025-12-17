@@ -24,8 +24,8 @@ use crate::{
     cache,
     db::DB,
     error::{Error, Result as WindmillResult},
-    jobs::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
+    runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
 };

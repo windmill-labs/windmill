@@ -3,6 +3,7 @@ export type DbInput =
 			type: 'database'
 			resourceType: DbType
 			resourcePath: string
+			specificSchema?: string
 			specificTable?: string
 	  }
 	| {
