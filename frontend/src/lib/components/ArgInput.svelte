@@ -202,11 +202,7 @@
 
 	let oneOfSelected: string | undefined = $state(undefined)
 	let tagKey = $derived(
-		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('mode'))
-			? 'mode'
-			: oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind'))
-				? 'kind'
-				: 'label'
+		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
 	)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
@@ -230,13 +226,10 @@
 	function onOneOfChange() {
 		const label = value?.['label']
 		const kind = value?.['kind']
-		const mode = value?.['mode']
 		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
 			oneOfSelected = label
 		} else if (kind && oneOf && oneOf.some((o) => o.title == kind) && oneOfSelected != kind) {
 			oneOfSelected = kind
-		} else if (mode && oneOf && oneOf.some((o) => o.title == mode) && oneOfSelected != mode) {
-			oneOfSelected = mode
 		}
 	}
 
@@ -1080,7 +1073,7 @@
 								for (const key of newValueKeys) {
 									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
 									if (
-										!['kind', 'label', 'mode'].includes(key) &&
+										!['kind', 'label'].includes(key) &&
 										selectedObjProperties[key]?.enum &&
 										value &&
 										value[key] !== undefined &&
@@ -1090,11 +1083,9 @@
 									}
 									toKeep[key] = value[key]
 								}
-								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('mode'))
-									? 'mode'
-									: oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-										? 'kind'
-										: 'label'
+								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+									? 'kind'
+									: 'label'
 								value = { ...toKeep, [tagKey]: detail }
 							}}
 						>
@@ -1131,11 +1122,9 @@
 											}
 											bind:args={value}
 											hiddenArgs={[
-												oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('mode'))
-													? 'mode'
-													: oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-														? 'kind'
-														: 'label'
+												oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+													? 'kind'
+													: 'label'
 											]}
 											on:reorder={(e) => {
 												if (oneOf && oneOf[objIdx]) {
@@ -1154,7 +1143,7 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
-											hiddenArgs={['label', 'kind', 'mode']}
+											hiddenArgs={['label', 'kind']}
 											schema={{
 												properties: obj.properties,
 												order: obj.order,

@@ -4,7 +4,7 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 
-export const AI_AGENT_SCHEMA = {
+export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
 	properties: {
 		provider: {
@@ -42,7 +42,7 @@ export const AI_AGENT_SCHEMA = {
 					type: 'object',
 					title: 'auto',
 					properties: {
-						mode: {
+						kind: {
 							type: 'string',
 							enum: ['auto'],
 							default: 'auto',
@@ -55,7 +55,7 @@ export const AI_AGENT_SCHEMA = {
 							default: 0
 						}
 					},
-					required: ['mode'],
+					required: ['kind'],
 					'x-no-s3-storage-workspace-warning':
 						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
 				},
@@ -63,7 +63,7 @@ export const AI_AGENT_SCHEMA = {
 					type: 'object',
 					title: 'manual',
 					properties: {
-						mode: {
+						kind: {
 							type: 'string',
 							enum: ['manual'],
 							description:
@@ -110,11 +110,11 @@ export const AI_AGENT_SCHEMA = {
 							}
 						}
 					},
-					required: ['mode', 'messages']
+					required: ['kind', 'messages']
 				}
 			],
 			showExpr: "fields.output_type === 'text'"
-		} as any,
+		},
 		output_schema: {
 			type: 'object',
 			description: 'JSON schema that the AI agent will follow for its response format.',
@@ -126,7 +126,7 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'Array of images to give as input to the AI agent. Requires a configured workspace S3 storage.',
 			items: {
-				type: 'object' as const,
+				type: 'object',
 				resourceType: 's3object'
 			}
 		},

@@ -107,7 +107,7 @@ impl Default for OutputType {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "mode", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum History {
     Auto {
         #[serde(default)]
@@ -118,7 +118,25 @@ pub enum History {
     },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
+struct AIAgentArgsRaw {
+    provider: ProviderWithResource,
+    system_prompt: Option<String>,
+    user_message: Option<String>,
+    temperature: Option<f32>,
+    max_completion_tokens: Option<u32>,
+    output_schema: Option<OpenAPISchema>,
+    output_type: Option<OutputType>,
+    user_images: Option<Vec<S3Object>>,
+    streaming: Option<bool>,
+    max_iterations: Option<usize>,
+    history: Option<History>,
+    // Legacy field for backward compatibility
+    messages_context_length: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(from = "AIAgentArgsRaw")]
 pub struct AIAgentArgs {
     pub provider: ProviderWithResource,
     pub system_prompt: Option<String>,
@@ -130,13 +148,31 @@ pub struct AIAgentArgs {
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
-
-    // New history field (replaces messages and messages_context_length)
     pub history: Option<History>,
+}
 
-    // Deprecated: for backward compatibility only
-    #[serde(default)]
-    pub messages_context_length: Option<usize>,
+impl From<AIAgentArgsRaw> for AIAgentArgs {
+    fn from(raw: AIAgentArgsRaw) -> Self {
+        // Backward compatibility: if messages_context_length is set, use auto mode
+        let history = raw.history.or_else(|| {
+            raw.messages_context_length
+                .map(|context_length| History::Auto { context_length })
+        });
+
+        AIAgentArgs {
+            provider: raw.provider,
+            system_prompt: raw.system_prompt,
+            user_message: raw.user_message,
+            temperature: raw.temperature,
+            max_completion_tokens: raw.max_completion_tokens,
+            output_schema: raw.output_schema,
+            output_type: raw.output_type,
+            user_images: raw.user_images,
+            streaming: raw.streaming,
+            max_iterations: raw.max_iterations,
+            history,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]

@@ -397,16 +397,8 @@ pub async fn run_agent(
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
-    // Determine history mode with backward compatibility
-    let history = args.history.clone().or_else(|| {
-        // Backward compatibility: if messages_context_length is set, use auto mode
-        args.messages_context_length.map(|context_length| {
-            History::Auto { context_length }
-        })
-    });
-
     // Determine if we're using manual messages (which bypasses memory)
-    let use_manual_messages = matches!(history, Some(History::Manual { .. }));
+    let use_manual_messages = matches!(args.history, Some(History::Manual { .. }));
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -424,7 +416,7 @@ pub async fn run_agent(
 
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
-        match &history {
+        match &args.history {
             Some(History::Manual { messages: manual_messages }) => {
                 // Use explicitly provided messages (bypass memory)
                 if !manual_messages.is_empty() {
@@ -934,7 +926,7 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(History::Auto { context_length }) = &history {
+        if let Some(History::Auto { context_length }) = &args.history {
             if *context_length > 0 {
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     // Extract OpenAIMessages from final_messages
