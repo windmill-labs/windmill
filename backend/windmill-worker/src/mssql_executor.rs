@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
@@ -392,16 +392,16 @@ fn sql_to_json_value(val: ColumnData) -> Result<Box<RawValue>, Error> {
             .map_err(to_anyhow)?
             .map(|x| to_raw_value(&x.to_string()))
             .unwrap_or_else(null),
-        ColumnData::Time(x) => NaiveDateTime::from_sql_owned(ColumnData::Time(x))
+        ColumnData::Time(x) => NaiveTime::from_sql_owned(ColumnData::Time(x))
             .map_err(to_anyhow)?
             .map(|x| to_raw_value(&x.to_string()))
             .unwrap_or_else(null),
-        ColumnData::Date(x) => NaiveDateTime::from_sql_owned(ColumnData::Date(x))
+        ColumnData::Date(x) => NaiveDate::from_sql_owned(ColumnData::Date(x))
             .map_err(to_anyhow)?
             .map(|x| to_raw_value(&x.to_string()))
             .unwrap_or_else(null),
         ColumnData::DateTimeOffset(x) => {
-            NaiveDateTime::from_sql_owned(ColumnData::DateTimeOffset(x))
+            DateTime::<Utc>::from_sql_owned(ColumnData::DateTimeOffset(x))
                 .map_err(to_anyhow)?
                 .map(|x| to_raw_value(&x.to_string()))
                 .unwrap_or_else(null)
