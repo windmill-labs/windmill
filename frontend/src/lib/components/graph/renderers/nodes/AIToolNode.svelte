@@ -1,5 +1,6 @@
 <script module lang="ts">
 	export function validateToolName(name: string, type?: string) {
+		if (type === 'websearch') return true
 		if (type === 'mcp') {
 			return name.length > 0
 		}
@@ -256,7 +257,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
+	import { Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -278,7 +279,7 @@
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
 	let colorClasses = $derived(
 		getNodeColorClasses(
-			!validateToolName(data.tool) ? 'Failure' : flowModuleState?.type,
+			!validateToolName(data.tool, data.type) ? 'Failure' : flowModuleState?.type,
 			selectionManager?.getSelectedId() === data.moduleId
 		)
 	)
@@ -307,6 +308,8 @@
 					<Play size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'websearch'}
+					<Globe size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
