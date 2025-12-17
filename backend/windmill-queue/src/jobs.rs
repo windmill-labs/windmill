@@ -893,6 +893,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
+    let result_as_str = serde_json::to_string(&result.0).map_err(|e| {
+        Error::internal_err(format!(
+            "Could not serialize result to string for job {}: {e:#}",
+            queued_job.id
+        ))
+    })?;
+
     let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
                     ( workspace_id
@@ -909,7 +916,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), ($3::text)::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
@@ -917,10 +924,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         ELSE 'failure'::job_status END AS status,
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::jsonb RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ queued_job.id,
-            /* $2 */ success,
-            /* $3 */ result as Json<&T>,
+            /* $2 */ success, 
+            /* $3 */ result_as_str,
             /* $4 */ canceled_by.is_some(),
             /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
             /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
