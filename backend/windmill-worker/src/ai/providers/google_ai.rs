@@ -11,101 +11,6 @@ use crate::ai::{
     types::*,
 };
 
-// ============================================================================
-// Schema Conversion for Gemini API
-// ============================================================================
-
-/// Convert OpenAPI schema to Gemini-compatible format.
-/// Gemini API has specific requirements:
-/// - Type names must be uppercase (STRING, OBJECT, INTEGER, etc.)
-/// - Nullable types use `nullable: true` instead of type arrays like ["string", "null"]
-/// - `additionalProperties` is not supported
-fn convert_schema_to_gemini(schema: &OpenAPISchema) -> serde_json::Value {
-    let mut result = serde_json::Map::new();
-
-    // Handle type field - convert to uppercase and handle nullable
-    let (type_str, is_nullable) = match &schema.r#type {
-        Some(SchemaType::Single(t)) => (Some(type_to_gemini(t)), false),
-        Some(SchemaType::Multiple(types)) => {
-            // Find the non-null type and check if null is in the list
-            let non_null_types: Vec<&String> = types.iter().filter(|t| t.as_str() != "null").collect();
-            let has_null = types.iter().any(|t| t.as_str() == "null");
-            if let Some(primary_type) = non_null_types.first() {
-                (Some(type_to_gemini(primary_type)), has_null)
-            } else {
-                // All types are null
-                (Some("STRING".to_string()), true)
-            }
-        }
-        None => (None, false),
-    };
-
-    if let Some(t) = type_str {
-        result.insert("type".to_string(), serde_json::Value::String(t));
-    }
-
-    if is_nullable {
-        result.insert("nullable".to_string(), serde_json::Value::Bool(true));
-    }
-
-    // Handle format
-    if let Some(ref format) = schema.format {
-        result.insert("format".to_string(), serde_json::Value::String(format.clone()));
-    }
-
-    // Handle enum
-    if let Some(ref enum_values) = schema.r#enum {
-        let enum_array: Vec<serde_json::Value> =
-            enum_values.iter().map(|v| serde_json::Value::String(v.clone())).collect();
-        result.insert("enum".to_string(), serde_json::Value::Array(enum_array));
-    }
-
-    // Handle properties (for object types)
-    if let Some(ref properties) = schema.properties {
-        let mut props_map = serde_json::Map::new();
-        for (key, prop_schema) in properties {
-            props_map.insert(key.clone(), convert_schema_to_gemini(prop_schema));
-        }
-        result.insert("properties".to_string(), serde_json::Value::Object(props_map));
-    }
-
-    // Handle required
-    if let Some(ref required) = schema.required {
-        let req_array: Vec<serde_json::Value> =
-            required.iter().map(|v| serde_json::Value::String(v.clone())).collect();
-        result.insert("required".to_string(), serde_json::Value::Array(req_array));
-    }
-
-    // Handle items (for array types)
-    if let Some(ref items) = schema.items {
-        result.insert("items".to_string(), convert_schema_to_gemini(items));
-    }
-
-    // Handle oneOf - but Gemini may not fully support this, so we'll include it
-    if let Some(ref one_of) = schema.one_of {
-        let one_of_array: Vec<serde_json::Value> =
-            one_of.iter().map(|s| convert_schema_to_gemini(s)).collect();
-        result.insert("oneOf".to_string(), serde_json::Value::Array(one_of_array));
-    }
-
-    // Note: We intentionally skip `additionalProperties` as Gemini doesn't support it
-
-    serde_json::Value::Object(result)
-}
-
-/// Convert OpenAPI type string to Gemini uppercase type
-fn type_to_gemini(t: &str) -> String {
-    match t.to_lowercase().as_str() {
-        "string" => "STRING".to_string(),
-        "integer" => "INTEGER".to_string(),
-        "number" => "NUMBER".to_string(),
-        "boolean" => "BOOLEAN".to_string(),
-        "array" => "ARRAY".to_string(),
-        "object" => "OBJECT".to_string(),
-        "null" => "STRING".to_string(), // Gemini doesn't have a null type, use string with nullable
-        other => other.to_uppercase(),
-    }
-}
 
 // ============================================================================
 // Gemini API Types - Shared between text and image
@@ -183,7 +88,10 @@ pub struct GeminiContentMessage {
 /// Tool definition - either function declarations or Google Search
 #[derive(Serialize)]
 pub struct GeminiTool {
-    #[serde(rename = "functionDeclarations", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "functionDeclarations",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub function_declarations: Option<Vec<GeminiFunctionDeclaration>>,
     #[serde(rename = "googleSearch", skip_serializing_if = "Option::is_none")]
     pub google_search: Option<serde_json::Value>,
@@ -209,7 +117,10 @@ pub struct GeminiToolConfig {
 #[derive(Serialize)]
 pub struct GeminiFunctionCallingConfig {
     pub mode: String,
-    #[serde(rename = "allowedFunctionNames", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "allowedFunctionNames",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub allowed_function_names: Option<Vec<String>>,
 }
 
@@ -354,8 +265,9 @@ impl GoogleAIQueryBuilder {
         workspace_id: &str,
     ) -> Result<String, Error> {
         // Convert messages to Gemini format
-        let (contents, system_instruction) =
-            self.convert_messages_to_gemini(args.messages, client, workspace_id).await?;
+        let (contents, system_instruction) = self
+            .convert_messages_to_gemini(args.messages, client, workspace_id)
+            .await?;
 
         // Build tools array
         let tools = self.convert_tools_to_gemini(args.tools, args.has_websearch);
@@ -440,7 +352,9 @@ impl GoogleAIQueryBuilder {
         for msg in messages {
             if msg.role == "system" {
                 // Extract system message for systemInstruction field
-                let parts = self.convert_content_to_parts(&msg.content, client, workspace_id).await?;
+                let parts = self
+                    .convert_content_to_parts(&msg.content, client, workspace_id)
+                    .await?;
                 if !parts.is_empty() {
                     system_instruction = Some(GeminiContentMessage { role: None, parts });
                 }
@@ -457,8 +371,9 @@ impl GoogleAIQueryBuilder {
 
                 // Handle regular content
                 if let Some(content) = &msg.content {
-                    let content_parts =
-                        self.convert_content_to_parts(&Some(content.clone()), client, workspace_id).await?;
+                    let content_parts = self
+                        .convert_content_to_parts(&Some(content.clone()), client, workspace_id)
+                        .await?;
                     parts.extend(content_parts);
                 }
 
@@ -468,13 +383,17 @@ impl GoogleAIQueryBuilder {
                         let args: serde_json::Value =
                             serde_json::from_str(&tc.function.arguments).unwrap_or_default();
                         parts.push(GeminiPart::FunctionCall {
-                            function_call: GeminiFunctionCall { name: tc.function.name.clone(), args },
+                            function_call: GeminiFunctionCall {
+                                name: tc.function.name.clone(),
+                                args,
+                            },
                         });
                     }
                 }
 
                 if !parts.is_empty() {
-                    gemini_messages.push(GeminiContentMessage { role: Some(role.to_string()), parts });
+                    gemini_messages
+                        .push(GeminiContentMessage { role: Some(role.to_string()), parts });
                 }
             }
         }
@@ -539,7 +458,9 @@ impl GoogleAIQueryBuilder {
                             }
                             ContentPart::ImageUrl { image_url } => {
                                 // Parse data URL format: data:mime_type;base64,data
-                                if let Some((mime_type, data)) = Self::parse_data_url(&image_url.url) {
+                                if let Some((mime_type, data)) =
+                                    Self::parse_data_url(&image_url.url)
+                                {
                                     parts.push(GeminiPart::InlineData {
                                         inline_data: GeminiInlineData { mime_type, data },
                                     });
@@ -547,9 +468,12 @@ impl GoogleAIQueryBuilder {
                             }
                             ContentPart::S3Object { s3_object } => {
                                 if !s3_object.s3.is_empty() {
-                                    let (mime_type, data) =
-                                        download_and_encode_s3_image(s3_object, client, workspace_id)
-                                            .await?;
+                                    let (mime_type, data) = download_and_encode_s3_image(
+                                        s3_object,
+                                        client,
+                                        workspace_id,
+                                    )
+                                    .await?;
                                     parts.push(GeminiPart::InlineData {
                                         inline_data: GeminiInlineData { mime_type, data },
                                     });
@@ -639,7 +563,10 @@ impl GoogleAIQueryBuilder {
     }
 
     /// Build generation config for structured output and other settings
-    fn build_generation_config(&self, args: &BuildRequestArgs<'_>) -> Option<GeminiGenerationConfig> {
+    fn build_generation_config(
+        &self,
+        args: &BuildRequestArgs<'_>,
+    ) -> Option<GeminiGenerationConfig> {
         let has_output_schema = args
             .output_schema
             .and_then(|s| s.properties.as_ref())
@@ -648,17 +575,16 @@ impl GoogleAIQueryBuilder {
 
         let (response_mime_type, response_schema) = if has_output_schema {
             let schema = args.output_schema.unwrap();
-            let gemini_schema = convert_schema_to_gemini(schema);
-            (Some("application/json".to_string()), Some(gemini_schema))
+            (
+                Some("application/json".to_string()),
+                serde_json::to_value(schema).ok(),
+            )
         } else {
             (None, None)
         };
 
         // Only create config if there's something to configure
-        if args.temperature.is_some()
-            || args.max_tokens.is_some()
-            || response_mime_type.is_some()
-        {
+        if args.temperature.is_some() || args.max_tokens.is_some() || response_mime_type.is_some() {
             Some(GeminiGenerationConfig {
                 temperature: args.temperature,
                 max_output_tokens: args.max_tokens,
@@ -705,7 +631,11 @@ impl GoogleAIQueryBuilder {
         }
 
         Ok(ParsedResponse::Text {
-            content: if text_parts.is_empty() { None } else { Some(text_parts.join("")) },
+            content: if text_parts.is_empty() {
+                None
+            } else {
+                Some(text_parts.join(""))
+            },
             tool_calls,
             events_str: None,
         })
@@ -734,15 +664,15 @@ impl GoogleAIQueryBuilder {
                 gemini_response
                     .predictions
                     .as_ref()
-                    .and_then(|predictions| {
-                        predictions.first().map(|p| &p.bytes_base64_encoded)
-                    })
+                    .and_then(|predictions| predictions.first().map(|p| &p.bytes_base64_encoded))
             });
 
         if let Some(base64_image) = image_data {
             Ok(ParsedResponse::Image { base64_data: base64_image.clone() })
         } else {
-            Err(Error::internal_err("No image data received from Gemini".to_string()))
+            Err(Error::internal_err(
+                "No image data received from Gemini".to_string(),
+            ))
         }
     }
 }
@@ -782,8 +712,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         // For Imagen predict endpoint
         if url.contains(":predict") {
-            let gemini_response: GeminiImageResponse =
-                serde_json::from_str(&response_text).map_err(|e| {
+            let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
+                .map_err(|e| {
                     Error::internal_err(format!(
                         "Failed to parse Gemini image response: {}. Raw response: {}",
                         e, response_text
@@ -795,26 +725,32 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         // For generateContent (both text and image generation)
         if url.contains(":generateContent") {
             // Try to parse as text response first
-            if let Ok(gemini_response) = serde_json::from_str::<GeminiTextResponse>(&response_text) {
+            if let Ok(gemini_response) = serde_json::from_str::<GeminiTextResponse>(&response_text)
+            {
                 // Check if it contains image data
                 let has_image = gemini_response
                     .candidates
                     .as_ref()
                     .map(|candidates| {
                         candidates.iter().any(|c| {
-                            c.content.as_ref().map(|content| {
-                                content.parts.as_ref().map(|parts| {
-                                    parts.iter().any(|p| p.inline_data.is_some())
-                                }).unwrap_or(false)
-                            }).unwrap_or(false)
+                            c.content
+                                .as_ref()
+                                .map(|content| {
+                                    content
+                                        .parts
+                                        .as_ref()
+                                        .map(|parts| parts.iter().any(|p| p.inline_data.is_some()))
+                                        .unwrap_or(false)
+                                })
+                                .unwrap_or(false)
                         })
                     })
                     .unwrap_or(false);
 
                 if has_image {
                     // Parse as image response
-                    let gemini_response: GeminiImageResponse =
-                        serde_json::from_str(&response_text).map_err(|e| {
+                    let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
+                        .map_err(|e| {
                             Error::internal_err(format!(
                                 "Failed to parse Gemini image response: {}. Raw response: {}",
                                 e, response_text
@@ -884,7 +820,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     ) -> String {
         match output_type {
             OutputType::Text => {
-                let action = if stream { "streamGenerateContent" } else { "generateContent" };
+                let action = if stream {
+                    "streamGenerateContent"
+                } else {
+                    "generateContent"
+                };
                 let url = format!("{}/models/{}:{}", GEMINI_BASE_URL, model, action);
                 if stream {
                     format!("{}?alt=sse", url)
