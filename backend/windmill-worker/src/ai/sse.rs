@@ -358,3 +358,131 @@ impl SSEParser for AnthropicSSEParser {
         Ok(())
     }
 }
+
+// ============================================================================
+// Gemini SSE Parser
+// ============================================================================
+
+/// Gemini streaming response part - can be text or function call
+#[derive(Deserialize, Debug)]
+pub struct GeminiSSEPart {
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(rename = "functionCall")]
+    pub function_call: Option<GeminiSSEFunctionCall>,
+}
+
+/// Function call in Gemini streaming response
+#[derive(Deserialize, Debug)]
+pub struct GeminiSSEFunctionCall {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+/// Content in Gemini streaming candidate
+#[derive(Deserialize, Debug)]
+pub struct GeminiSSEContent {
+    pub parts: Option<Vec<GeminiSSEPart>>,
+}
+
+/// Candidate in Gemini streaming response
+#[derive(Deserialize, Debug)]
+pub struct GeminiSSECandidate {
+    pub content: Option<GeminiSSEContent>,
+    #[serde(rename = "finishReason")]
+    #[allow(dead_code)]
+    pub finish_reason: Option<String>,
+}
+
+/// Gemini SSE event structure
+#[derive(Deserialize, Debug)]
+pub struct GeminiSSEEvent {
+    pub candidates: Option<Vec<GeminiSSECandidate>>,
+}
+
+/// Gemini SSE Parser for streaming responses
+pub struct GeminiSSEParser {
+    pub accumulated_content: String,
+    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    pub events_str: String,
+    pub stream_event_processor: StreamEventProcessor,
+    tool_call_index: i64,
+}
+
+impl GeminiSSEParser {
+    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+        Self {
+            accumulated_content: String::new(),
+            accumulated_tool_calls: HashMap::new(),
+            events_str: String::new(),
+            stream_event_processor,
+            tool_call_index: 0,
+        }
+    }
+}
+
+impl SSEParser for GeminiSSEParser {
+    async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        let event: Option<GeminiSSEEvent> = serde_json::from_str(data)
+            .inspect_err(|e| {
+                tracing::error!("Failed to parse SSE as a Gemini event {}: {}", data, e);
+            })
+            .ok();
+
+        if let Some(event) = event {
+            if let Some(candidates) = event.candidates {
+                for candidate in candidates {
+                    if let Some(content) = candidate.content {
+                        if let Some(parts) = content.parts {
+                            for part in parts {
+                                // Handle text content
+                                if let Some(text) = part.text {
+                                    if !text.is_empty() {
+                                        self.accumulated_content.push_str(&text);
+                                        let event = StreamingEvent::TokenDelta { content: text };
+                                        self.stream_event_processor
+                                            .send(event, &mut self.events_str)
+                                            .await?;
+                                    }
+                                }
+
+                                // Handle function calls
+                                if let Some(function_call) = part.function_call {
+                                    let call_id = format!("call_{}", rd_string(24));
+                                    let idx = self.tool_call_index;
+                                    self.tool_call_index += 1;
+
+                                    // Send tool call start event
+                                    let event = StreamingEvent::ToolCall {
+                                        call_id: call_id.clone(),
+                                        function_name: function_call.name.clone(),
+                                    };
+                                    self.stream_event_processor
+                                        .send(event, &mut self.events_str)
+                                        .await?;
+
+                                    // Store accumulated tool call
+                                    self.accumulated_tool_calls.insert(
+                                        idx,
+                                        OpenAIToolCall {
+                                            id: call_id,
+                                            function: OpenAIFunction {
+                                                name: function_call.name,
+                                                arguments: serde_json::to_string(&function_call.args)
+                                                    .unwrap_or_else(|_| "{}".to_string()),
+                                            },
+                                            r#type: "function".to_string(),
+                                            extra_content: None,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
