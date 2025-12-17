@@ -36,7 +36,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		history: {
 			type: 'object',
 			description:
-				'Configure how conversation history is managed. Choose "auto" to automatically store and load messages from memory (up to N last messages), or "manual" to provide an explicit array of conversation messages. When using manual mode, memory is bypassed entirely - messages are not loaded from or saved to memory. The system_prompt (if provided) is always prepended, and user_message (if provided) is always appended as the final message.',
+				'Configure how conversation history is managed. Choose "auto" to automatically store and load messages from memory (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
 			oneOf: [
 				{
 					type: 'object',

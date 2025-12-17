@@ -80,7 +80,7 @@
 	)}
 	style={bgStyle}
 >
-	<div class="flex">
+	<div class="flex flex-row items-center">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
 			<SvelteComponent
 				class={twMerge(classes[type].iconClass, iconClass)}
@@ -89,7 +89,7 @@
 			/>
 		</div>
 		<div class={twMerge('ml-1 w-full')}>
-			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
+			<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 				<span
 					class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
 					style={titleStyle}
