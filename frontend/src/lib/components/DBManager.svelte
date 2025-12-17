@@ -19,7 +19,7 @@
 	import Portal from './Portal.svelte'
 	import type { CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
 	import { diffTables } from './apps/components/display/dbtable/queries/diffTables'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { buildCreateTableValues } from './apps/components/display/dbtable/queries/mergeMetaData'
 	import { SvelteMap } from 'svelte/reactivity'
 
@@ -107,23 +107,28 @@
 		Record<string, TableMetadata> | undefined
 	>
 
-	const fetchForeignKeys = getContext('fetchForeignKeys') as (
-		table: string
-	) => Promise<ForeignKeyMetadata[] | undefined>
+	const fetchAllForeignKeys = getContext('fetchAllForeignKeys') as () => Promise<
+		ForeignKeyMetadata[] | undefined
+	>
 
-	let allTablesMetaData: Record<string, TableMetadata> | undefined
+	let allTablesMetaData: Record<string, TableMetadata> | undefined = $state()
+	let allForeignKeys: ForeignKeyMetadata[] | undefined = $state()
 
 	// @ts-ignore
 	$effect(async () => {
-		dbTableEditorState.open
-
-		if (selected.tableKey && tableKey) {
-			const fks = await fetchForeignKeys(selected.tableKey)
+		if (allTablesMetaData && allForeignKeys && selected.tableKey && tableKey) {
 			const tableMetaData = allTablesMetaData?.[tableKey]
 
-			if (fks && tableMetaData) {
-				selectedValues = buildCreateTableValues(selected.tableKey, tableMetaData, fks)
-				tableKeyToValuesMap.set(selected.tableKey, selectedValues)
+			if (tableMetaData) {
+				untrack(() => {
+					selectedValues = buildCreateTableValues(
+						selected.tableKey!,
+						tableMetaData,
+						allForeignKeys!
+					)
+
+					tableKeyToValuesMap.set(selected.tableKey!, selectedValues!)
+				})
 			}
 		}
 	})
@@ -254,14 +259,13 @@
 						if (!diffValues) break
 
 						await dbSchemaOps.onAlter({ values: diffValues, schema: selected.schemaKey })
-						tableKeyToValuesMap.set(selected.tableKey ?? '', $state.snapshot(values))
 						break
 
 					default:
 						await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
-						tableKeyToValuesMap.set(values.name ?? '', $state.snapshot(values))
 						break
 				}
+				tableKeyToValuesMap.set(values.name ?? '', $state.snapshot(values))
 
 				refresh?.()
 				dbTableEditorState = { open: false }
