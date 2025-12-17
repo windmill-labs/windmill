@@ -15,7 +15,7 @@ use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use rustpython_parser::{
     ast::{
-        Constant, Expr, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtFunctionDef, Suite,
+        Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, Suite,
     },
     Parse,
 };
@@ -60,6 +60,124 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
+/// Extract Enum class definitions from code
+/// Returns a map of enum class name -> list of enum values
+fn extract_enum_definitions(code: &str) -> HashMap<String, Vec<String>> {
+    let mut enums = HashMap::new();
+    
+    let ast = match Suite::parse(code, "main.py") {
+        Ok(ast) => ast,
+        Err(_) => return enums,
+    };
+
+    for stmt in ast {
+        if let Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) = stmt {
+            // Check if this class inherits from Enum (directly or via str, Enum)
+            let is_enum = bases.iter().any(|base| {
+                matches!(base, Expr::Name(ExprName { id, .. }) if id == "Enum")
+            });
+
+            if is_enum {
+                let mut values = Vec::new();
+                
+                // Extract enum values from class body
+                for item in body {
+                    if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
+                        // Get the assignment target name (e.g., RED in RED = 'red')
+                        if let Some(Expr::Name(ExprName { id: target_name, .. })) = targets.first() {
+                            // Skip special attributes
+                            if !target_name.starts_with('_') {
+                                // Extract the string value
+                                if let Expr::Constant(ExprConstant { value: Constant::Str(val), .. }) = value.as_ref() {
+                                    values.push(val.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if !values.is_empty() {
+                    enums.insert(name.to_string(), values);
+                }
+            }
+        }
+    }
+    
+    enums
+}
+
+/// Extract parameter descriptions from docstring
+/// Returns a map of parameter name -> description
+fn extract_docstring_descriptions(code: &str, main_name: &str) -> HashMap<String, String> {
+    let mut descriptions = HashMap::new();
+    
+    let ast = match Suite::parse(code, "main.py") {
+        Ok(ast) => ast,
+        Err(_) => return descriptions,
+    };
+
+    // Find the main function
+    for stmt in ast {
+        if let Stmt::FunctionDef(StmtFunctionDef { name, body, .. }) = stmt {
+            if &name != main_name {
+                continue;
+            }
+            
+            // Get the docstring (first statement if it's a constant string)
+            if let Some(Stmt::Expr(expr_stmt)) = body.first() {
+                if let Expr::Constant(ExprConstant { value: Constant::Str(docstring), .. }) = expr_stmt.value.as_ref() {
+                    // Parse the docstring for Args: section
+                    descriptions = parse_docstring_args(docstring);
+                }
+            }
+            break;
+        }
+    }
+    
+    descriptions
+}
+
+/// Parse docstring Args: section
+/// Format: "param_name (type): Description text"
+fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
+    let mut descriptions = HashMap::new();
+    let mut in_args_section = false;
+    
+    for line in docstring.lines() {
+        let trimmed = line.trim();
+        
+        // Detect Args: section
+        if trimmed == "Args:" {
+            in_args_section = true;
+            continue;
+        }
+        
+        // Exit Args section on next section or unindented line
+        if in_args_section && !trimmed.is_empty() && !line.starts_with(char::is_whitespace) && trimmed.ends_with(':') {
+            break;
+        }
+        
+        if in_args_section && !trimmed.is_empty() {
+            // Parse line like "param_name (type): Description"
+            if let Some(colon_pos) = trimmed.find(':') {
+                let before_colon = &trimmed[..colon_pos];
+                let description = trimmed[colon_pos + 1..].trim();
+                
+                // Extract parameter name (before the parenthesis)
+                if let Some(paren_pos) = before_colon.find('(') {
+                    let param_name = before_colon[..paren_pos].trim();
+                    descriptions.insert(param_name.to_string(), description.to_string());
+                } else {
+                    // Format without type: "param_name: Description"
+                    descriptions.insert(before_colon.trim().to_string(), description.to_string());
+                }
+            }
+        }
+    }
+    
+    descriptions
+}
+
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.
 pub fn parse_python_signature(
@@ -91,6 +209,11 @@ pub fn parse_python_signature(
 
     if !skip_params && params.is_some() {
         let params = params.unwrap();
+        
+        // Extract enum definitions and docstring descriptions from full code
+        let enums = extract_enum_definitions(code);
+        let descriptions = extract_docstring_descriptions(code, &main_name);
+        
         //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults().count();
         Ok(MainArgSignature {
@@ -101,11 +224,12 @@ pub fn parse_python_signature(
                 .iter()
                 .enumerate()
                 .map(|(i, x)| {
+                    let arg_name = x.as_arg().arg.to_string();
                     let (mut typ, has_default) = x
                         .as_arg()
                         .annotation
                         .as_ref()
-                        .map_or((Typ::Unknown, false), |e| parse_expr(e));
+                        .map_or((Typ::Unknown, false), |e| parse_expr(e, &enums));
 
                     let default = if i >= def_arg_start {
                         params
@@ -140,8 +264,8 @@ pub fn parse_python_signature(
                     }
 
                     Arg {
-                        otyp: None,
-                        name: x.as_arg().arg.to_string(),
+                        otyp: descriptions.get(&arg_name).map(|d| d.to_string()),
+                        name: arg_name,
                         typ,
                         has_default: has_default || default.is_some(),
                         default,
@@ -163,15 +287,15 @@ pub fn parse_python_signature(
     }
 }
 
-fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
+fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, Vec<String>>) -> (Typ, bool) {
     match e.as_ref() {
-        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref()), false),
+        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums), false),
         Expr::Attribute(x) => {
             if x.value
                 .as_name_expr()
                 .is_some_and(|x| x.id.as_str() == "wmill")
             {
-                (parse_typ(x.attr.as_str()), false)
+                (parse_typ(x.attr.as_str(), enums), false)
             } else {
                 (Typ::Unknown, false)
             }
@@ -181,7 +305,7 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                 x.right.as_ref(),
                 Expr::Constant(ExprConstant { value: Constant::None, .. })
             ) {
-                (parse_expr(&x.left).0, true)
+                (parse_expr(&x.left, enums).0, true)
             } else {
                 (Typ::Unknown, false)
             }
@@ -210,8 +334,8 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                     };
                     (Typ::Str(values), false)
                 }
-                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
-                "Optional" => (parse_expr(&x.slice).0, true),
+                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice, enums).0)), false),
+                "Optional" => (parse_expr(&x.slice, enums).0, true),
                 _ => (Typ::Unknown, false),
             },
             _ => (Typ::Unknown, false),
@@ -220,7 +344,12 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
     }
 }
 
-fn parse_typ(id: &str) -> Typ {
+fn parse_typ(id: &str, enums: &HashMap<String, Vec<String>>) -> Typ {
+    // Check if this is an Enum type
+    if let Some(enum_values) = enums.get(id) {
+        return Typ::Str(Some(enum_values.clone()));
+    }
+    
     match id {
         "str" => Typ::Str(None),
         "float" => Typ::Float,
@@ -274,6 +403,15 @@ fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
         Expr::List(ExprList { elts, .. }) => {
             let v = elts.into_iter().map(|x| to_value(&x)).collect::<Vec<_>>();
             Some(json!(v))
+        }
+        Expr::Attribute(ExprAttribute { value, attr, .. }) => {
+            // Handle Enum.VALUE patterns
+            if let Expr::Name(ExprName { id: _, .. }) = value.as_ref() {
+                // Return the attribute name as the value (e.g., "RED" from Color.RED)
+                Some(json!(attr.as_str()))
+            } else {
+                None
+            }
         }
         Expr::Call { .. } => Some(json!(FUNCTION_CALL)),
         _ => None,
@@ -749,6 +887,37 @@ def main(a: str, b: Optional[str], c: str | None): return
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_enum() -> anyhow::Result<()> {
+        let code = r#"
+from enum import Enum
+
+class Color(str, Enum):
+    RED = 'red'
+    GREEN = 'green'
+    BLUE = 'blue'
+
+def main(color: Color = Color.RED):
+    """
+    Test enum parsing
+    
+    Args:
+        color (Color): Color selection from Color enum
+    """
+    return {"color": color}
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 1);
+        assert_eq!(result.args[0].name, "color");
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Str(Some(vec!["red".to_string(), "green".to_string(), "blue".to_string()]))
+        );
+        assert_eq!(result.args[0].default, Some(json!("RED")));
+        assert_eq!(result.args[0].otyp, Some("Color selection from Color enum".to_string()));
         Ok(())
     }
 }
