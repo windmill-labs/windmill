@@ -69,43 +69,78 @@ struct CodeMetadata {
 /// Information about an Enum class
 struct EnumInfo {
     values: Vec<String>,
-    members: HashMap<String, String>, // member name -> value mapping
+    members: HashMap<String, String>,
 }
 
-/// Extract Enum definitions and docstring descriptions in a single AST pass
-/// Returns enum info and parameter descriptions
+fn has_enum_keyword(code: &str) -> bool {
+    code.contains("Enum")
+}
+
+/// Extract only class and function definitions from code (prepass filtering)
+fn filter_relevant_statements(code: &str) -> String {
+    let mut result = Vec::new();
+    let mut lines = code.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+            result.push(line);
+            let base_indent = line.len() - trimmed.len();
+
+            while let Some(&next_line) = lines.peek() {
+                let next_trimmed = next_line.trim_start();
+                let next_indent = next_line.len() - next_trimmed.len();
+
+                if next_trimmed.is_empty() || next_indent > base_indent {
+                    result.push(lines.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    result.join("\n")
+}
+
+/// Extract Enum definitions and docstring descriptions lazily.
+/// Only parses AST if relevant keywords are present.
 fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
     let mut enums = HashMap::new();
     let mut descriptions = HashMap::new();
-    
-    let ast = match Suite::parse(code, "main.py") {
+
+    let has_enum = has_enum_keyword(code);
+    let has_docstring = code.contains("Args:");
+
+    if !has_enum && !has_docstring {
+        return CodeMetadata { enums, descriptions };
+    }
+
+    let filtered_code = filter_relevant_statements(code);
+
+    let ast = match Suite::parse(&filtered_code, "main.py") {
         Ok(ast) => ast,
         Err(_) => return CodeMetadata { enums, descriptions },
     };
 
     for stmt in ast {
         match stmt {
-            // Extract Enum class definitions
-            Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) => {
-                // Check if this class inherits from any Enum type
+            Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) if has_enum => {
                 let is_enum = bases.iter().any(|base| {
-                    matches!(base, Expr::Name(ExprName { id, .. }) 
-                        if id == "Enum" || id == "IntEnum" || id == "StrEnum" 
+                    matches!(base, Expr::Name(ExprName { id, .. })
+                        if id == "Enum" || id == "IntEnum" || id == "StrEnum"
                         || id == "Flag" || id == "IntFlag")
                 });
 
                 if is_enum {
                     let mut values = Vec::new();
                     let mut members = HashMap::new();
-                    
-                    // Extract enum values from class body
+
                     for item in body {
                         if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
-                            // Get the assignment target name (e.g., RED in RED = 'red')
                             if let Some(Expr::Name(ExprName { id: target_name, .. })) = targets.first() {
-                                // Skip special attributes
                                 if !target_name.starts_with('_') {
-                                    // Extract the string value
                                     if let Expr::Constant(ExprConstant { value: Constant::Str(val), .. }) = value.as_ref() {
                                         values.push(val.to_string());
                                         members.insert(target_name.to_string(), val.to_string());
@@ -114,19 +149,16 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                             }
                         }
                     }
-                    
+
                     if !values.is_empty() {
                         enums.insert(name.to_string(), EnumInfo { values, members });
                     }
                 }
             },
-            // Extract docstring from main function
-            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) => {
+            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) if has_docstring => {
                 if &func_name == main_name {
-                    // Get the docstring (first statement if it's a constant string)
                     if let Some(Stmt::Expr(expr_stmt)) = body.first() {
                         if let Expr::Constant(ExprConstant { value: Constant::Str(docstring), .. }) = expr_stmt.value.as_ref() {
-                            // Parse the docstring for Args: section
                             descriptions = parse_docstring_args(docstring);
                         }
                     }
@@ -135,65 +167,56 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
             _ => {}
         }
     }
-    
+
     CodeMetadata { enums, descriptions }
 }
 
-/// Parse docstring Args: section
-/// Format: "param_name (type): Description text"
+/// Parse docstring Args: section (format: "param_name (type): Description")
 fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
     let mut descriptions = HashMap::new();
     let mut in_args_section = false;
     let mut base_indent: Option<usize> = None;
-    
+
     for line in docstring.lines() {
         let trimmed = line.trim();
-        
-        // Detect Args: section
+
         if trimmed == "Args:" {
             in_args_section = true;
             base_indent = None;
             continue;
         }
-        
+
         if in_args_section {
-            // Empty line continues the section
             if trimmed.is_empty() {
                 continue;
             }
-            
-            // Calculate indentation
+
             let indent = line.len() - line.trim_start().len();
-            
-            // Set base indent from first parameter line
+
             if base_indent.is_none() && !trimmed.is_empty() {
                 base_indent = Some(indent);
             }
-            
-            // Exit on next section (non-indented line ending with colon)
+
             if let Some(base) = base_indent {
                 if indent < base && trimmed.ends_with(':') {
                     break;
                 }
             }
-            
-            // Parse parameter line like "param_name (type): Description"
+
             if let Some(colon_pos) = trimmed.find(':') {
                 let before_colon = &trimmed[..colon_pos];
                 let description = trimmed[colon_pos + 1..].trim();
-                
-                // Extract parameter name (before the parenthesis)
+
                 if let Some(paren_pos) = before_colon.find('(') {
                     let param_name = before_colon[..paren_pos].trim();
                     descriptions.insert(param_name.to_string(), description.to_string());
                 } else {
-                    // Format without type: "param_name: Description"
                     descriptions.insert(before_colon.trim().to_string(), description.to_string());
                 }
             }
         }
     }
-    
+
     descriptions
 }
 
@@ -228,26 +251,55 @@ pub fn parse_python_signature(
 
     if !skip_params && params.is_some() {
         let params = params.unwrap();
-        
-        // Extract enum definitions and docstring descriptions in a single pass
-        let metadata = extract_code_metadata(code, &main_name);
-        
-        //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults().count();
+
+        // Two-pass approach for lazy metadata extraction:
+        // Pass 1: Parse types without enum info to determine if metadata is needed
+        // Pass 2: Re-parse unknown types with metadata only if necessary
+        // This ensures zero overhead for scripts without enums/docstrings
+
+        let empty_enums = HashMap::new();
+        let args_first_pass: Vec<_> = params
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let arg_name = x.as_arg().arg.to_string();
+                let (typ, has_default) = x
+                    .as_arg()
+                    .annotation
+                    .as_ref()
+                    .map_or((Typ::Unknown, false), |e| parse_expr(e, &empty_enums));
+                (i, arg_name, typ, has_default)
+            })
+            .collect();
+
+        // Determine if we need to extract metadata from the code
+        let has_potential_enums = args_first_pass
+            .iter()
+            .any(|(_, _, typ, _)| matches!(typ, Typ::Resource(_)));
+
+        let metadata = if has_potential_enums || code.contains("Args:") {
+            extract_code_metadata(code, &main_name)
+        } else {
+            CodeMetadata {
+                enums: HashMap::new(),
+                descriptions: HashMap::new(),
+            }
+        };
+
+        // Build final args, re-parsing Resource types as enums if metadata was extracted
         Ok(MainArgSignature {
             star_args: params.vararg.is_some(),
             star_kwargs: params.kwarg.is_some(),
-            args: params
-                .args
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    let arg_name = x.as_arg().arg.to_string();
-                    let (mut typ, has_default) = x
-                        .as_arg()
-                        .annotation
-                        .as_ref()
-                        .map_or((Typ::Unknown, false), |e| parse_expr(e, &metadata.enums));
+            args: args_first_pass
+                .into_iter()
+                .map(|(i, arg_name, mut typ, mut has_default)| {
+                    if matches!(typ, Typ::Resource(_)) && !metadata.enums.is_empty() {
+                        if let Some(annotation) = params.args[i].as_arg().annotation.as_ref() {
+                            (typ, has_default) = parse_expr(annotation, &metadata.enums);
+                        }
+                    }
 
                     let default = if i >= def_arg_start {
                         params
@@ -363,11 +415,10 @@ fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
 }
 
 fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>) -> Typ {
-    // Check if this is an Enum type
     if let Some(enum_info) = enums.get(id) {
         return Typ::Str(Some(enum_info.values.clone()));
     }
-    
+
     match id {
         "str" => Typ::Str(None),
         "float" => Typ::Float,
@@ -423,15 +474,13 @@ fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_
             Some(json!(v))
         }
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-            // Handle Enum.MEMBER patterns (e.g., Color.RED)
+            // Handle Enum.MEMBER: returns enum value ("red") not member name ("RED")
             if let Expr::Name(ExprName { id: enum_name, .. }) = value.as_ref() {
-                // Look up the actual enum value
                 if let Some(enum_info) = enums.get(enum_name.as_str()) {
                     if let Some(enum_value) = enum_info.members.get(attr.as_str()) {
                         return Some(json!(enum_value));
                     }
                 }
-                // Fallback: return the member name if enum not found
                 Some(json!(attr.as_str()))
             } else {
                 None
@@ -927,7 +976,7 @@ class Color(str, Enum):
 def main(color: Color = Color.RED):
     """
     Test enum parsing
-    
+
     Args:
         color (Color): Color selection from Color enum
     """
@@ -940,7 +989,6 @@ def main(color: Color = Color.RED):
             result.args[0].typ,
             Typ::Str(Some(vec!["red".to_string(), "green".to_string(), "blue".to_string()]))
         );
-        // Default should now be the actual enum value "red", not the member name "RED"
         assert_eq!(result.args[0].default, Some(json!("red")));
         assert_eq!(result.args[0].otyp, Some("Color selection from Color enum".to_string()));
         Ok(())
