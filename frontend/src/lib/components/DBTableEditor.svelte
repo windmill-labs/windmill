@@ -11,15 +11,13 @@
 				.filter((sc) => values.columns.every((c) => c.name !== sc)),
 			nonExistingTargetColumns: fk.columns
 				.map((c) => c.targetColumn)
-				.filter(
-					(tc) =>
-						!tc ||
-						!Object.keys(
-							dbSchema?.schema?.[fk.targetTable?.split('.')?.[0] ?? '']?.[
-								fk.targetTable?.split('.')[1]
-							] ?? {}
-						).includes(tc)
-				)
+				.filter((tc) => {
+					const schema = fk.targetTable?.includes('.') ? fk.targetTable?.split('.')?.[0] : 'public'
+					const targetTable = fk.targetTable?.includes('.')
+						? fk.targetTable?.split('.')?.[1]
+						: fk.targetTable
+					return !tc || !Object.keys(dbSchema?.schema?.[schema]?.[targetTable] ?? {}).includes(tc)
+				})
 		}))
 		const someFkErr = fkErrs.some(
 			(fkErr) =>
@@ -40,7 +38,6 @@
 
 <script lang="ts">
 	import { ArrowRight, Info, Plus, Settings, X } from 'lucide-svelte'
-
 	import { Button } from './common'
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
