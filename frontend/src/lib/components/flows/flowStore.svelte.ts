@@ -14,9 +14,7 @@ export async function initFlow(
 	flowStore: StateStore<Flow>,
 	flowStateStore: StateStore<FlowState>
 ) {
-	// Migrate legacy formats (e.g., messages_context_length -> history)
 	const migratedFlow = migrateFlowLegacyFormats(flow)
-
 	await initFlowState(migratedFlow, flowStateStore)
 	flowStore.val = migratedFlow
 }

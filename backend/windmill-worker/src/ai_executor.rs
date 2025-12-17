@@ -435,7 +435,8 @@ pub async fn run_agent(
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
                                 // Take the last n messages
-                                let start_idx = loaded_messages.len().saturating_sub(*context_length);
+                                let start_idx =
+                                    loaded_messages.len().saturating_sub(*context_length);
                                 let mut messages_to_load = loaded_messages[start_idx..].to_vec();
                                 let first_non_tool_message_index =
                                     messages_to_load.iter().position(|m| m.role != "tool");
@@ -449,15 +450,17 @@ pub async fn run_agent(
                             }
                             Ok(None) => {}
                             Err(e) => {
-                                tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                                tracing::error!(
+                                    "Failed to read memory for step {}: {}",
+                                    step_id,
+                                    e
+                                );
                             }
                         }
                     }
                 }
             }
-            _ => {
-                // No history or context_length is 0 - don't load any messages
-            }
+            _ => {}
         }
     }
 
@@ -938,7 +941,9 @@ pub async fn run_agent(
                         let start_idx = all_messages.len().saturating_sub(*context_length);
                         let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                        if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
+                        if let Some(memory_id) =
+                            flow_context.flow_status.and_then(|fs| fs.memory_id)
+                        {
                             if let Err(e) = write_to_memory(
                                 db,
                                 &job.workspace_id,
