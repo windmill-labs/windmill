@@ -513,135 +513,133 @@ async function makeForeignKeysQuery(
 		// DuckDB/DuckLake doesn't have comprehensive foreign key support via information_schema
 		return `SELECT NULL WHERE FALSE`; // Return empty result set
 	} else if (input.resourceType === "postgresql") {
-		let [schemaName, tableName] = table.split(".");
-		schemaName ??= "public";
-
 		return `
 		SELECT
-			tc.constraint_name,
-			kcu.column_name,
-			ccu.table_name AS referenced_table,
-			ccu.column_name AS referenced_column,
-			tc.table_name,
-			tc.table_schema AS schema_name,
-			rc.update_rule,
-			rc.delete_rule
-		FROM information_schema.table_constraints AS tc
-		JOIN information_schema.key_column_usage AS kcu
-			ON tc.constraint_name = kcu.constraint_name
-			AND tc.table_schema = kcu.table_schema
-		JOIN information_schema.constraint_column_usage AS ccu
-			ON ccu.constraint_name = tc.constraint_name
-			AND ccu.table_schema = tc.table_schema
-		JOIN information_schema.referential_constraints AS rc
-			ON rc.constraint_name = tc.constraint_name
-			AND rc.constraint_schema = tc.table_schema
-		WHERE tc.constraint_type = 'FOREIGN KEY'
-			AND tc.table_name = '${tableName}'
-			AND tc.table_schema = '${schemaName}'
-		ORDER BY tc.constraint_name, kcu.ordinal_position;
+			con.conname as constraint_name,
+			ns.nspname as schema_name,
+			rel.relname as table_name,
+			att.attname as column_name,
+			ns_ref.nspname as referenced_schema_name,
+			rel_ref.relname as referenced_table_name,
+			att_ref.attname as referenced_column_name
+		FROM pg_constraint con
+		JOIN pg_class rel ON rel.oid = con.conrelid
+		JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+		JOIN pg_class rel_ref ON rel_ref.oid = con.confrelid
+		JOIN pg_namespace ns_ref ON ns_ref.oid = rel_ref.relnamespace
+		JOIN unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ord) ON true
+		JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = cols.attnum
+		JOIN unnest(con.confkey) WITH ORDINALITY AS refcols(attnum, ord)
+			ON cols.ord = refcols.ord
+		JOIN pg_attribute att_ref
+			ON att_ref.attrelid = rel_ref.oid
+			AND att_ref.attnum = refcols.attnum
+		WHERE con.contype = 'f'
+			AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY
+			ns.nspname,
+			rel.relname,
+			con.conname,
+			cols.ord;
 		`;
 	} else if (input.resourceType === "mysql") {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
 			path: input.resourcePath,
 		})) as any;
-		let [schemaName, tableName] = table.split(".");
-		schemaName ??= resourceObj?.database ?? "";
 
 		return `
 		SELECT
-			CONSTRAINT_NAME as constraint_name,
-			COLUMN_NAME as column_name,
-			REFERENCED_TABLE_NAME as referenced_table,
-			REFERENCED_COLUMN_NAME as referenced_column,
-			TABLE_NAME as table_name,
-			TABLE_SCHEMA as schema_name,
-			(SELECT UPDATE_RULE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
-				WHERE CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-				AND CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA) as update_rule,
-			(SELECT DELETE_RULE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
-				WHERE CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-				AND CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA) as delete_rule
+			kcu.CONSTRAINT_NAME as constraint_name,
+			kcu.TABLE_NAME as table_name,
+			kcu.COLUMN_NAME as column_name,
+			kcu.REFERENCED_TABLE_NAME as referenced_table_name,
+			kcu.REFERENCED_COLUMN_NAME as referenced_column_name,
+			kcu.TABLE_SCHEMA as schema_name,
+			kcu.REFERENCED_TABLE_SCHEMA as referenced_schema_name
 		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-		WHERE TABLE_SCHEMA = '${schemaName}'
-			AND TABLE_NAME = '${tableName}'
-			AND REFERENCED_TABLE_NAME IS NOT NULL
-		ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION;
+		WHERE
+			kcu.REFERENCED_TABLE_NAME IS NOT NULL
+			AND kcu.TABLE_SCHEMA = '${resourceObj?.database ?? ""}'
+		ORDER BY
+			kcu.TABLE_NAME,
+			kcu.CONSTRAINT_NAME,
+			kcu.ORDINAL_POSITION;
 		`;
 	} else if (input.resourceType === "ms_sql_server") {
 		return `
 		SELECT
 			fk.name as constraint_name,
-			c1.name as column_name,
-			OBJECT_NAME(fk.referenced_object_id) as referenced_table,
-			c2.name as referenced_column,
-			OBJECT_NAME(fk.parent_object_id) as table_name,
-			SCHEMA_NAME(t1.schema_id) as schema_name,
-			CASE fk.update_referential_action
-				WHEN 0 THEN 'NO ACTION'
-				WHEN 1 THEN 'CASCADE'
-				WHEN 2 THEN 'SET NULL'
-				WHEN 3 THEN 'SET DEFAULT'
-			END as update_rule,
-			CASE fk.delete_referential_action
-				WHEN 0 THEN 'NO ACTION'
-				WHEN 1 THEN 'CASCADE'
-				WHEN 2 THEN 'SET NULL'
-				WHEN 3 THEN 'SET DEFAULT'
-			END as delete_rule
+			SCHEMA_NAME(tp.schema_id) as schema_name,
+			tp.name as table_name,
+			cp.name as column_name,
+			SCHEMA_NAME(tr.schema_id) as referenced_schema_name,
+			tr.name as referenced_table_name,
+			cr.name as referenced_column_name
 		FROM sys.foreign_keys fk
-		INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-		INNER JOIN sys.columns c1 ON fkc.parent_object_id = c1.object_id AND fkc.parent_column_id = c1.column_id
-		INNER JOIN sys.columns c2 ON fkc.referenced_object_id = c2.object_id AND fkc.referenced_column_id = c2.column_id
-		INNER JOIN sys.tables t1 ON fk.parent_object_id = t1.object_id
-		WHERE OBJECT_NAME(fk.parent_object_id) = '${table}'
-		ORDER BY fk.name, fkc.constraint_column_id;
+		JOIN sys.foreign_key_columns fkc
+			ON fk.object_id = fkc.constraint_object_id
+		JOIN sys.tables tp
+			ON fkc.parent_object_id = tp.object_id
+		JOIN sys.columns cp
+			ON fkc.parent_object_id = cp.object_id
+			AND fkc.parent_column_id = cp.column_id
+		JOIN sys.tables tr
+			ON fkc.referenced_object_id = tr.object_id
+		JOIN sys.columns cr
+			ON fkc.referenced_object_id = cr.object_id
+			AND fkc.referenced_column_id = cr.column_id
+		ORDER BY
+			tp.name,
+			fk.name,
+			fkc.constraint_column_id;
 		`;
 	} else if (
 		input.resourceType === "snowflake" ||
 		(input.resourceType as any) === "snowflake_oauth"
 	) {
-		let [schemaName, tableName] = table.split(".");
-		schemaName ??= "PUBLIC";
-
 		return `
 		SELECT
-			rc.constraint_name,
-			kcu.column_name,
-			rc.unique_table_name as referenced_table,
-			rc.unique_column_name as referenced_column,
-			rc.table_name,
-			rc.table_schema as schema_name,
-			rc.update_rule,
-			rc.delete_rule
-		FROM information_schema.referential_constraints rc
-		JOIN information_schema.key_column_usage kcu
-			ON rc.constraint_name = kcu.constraint_name
-			AND rc.constraint_schema = kcu.constraint_schema
-		WHERE rc.table_name = '${tableName}'
-			AND rc.table_schema = '${schemaName}'
-		ORDER BY rc.constraint_name;
+			rc.CONSTRAINT_NAME as constraint_name,
+			kcu.TABLE_SCHEMA as schema_name,
+			kcu.TABLE_NAME as table_name,
+			kcu.COLUMN_NAME as column_name,
+			kcu2.TABLE_SCHEMA as referenced_schema_name,
+			kcu2.TABLE_NAME as referenced_table_name,
+			kcu2.COLUMN_NAME as referenced_column_name
+		FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+			ON rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2
+			ON rc.UNIQUE_CONSTRAINT_NAME = kcu2.CONSTRAINT_NAME
+			AND kcu.ORDINAL_POSITION = kcu2.ORDINAL_POSITION
+		WHERE kcu.TABLE_SCHEMA <> 'INFORMATION_SCHEMA'
+		ORDER BY
+			kcu.TABLE_SCHEMA,
+			kcu.TABLE_NAME,
+			rc.CONSTRAINT_NAME,
+			kcu.ORDINAL_POSITION;
 		`;
 	} else if (input.resourceType === "bigquery") {
-		// BigQuery has limited foreign key support and they are not enforced
-		// We can query for declared foreign keys but they're metadata only
-		const [dataset, tableName] = table.split(".");
 		return `
 		SELECT
-			constraint_name,
-			NULL as column_name,
-			NULL as referenced_table,
-			NULL as referenced_column,
-			table_name,
-			table_schema as schema_name,
-			NULL as update_rule,
-			NULL as delete_rule
-		FROM ${dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-		WHERE constraint_type = 'FOREIGN KEY'
-			AND table_name = '${tableName}'
-			AND table_schema = '${dataset}'
-		ORDER BY constraint_name;
+			rc.CONSTRAINT_NAME as constraint_name,
+			kcu.TABLE_SCHEMA as schema_name,
+			kcu.TABLE_NAME as table_name,
+			kcu.COLUMN_NAME as column_name,
+			kcu2.TABLE_SCHEMA as referenced_schema_name,
+			kcu2.TABLE_NAME as referenced_table_name,
+			kcu2.COLUMN_NAME as referenced_column_name
+		FROM \`region-us\`.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+		JOIN \`region-us\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+			ON rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+		JOIN \`region-us\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2
+			ON rc.UNIQUE_CONSTRAINT_NAME = kcu2.CONSTRAINT_NAME
+			AND kcu.ORDINAL_POSITION = kcu2.ORDINAL_POSITION
+		ORDER BY
+			kcu.TABLE_SCHEMA,
+			kcu.TABLE_NAME,
+			rc.CONSTRAINT_NAME;
 		`;
 	} else {
 		throw new Error("Unsupported database type: " + input.resourceType);
