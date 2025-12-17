@@ -123,7 +123,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		toolKind?: 'mcpTool' | 'flowmoduleTool'
+		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -538,6 +538,8 @@
 								const toolKind = detail.agentId
 									? detail.kind === 'mcpTool'
 										? 'mcpTool'
+										: detail.kind === 'websearchTool'
+											? 'websearchTool'
 										: 'flowmoduleTool'
 									: undefined
 

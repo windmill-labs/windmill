@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AgentTool } from '../agentToolUtils'
-	import { isFlowModuleTool, isMcpTool, type McpTool } from '../agentToolUtils'
+	import { isFlowModuleTool, isMcpTool, isWebsearchTool, type McpTool } from '../agentToolUtils'
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
@@ -46,4 +46,7 @@
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
 	<McpToolEditor bind:tool={tool as McpTool} {noEditor} />
+{:else if isWebsearchTool(tool)}
+	<!-- Websearch tool - use WebsearchToolEditor -->
+	 <div>Websearch tool</div>
 {/if}

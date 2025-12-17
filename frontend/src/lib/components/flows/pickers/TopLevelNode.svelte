@@ -8,6 +8,7 @@
 		GitBranch,
 		Plug,
 		Repeat,
+		Search,
 		Square,
 		Zap
 	} from 'lucide-svelte'
@@ -40,7 +41,8 @@
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
 		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
-		MCP: { icon: Plug, showChevron: true }
+		MCP: { icon: Plug, showChevron: true },
+		'Web Search': { icon: Search }
 	}
 
 	const config = $derived(iconMap[label])

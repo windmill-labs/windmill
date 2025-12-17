@@ -679,11 +679,13 @@ components:
       oneOf:
         - $ref: "#/components/schemas/FlowModuleTool"
         - $ref: "#/components/schemas/McpToolValue"
+        - $ref: "#/components/schemas/WebsearchToolValue"
       discriminator:
         propertyName: tool_type
         mapping:
           flowmodule: "#/components/schemas/FlowModuleTool"
           mcp: "#/components/schemas/McpToolValue"
+          websearch: "#/components/schemas/WebsearchToolValue"
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -697,6 +699,17 @@ components:
           required:
             - tool_type
         - $ref: "#/components/schemas/FlowModuleValue"
+
+    WebsearchToolValue:
+      type: object
+      description: A tool implemented as a websearch tool. The AI can call this like any other websearch tool
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - websearch
+      required:
+        - tool_type
 
     McpToolValue:
       type: object
