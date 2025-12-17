@@ -17,13 +17,13 @@ type FetchParams<ResultCollectionT extends ResultCollection> = {
 
 type SqlResult<ResultCollectionT extends ResultCollection> =
   ResultCollectionT extends "last_statement_first_row"
-    ? object
+    ? any
     : ResultCollectionT extends "all_statements_first_row"
-    ? object[]
+    ? any[]
     : ResultCollectionT extends "last_statement_all_rows"
-    ? object[]
+    ? any[]
     : ResultCollectionT extends "all_statements_all_rows"
-    ? object[][]
+    ? any[][]
     : ResultCollectionT extends "last_statement_all_rows_scalar"
     ? any[]
     : ResultCollectionT extends "all_statements_all_rows_scalar"
@@ -68,7 +68,6 @@ export type SqlStatement = {
 export interface SqlTemplateFunction {
   (strings: TemplateStringsArray, ...values: any[]): SqlStatement;
 }
-
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
@@ -83,7 +82,7 @@ export interface SqlTemplateFunction {
  * `.fetch()
  */
 export function datatable(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl(name, "datatable");
+  return sqlProviderImpl("datatable", parseName(name));
 }
 
 /**
@@ -100,14 +99,14 @@ export function datatable(name: string = "main"): SqlTemplateFunction {
  * `.fetch()
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl(name, "ducklake");
+  return sqlProviderImpl("ducklake", { name });
 }
 
 function sqlProviderImpl(
-  name: string,
-  provider: "datatable" | "ducklake"
+  provider: "datatable" | "ducklake",
+  { name, schema }: { name: string; schema?: string }
 ): SqlTemplateFunction {
-  let sql: SqlTemplateFunction = (
+  let sqlFn: SqlTemplateFunction = (
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
@@ -134,6 +133,10 @@ function sqlProviderImpl(
     let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
+
+    if (schema && provider === "datatable") {
+      content += `SET search_path TO "${schema}";\n`;
+    }
 
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
@@ -189,7 +192,8 @@ function sqlProviderImpl(
         fetch({ ...params, resultCollection: "last_statement_first_row" }),
     } satisfies SqlStatement;
   };
-  return sql;
+
+  return sqlFn;
 }
 
 // DuckDB executor requires explicit argument types at declaration
@@ -238,5 +242,21 @@ function parseTypeAnnotation(
     nextTemplateString.toUpperCase().startsWith("AS ")
   ) {
     return nextTemplateString.substring(2).trimStart().split(/\s+/)[0];
+  }
+}
+
+function parseName(name: string | undefined): {
+  name: string;
+  schema?: string;
+} {
+  if (!name) return { name: "main" };
+  let [assetName, schemaName] = name.split(":");
+  if (schemaName) {
+    return {
+      name: assetName || "main",
+      schema: schemaName,
+    };
+  } else {
+    return { name };
   }
 }

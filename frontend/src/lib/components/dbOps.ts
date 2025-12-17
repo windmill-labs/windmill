@@ -115,6 +115,7 @@ export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	onCreateSchema: (params: { schema: string }) => Promise<void>
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -144,7 +145,16 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: dbArg, content: query, language }
 			})
 		},
-		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema)
+		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		onCreateSchema: async ({ schema }) => {
+			let createSchemaQuery = `CREATE SCHEMA ${schema};`
+			if (input.type === 'ducklake')
+				createSchemaQuery = wrapDucklakeQuery(createSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: createSchemaQuery }
+			})
+		}
 	}
 }
 

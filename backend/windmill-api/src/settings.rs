@@ -750,6 +750,7 @@ async fn setup_custom_instance_pg_database_inner(
             "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))

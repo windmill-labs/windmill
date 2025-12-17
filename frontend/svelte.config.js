@@ -30,6 +30,10 @@ const config = {
 		alias: {
 			'$system_prompts': '../system_prompts/auto-generated'
 		}
+	},
+
+	vitePlugin: {
+		inspector: true
 	}
 }
 
