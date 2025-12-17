@@ -8,7 +8,7 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
-    providers::openai::{OpenAIFunction, OpenAIToolCall},
+    providers::openai::{ExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventProcessor,
     types::StreamingEvent,
 };
@@ -24,6 +24,8 @@ pub struct OpenAIChoiceDeltaToolCall {
     pub index: Option<i64>,
     pub id: Option<String>,
     pub function: Option<OpenAIChoiceDeltaToolCallFunction>,
+    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
+    pub extra_content: Option<ExtraContent>,
 }
 
 #[derive(Deserialize)]
@@ -119,9 +121,15 @@ impl SSEParser for OpenAISSEParser {
                             let idx = tool_call.index.unwrap_or_else(|| idx as i64);
 
                             if let Some(function) = tool_call.function {
-                                if let Some(tool_call) = self.accumulated_tool_calls.get_mut(&idx) {
+                                if let Some(existing_tool_call) =
+                                    self.accumulated_tool_calls.get_mut(&idx)
+                                {
                                     if let Some(arguments) = function.arguments {
-                                        tool_call.function.arguments += &arguments;
+                                        existing_tool_call.function.arguments += &arguments;
+                                    }
+                                    // Update extra_content if provided in this delta (for thought signatures)
+                                    if let Some(extra) = tool_call.extra_content {
+                                        existing_tool_call.extra_content = Some(extra);
                                     }
                                 } else {
                                     let fun_name = function.name.unwrap_or_default();
@@ -142,6 +150,7 @@ impl SSEParser for OpenAISSEParser {
                                                 arguments: function.arguments.unwrap_or_default(),
                                             },
                                             r#type: "function".to_string(),
+                                            extra_content: tool_call.extra_content,
                                         },
                                     );
                                 }
