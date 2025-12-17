@@ -1,6 +1,6 @@
-ARG ALPINE_IMAGE=alpine:3.21
+ARG DEBIAN_IMAGE=debian:bookworm-slim
 
-FROM ${ALPINE_IMAGE}
+FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
 ARG LATEST_STABLE_PY=3.11.10
@@ -14,24 +14,9 @@ ENV UV_TOOL_DIR=/usr/local/uv
 ENV PATH=/usr/local/bin:/root/.local/bin:$PATH
 
 # Install system dependencies
-# gcompat provides glibc compatibility for running Debian-compiled binaries on Alpine
-RUN apk add --no-cache \
-    gcompat \
-    libstdc++ \
-    ca-certificates \
-    wget \
-    curl \
-    git \
-    jq \
-    unzip \
-    build-base \
-    unixodbc \
-    xmlsec \
-    nodejs \
-    npm \
-    aws-cli \
-    procps \
-    tzdata
+RUN apt-get update \
+    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Etc/UTC
 
