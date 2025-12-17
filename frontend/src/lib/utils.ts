@@ -1465,15 +1465,9 @@ export function getOS() {
 	return 'Unknown OS' as const
 }
 
-import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
 import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
-
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs))
-}
 
 export type StateStore<T> = {
 	val: T

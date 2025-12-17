@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.592.1
+  version: 1.593.0
   title: Windmill API
 
   contact:
@@ -13021,6 +13021,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/groups_history/get/{name}:
+    get:
+      summary: get group permission history
+      operationId: getGroupPermissionHistory
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: group permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    member_affected:
+                      type: string
+                      nullable: true
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -13283,6 +13317,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/folders_history/get/{name}:
+    get:
+      summary: get folder permission history
+      operationId: getFolderPermissionHistory
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: folder permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    affected:
+                      type: string
+                      nullable: true
 
   /workers/list:
     get:

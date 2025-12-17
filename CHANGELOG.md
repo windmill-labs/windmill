@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.593.0](https://github.com/windmill-labs/windmill/compare/v1.592.1...v1.593.0) (2025-12-17)
+
+
+### Features
+
+* **ai:** support IAM auth for bedrock provider ([#7379](https://github.com/windmill-labs/windmill/issues/7379)) ([8c55f61](https://github.com/windmill-labs/windmill/commit/8c55f61bbad81bc81509660b5d54d3289c1edfca))
+* **backend:** stop schedules and cancel jobs when archiving a workspace ([#7377](https://github.com/windmill-labs/windmill/issues/7377)) ([ebc82db](https://github.com/windmill-labs/windmill/commit/ebc82dbe58eef19ca1e049f0b2099b702fe3725e))
+* data table schemas ([#7353](https://github.com/windmill-labs/windmill/issues/7353)) ([75fdc2c](https://github.com/windmill-labs/windmill/commit/75fdc2cdc96ae06ee8a7891fe670acec8a58afe3))
+* http triggers scopes ([#7385](https://github.com/windmill-labs/windmill/issues/7385)) ([b4eb7c6](https://github.com/windmill-labs/windmill/commit/b4eb7c6ac076261aed2d9c97f3b09ac52f7fe0da))
+* **internal:** runnable settings ([#7298](https://github.com/windmill-labs/windmill/issues/7298)) ([fe56191](https://github.com/windmill-labs/windmill/commit/fe5619142228ea5370b64112e3a2e38aed507b66))
+* workspace forks merge UI ([#7333](https://github.com/windmill-labs/windmill/issues/7333)) ([9d06c15](https://github.com/windmill-labs/windmill/commit/9d06c152ee5c2ab1f76a631411f3603bb0575f5e))
+
+
+### Bug Fixes
+
+* add history directly viewable in folder/group viewer ([#7365](https://github.com/windmill-labs/windmill/issues/7365)) ([b3603d8](https://github.com/windmill-labs/windmill/commit/b3603d872090c354a9ee82714a6a0e4e79019428))
+* add history to raw app builder ([#7362](https://github.com/windmill-labs/windmill/issues/7362)) ([431074d](https://github.com/windmill-labs/windmill/commit/431074d2493d6e87148806a09f60a7eacef552ff))
+* **aiagent:** fix gemini-3.0 usage ([#7382](https://github.com/windmill-labs/windmill/issues/7382)) ([f64d918](https://github.com/windmill-labs/windmill/commit/f64d918af6e1d9c0e5b1c0abfee081625f3410cb))
+* **aichat:** fix for azure responses api not available in some region ([#7387](https://github.com/windmill-labs/windmill/issues/7387)) ([e7719d2](https://github.com/windmill-labs/windmill/commit/e7719d2cda1c636f0f0acd7cb9bd52c6b3712ebe))
+* **backend:** better trigger listening logs ([#7392](https://github.com/windmill-labs/windmill/issues/7392)) ([3ba361a](https://github.com/windmill-labs/windmill/commit/3ba361ad1ae19130b8bd72a3d940ddc529f0471b))
+* **frontend:** http/email triggers UI nits ([#7378](https://github.com/windmill-labs/windmill/issues/7378)) ([75e1e90](https://github.com/windmill-labs/windmill/commit/75e1e902734e755f2979f882dd4b2889ce13dfef))
+* **mcp:** fix unresovled schema ([#7383](https://github.com/windmill-labs/windmill/issues/7383)) ([1b86a39](https://github.com/windmill-labs/windmill/commit/1b86a39051df1344718ed868a15714f4cee90680))
+* propagate canceled_by in flows ([#7396](https://github.com/windmill-labs/windmill/issues/7396)) ([0454f39](https://github.com/windmill-labs/windmill/commit/0454f392e7d9c77f47252b18c1d7ec2ba2cc8cca))
+* **rawapp:** make popup work with runnables ([2f5fdd6](https://github.com/windmill-labs/windmill/commit/2f5fdd6b3f742a614cfba590408b88a64d0c86a3))
+* **rawapp:** schema for openai ([#7364](https://github.com/windmill-labs/windmill/issues/7364)) ([37394d6](https://github.com/windmill-labs/windmill/commit/37394d6d532923aa273b50c94799ed7a0161e2af))
+* SCIM 2.0 RFC compliance + displayName support ([#7380](https://github.com/windmill-labs/windmill/issues/7380)) ([6ffb80d](https://github.com/windmill-labs/windmill/commit/6ffb80d1e1631385ea1bc2b5ad447431f52d892f))
+
 ## [1.592.1](https://github.com/windmill-labs/windmill/compare/v1.592.0...v1.592.1) (2025-12-12)
 
 

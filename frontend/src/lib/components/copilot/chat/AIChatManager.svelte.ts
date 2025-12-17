@@ -71,6 +71,8 @@ class AIChatManager {
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
+	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
+	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	readonly isOpen = $derived(chatState.size > 0)
@@ -421,9 +423,6 @@ class AIChatManager {
 				const isOpenAI = model.provider === 'openai' || model.provider === 'azure_openai'
 				const isAnthropic = model.provider === 'anthropic'
 
-				let completion: any
-				let parseFn: any
-
 				const messageParams = [
 					systemMessage,
 					...messages,
@@ -433,40 +432,83 @@ class AIChatManager {
 
 				// For OpenAI/Azure, try Responses API first, fallback to Completions API
 				if (isOpenAI) {
-					try {
-						completion = await getOpenAIResponsesCompletion(
-							messageParams,
-							abortController,
-							toolDefs
-						)
-						parseFn = parseOpenAIResponsesCompletion
-					} catch (err) {
-						console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
-						completion = await getCompletion(messageParams, abortController, toolDefs, {
+					let useCompletionsApi = this.skipResponsesApi
+					if (!this.skipResponsesApi) {
+						try {
+							const completion = await getOpenAIResponsesCompletion(
+								messageParams,
+								abortController,
+								toolDefs
+							)
+							const continueCompletion = await parseOpenAIResponsesCompletion(
+								completion,
+								callbacks,
+								messages,
+								addedMessages,
+								tools,
+								helpers
+							)
+							if (!continueCompletion) {
+								break
+							}
+						} catch (err) {
+							console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
+							// If the error indicates Responses API is not available in this region, skip it for future requests
+							const errorMessage = err instanceof Error ? err.message : String(err)
+							if (errorMessage.includes('Responses API is not enabled')) {
+								this.skipResponsesApi = true
+							}
+							useCompletionsApi = true
+						}
+					}
+
+					// Use Completions API if Responses API is not available or failed
+					if (useCompletionsApi) {
+						const completion = await getCompletion(messageParams, abortController, toolDefs, {
 							forceCompletions: true
 						})
-						parseFn = parseOpenAICompletion
+						const continueCompletion = await parseOpenAICompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				} else if (isAnthropic) {
-					completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseAnthropicCompletion
+					const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
+					if (completion) {
+						const continueCompletion = await parseAnthropicCompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers,
+							abortController
+						)
+						if (!continueCompletion) {
+							break
+						}
+					}
 				} else {
-					completion = await getCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseOpenAICompletion
-				}
-
-				if (completion) {
-					const continueCompletion = await parseFn(
-						completion as any,
-						callbacks,
-						messages,
-						addedMessages,
-						tools,
-						helpers,
-						isAnthropic ? abortController : undefined
-					)
-					if (!continueCompletion) {
-						break
+					const completion = await getCompletion(messageParams, abortController, toolDefs)
+					if (completion) {
+						const continueCompletion = await parseOpenAICompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				}
 			}
@@ -657,7 +699,6 @@ class AIChatManager {
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
 						oldInstructions,
-						this.appAiChatHelpers?.getFiles(),
 						this.appAiChatHelpers?.getSelectedContext()
 					)
 					break
