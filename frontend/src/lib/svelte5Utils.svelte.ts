@@ -3,6 +3,7 @@
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { type StateStore } from './utils'
+import { resource, type ResourceReturn } from 'runed'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -107,5 +108,65 @@ export class ChangeTracker<T> {
 			return true
 		}
 		return false
+	}
+}
+
+/**
+ * This allows using async resources that only fetch missing data based on a set of keys.
+ * It maintains a Record of the fetched data and only calls the fetcher for keys that
+ * are not already present in the map.
+ * The fetcher takes a record of keys to allow fetching multiple items in a single call.
+ */
+export class MapResource<T, U> {
+	private _cached: Record<string, T> = {}
+	private _fetcherResource: ResourceReturn<Record<string, T>, unknown, false>
+
+	constructor(
+		getValues: () => Record<string, U>,
+		fetcher: (toFetch: Record<string, U>) => Promise<Record<string, T>>
+	) {
+		this._fetcherResource = resource(getValues, async (values) => {
+			let obj = { ...this._cached }
+
+			// Delete keys that are no longer present.
+			for (const key of Object.keys(obj)) {
+				if (!(key in values)) {
+					delete obj[key]
+				}
+			}
+
+			// Determine which keys are missing and need to be fetched
+			let toFetch: Record<string, U> = {}
+			for (const [key, value] of Object.entries(values)) {
+				if (!obj[key]) {
+					toFetch[key] = value
+				}
+			}
+
+			// Fetch missing data and update the map
+			if (Object.keys(toFetch).length > 0) {
+				let fetchedData = await fetcher(values)
+				for (const key of Object.keys(values)) {
+					let value = fetchedData[key]
+					obj[key] = value
+				}
+			}
+
+			this._cached = { ...obj }
+
+			return obj
+		})
+	}
+
+	get current(): Record<string, T> | undefined {
+		return this._fetcherResource.current
+	}
+
+	get loading(): boolean {
+		return this._fetcherResource.loading
+	}
+
+	get error(): Error | undefined {
+		return this._fetcherResource.error
 	}
 }

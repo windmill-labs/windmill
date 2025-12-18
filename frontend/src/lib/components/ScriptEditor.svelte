@@ -2,14 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import {
-		type CompletedJob,
-		type Job,
-		JobService,
-		type Preview,
-		type ScriptLang,
-		WorkspaceService
-	} from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -71,8 +64,7 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { resource } from 'runed'
-	import { sqlDataTypeToJsTypeHeuristic } from './apps/components/display/dbtable/utils'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 
 	interface Props {
 		// Exported
@@ -163,34 +155,7 @@
 	})
 
 	let _parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
-	let preparedAssetsSqlQueries = resource([() => _parsedAssetsSqlQueries], async ([queries]) => {
-		queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
-		if (!queries?.length) return
-		try {
-			let prepareQueriesResponse = await WorkspaceService.prepareQueries({
-				workspace: $workspaceStore ?? '',
-				requestBody: queries.map((q) => ({
-					datatable: q.source_name,
-					query: q.query_string
-				}))
-			})
-			for (let i = 0; i < prepareQueriesResponse.results.length; ++i) {
-				let res = prepareQueriesResponse.results[i]
-				queries[i].prepared = res.columns
-					? {
-							columns: Object.fromEntries(
-								res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
-							)
-						}
-					: { error: res.error ?? "Couldn't prepare query" }
-			}
-		} catch (e) {
-			console.error('Error preparing asset sql queries', e)
-			return undefined
-		}
-
-		return queries
-	})
+	let preparedAssetsSqlQueries = usePreparedAssetSqlQueries(() => _parsedAssetsSqlQueries)
 
 	const dispatch = createEventDispatcher()
 
@@ -958,7 +923,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={preparedAssetsSqlQueries.current}
+				preparedAssetsSqlQueries={Object.values(preparedAssetsSqlQueries.current ?? {})}
 			/>
 			<DiffEditor
 				className="h-full"
