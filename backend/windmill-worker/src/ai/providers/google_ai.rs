@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::value::RawValue;
 use windmill_common::{client::AuthedClient, error::Error, utils::rd_string};
 
 use crate::ai::{
@@ -9,6 +9,7 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
+    utils::parse_data_url,
 };
 
 
@@ -103,7 +104,7 @@ pub struct GeminiFunctionDeclaration {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub parameters: serde_json::Value,
+    pub parameters: Box<RawValue>,
 }
 
 /// Tool configuration for controlling function calling behavior
@@ -458,9 +459,7 @@ impl GoogleAIQueryBuilder {
                             }
                             ContentPart::ImageUrl { image_url } => {
                                 // Parse data URL format: data:mime_type;base64,data
-                                if let Some((mime_type, data)) =
-                                    Self::parse_data_url(&image_url.url)
-                                {
+                                if let Some((mime_type, data)) = parse_data_url(&image_url.url) {
                                     parts.push(GeminiPart::InlineData {
                                         inline_data: GeminiInlineData { mime_type, data },
                                     });
@@ -488,22 +487,6 @@ impl GoogleAIQueryBuilder {
         Ok(parts)
     }
 
-    /// Parse a data URL to extract MIME type and base64 data
-    fn parse_data_url(url: &str) -> Option<(String, String)> {
-        if url.starts_with("data:") {
-            // Format: data:mime_type;base64,data
-            if let Some(comma_pos) = url.find(',') {
-                let header = &url[5..comma_pos];
-                let data = &url[comma_pos + 1..];
-
-                if let Some(semicolon_pos) = header.find(';') {
-                    let mime_type = &header[..semicolon_pos];
-                    return Some((mime_type.to_string(), data.to_string()));
-                }
-            }
-        }
-        None
-    }
 
     /// Find function name by tool call ID from previous messages
     fn find_function_name_by_id(&self, messages: &[OpenAIMessage], tool_call_id: &str) -> String {
@@ -534,8 +517,8 @@ impl GoogleAIQueryBuilder {
                 .map(|t| GeminiFunctionDeclaration {
                     name: t.function.name.clone(),
                     description: t.function.description.clone(),
-                    parameters: serde_json::from_str(t.function.parameters.get())
-                        .unwrap_or(serde_json::json!({"type": "object", "properties": {}})),
+                    // Use parameters directly to avoid round-trip serialization
+                    parameters: t.function.parameters.clone(),
                 })
                 .collect();
 
