@@ -78,6 +78,13 @@ pub struct AnthropicImageSource {
     pub data: String,
 }
 
+/// System content block for Anthropic API
+#[derive(Serialize, Debug)]
+pub struct AnthropicSystemContent {
+    pub r#type: String,
+    pub text: String,
+}
+
 /// Message format for Anthropic API requests
 #[derive(Serialize, Debug)]
 pub struct AnthropicMessage {
@@ -89,6 +96,8 @@ pub struct AnthropicMessage {
 #[derive(Serialize)]
 pub struct AnthropicRequest<'a> {
     pub model: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<Vec<AnthropicSystemContent>>,
     pub messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
@@ -105,16 +114,15 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
 
     for msg in messages {
         match msg.role.as_str() {
-            "system" | "user" => {
-                // Convert user/system messages
+            "system" => {
+                // Skip - handled via args.system_prompt in build_text_request
+            }
+            "user" => {
+                // Convert user messages
                 let content = convert_content_to_anthropic(&msg.content);
                 if !content.is_empty() {
                     result.push(AnthropicMessage {
-                        role: if msg.role == "system" {
-                            "user".to_string() // Anthropic doesn't have system role in messages
-                        } else {
-                            msg.role.clone()
-                        },
+                        role: msg.role.clone(),
                         content,
                     });
                 }
@@ -341,8 +349,17 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        // Build system content from system_prompt
+        let system = args.system_prompt.map(|s| {
+            vec![AnthropicSystemContent {
+                r#type: "text".to_string(),
+                text: s.to_string(),
+            }]
+        });
+
         let request = AnthropicRequest {
             model: args.model,
+            system,
             messages: anthropic_messages,
             tools: if tools.is_empty() { None } else { Some(tools) },
             temperature: args.temperature,

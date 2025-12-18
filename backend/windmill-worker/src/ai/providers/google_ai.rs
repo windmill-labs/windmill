@@ -266,7 +266,7 @@ impl GoogleAIQueryBuilder {
         workspace_id: &str,
     ) -> Result<String, Error> {
         // Convert messages to Gemini format
-        let (contents, system_instruction) = self
+        let contents = self
             .convert_messages_to_gemini(args.messages, client, workspace_id)
             .await?;
 
@@ -275,6 +275,12 @@ impl GoogleAIQueryBuilder {
 
         // Build generation config
         let generation_config = self.build_generation_config(args);
+
+        // Build system instruction from system_prompt
+        let system_instruction = args.system_prompt.map(|s| GeminiContentMessage {
+            role: None,
+            parts: vec![GeminiPart::Text { text: s.to_string() }],
+        });
 
         let request = GeminiTextRequest {
             contents,
@@ -345,92 +351,81 @@ impl GoogleAIQueryBuilder {
         messages: &[OpenAIMessage],
         client: &AuthedClient,
         workspace_id: &str,
-    ) -> Result<(Vec<GeminiContentMessage>, Option<GeminiContentMessage>), Error> {
+    ) -> Result<Vec<GeminiContentMessage>, Error> {
         let mut gemini_messages = Vec::new();
-        let mut system_instruction = None;
 
-        // First pass: extract system instruction and build user/model messages
         for msg in messages {
-            if msg.role == "system" {
-                // Extract system message for systemInstruction field
-                let parts = self
-                    .convert_content_to_parts(&msg.content, client, workspace_id)
-                    .await?;
-                if !parts.is_empty() {
-                    system_instruction = Some(GeminiContentMessage { role: None, parts });
+            match msg.role.as_str() {
+                "system" => {
+                    // Skip - handled via args.system_prompt in build_text_request
                 }
-            } else if msg.role == "tool" {
-                // Tool responses are handled after we process all messages
-                continue;
-            } else {
-                let role = match msg.role.as_str() {
-                    "assistant" => "model",
-                    _ => "user",
-                };
+                "tool" => {
+                    // Handle tool responses
+                    if let (Some(tool_call_id), Some(content)) = (&msg.tool_call_id, &msg.content) {
+                        let func_name = self.find_function_name_by_id(messages, tool_call_id);
+                        let response_text = match content {
+                            OpenAIContent::Text(text) => text.clone(),
+                            OpenAIContent::Parts(parts) => parts
+                                .iter()
+                                .filter_map(|p| match p {
+                                    ContentPart::Text { text } => Some(text.clone()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        };
 
-                let mut parts = Vec::new();
-
-                // Handle regular content
-                if let Some(content) = &msg.content {
-                    let content_parts = self
-                        .convert_content_to_parts(&Some(content.clone()), client, workspace_id)
-                        .await?;
-                    parts.extend(content_parts);
-                }
-
-                // Handle tool calls from assistant
-                if let Some(tool_calls) = &msg.tool_calls {
-                    for tc in tool_calls {
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments).unwrap_or_default();
-                        parts.push(GeminiPart::FunctionCall {
-                            function_call: GeminiFunctionCall {
-                                name: tc.function.name.clone(),
-                                args,
-                            },
+                        gemini_messages.push(GeminiContentMessage {
+                            role: Some("user".to_string()),
+                            parts: vec![GeminiPart::FunctionResponse {
+                                function_response: GeminiFunctionResponse {
+                                    name: func_name,
+                                    response: serde_json::json!({ "result": response_text }),
+                                },
+                            }],
                         });
                     }
                 }
-
-                if !parts.is_empty() {
-                    gemini_messages
-                        .push(GeminiContentMessage { role: Some(role.to_string()), parts });
-                }
-            }
-        }
-
-        // Second pass: handle tool responses
-        for msg in messages {
-            if msg.role == "tool" {
-                if let (Some(tool_call_id), Some(content)) = (&msg.tool_call_id, &msg.content) {
-                    // Find the function name from previous messages
-                    let func_name = self.find_function_name_by_id(messages, tool_call_id);
-                    let response_text = match content {
-                        OpenAIContent::Text(text) => text.clone(),
-                        OpenAIContent::Parts(parts) => parts
-                            .iter()
-                            .filter_map(|p| match p {
-                                ContentPart::Text { text } => Some(text.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" "),
+                _ => {
+                    // Handle user/assistant messages
+                    let role = match msg.role.as_str() {
+                        "assistant" => "model",
+                        _ => "user",
                     };
 
-                    gemini_messages.push(GeminiContentMessage {
-                        role: Some("user".to_string()),
-                        parts: vec![GeminiPart::FunctionResponse {
-                            function_response: GeminiFunctionResponse {
-                                name: func_name,
-                                response: serde_json::json!({ "result": response_text }),
-                            },
-                        }],
-                    });
+                    let mut parts = Vec::new();
+
+                    // Handle regular content
+                    if let Some(content) = &msg.content {
+                        let content_parts = self
+                            .convert_content_to_parts(&Some(content.clone()), client, workspace_id)
+                            .await?;
+                        parts.extend(content_parts);
+                    }
+
+                    // Handle tool calls from assistant
+                    if let Some(tool_calls) = &msg.tool_calls {
+                        for tc in tool_calls {
+                            let args: serde_json::Value =
+                                serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                            parts.push(GeminiPart::FunctionCall {
+                                function_call: GeminiFunctionCall {
+                                    name: tc.function.name.clone(),
+                                    args,
+                                },
+                            });
+                        }
+                    }
+
+                    if !parts.is_empty() {
+                        gemini_messages
+                            .push(GeminiContentMessage { role: Some(role.to_string()), parts });
+                    }
                 }
             }
         }
 
-        Ok((gemini_messages, system_instruction))
+        Ok(gemini_messages)
     }
 
     /// Convert OpenAI content to Gemini parts
