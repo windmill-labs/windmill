@@ -1878,10 +1878,6 @@
 		// The worker will inject type parameters into the code that TypeScript analyzes
 
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
-		console.log(
-			'[Editor.handleSqlTypingInTs] Updating SQL queries in TS worker...',
-			$state.snapshot(preparedAssetsSqlQueries)
-		)
 		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
 	}, 250)
 

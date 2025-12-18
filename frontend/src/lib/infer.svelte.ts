@@ -6,16 +6,17 @@ import { MapResource } from './svelte5Utils.svelte'
 import { sqlDataTypeToJsTypeHeuristic } from './components/apps/components/display/dbtable/utils'
 import { clone } from './utils'
 
+function computeQueryKey(query: InferAssetsSqlQueryDetails, workspace?: string) {
+	return `${query.source_kind}::${query.source_name}::${query.source_schema}::${workspace}::${query.query_string}`
+}
+
 export function usePreparedAssetSqlQueries(
 	getQueries: () => InferAssetsSqlQueryDetails[] | undefined
-) {
+): { current: InferAssetsSqlQueryDetails[] | undefined } {
 	let workspace = get(workspaceStore) ?? ''
-	function computeQueryKey(query: InferAssetsSqlQueryDetails) {
-		return `${query.source_kind}::${query.source_name}::${query.source_schema}::${workspace}::${query.query_string}`
-	}
 
-	let map = new MapResource<InferAssetsSqlQueryDetails, InferAssetsSqlQueryDetails>(
-		() => Object.fromEntries(getQueries()?.map((q) => [computeQueryKey(q), q]) || []),
+	let map = new MapResource<InferAssetsSqlQueryDetails, InferAssetsSqlQueryDetails['prepared']>(
+		() => Object.fromEntries(getQueries()?.map((q) => [computeQueryKey(q, workspace), q]) || []),
 		async (toFetch) => {
 			let queries = Object.values(clone(toFetch))
 			let keys = Object.keys(clone(toFetch))
@@ -23,6 +24,7 @@ export function usePreparedAssetSqlQueries(
 			queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
 			if (!queries?.length) return {}
 			try {
+				console.log('Preparing queries', queries)
 				let prepareQueriesResponse = await WorkspaceService.prepareQueries({
 					workspace,
 					requestBody: queries.map((q) => ({
@@ -30,9 +32,11 @@ export function usePreparedAssetSqlQueries(
 						query: q.query_string
 					}))
 				})
+
+				let obj: Record<string, InferAssetsSqlQueryDetails['prepared']> = {}
 				for (let i = 0; i < prepareQueriesResponse.results.length; ++i) {
 					let res = prepareQueriesResponse.results[i]
-					queries[i].prepared = res.columns
+					obj[keys[i]] = queries[i].prepared = res.columns
 						? {
 								columns: Object.fromEntries(
 									res.columns.map(({ name, type }) => [name, sqlDataTypeToJsTypeHeuristic(type)])
@@ -40,17 +44,22 @@ export function usePreparedAssetSqlQueries(
 							}
 						: { error: res.error ?? "Couldn't prepare query" }
 				}
+				return obj
 			} catch (e) {
 				throw e
 			}
-
-			let obj: Record<string, InferAssetsSqlQueryDetails> = {}
-			for (let i = 0; i < queries.length; ++i) {
-				obj[keys[i]] = queries[i]
-			}
-			return obj
 		}
 	)
 
-	return map
+	let extendedQueries = $derived.by(() =>
+		getQueries()?.map((q) => ({
+			...q,
+			prepared: map.current?.[computeQueryKey(q, workspace)]
+		}))
+	)
+	return {
+		get current() {
+			return extendedQueries
+		}
+	}
 }

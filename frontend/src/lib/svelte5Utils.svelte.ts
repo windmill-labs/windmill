@@ -117,7 +117,7 @@ export class ChangeTracker<T> {
  * are not already present in the map.
  * The fetcher takes a record of keys to allow fetching multiple items in a single call.
  */
-export class MapResource<T, U> {
+export class MapResource<U, T> {
 	private _cached: Record<string, T> = {}
 	private _fetcherResource: ResourceReturn<Record<string, T>, unknown, false>
 
@@ -145,16 +145,16 @@ export class MapResource<T, U> {
 
 			// Fetch missing data and update the map
 			if (Object.keys(toFetch).length > 0) {
-				let fetchedData = await fetcher(values)
-				for (const key of Object.keys(values)) {
+				let fetchedData = await fetcher(toFetch)
+				for (const key of Object.keys(toFetch)) {
 					let value = fetchedData[key]
 					obj[key] = value
 				}
 			}
 
-			this._cached = { ...obj }
+			this._cached = obj
 
-			return obj
+			return { ...obj }
 		})
 	}
 
