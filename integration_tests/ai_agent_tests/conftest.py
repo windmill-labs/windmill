@@ -14,6 +14,10 @@ from dotenv import load_dotenv
 # Load .env file from the test directory
 load_dotenv(Path(__file__).parent / ".env")
 
+# Constants for S3/user_images tests
+TEST_IMAGE_PATH = Path(__file__).parent / "test_image.webp"
+TEST_IMAGE_S3_KEY = "test_images/test_image.webp"
+
 
 class AIAgentTestClient:
     """HTTP client for testing AI agents via the preview_flow endpoint."""
@@ -161,6 +165,43 @@ class AIAgentTestClient:
                 raise Exception(f"Failed to create resource: {error}")
             print(f"Resource {path} already exists, skipping")
 
+    def upload_s3_file(self, s3_key: str, file_content: bytes, content_type: str = "image/png") -> dict:
+        """Upload a file to S3 storage via Windmill API."""
+        print(f"Uploading file to S3: {s3_key}")
+        response = self._client.post(
+            f"/api/w/{self.workspace}/job_helpers/upload_s3_file",
+            params={"file_key": s3_key},
+            content=file_content,
+            headers={"Content-Type": content_type},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def configure_s3_storage(self, s3_resource_path: str):
+        """Configure workspace large file storage with S3."""
+        print(f"Configuring workspace S3 storage with resource: {s3_resource_path}")
+        response = self._client.post(
+            f"/api/w/{self.workspace}/workspaces/edit_large_file_storage_config",
+            json={
+                "large_file_storage": {
+                    "type": "S3Storage",
+                    "s3_resource_path": s3_resource_path,
+                    "public_resource": False,
+                    "secondary_storage": {},
+                    "advanced_permissions": [
+                        {"allow": "read,write,delete", "pattern": "windmill_uploads/*"},
+                        {"allow": "read,write,delete,list", "pattern": "u/{username}/**/*"},
+                        {"allow": "read,write,delete,list", "pattern": "g/{group}/**/*"},
+                        {"allow": "read,write,delete,list", "pattern": "f/{folder_write}/**/*"},
+                        {"allow": "read,list", "pattern": "f/{folder_read}/**/*"},
+                        {"allow": "", "pattern": "**/*"},
+                    ],
+                }
+            },
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(f"Failed to configure S3 storage: {response.content.decode()}")
+
 
 def create_ai_agent_flow(
     provider_input_transform: dict[str, Any],
@@ -168,6 +209,7 @@ def create_ai_agent_flow(
     tools: list[dict[str, Any]] | None = None,
     output_schema: dict[str, Any] | None = None,
     streaming: bool | None = None,
+    include_user_images: bool = False,
 ) -> dict[str, Any]:
     """
     Create a FlowValue for an AI agent.
@@ -178,6 +220,7 @@ def create_ai_agent_flow(
         tools: Optional list of tool definitions
         output_schema: Optional JSON schema for structured output
         streaming: Optional flag to enable streaming responses
+        include_user_images: If True, adds user_images input from flow_input
 
     Returns:
         A FlowValue dictionary ready to be sent to preview_flow
@@ -195,6 +238,10 @@ def create_ai_agent_flow(
     # Add streaming if provided
     if streaming is not None:
         input_transforms["streaming"] = {"type": "static", "value": streaming}
+
+    # Add user_images if enabled
+    if include_user_images:
+        input_transforms["user_images"] = {"type": "javascript", "expr": "flow_input.user_images"}
 
     module_value = {
         "type": "aiagent",
@@ -313,3 +360,47 @@ def setup_providers(client):
     })
 
     yield
+
+
+@pytest.fixture(scope="session")
+def setup_s3_storage(client):
+    """
+    Set up MinIO S3 storage for user_images tests and upload test image.
+
+    Expects the following environment variables to be set:
+    - MINIO_ACCESS_KEY
+    - MINIO_SECRET_KEY
+    """
+    access_key = os.environ.get("MINIO_ACCESS_KEY")
+    secret_key = os.environ.get("MINIO_SECRET_KEY")
+
+    if not access_key or not secret_key:
+        pytest.skip("MINIO_ACCESS_KEY and MINIO_SECRET_KEY required for S3 tests")
+
+    # 1. Create variable for secret key
+    client.create_variable("u/admin/minio_secret_key", secret_key, is_secret=True)
+
+    # 2. Create S3 resource for MinIO
+    client.create_resource("u/admin/minio_s3", "s3", {
+        "port": 9000,
+        "bucket": "wmill",
+        "region": "fr",
+        "useSSL": False,
+        "endPoint": "localhost",
+        "accessKey": access_key,
+        "pathStyle": True,
+        "secretKey": "$var:u/admin/minio_secret_key",
+    })
+
+    # 3. Configure workspace large file storage
+    client.configure_s3_storage("$res:u/admin/minio_s3")
+
+    # 4. Upload test image to S3 right after setup
+    if TEST_IMAGE_PATH.exists():
+        with open(TEST_IMAGE_PATH, "rb") as f:
+            image_content = f.read()
+        client.upload_s3_file(TEST_IMAGE_S3_KEY, image_content)
+    else:
+        pytest.skip(f"Test image not found at {TEST_IMAGE_PATH}")
+
+    yield TEST_IMAGE_S3_KEY
