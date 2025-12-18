@@ -24,6 +24,7 @@ export function injectSqlTypes(code, queries) {
 		let splitIdx = code?.indexOf('`', query.span[0] - 1)
 		if (splitIdx === -1 || !splitIdx) continue
 		let leftPart = transformed?.substring(0, splitIdx + addedOffset)
+		if (leftPart?.endsWith('>')) continue // User added type params manually
 		let middlePart =
 			'<{ ' +
 			Object.entries(query?.prepared?.columns ?? {})
@@ -86,9 +87,7 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 			const { transformed, offsetMap } = injectSqlTypes(originalText, queries)
 
 			// Pre-compute sorted offset map entries for fast position mapping
-			const offsetMapEntries = Object.entries(offsetMap).sort(
-				(a, b) => Number(a[0]) - Number(b[0])
-			)
+			const offsetMapEntries = Object.entries(offsetMap).sort((a, b) => Number(a[0]) - Number(b[0]))
 
 			const cacheEntry = {
 				version: currentVersion,
