@@ -155,11 +155,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/restart/f/:job_id/from/:step_id",
-            post(restart_flow).head(|| async { "" }).layer(cors.clone()),
-        )
-        .route(
-            "/restart/f/:job_id/from/:step_id/:branch_of_iteration_n",
+            "/restart/f/:job_id",
             post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
         .route(
@@ -4389,17 +4385,23 @@ pub async fn restart_flow(
 }
 
 #[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct RestartFlowRequestBody {
+    step_id: String,
+    branch_or_iteration_n: Option<usize>,
+    flow_version: Option<i64>,
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn restart_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id, step_id, branch_or_iteration_n)): Path<(
-        String,
-        Uuid,
-        String,
-        Option<usize>,
-    )>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(run_query): Query<RunJobQuery>,
+    Json(RestartFlowRequestBody { step_id, branch_or_iteration_n, flow_version }): Json<
+        RestartFlowRequestBody,
+    >,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
 
@@ -4438,7 +4440,12 @@ pub async fn restart_flow(
         &db,
         tx,
         &w_id,
-        JobPayload::RestartedFlow { completed_job_id: job_id, step_id, branch_or_iteration_n },
+        JobPayload::RestartedFlow {
+            completed_job_id: job_id,
+            step_id,
+            branch_or_iteration_n,
+            flow_version,
+        },
         push_args,
         &authed.username,
         &authed.email,
