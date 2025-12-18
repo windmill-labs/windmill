@@ -8317,7 +8317,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
+  /w/{workspace}/jobs/restart/f/{id}:
     post:
       summary: restart a completed flow at a given step
       operationId: restartFlowAtStep
@@ -8326,20 +8326,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
-        - name: step_id
-          description: step id to restart the flow from
-          required: true
-          in: path
-          schema:
-            type: string
-        - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
-            restart
-          required: true
-          in: path
-          schema:
-            type: integer
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -8362,12 +8348,24 @@ paths:
             type: boolean
 
       requestBody:
-        description: flow args
+        description: restart flow parameters
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              type: object
+              required:
+                - step_id
+              properties:
+                step_id:
+                  type: string
+                  description: step id to restart the flow from
+                branch_or_iteration_n:
+                  type: integer
+                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                flow_version:
+                  type: integer
+                  description: specific flow version to use for restart (optional, uses current version if not specified)
 
       responses:
         "201":
@@ -20181,6 +20179,8 @@ components:
         step_id:
           type: string
         branch_or_iteration_n:
+          type: integer
+        flow_version:
           type: integer
 
     Policy:

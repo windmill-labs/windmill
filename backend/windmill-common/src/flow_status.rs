@@ -72,6 +72,7 @@ pub struct RestartedFrom {
     pub flow_job_id: Uuid,
     pub step_id: String,
     pub branch_or_iteration_n: Option<usize>,
+    pub flow_version: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
