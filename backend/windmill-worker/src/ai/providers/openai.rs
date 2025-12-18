@@ -4,7 +4,7 @@ use serde_json::value::RawValue;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
-    image_handler::download_and_encode_s3_image,
+    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
@@ -337,13 +337,17 @@ impl OpenAIQueryBuilder {
     async fn build_text_request(
         &self,
         args: &BuildRequestArgs<'_>,
-        _client: &AuthedClient,
-        _workspace_id: &str,
+        client: &AuthedClient,
+        workspace_id: &str,
         stream: bool,
     ) -> Result<String, Error> {
+        // First prepare messages (handles S3 object to base64 conversion)
+        let prepared_messages =
+            prepare_messages_for_api(args.messages, client, workspace_id).await?;
+
         // Convert full message history to Responses API input format
         // (following frontend pattern from openai-responses.ts)
-        let input_items = convert_messages_to_responses_input(args.messages);
+        let input_items = convert_messages_to_responses_input(&prepared_messages);
 
         // Build tools array using typed structs
         let mut tools: Vec<ResponsesApiTool> = Vec::new();
