@@ -1,18 +1,12 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
-	import { ChevronDown, Plus, Settings } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		title: string
 		icon: any
 		children: any
-		hasChannels: boolean
-		expandable?: boolean
-		expanded?: boolean
-		forceExpanded?: boolean
 		onAdd?: () => void
-		onToggleExpand?: () => void
 		isPlaceholder?: boolean
 		actions?: import('svelte').Snippet
 		class?: string
@@ -23,12 +17,7 @@
 		title,
 		icon: Icon,
 		children,
-		hasChannels,
-		expandable = false,
-		expanded = false,
-		forceExpanded = false,
 		onAdd,
-		onToggleExpand,
 		isPlaceholder = false,
 		actions,
 		class: clazz,
@@ -71,26 +60,6 @@
 			</div>
 
 			{@render actions?.()}
-
-			<div class="flex items-center gap-2">
-				{#if !forceExpanded && expandable && hasChannels && onToggleExpand}
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						onclick={onToggleExpand}
-						aria-label="Toggle {expanded ? 'collapse' : 'expand'}"
-						startIcon={{ icon: Settings }}
-					>
-						<div class="flex items-center justify-center gap-2">
-							<span>Configure SMTP</span>
-							<ChevronDown
-								size={14}
-								class={twMerge('transition-transform', expanded ? 'transform rotate-180' : '')}
-							/>
-						</div>
-					</Button>
-				{/if}
-			</div>
 		</div>
 
 		<!-- Card Content -->

@@ -3,7 +3,9 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -31,7 +33,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString } from '$lib/utils'
-	import { RotateCw, Trash2, Slack, Save } from 'lucide-svelte'
+	import { RotateCw, Save, Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -73,6 +75,16 @@
 	let teams_team_id: string | undefined = $state()
 	let teams_team_name: string | undefined = $state()
 	let useCustomSlackApp: boolean = $state(false)
+	let slackAppType: 'instance' | 'workspace' = $state('instance')
+
+	// Keep slackAppType and useCustomSlackApp in sync
+	$effect(() => {
+		if (slackAppType === 'workspace') {
+			useCustomSlackApp = true
+		} else {
+			useCustomSlackApp = false
+		}
+	})
 	let slackOAuthClientId: string = $state('')
 	let slackOAuthClientSecret: string = $state('')
 	let slackOAuthConfigLoaded: boolean = $state(false)
@@ -126,11 +138,12 @@
 	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 	let workspaceReencryptionInProgress: boolean = $state(false)
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let slack_tabs: 'slack_commands' | 'teams_commands' = $state('slack_commands')
-	let tab = $state(
-		($page.url.searchParams.get('tab') as
+	// All state derived from URL - no local state needed
+	let tab = $derived.by(() => {
+		const selectedTab = $page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
+			| 'teams'
 			| 'premium'
 			| 'general'
 			| 'webhook'
@@ -142,8 +155,18 @@
 			| 'git_sync'
 			| 'default_app'
 			| 'encryption'
-			| 'dependencies') ?? 'users'
+			| 'dependencies'
+		// Both 'slack' and 'teams' URLs map to 'slack' tab
+		if (selectedTab === 'teams') {
+			return 'slack'
+		}
+		return selectedTab || 'users'
+	})
+
+	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(
+		$page.url.searchParams.get('tab') === 'teams' ? 'teams_commands' : 'slack_commands'
 	)
+
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let loadedSettings = $state(false)
@@ -352,6 +375,7 @@
 				workspace: $workspaceStore
 			})
 			useCustomSlackApp = !!config.slack_oauth_client_id
+			slackAppType = config.slack_oauth_client_id ? 'workspace' : 'instance'
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
 			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
@@ -403,6 +427,7 @@
 			}
 
 			useCustomSlackApp = false
+			slackAppType = 'instance'
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
@@ -477,19 +502,6 @@
 			window.location.reload()
 		}, 3000)
 	}
-
-	function updateFromSearchTab(searchTab: string | null, currentTab: string) {
-		if (searchTab && searchTab !== currentTab) {
-			tab = searchTab as typeof tab
-		}
-	}
-
-	$effect(() => {
-		updateFromSearchTab(
-			$page.url.searchParams.get('tab'),
-			untrack(() => tab)
-		)
-	})
 
 	// Function to check if there are unsaved changes in AI settings
 	function getAiSettingsInitialAndModifiedValues() {
@@ -751,18 +763,24 @@
 		{:else if tab == 'premium'}
 			<PremiumInfo {customer_id} {plan} />
 		{:else if tab == 'slack'}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-sm font-semibold text-emphasis"
-						>Workspace connections to Slack and Teams</div
-					>
-					<Description link="https://www.windmill.dev/docs/integrations/slack">
-						With workspace connections, you can trigger scripts or flows with a '/windmill' command
-						with your Slack or Teams bot.
-					</Description>
-				</div>
-
-				<Tabs bind:selected={slack_tabs}>
+			<div class="mt-4"></div>
+			<Section
+				label="Workspace connections to Slack and Teams"
+				description="With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot or set the workspace error handler to send notifications to your Slack or Teams channel. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>."
+				class="space-y-6"
+			>
+				<Tabs
+					selected={slack_tabs}
+					on:selected={(e) => {
+						const params = new URLSearchParams($page.url.searchParams)
+						if (e.detail === 'teams_commands') {
+							params.set('tab', 'teams')
+						} else {
+							params.set('tab', 'slack')
+						}
+						goto(`?${params.toString()}`)
+					}}
+				>
 					<Tab value="slack_commands" label="Slack" />
 					<Tab value="teams_commands" label="Teams" />
 				</Tabs>
@@ -775,9 +793,13 @@
 						bind:initialPath={slackInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
-							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
-							loadSettings()
-							sendUserToast('Disconnected Slack')
+							if (slackOAuthConfigLoaded) {
+								deleteSlackOAuthConfig()
+							} else {
+								await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
+								loadSettings()
+								sendUserToast('Disconnected Slack')
+							}
 						}}
 						onSelect={editSlackCommand}
 						connectHref="{base}/api/oauth/connect_slack"
@@ -790,90 +812,92 @@
 					>
 						{#snippet workspaceConfig()}
 							<!-- Workspace OAuth Configuration Section -->
-							<div class="flex flex-col">
-								{#if slackOAuthConfigLoaded}
-									<!-- Show saved config with delete button -->
-									<div class="flex flex-col gap-1 w-fit">
-										<div class="text-sm text-primary font-medium">Workspace specific Slack app</div>
-										<div
-											class="p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-surface-secondary"
-										>
-											<div class="flex items-center gap-3">
-												<div class="flex items-center gap-2">
-													<span class="text-sm text-primary">Client ID:</span>
-													<span class="text-xs text-secondary font-mono pt-1"
-														>{slackOAuthClientId}</span
-													>
-												</div>
-												<Button size="xs" onclick={deleteSlackOAuthConfig} btnClasses="w-fit">
-													<Trash2 size={14} class="mr-1" />
-													Delete
-												</Button>
-											</div>
-										</div>
-									</div>
-								{:else}
-									<!-- Show toggle and form to create config -->
-									<label class="text-sm flex gap-2 items-center font-medium text-primary">
-										<Toggle bind:checked={useCustomSlackApp} size="sm" />
-										<span class="text-xs text-secondary">Use workspace specific Slack app</span>
+							{#if !slack_team_name}
+								<div class="flex flex-col gap-1">
+									<!-- Show toggle buttons for app type selection -->
+									<ToggleButtonGroup bind:selected={slackAppType}>
+										{#snippet children({ item })}
+											<ToggleButton {item} value="instance" label="Instance specific Slack app" />
+											<ToggleButton {item} value="workspace" label="Workspace specific Slack app" />
+										{/snippet}
+									</ToggleButtonGroup>
+									<div class="text-2xs text-hint"
+										>Use the Slack app configured at the instance level if you want to use the same
+										Slack app for all workspaces. Configure your Slack app here if you want to use a
+										specific Slack app for this workspace.</div
+									>
+								</div>
+							{/if}
+							{#if slackOAuthConfigLoaded}
+								<!-- Show saved config with delete button -->
+								<div class="flex flex-col gap-1">
+									<div class="text-xs text-primary font-normal">Client ID</div>
+									<TextInput
+										inputProps={{
+											type: 'text',
+											readonly: true
+										}}
+										value={slackOAuthClientId}
+									/>
+									<div class="text-2xs text-hint"
+										>Client ID for the Slack app configured at the workspace level</div
+									>
+								</div>
+							{:else if slackAppType === 'workspace'}
+								<div class="flex flex-col gap-6">
+									<label class="flex flex-col gap-1">
+										<span class="text-primary font-semibold text-xs">Client ID</span>
+										<TextInput
+											inputProps={{
+												type: 'text',
+												placeholder: '1234567890.1234567890'
+											}}
+											bind:value={slackOAuthClientId}
+										/>
 									</label>
 
-									{#if useCustomSlackApp}
-										<div class="p-2 rounded border border-gray-200 dark:border-gray-700">
-											<label class="block pb-2">
-												<span class="text-primary font-semibold text-sm">Client ID</span>
-												<input
-													class="windmill-input"
-													type="text"
-													placeholder="1234567890.1234567890"
-													bind:value={slackOAuthClientId}
-												/>
-											</label>
+									<label class="flex flex-col gap-1">
+										<span class="text-primary font-semibold text-xs">Client secret</span>
+										<TextInput
+											inputProps={{
+												type: 'password',
+												placeholder: 'Enter client secret'
+											}}
+											bind:value={slackOAuthClientSecret}
+										/>
+									</label>
 
-											<label class="block pb-2">
-												<span class="text-primary font-semibold text-sm">Client secret</span>
-												<input
-													class="windmill-input"
-													type="password"
-													placeholder="Enter client secret"
-													bind:value={slackOAuthClientSecret}
-												/>
-											</label>
-
-											<CollapseLink text="Instructions">
-												<div class="text-xs text-secondary p-2">
-													Create a Slack app at{' '}
-													<a
-														href="https://api.slack.com/apps"
-														target="_blank"
-														rel="noopener noreferrer"
-														class="text-blue-600 dark:text-blue-400 hover:underline"
-													>
-														Slack API
-													</a>. Set the redirect URI to:{' '}
-													<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-														{window.location.origin}{base}/oauth/callback_slack
-													</code>
-												</div>
-											</CollapseLink>
-
-											<div class="pt-2">
-												<Button
-													size="xs"
-													variant="accent"
-													onclick={saveAndConnectSlack}
-													disabled={!slackOAuthClientId || !slackOAuthClientSecret}
-													startIcon={{ icon: Slack }}
-													btnClasses="w-fit"
-												>
-													Connect to Slack
-												</Button>
-											</div>
+									<CollapseLink text="Instructions">
+										<div class="text-xs text-secondary">
+											Create a Slack app at{' '}
+											<a
+												href="https://api.slack.com/apps"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="text-blue-600 dark:text-blue-400 hover:underline"
+											>
+												Slack API
+											</a>. Set the redirect URI to:{' '}
+											<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+												{window.location.origin}{base}/oauth/callback_slack
+											</code>
 										</div>
-									{/if}
-								{/if}
-							</div>
+									</CollapseLink>
+
+									<div class="pt-2">
+										<Button
+											size="xs"
+											variant="accent"
+											onclick={saveAndConnectSlack}
+											disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+											startIcon={{ icon: Slack }}
+											btnClasses="w-fit"
+										>
+											Connect to Slack
+										</Button>
+									</div>
+								</div>
+							{/if}
 						{/snippet}
 					</ConnectionSection>
 				{:else if slack_tabs === 'teams_commands'}
@@ -905,7 +929,7 @@
 						display_name={teams_team_name}
 					/>
 				{/if}
-			</div>
+			</Section>
 		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-6">
 				<div class="flex flex-col gap-1">
@@ -1005,114 +1029,108 @@
 				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
-			{#if !$enterpriseLicense}
-				<div class="pt-4"></div>
-				<Alert type="warning" title="Workspace error handler is an EE feature">
-					Workspace error handler is a Windmill EE feature. It enables using your current Slack
-					connection or a custom script to send notifications anytime any job would fail.
-				</Alert>
-				<div class="pb-2"></div>
-			{/if}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-sm font-semibold text-emphasis"> Workspace Error Handler</div>
-					<Description
-						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-					>
-						Define a script or flow to be executed automatically in case of error in the workspace.
-					</Description>
-				</div>
-			</div>
-			<div class="flex flex-col gap-4 my-4">
-				<div class="flex flex-col gap-1">
-					<div class="text-xs font-semibold text-emphasis">
-						Script or flow to run as error handler</div
-					>
-				</div>
-			</div>
-			<ErrorOrRecoveryHandler
-				isEditable={true}
-				errorOrRecovery="error"
-				showScriptHelpText={true}
-				bind:handlerSelected={errorHandlerSelected}
-				bind:handlerPath={errorHandlerScriptPath}
-				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-				bind:customHandlerKind={errorHandlerItemKind}
-				bind:handlerExtraArgs={errorHandlerExtraArgs}
-			>
-				{#snippet customTabTooltip()}
-					<Tooltip>
-						<div class="flex gap-20 items-start mt-3">
-							<div class="text-sm">
-								The following args will be passed to the error handler:
-								<ul class="mt-1 ml-2">
-									<li><b>path</b>: The path of the script or flow that errored.</li>
-									<li>
-										<b>email</b>: The email of the user who ran the script or flow that errored.
-									</li>
-									<li><b>error</b>: The error details.</li>
-									<li><b>job_id</b>: The job id.</li>
-									<li><b>is_flow</b>: Whether the error comes from a flow.</li>
-									<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
-								</ul>
-								<br />
-								The error handler will be executed by the automatically created group g/error_handler.
-								If your error handler requires variables or resources, you need to add them to the group.
-							</div>
-						</div>
-					</Tooltip>
-				{/snippet}
-			</ErrorOrRecoveryHandler>
-
-			<div class="flex flex-col mt-5 gap-5 items-start">
-				<Toggle
-					disabled={!$enterpriseLicense ||
-						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-							!emptyString(errorHandlerScriptPath) &&
-							emptyString(errorHandlerExtraArgs['channel']))}
-					bind:checked={errorHandlerMutedOnCancel}
-					options={{ right: 'Do not run error handler for canceled jobs' }}
-				/>
-				<Button
-					disabled={!$enterpriseLicense ||
-						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-							!emptyString(errorHandlerScriptPath) &&
-							emptyString(errorHandlerExtraArgs['channel']))}
-					size="sm"
-					on:click={editErrorHandler}
+			<div class="flex flex-col gap-12 py-4">
+				{#if !$enterpriseLicense}
+					<Alert type="warning" title="Workspace error handler is an EE feature">
+						Workspace error handler is a Windmill EE feature. It enables using your current Slack
+						connection or a custom script to send notifications anytime any job would fail.
+					</Alert>
+					<div class="pb-2"></div>
+				{/if}
+				<Section
+					label="Workspace Error Handler"
+					description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. You can use a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>"
+					class="space-y-6"
 				>
-					Save
-				</Button>
-			</div>
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-sm font-semibold text-emphasis"> Workspace Critical Alerts</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
-						Critical alerts within the scope of a workspace are sent to the workspace admins through
-						a UI notification.
-					</Description>
-					<div class="flex flex-col mt-5 gap-5 items-start">
-						<Button
-							disabled={!$enterpriseLicense}
-							size="sm"
-							on:click={() => isCriticalAlertsUIOpen.set(true)}
-						>
-							Show critical alerts
-						</Button>
+					<ErrorOrRecoveryHandler
+						isEditable={true}
+						errorOrRecovery="error"
+						showScriptHelpText={true}
+						bind:handlerSelected={errorHandlerSelected}
+						bind:handlerPath={errorHandlerScriptPath}
+						customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
+						bind:customHandlerKind={errorHandlerItemKind}
+						bind:handlerExtraArgs={errorHandlerExtraArgs}
+					>
+						{#snippet customTabTooltip()}
+							<Tooltip>
+								<div class="flex gap-20 items-start mt-3">
+									<div class="text-sm">
+										The following args will be passed to the error handler:
+										<ul class="mt-1 ml-2">
+											<li><b>path</b>: The path of the script or flow that errored.</li>
+											<li>
+												<b>email</b>: The email of the user who ran the script or flow that errored.
+											</li>
+											<li><b>error</b>: The error details.</li>
+											<li><b>job_id</b>: The job id.</li>
+											<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+											<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
+										</ul>
+										<br />
+										The error handler will be executed by the automatically created group g/error_handler.
+										If your error handler requires variables or resources, you need to add them to the
+										group.
+									</div>
+								</div>
+							</Tooltip>
+						{/snippet}
+					</ErrorOrRecoveryHandler>
+
+					<div class="flex flex-col gap-6 items-start">
 						<Toggle
-							disabled={!$enterpriseLicense}
-							bind:checked={criticalAlertUIMuted}
-							options={{ right: 'Mute critical alerts UI for this workspace' }}
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+							bind:checked={errorHandlerMutedOnCancel}
+							options={{ right: 'Do not run error handler for canceled jobs' }}
 						/>
 						<Button
-							disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
 							size="sm"
-							on:click={editCriticalAlertMuteSetting}
+							on:click={editErrorHandler}
+							startIcon={{ icon: Save }}
 						>
-							Save mute setting
+							Save error handler
 						</Button>
 					</div>
-				</div>
+				</Section>
+
+				<hr class="border-t" />
+				<Section
+					label="Workspace Critical Alerts"
+					description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification. <a href='https://www.windmill.dev/docs/core_concepts/critical_alerts'>Learn more</a>"
+					class="flex flex-col gap-6"
+				>
+					<Toggle
+						disabled={!$enterpriseLicense}
+						bind:checked={criticalAlertUIMuted}
+						options={{ right: 'Mute critical alerts UI for this workspace' }}
+					/>
+
+					<Button
+						disabled={!$enterpriseLicense}
+						on:click={() => isCriticalAlertsUIOpen.set(true)}
+						btnClasses="w-fit"
+					>
+						Show critical alerts
+					</Button>
+
+					<Button
+						disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+						size="sm"
+						on:click={editCriticalAlertMuteSetting}
+						variant="default"
+						startIcon={{ icon: Save }}
+						btnClasses="w-fit"
+					>
+						Save mute setting
+					</Button>
+				</Section>
 			</div>
 		{:else if tab == 'ai'}
 			<AISettings

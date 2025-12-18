@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { Slack, X, Plus, Unplug, Plug } from 'lucide-svelte'
+	import { Slack, X, Plus } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import IntegrationCard from './IntegrationCard.svelte'
-	import { base } from '$lib/base'
-	import { enterpriseLicense } from '$lib/stores'
+	import SlackConnectionStatus from '../common/slack/SlackConnectionStatus.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 
 	interface SlackChannel {
@@ -53,49 +52,14 @@
 
 {#if channels.length > 0 || slackTeamName}
 	<!-- Connected Slack Card -->
-	<IntegrationCard
-		title="Slack"
-		icon={Slack}
-		hasChannels={true}
-		isPlaceholder={false}
-		class={clazz}
-		{style}
-	>
+	<IntegrationCard title="Slack" icon={Slack} isPlaceholder={false} class={clazz} {style}>
 		{#snippet actions()}
-			<div class="flex items-center justify-end w-full gap-2">
-				{#if slackTeamName}
-					<div class="flex items-center gap-2">
-						<div class="bg-surface-secondary flex gap-2.5 items-center px-2 py-1 rounded-md">
-							<div class="flex items-center justify-center w-3 h-3">
-								<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-							</div>
-							<span class="text-xs text-primary"
-								>Connected to the slack workspace '{slackTeamName}'</span
-							>
-						</div>
-					</div>
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						onclick={onDisconnect}
-						{disabled}
-						startIcon={{ icon: Unplug }}
-						destructive
-					>
-						Disconnect slack
-					</Button>
-				{:else}
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						href="{base}/api/oauth/connect_slack?instance=true"
-						disabled={!$enterpriseLicense}
-						startIcon={{ icon: Plug }}
-					>
-						Connect to Slack
-					</Button>
-				{/if}
-			</div>
+			<SlackConnectionStatus
+				isConnected={slackTeamName ? true : false}
+				{slackTeamName}
+				mode="instance"
+				{onDisconnect}
+			/>
 		{/snippet}
 		{#snippet children()}
 			{#if channels.length > 0}
@@ -152,7 +116,6 @@
 	<IntegrationCard
 		title="Slack"
 		icon={Slack}
-		hasChannels={false}
 		isPlaceholder={true}
 		onAdd={onAddChannel}
 		class={clazz}

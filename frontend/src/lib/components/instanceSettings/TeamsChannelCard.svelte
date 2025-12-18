@@ -59,7 +59,6 @@
 	<IntegrationCard
 		title="Microsoft Teams"
 		icon={MSTeamsIcon}
-		hasChannels={true}
 		isPlaceholder={false}
 		class={clazz}
 		{style}
@@ -152,7 +151,6 @@
 	<IntegrationCard
 		title="Microsoft Teams"
 		icon={MSTeamsIcon}
-		hasChannels={false}
 		isPlaceholder={true}
 		onAdd={onAddChannel}
 		class={clazz}

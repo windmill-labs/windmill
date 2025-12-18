@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Mail, X, Plus, ExternalLink } from 'lucide-svelte'
+	import { Mail, X, Plus, ExternalLink, Settings, ChevronDown } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import IntegrationCard from './IntegrationCard.svelte'
 	import Password from '../Password.svelte'
@@ -8,6 +8,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { fade, slide } from 'svelte/transition'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface EmailChannel {
 		email: string
@@ -89,18 +90,26 @@
 
 {#if channels.length > 0 || hasSmtpConfig}
 	<!-- Connected Email Card -->
-	<IntegrationCard
-		title="Email"
-		icon={Mail}
-		hasChannels={true}
-		isPlaceholder={false}
-		expandable={true}
-		{expanded}
-		forceExpanded={!hasSmtpConfig}
-		onToggleExpand={toggleExpanded}
-		class={clazz}
-		{style}
-	>
+	<IntegrationCard title="Email" icon={Mail} isPlaceholder={false} class={clazz} {style}>
+		{#snippet actions()}
+			{#if hasSmtpConfig}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					onclick={toggleExpanded}
+					aria-label="Toggle {expanded ? 'collapse' : 'expand'}"
+					startIcon={{ icon: Settings }}
+				>
+					<div class="flex items-center justify-center gap-2">
+						<span>Configure SMTP</span>
+						<ChevronDown
+							size={14}
+							class={twMerge('transition-transform', expanded ? 'transform rotate-180' : '')}
+						/>
+					</div>
+				</Button>
+			{/if}
+		{/snippet}
 		{#snippet children()}
 			{#if channels.length > 0}
 				<span class="text-xs text-secondary"> Email addresses to send alerts to. </span>
@@ -305,7 +314,6 @@
 	<IntegrationCard
 		title="Email"
 		icon={Mail}
-		hasChannels={false}
 		isPlaceholder={true}
 		onAdd={onAddChannel}
 		class={clazz}
