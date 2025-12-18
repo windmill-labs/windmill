@@ -30,7 +30,11 @@ pub fn parse_raw_script_schema(
     content: &str,
     language: &ScriptLang,
 ) -> Result<Box<RawValue>, Error> {
-    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
+    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?
+        .ok_or_else(|| Error::BadConfig(format!(
+            "Cannot parse signature for language {:?}. The language parser may not be enabled in this build.",
+            language
+        )))?;
 
     let schema = OpenAPISchema {
         r#type: Some(SchemaType::default()),
