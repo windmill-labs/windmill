@@ -2832,10 +2832,14 @@ pub async fn handle_queued_job(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        if job.concurrent_limit.is_some() && !job.kind.is_dependency() {
-            logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
-            logs.push_str("---\n");
+        if let Connection::Sql(db) = conn {
+            if (job.concurrent_limit.is_some() ||
+                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                && !job.kind.is_dependency() {
+                logs.push_str("---\n");
+                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
+                logs.push_str("---\n");
+            }
         }
 
         // Only used for testing in tests/relative_imports.rs
@@ -4282,8 +4286,6 @@ pub fn init_worker_internal_server_inline_utils(
                 script_lang: Some(params.lang),
                 same_worker: true,
                 pre_run_error: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 flow_innermost_root_job: None,
                 root_job: None,
                 timeout: None,
@@ -4297,6 +4299,9 @@ pub fn init_worker_internal_server_inline_utils(
                 trigger_kind: None,
                 visible_to_owner: false,
                 permissioned_as_end_user_email: None,
+                runnable_settings_handle: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
             };
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;

@@ -43,10 +43,10 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
-    JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::ScriptHash;
+use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -81,6 +81,7 @@ pub async fn update_flow_status_after_job_completion(
     job_id_for_status: &Uuid,
     w_id: &str,
     success: bool,
+    canceled_by: Option<CanceledBy>,
     result: Arc<Box<RawValue>>,
     flow_job_duration: Option<FlowJobDuration>,
     unrecoverable: bool,
@@ -100,6 +101,7 @@ pub async fn update_flow_status_after_job_completion(
         flow,
         job_id_for_status: job_id_for_status.clone(),
         success,
+        canceled_by,
         result,
         flow_job_duration,
         stop_early_override,
@@ -115,6 +117,7 @@ pub async fn update_flow_status_after_job_completion(
             &rec.job_id_for_status,
             w_id,
             rec.success,
+            rec.canceled_by,
             rec.flow_job_duration.clone(),
             rec.result,
             unrecoverable,
@@ -141,6 +144,7 @@ pub async fn update_flow_status_after_job_completion(
                     &rec.job_id_for_status,
                     w_id,
                     false,
+                    None,
                     rec.flow_job_duration,
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
@@ -199,6 +203,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     job_id_for_status: Uuid,
     success: bool,
     result: Arc<Box<RawValue>>,
+    canceled_by: Option<CanceledBy>,
     flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
@@ -283,6 +288,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     job_id_for_status: &Uuid,
     w_id: &str,
     mut success: bool,
+    canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
@@ -1546,7 +1552,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     ),
                     None,
                     0,
-                    None,
+                    canceled_by.clone(),
                     true,
                     None,
                     false,
@@ -1618,6 +1624,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         flow: parent_job,
                         job_id_for_status: flow,
                         success: success && !is_failure_step,
+                        canceled_by: if !success { canceled_by.clone() } else { None },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
                         stop_early_override: if stop_early {
@@ -4749,13 +4756,14 @@ pub async fn script_to_payload(
             timeout,
             on_behalf_of_email,
             created_by,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            runnable_settings:
+                ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
             ..
-        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
+        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
         } else {
@@ -4769,16 +4777,8 @@ pub async fn script_to_payload(
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
-                concurrency_settings: ConcurrencySettings {
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                },
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 cache_ignore_s3_path: module.cache_ignore_s3_path,
                 language,

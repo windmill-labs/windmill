@@ -74,12 +74,17 @@
 			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificTable })
 		} else if (asset.kind === 'datatable') {
 			let datatable = asset.path.split('/')[0]
-			let specificTable = asset.path.split('/')[1] as string | undefined
+			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined
+			let [specificSchema, specificTable] =
+				specificTableSplit?.length === 2
+					? [specificTableSplit[0], specificTableSplit[1]]
+					: [undefined, specificTableSplit?.[0]]
 			dbManagerDrawer?.openDrawer({
 				type: 'database',
 				resourceType: 'postgresql',
 				resourcePath: `datatable://${datatable}`,
-				specificTable
+				specificTable,
+				specificSchema
 			})
 		}
 		onClick?.()

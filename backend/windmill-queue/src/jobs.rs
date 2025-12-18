@@ -38,9 +38,10 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, JobTriggerKind,
-    EMAIL_ERROR_HANDLER_USER_EMAIL,
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
+    RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{configure_client, now_from_db};
@@ -1148,7 +1149,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             }
         }
     }
-    if queued_job.concurrent_limit.is_some() {
+
+    if queued_job.concurrent_limit.is_some()
+        || RunnableSettings::prefetch_cached_from_handle(queued_job.runnable_settings_handle, db)
+            .await?
+            .1
+            .concurrent_limit
+            .is_some()
+    {
         let concurrency_key = concurrency_key(db, &queued_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
@@ -2008,10 +2016,10 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    pub runnable_settings_handle: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-
 pub struct MiniCompletedJob {
     pub id: Uuid,
     pub workspace_id: String,
@@ -2035,6 +2043,7 @@ pub struct MiniCompletedJob {
     pub tag: String,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -2061,6 +2070,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             tag: job.tag,
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2090,6 +2100,7 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             tag: job.tag,
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2118,6 +2129,7 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             tag: job.tag.clone(),
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2212,6 +2224,7 @@ impl MiniPulledJob {
             pre_run_error: job.pre_run_error.clone(),
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
+            runnable_settings_handle: job.runnable_settings_handle,
             flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
             root_job: None,
             timeout: job.timeout.clone(),
@@ -2261,7 +2274,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
+#[derive(sqlx::FromRow, Debug, Clone)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -2405,6 +2418,7 @@ pub async fn get_mini_pulled_job<'c>(
         v2_job.parent_job,
         v2_job.created_by,
         v2_job_queue.started_at,
+        v2_job_queue.runnable_settings_handle,
         scheduled_for,
         runnable_path,
         kind as \"kind: JobKind\",
@@ -2464,6 +2478,7 @@ pub struct QueuedJobV2 {
     pub tag: String,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
     pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub worker: Option<String>,
     pub memory_peak: Option<i32>,
@@ -2482,19 +2497,46 @@ pub async fn get_queued_job_v2<'c>(
 ) -> error::Result<Option<QueuedJobV2>> {
     let job = sqlx::query_as!(
         QueuedJobV2,
-        "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
-        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running
-             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
-            WHERE j.id = $1",
+        r#"SELECT
+                id,
+                q.runnable_settings_handle,
+                q.workspace_id,
+                j.runnable_id as "runnable_id: ScriptHash",
+                scheduled_for,
+                parent_job,
+                flow_innermost_root_job,
+                runnable_path,
+                kind as "kind: JobKind",
+                started_at,
+                permissioned_as,
+                created_by,
+                script_lang as "script_lang: ScriptLang",
+                permissioned_as_email,
+                flow_step_id,
+                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger,
+                q.priority,
+                concurrent_limit,
+                q.tag,
+                cache_ttl,
+                cache_ignore_s3_path,
+                r.ping as last_ping,
+                worker,
+                memory_peak,
+                running
+            FROM v2_job_queue q
+                JOIN v2_job j USING (id)
+                LEFT JOIN v2_job_runtime r USING (id)
+                LEFT JOIN v2_job_status s USING (id)
+            WHERE j.id = $1"#,
         job_id,
-
     )
     .fetch_optional(e)
     .await?;
     Ok(job)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
@@ -2683,6 +2725,7 @@ impl PulledJobResult {
                             base_hash,
                             &pulled_job.workspace_id,
                             deployment_message,
+                            db,
                             &mut tx,
                         )
                         .await?;
@@ -2802,6 +2845,7 @@ impl PulledJobResult {
     }
 }
 
+// TODO: Factorize
 /// Pull the job from queue
 pub async fn pull(
     db: &Pool<Postgres>,
@@ -2874,21 +2918,39 @@ pub async fn pull(
                     }
                 }
 
+                #[cfg(feature = "private")]
+                let concurrency_settings = if let Some(ref j) = job {
+                    RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
+                        .await?
+                        .prefetch_cached(db)
+                        .await?
+                        .1
+                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                } else {
+                    Default::default()
+                };
+
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if job.concurrent_limit.is_some()
+                        if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
-                        crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, job)
-                            .await?
-                            .unwrap_or(PulledJobResult {
-                                job: None,
-                                suspended,
-                                missing_concurrency_key: false,
-                                error_while_preprocessing: None,
-                            })
+                        crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                            &concurrency_settings,
+                        )
+                        .await?
+                        .unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                            error_while_preprocessing: None,
+                        })
                     }
                     _ => PulledJobResult {
                         job,
@@ -2921,7 +2983,15 @@ pub async fn pull(
             });
         };
 
-        let has_concurent_limit = job.concurrent_limit.is_some();
+        let concurrency_settings =
+            RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?
+                .1
+                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+
+        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -2957,9 +3027,14 @@ pub async fn pull(
         if cfg!(feature = "enterprise")
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
-            if let Some(pulled_job_res) =
-                crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
-                    .await?
+            if let Some(pulled_job_res) = crate::jobs_ee::apply_concurrency_limit(
+                db,
+                pull_loop_count,
+                suspended,
+                pulled_job,
+                &concurrency_settings,
+            )
+            .await?
             {
                 return Ok(pulled_job_res);
             }
@@ -3640,7 +3715,7 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT 
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -4096,12 +4171,7 @@ pub async fn push<'c, 'd>(
         cache_ignore_s3_path,
         dedicated_worker,
         _low_level_priority,
-        concurrency_settings:
-            ConcurrencySettings {
-                mut concurrency_key,
-                mut concurrent_limit,
-                concurrency_time_window_s, //
-            },
+        mut concurrency_settings,
         debouncing_settings,
     } = match job_payload {
         JobPayload::ScriptHash {
@@ -4569,7 +4639,7 @@ pub async fn push<'c, 'd>(
 
                 concurrency_settings.concurrent_limit = None;
                 // TODO: May be re-enable?
-                debouncing_settings.delay_s = None;
+                debouncing_settings.debounce_delay_s = None;
 
                 preprocessed = Some(false);
             }
@@ -4717,8 +4787,8 @@ pub async fn push<'c, 'd>(
             && !*WMDEBUG_NO_DJOB_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
-        concurrent_limit = Some(1);
+        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_settings.concurrent_limit = Some(1);
     }
 
     let final_priority: Option<i16>;
@@ -5043,8 +5113,8 @@ pub async fn push<'c, 'd>(
     if schedule_path.is_none() {
         if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
             &job_id,
-            debouncing_settings.delay_s,
-            debouncing_settings.custom_key,
+            debouncing_settings.debounce_delay_s,
+            debouncing_settings.debounce_key.clone(),
             workspace_id,
             runnable_path.clone(),
             &job_kind,
@@ -5065,13 +5135,13 @@ pub async fn push<'c, 'd>(
         )
         .unzip();
 
-    if concurrent_limit.is_some() {
+    if concurrency_settings.concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
-            concurrency_key,
+            concurrency_settings.concurrency_key.clone(),
             &mut tx,
             job_id,
         )
@@ -5165,14 +5235,56 @@ pub async fn push<'c, 'd>(
         (job_kind, scheduled_for_o)
     };
 
+    let runnable_settings_handle = RunnableSettings {
+        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
+    }
+    .insert_cached(_db)
+    .await?;
+
+    let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
+        if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {
+            (None, None)
+        } else {
+            (
+                concurrency_settings.concurrent_limit,
+                concurrency_settings.concurrency_time_window_s,
+            )
+        };
     sqlx::query!(
         "WITH inserted_job AS (
-            INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-                created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            INSERT INTO v2_job (
+                id, -- 1
+                workspace_id, -- 2
+                raw_code, -- 3
+                raw_lock, -- 4
+                raw_flow, -- 5
+                tag, -- 6
+                parent_job, -- 7
+                created_by, -- 8
+                permissioned_as, -- 9
+                runnable_id, -- 10
+                runnable_path, -- 11
+                args, -- 12
+                kind, -- 13
+                trigger, -- 14
+                script_lang, -- 15
+                same_worker, -- 16
+                pre_run_error, -- 17 
+                permissioned_as_email, -- 18
+                visible_to_owner, -- 19
+                flow_innermost_root_job, -- 20
+                root_job, -- 38
+                concurrent_limit, -- 21
+                concurrency_time_window_s, -- 22
+                timeout, -- 23
+                flow_step_id, -- 24
+                cache_ttl, -- 25
+                priority, -- 26
+                trigger_kind, -- 39
+                script_entrypoint_override, -- 12
+                preprocessed -- 27,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
@@ -5185,8 +5297,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42, $43)",
         job_id,
         workspace_id,
         raw_code,
@@ -5207,12 +5319,8 @@ pub async fn push<'c, 'd>(
         email,
         visible_to_owner,
         flow_innermost_root_job,
-        concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
-        } else {
-            None
-        },
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
         custom_timeout,
         flow_step_id,
         cache_ttl,
@@ -5233,10 +5341,13 @@ pub async fn push<'c, 'd>(
         running,
         end_user_email,
         cache_ignore_s3_path,
+        runnable_settings_handle,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    // RunnableSettings::insert(RunnableType::Job)
 
     //     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     //     let uuid = sqlx::query_scalar!(
@@ -5820,6 +5931,7 @@ pub async fn get_same_worker_job(
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
                     v2_job_queue.cache_ignore_s3_path,
+                    v2_job_queue.runnable_settings_handle,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,
