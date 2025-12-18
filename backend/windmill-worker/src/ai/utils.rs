@@ -559,3 +559,34 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         false
     })
 }
+
+/// Extract text content from OpenAIContent, joining parts with space if multiple
+pub fn extract_text_content(content: &OpenAIContent) -> String {
+    match content {
+        OpenAIContent::Text(text) => text.clone(),
+        OpenAIContent::Parts(parts) => parts
+            .iter()
+            .filter_map(|p| {
+                if let ContentPart::Text { text } = p {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+    }
+}
+
+/// Parse a data URL to extract media type and base64 data
+/// Format: data:mime_type;base64,data
+/// Returns (media_type, data) tuple if successful
+pub fn parse_data_url(url: &str) -> Option<(String, String)> {
+    if !url.starts_with("data:") {
+        return None;
+    }
+    let rest = url.strip_prefix("data:")?;
+    let (header, data) = rest.split_once(",")?;
+    let media_type = header.strip_suffix(";base64")?;
+    Some((media_type.to_string(), data.to_string()))
+}

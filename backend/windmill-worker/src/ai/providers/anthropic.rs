@@ -8,6 +8,7 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
+    utils::{extract_text_content, parse_data_url},
 };
 
 /// Custom tool for Anthropic native API (flat structure with type: "custom")
@@ -60,7 +61,7 @@ pub enum AnthropicRequestContent {
     ToolUse {
         id: String,
         name: String,
-        input: serde_json::Value,
+        input: Box<RawValue>,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
@@ -135,8 +136,9 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
                         if tc.function.name.is_empty() {
                             continue;
                         }
-                        let input: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                        // Pass arguments directly as RawValue to avoid round-trip serialization
+                        let input = RawValue::from_string(tc.function.arguments.clone())
+                            .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap());
                         content.push(AnthropicRequestContent::ToolUse {
                             id: tc.id.clone(),
                             name: tc.function.name.clone(),
@@ -225,34 +227,31 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
     }
 }
 
-/// Extract text content from OpenAI content
-fn extract_text_content(content: &OpenAIContent) -> String {
-    match content {
-        OpenAIContent::Text(text) => text.clone(),
-        OpenAIContent::Parts(parts) => parts
-            .iter()
-            .filter_map(|p| {
-                if let ContentPart::Text { text } = p {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-    }
+
+/// Citation from Anthropic web search
+#[derive(Deserialize, Debug)]
+pub struct AnthropicCitation {
+    #[serde(default)]
+    pub start_index: Option<usize>,
+    #[serde(default)]
+    pub end_index: Option<usize>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
-/// Parse a data URL to extract media type and base64 data
-fn parse_data_url(url: &str) -> Option<(String, String)> {
-    if !url.starts_with("data:") {
-        return None;
-    }
-    // Format: data:image/png;base64,<data>
-    let rest = url.strip_prefix("data:")?;
-    let (header, data) = rest.split_once(",")?;
-    let media_type = header.strip_suffix(";base64")?;
-    Some((media_type.to_string(), data.to_string()))
+/// Web search result content from Anthropic
+#[derive(Deserialize, Debug)]
+pub struct AnthropicWebSearchContent {
+    #[serde(default)]
+    pub r#type: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 /// Anthropic content block - can be text, tool_use, server_tool_use, or web_search_tool_result
@@ -263,7 +262,7 @@ pub enum AnthropicContentBlock {
     Text {
         text: String,
         #[serde(default)]
-        citations: Vec<serde_json::Value>,
+        citations: Vec<AnthropicCitation>,
     },
     #[serde(rename = "tool_use")]
     ToolUse {
@@ -280,7 +279,7 @@ pub enum AnthropicContentBlock {
     #[serde(rename = "web_search_tool_result")]
     WebSearchToolResult {
         tool_use_id: String,
-        content: Vec<serde_json::Value>,
+        content: Vec<AnthropicWebSearchContent>,
     },
     #[serde(other)]
     Unknown,
