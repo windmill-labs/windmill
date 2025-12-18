@@ -49,6 +49,61 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		this._sqlQueriesByFile = new Map()
 		// Map of file URI -> version number (incremented when SQL queries change)
 		this._fileVersions = new Map()
+		// Cache of transformed code and offset maps per file version
+		// Structure: fileUri -> {version, originalText, transformed, offsetMap, offsetMapEntries}
+		this._transformedCodeCache = new Map()
+	}
+
+	/**
+	 * Gets or computes the cached transformation result for a file
+	 * This centralizes all transformation logic and caching
+	 * @param {string} fileName - File name
+	 * @returns {Object|null} Cached result with {version, originalText, transformed, offsetMap, offsetMapEntries}
+	 */
+	_getTransformResult(fileName) {
+		const currentVersion = this.getScriptVersion(fileName)
+		const cached = this._transformedCodeCache.get(fileName)
+
+		// Return cached result if version matches
+		if (cached && cached.version === currentVersion) {
+			return cached
+		}
+
+		// Get original snapshot
+		const originalSnapshot = super.getScriptSnapshot(fileName)
+		if (!originalSnapshot) {
+			return null
+		}
+
+		const queries = this._sqlQueriesByFile.get(fileName)
+		if (!queries || queries.length === 0) {
+			return null
+		}
+
+		// Compute transformation only once per version
+		try {
+			const originalText = originalSnapshot.getText(0, originalSnapshot.getLength())
+			const { transformed, offsetMap } = injectSqlTypes(originalText, queries)
+
+			// Pre-compute sorted offset map entries for fast position mapping
+			const offsetMapEntries = Object.entries(offsetMap).sort(
+				(a, b) => Number(a[0]) - Number(b[0])
+			)
+
+			const cacheEntry = {
+				version: currentVersion,
+				originalText,
+				transformed,
+				offsetMap,
+				offsetMapEntries
+			}
+
+			this._transformedCodeCache.set(fileName, cacheEntry)
+			return cacheEntry
+		} catch (error) {
+			console.error('[SqlTypePlugin] Error transforming source:', error)
+			return null
+		}
 	}
 
 	/**
@@ -56,29 +111,13 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * This is called by TypeScript when it needs to read source files
 	 */
 	getScriptSnapshot(fileName) {
-		const originalSnapshot = super.getScriptSnapshot(fileName)
+		const cached = this._getTransformResult(fileName)
 
-		if (!originalSnapshot) {
-			return originalSnapshot
+		if (!cached) {
+			return super.getScriptSnapshot(fileName)
 		}
 
-		const queries = this._sqlQueriesByFile.get(fileName)
-		if (!queries || queries.length === 0) {
-			return originalSnapshot
-		}
-
-		try {
-			const originalText = originalSnapshot.getText(0, originalSnapshot.getLength())
-			const { transformed } = injectSqlTypes(originalText, queries)
-
-			if (transformed !== originalText) {
-				return ts.typescript.ScriptSnapshot.fromString(transformed)
-			}
-		} catch (error) {
-			console.error('[SqlTypePlugin] Error transforming source:', error)
-		}
-
-		return originalSnapshot
+		return ts.typescript.ScriptSnapshot.fromString(cached.transformed)
 	}
 	/**
 	 * Maps a position from original code to transformed code
@@ -87,37 +126,23 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @returns {number} Position in transformed code
 	 */
 	_mapPositionToTransformed(position, fileName) {
-		try {
-			const originalSnapshot = super.getScriptSnapshot(fileName)
-			if (!originalSnapshot) {
-				return position
-			}
-
-			const queries = this._sqlQueriesByFile.get(fileName)
-			if (!queries || queries.length === 0) {
-				return position
-			}
-
-			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
-			let { offsetMap } = injectSqlTypes(originalCode, queries)
-			let offsetMapEntries = Object.entries(offsetMap).sort((a, b) => Number(a[0]) - Number(b[0]))
-
-			let cumulativeOffset = 0
-			for (const [pos, offset] of offsetMapEntries) {
-				const originalPos = Number(pos)
-				// If the position is after this injection point in the original code
-				if (position > originalPos) {
-					cumulativeOffset += offset
-				} else {
-					break
-				}
-			}
-
-			return position + cumulativeOffset
-		} catch (error) {
-			console.error('[SqlTypePlugin] Error mapping position to transformed:', error)
+		const cached = this._getTransformResult(fileName)
+		if (!cached) {
 			return position
 		}
+
+		let cumulativeOffset = 0
+		for (const [pos, offset] of cached.offsetMapEntries) {
+			const originalPos = Number(pos)
+			// If the position is after this injection point in the original code
+			if (position > originalPos) {
+				cumulativeOffset += offset
+			} else {
+				break
+			}
+		}
+
+		return position + cumulativeOffset
 	}
 
 	/**
@@ -127,39 +152,25 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @returns {number} Position in original code
 	 */
 	_mapPositionToOriginal(position, fileName) {
-		try {
-			const originalSnapshot = super.getScriptSnapshot(fileName)
-			if (!originalSnapshot) {
-				return position
-			}
-
-			const queries = this._sqlQueriesByFile.get(fileName)
-			if (!queries || queries.length === 0) {
-				return position
-			}
-
-			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
-			let { offsetMap } = injectSqlTypes(originalCode, queries)
-			let offsetMapEntries = Object.entries(offsetMap).sort((a, b) => Number(a[0]) - Number(b[0]))
-
-			let cumulativeOffset = 0
-			for (const [pos, offset] of offsetMapEntries) {
-				const originalPos = Number(pos)
-				const transformedPos = originalPos + cumulativeOffset
-
-				// If position in transformed code is after this injection point
-				if (position > transformedPos) {
-					cumulativeOffset += offset
-				} else {
-					break
-				}
-			}
-
-			return position - cumulativeOffset
-		} catch (error) {
-			console.error('[SqlTypePlugin] Error mapping position to original:', error)
+		const cached = this._getTransformResult(fileName)
+		if (!cached) {
 			return position
 		}
+
+		let cumulativeOffset = 0
+		for (const [pos, offset] of cached.offsetMapEntries) {
+			const originalPos = Number(pos)
+			const transformedPos = originalPos + cumulativeOffset
+
+			// If position in transformed code is after this injection point
+			if (position > transformedPos) {
+				cumulativeOffset += offset
+			} else {
+				break
+			}
+		}
+
+		return position - cumulativeOffset
 	}
 
 	/**
@@ -662,11 +673,15 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 			return []
 		}
 
-		const originalSnapshot = super.getScriptSnapshot(fileName)
-		if (!originalSnapshot) {
-			return []
+		const cached = this._getTransformResult(fileName)
+		const originalCode = cached?.originalText ?? ''
+		if (!originalCode) {
+			// Fallback if no cached result
+			const originalSnapshot = super.getScriptSnapshot(fileName)
+			if (!originalSnapshot) {
+				return []
+			}
 		}
-		const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength()) ?? ''
 
 		const sqlDiagnostics = []
 		for (const query of queries) {
@@ -735,6 +750,9 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * @param {Array} queries - Array of SQL query details
 	 */
 	async updateSqlQueries(fileUri, queries) {
+		// Invalidate cache when SQL queries change
+		this._transformedCodeCache.delete(fileUri)
+
 		if (!queries || queries.length === 0) {
 			this._sqlQueriesByFile.delete(fileUri)
 		} else {
