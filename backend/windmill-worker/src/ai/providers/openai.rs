@@ -188,6 +188,22 @@ pub enum ResponsesApiTool {
     BuiltIn(ResponsesApiBuiltInTool),
 }
 
+/// Text format configuration for structured output in Responses API
+#[derive(Serialize)]
+pub struct ResponsesApiTextFormatConfig {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+    pub schema: serde_json::Value,
+}
+
+/// Text configuration for Responses API (used for structured output)
+#[derive(Serialize)]
+pub struct ResponsesApiTextFormat {
+    pub format: ResponsesApiTextFormatConfig,
+}
+
 #[derive(Serialize)]
 pub struct ResponsesApiRequest<'a> {
     pub model: &'a str,
@@ -201,6 +217,8 @@ pub struct ResponsesApiRequest<'a> {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<ResponsesApiTextFormat>,
 }
 
 #[derive(Serialize, Debug)]
@@ -345,6 +363,24 @@ impl OpenAIQueryBuilder {
             }
         }
 
+        // Build text format for structured output if output_schema is provided
+        let text = args
+            .output_schema
+            .and_then(|schema| schema.properties.as_ref())
+            .filter(|props| !props.is_empty())
+            .map(|_| {
+                let schema = args.output_schema.unwrap();
+                let strict_schema = schema.clone().make_strict();
+                ResponsesApiTextFormat {
+                    format: ResponsesApiTextFormatConfig {
+                        r#type: "json_schema".to_string(),
+                        name: "structured_output".to_string(),
+                        strict: Some(true),
+                        schema: serde_json::to_value(&strict_schema).unwrap_or_default(),
+                    },
+                }
+            });
+
         let request = ResponsesApiRequest {
             model: args.model,
             input: input_items,
@@ -353,6 +389,7 @@ impl OpenAIQueryBuilder {
             stream: if stream { Some(true) } else { None },
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
+            text,
         };
 
         serde_json::to_string(&request)
@@ -399,6 +436,7 @@ impl OpenAIQueryBuilder {
             stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
+            text: None, // No structured output for image generation
         };
 
         serde_json::to_string(&request)
