@@ -86,3 +86,15 @@ ALL_PROVIDERS = [
     BEDROCK,
     OPENROUTER,
 ]
+
+# Vision-capable providers for user_images tests
+VISION_PROVIDERS = [
+    OPENAI,      # gpt-4o-mini supports vision
+    ANTHROPIC,   # claude-3 supports vision
+    GOOGLE_AI,   # gemini supports vision
+]
+
+
+def get_provider_ids(providers: list[dict[str, Any]]) -> list[str]:
+    """Get provider names for pytest parametrize IDs."""
+    return [p["name"] for p in providers]
