@@ -1,4 +1,4 @@
-!.env
 */__pycache__/
 .venv/
 logs/
+ai_agent_tests/.env
