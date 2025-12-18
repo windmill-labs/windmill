@@ -54,20 +54,11 @@ pub enum AnthropicRequestContent {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "image")]
-    Image {
-        source: AnthropicImageSource,
-    },
+    Image { source: AnthropicImageSource },
     #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: Box<RawValue>,
-    },
+    ToolUse { id: String, name: String, input: Box<RawValue> },
     #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-    },
+    ToolResult { tool_use_id: String, content: String },
 }
 
 /// Image source for Anthropic API
@@ -121,10 +112,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
                 // Convert user messages
                 let content = convert_content_to_anthropic(&msg.content);
                 if !content.is_empty() {
-                    result.push(AnthropicMessage {
-                        role: msg.role.clone(),
-                        content,
-                    });
+                    result.push(AnthropicMessage { role: msg.role.clone(), content });
                 }
             }
             "assistant" => {
@@ -156,10 +144,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
                 }
 
                 if !content.is_empty() {
-                    result.push(AnthropicMessage {
-                        role: "assistant".to_string(),
-                        content,
-                    });
+                    result.push(AnthropicMessage { role: "assistant".to_string(), content });
                 }
             }
             "tool" => {
@@ -235,7 +220,6 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
     }
 }
 
-
 /// Citation from Anthropic web search
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
@@ -276,22 +260,11 @@ pub enum AnthropicContentBlock {
         citations: Vec<AnthropicCitation>,
     },
     #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
+    ToolUse { id: String, name: String, input: serde_json::Value },
     #[serde(rename = "server_tool_use")]
-    ServerToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
+    ServerToolUse { id: String, name: String, input: serde_json::Value },
     #[serde(rename = "web_search_tool_result")]
-    WebSearchToolResult {
-        tool_use_id: String,
-        content: Vec<AnthropicWebSearchContent>,
-    },
+    WebSearchToolResult { tool_use_id: String, content: Vec<AnthropicWebSearchContent> },
     #[serde(other)]
     Unknown,
 }
@@ -349,13 +322,14 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Build system content from system_prompt
-        let system = args.system_prompt.map(|s| {
-            vec![AnthropicSystemContent {
+        // Build system content from system_prompt, but None if system_prompt is empty string
+        let system = match args.system_prompt {
+            Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text: s.to_string(),
-            }]
-        });
+            }]),
+            _ => None,
+        };
 
         let request = AnthropicRequest {
             model: args.model,
@@ -455,12 +429,8 @@ impl QueryBuilder for AnthropicQueryBuilder {
         let mut anthropic_sse_parser = AnthropicSSEParser::new(stream_event_processor);
         anthropic_sse_parser.parse_events(response).await?;
 
-        let AnthropicSSEParser {
-            accumulated_content,
-            accumulated_tool_calls,
-            events_str,
-            ..
-        } = anthropic_sse_parser;
+        let AnthropicSSEParser { accumulated_content, accumulated_tool_calls, events_str, .. } =
+            anthropic_sse_parser;
 
         // Note: Tool call arguments events are already sent by the parser during streaming
         // when content_block_stop is received
