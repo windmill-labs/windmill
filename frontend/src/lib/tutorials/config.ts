@@ -1,5 +1,5 @@
 import type { ComponentType } from 'svelte'
-import { Workflow, GraduationCap, Wrench, PlayCircle, Link2 } from 'lucide-svelte'
+import { Workflow, GraduationCap, Wrench, PlayCircle, Link2, History } from 'lucide-svelte'
 import { base } from '$lib/base'
 import type { Role } from './roleUtils'
 
@@ -88,6 +88,20 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				comingSoon: false,
 				roles: ['admin','developer'],
 				order: 3
+			},
+			{
+				id: 'runs-tutorial',
+				icon: History,
+				title: 'Explore the Runs page',
+				description: 'Learn how to monitor, filter, and manage your script and flow executions.',
+				onClick: () => {
+					window.location.href = `${base}/runs?tutorial=runs-tutorial`
+				},
+				index: 7,
+				active: true,
+				comingSoon: false,
+				roles: ['admin', 'developer'],
+				order: 4
 			},
 			{
 				id: 'workspace-onboarding-operator',
