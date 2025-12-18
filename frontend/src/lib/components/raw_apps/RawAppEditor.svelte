@@ -22,10 +22,12 @@
 	import { rawAppLintStore } from './lintStore'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import type { DataTableRef } from './RawAppDataTableList.svelte'
 
 	interface Props {
 		initFiles: Record<string, string>
 		initRunnables: Record<string, Runnable>
+		initDataTableRefs: DataTableRef[] | undefined
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -48,6 +50,7 @@
 	let {
 		initFiles,
 		initRunnables,
+		initDataTableRefs,
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -60,6 +63,7 @@
 
 	let runnables = $state(initRunnables)
 
+	let dataTableRefs: DataTableRef[] = $state(initDataTableRefs ?? [])
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
 			if (isRunnableByName(runnable)) {
@@ -540,6 +544,7 @@
 		{newPath}
 		appPath={path}
 		{files}
+		{dataTableRefs}
 		{runnables}
 		{getBundle}
 		canUndo={historyManager.canUndo}
@@ -561,6 +566,7 @@
 				onSelectFile={handleSelectFile}
 				bind:selectedRunnable
 				bind:selectedDocument
+				bind:dataTableRefs
 				{runnables}
 				{modules}
 				{historyManager}

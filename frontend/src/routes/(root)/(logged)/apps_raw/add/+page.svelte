@@ -14,6 +14,7 @@
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
+	import type { DataTableRef } from '$lib/components/raw_apps/RawAppDataTableList.svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -68,11 +69,13 @@
 			}
 		}
 	})
+	let dataTableRefs: DataTableRef[] = $state([])
 	loadApp()
 
 	function extractValue(value: any) {
 		files = value.files
 		runnables = value.runnables
+		dataTableRefs = value.datatables
 	}
 	async function loadApp() {
 		if (importRaw) {
@@ -185,6 +188,7 @@
 		}}
 		initFiles={files}
 		initRunnables={runnables}
+		initDataTableRefs={dataTableRefs}
 		{policy}
 		path={''}
 		{summary}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
@@ -10,13 +12,15 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
+	import type { DataTableRef } from '$lib/components/raw_apps/RawAppDataTableList.svelte'
 
-	let files: Record<string, string> | undefined = undefined
-	let runnables = {}
-	let newPath = ''
+	let files: Record<string, string> | undefined = $state(undefined)
+	let runnables = $state({})
+	let dataTableRefs: DataTableRef[] = []
+	let newPath = $state('')
 	// let lastVersion = 0
-	let policy: any = {}
-	let summary = ''
+	let policy: any = $state({})
+	let summary = $state('')
 
 	let savedApp:
 		| {
@@ -31,8 +35,8 @@
 				draft_only?: boolean
 				custom_path?: string
 		  }
-		| undefined = undefined
-	let redraw = 0
+		| undefined = $state(undefined)
+	let redraw = $state(0)
 	let path = page.params.path ?? ''
 
 	let nodraft = page.url.searchParams.get('nodraft')
@@ -47,6 +51,7 @@
 
 	function extractRawApp(app: any) {
 		runnables = app.value.runnables
+		dataTableRefs = app.value.datatables
 		files = app.value.files
 		summary = app.summary
 		// lastVersion = app.version
@@ -95,8 +100,8 @@
 				actions.push({
 					label: 'Show diff',
 					callback: async () => {
-						diffDrawer.openDrawer()
-						diffDrawer.setDiff({
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
 							mode: 'simple',
 							original: draftOrDeployed,
 							current: urlScript,
@@ -131,8 +136,8 @@
 					{
 						label: 'Show diff',
 						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
 								mode: 'simple',
 								original: deployed,
 								current: draft,
@@ -148,18 +153,18 @@
 		}
 	}
 
-	$: {
+	run(() => {
 		if ($workspaceStore) {
 			loadApp()
 		}
-	}
+	})
 
 	async function restoreDraft() {
 		if (!savedApp || !savedApp.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -170,7 +175,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedApp.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -183,7 +188,7 @@
 		redraw++
 	}
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
@@ -213,6 +218,7 @@
 				on:restore={onRestore}
 				initFiles={files}
 				initRunnables={runnables}
+				initDataTableRefs={dataTableRefs}
 				{summary}
 				{newPath}
 				path={page.params.path ?? ''}

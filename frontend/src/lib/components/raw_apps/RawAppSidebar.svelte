@@ -10,6 +10,8 @@
 	import RawAppHistoryList from './RawAppHistoryList.svelte'
 	import type { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import Button from '../common/button/Button.svelte'
+	import RawAppDataTableList, { type DataTableRef } from './RawAppDataTableList.svelte'
+	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -22,6 +24,7 @@
 		historySelectedId?: number | undefined
 		onHistorySelect?: (id: number) => void
 		onManualSnapshot?: () => void
+		dataTableRefs?: DataTableRef[]
 	}
 
 	let {
@@ -34,8 +37,27 @@
 		historyManager,
 		historySelectedId,
 		onHistorySelect,
-		onManualSnapshot
+		onManualSnapshot,
+		dataTableRefs = $bindable([])
 	}: Props = $props()
+
+	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
+	let selectedDataTableIndex: number | undefined = $state(undefined)
+
+	function handleAddDataTable(ref: DataTableRef) {
+		dataTableRefs = [...dataTableRefs, ref]
+	}
+
+	function handleRemoveDataTable(index: number) {
+		dataTableRefs = dataTableRefs.filter((_, i) => i !== index)
+		if (selectedDataTableIndex === index) {
+			selectedDataTableIndex = undefined
+		}
+	}
+
+	function handleSelectDataTable(ref: DataTableRef, index: number) {
+		selectedDataTableIndex = selectedDataTableIndex === index ? undefined : index
+	}
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
 
@@ -293,9 +315,14 @@
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />
 
 <div class="py-4"></div>
-<PanelSection fullHeight={false} size="lg" title="data">
-	<span class="text-2xs text-tertiary">Coming soon</span>
-</PanelSection>
+<RawAppDataTableList
+	bind:dataTableRefs
+	onAdd={() => dataTableDrawer?.openDrawer()}
+	onRemove={handleRemoveDataTable}
+	onSelect={handleSelectDataTable}
+	selectedIndex={selectedDataTableIndex}
+/>
+<RawAppDataTableDrawer bind:this={dataTableDrawer} onAdd={handleAddDataTable} />
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>
