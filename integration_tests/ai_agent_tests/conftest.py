@@ -166,6 +166,8 @@ def create_ai_agent_flow(
     provider_input_transform: dict[str, Any],
     system_prompt: str = "You are a helpful assistant. Be concise.",
     tools: list[dict[str, Any]] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    streaming: bool | None = None,
 ) -> dict[str, Any]:
     """
     Create a FlowValue for an AI agent.
@@ -174,6 +176,8 @@ def create_ai_agent_flow(
         provider_input_transform: The input transform for the provider field
         system_prompt: System prompt for the AI agent
         tools: Optional list of tool definitions
+        output_schema: Optional JSON schema for structured output
+        streaming: Optional flag to enable streaming responses
 
     Returns:
         A FlowValue dictionary ready to be sent to preview_flow
@@ -183,6 +187,14 @@ def create_ai_agent_flow(
         "system_prompt": {"type": "static", "value": system_prompt},
         "user_message": {"type": "javascript", "expr": "flow_input.user_message"},
     }
+
+    # Add output_schema if provided
+    if output_schema is not None:
+        input_transforms["output_schema"] = {"type": "static", "value": output_schema}
+
+    # Add streaming if provided
+    if streaming is not None:
+        input_transforms["streaming"] = {"type": "static", "value": streaming}
 
     module_value = {
         "type": "aiagent",

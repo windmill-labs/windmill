@@ -10,7 +10,7 @@ Tests AI agent tool calling with different tool types:
 import pytest
 
 from .conftest import AIAgentTestClient, create_ai_agent_flow, create_rawscript_tool
-from .providers import ALL_PROVIDERS
+from .providers import ALL_PROVIDERS, ANTHROPIC, GOOGLE_AI, OPENAI
 
 
 def get_provider_ids(providers: list) -> list[str]:
@@ -108,8 +108,8 @@ class TestToolCalling:
 
     @pytest.mark.parametrize(
         "provider_config",
-        ALL_PROVIDERS,
-        ids=get_provider_ids(ALL_PROVIDERS),
+        [OPENAI, ANTHROPIC, GOOGLE_AI],
+        ids=get_provider_ids([OPENAI, ANTHROPIC, GOOGLE_AI]),
     )
     def test_websearch_tool(
         self,

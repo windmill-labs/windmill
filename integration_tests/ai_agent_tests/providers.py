@@ -46,7 +46,7 @@ ANTHROPIC = {
     "name": "anthropic",
     "input_transform": make_provider_input_transform(
         kind="anthropic",
-        model="claude-sonnet-4-20250514",
+        model="claude-haiku-4-5-20251001",
         resource_path="u/admin/anthropic",
     ),
 }
@@ -55,7 +55,7 @@ GOOGLE_AI = {
     "name": "google_ai",
     "input_transform": make_provider_input_transform(
         kind="googleai",
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         resource_path="u/admin/googleai",
     ),
 }
@@ -63,8 +63,8 @@ GOOGLE_AI = {
 BEDROCK = {
     "name": "bedrock",
     "input_transform": make_provider_input_transform(
-        kind="bedrock",
-        model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        kind="aws_bedrock",
+        model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
         resource_path="u/admin/bedrock",
     ),
 }
@@ -73,7 +73,7 @@ OPENROUTER = {
     "name": "openrouter",
     "input_transform": make_provider_input_transform(
         kind="openrouter",
-        model="anthropic/claude-sonnet-4",
+        model="anthropic/claude-haiku-4.5",
         resource_path="u/admin/openrouter",
     ),
 }
