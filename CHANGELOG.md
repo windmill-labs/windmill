@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.593.1](https://github.com/windmill-labs/windmill/compare/v1.593.0...v1.593.1) (2025-12-18)
+
+
+### Bug Fixes
+
+* fix folder/group history seq id grant issues ([c9a19f1](https://github.com/windmill-labs/windmill/commit/c9a19f12d637ca47c4a9bbfe0e851198111c3e9e))
+
 ## [1.593.0](https://github.com/windmill-labs/windmill/compare/v1.592.1...v1.593.0) (2025-12-17)
 
 
