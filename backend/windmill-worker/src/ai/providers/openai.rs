@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::value::RawValue;
+use tracing::info;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
 };
 
@@ -86,6 +88,13 @@ pub struct ResponsesOutput {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<OutputTextContent>>,
+    // Fields for "function_call" type output (direct tool call from Responses API)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -111,19 +120,80 @@ pub enum ImageGenerationContent {
     InputImage { image_url: String },
 }
 
+/// Input items for OpenAI Responses API - supports messages, function calls, and function outputs
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResponsesApiInputItem {
+    /// User/assistant/system message
+    Message {
+        role: String,
+        content: Vec<ImageGenerationContent>,
+    },
+    /// Function call from model (must echo back from previous response)
+    FunctionCall {
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    /// Tool result output linked by call_id
+    FunctionCallOutput {
+        call_id: String,
+        output: String,
+    },
+}
+
 #[derive(Serialize)]
 pub struct ImageGenerationMessage {
     pub role: String,
     pub content: Vec<ImageGenerationContent>,
 }
 
+/// Tool definition for OpenAI Responses API (flat structure, not nested like Chat Completions)
+#[derive(Serialize, Debug)]
+pub struct ResponsesApiFunctionTool {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub parameters: Box<RawValue>,
+}
+
+impl From<&ToolDef> for ResponsesApiFunctionTool {
+    fn from(tool: &ToolDef) -> Self {
+        ResponsesApiFunctionTool {
+            r#type: tool.r#type.clone(),
+            name: tool.function.name.clone(),
+            description: tool.function.description.clone(),
+            parameters: tool.function.parameters.clone(),
+        }
+    }
+}
+
+/// Built-in tool for OpenAI Responses API (web_search, image_generation, etc.)
+#[derive(Serialize, Debug)]
+pub struct ResponsesApiBuiltInTool {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+}
+
+/// Tool types for OpenAI Responses API
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum ResponsesApiTool {
+    Function(ResponsesApiFunctionTool),
+    BuiltIn(ResponsesApiBuiltInTool),
+}
+
 #[derive(Serialize)]
 pub struct ResponsesApiRequest<'a> {
     pub model: &'a str,
-    pub input: Vec<ImageGenerationMessage>,
+    pub input: Vec<ResponsesApiInputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<&'a str>,
-    pub tools: Vec<serde_json::Value>, // Can be ImageGenerationTool, WebSearchTool, or ToolDef
+    pub tools: Vec<ResponsesApiTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -143,6 +213,111 @@ pub struct OpenAIQueryBuilder {
     provider_kind: AIProvider,
 }
 
+/// Convert OpenAIContent to ImageGenerationContent array
+fn convert_content_to_responses_format(content: &Option<OpenAIContent>) -> Vec<ImageGenerationContent> {
+    match content {
+        Some(OpenAIContent::Text(text)) => {
+            vec![ImageGenerationContent::InputText { text: text.clone() }]
+        }
+        Some(OpenAIContent::Parts(parts)) => {
+            parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => {
+                        Some(ImageGenerationContent::InputText { text: text.clone() })
+                    }
+                    ContentPart::ImageUrl { image_url } => {
+                        Some(ImageGenerationContent::InputImage { image_url: image_url.url.clone() })
+                    }
+                    // S3 objects should have been resolved earlier, but handle gracefully
+                    ContentPart::S3Object { .. } => None,
+                })
+                .collect()
+        }
+        None => Vec::new(),
+    }
+}
+
+/// Extract text content as a string from OpenAIContent
+fn extract_text_content(content: &Option<OpenAIContent>) -> String {
+    match content {
+        Some(OpenAIContent::Text(text)) => text.clone(),
+        Some(OpenAIContent::Parts(parts)) => {
+            parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        None => String::new(),
+    }
+}
+
+/// Convert OpenAIMessage array to Responses API input items
+/// Following the same pattern as frontend openai-responses.ts:convertMessagesToResponsesInput
+fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<ResponsesApiInputItem> {
+    let mut input = Vec::new();
+
+    for m in messages {
+        match m.role.as_str() {
+            "system" | "user" => {
+                // Regular message with content
+                let content = convert_content_to_responses_format(&m.content);
+                if !content.is_empty() {
+                    input.push(ResponsesApiInputItem::Message {
+                        role: m.role.clone(),
+                        content,
+                    });
+                }
+            }
+            "assistant" => {
+                // Assistant may have text content
+                if m.content.is_some() {
+                    let content = convert_content_to_responses_format(&m.content);
+                    if !content.is_empty() {
+                        input.push(ResponsesApiInputItem::Message {
+                            role: "assistant".to_string(),
+                            content,
+                        });
+                    }
+                }
+                // Echo back function calls so model knows what it previously requested
+                if let Some(ref tool_calls) = m.tool_calls {
+                    for tc in tool_calls {
+                        // Skip tool calls with empty names
+                        if tc.function.name.is_empty() {
+                            continue;
+                        }
+                        input.push(ResponsesApiInputItem::FunctionCall {
+                            call_id: tc.id.clone(),
+                            name: tc.function.name.clone(),
+                            arguments: tc.function.arguments.clone(),
+                        });
+                    }
+                }
+            }
+            "tool" => {
+                // Tool result - linked by tool_call_id
+                if let Some(ref call_id) = m.tool_call_id {
+                    let output = extract_text_content(&m.content);
+                    input.push(ResponsesApiInputItem::FunctionCallOutput {
+                        call_id: call_id.clone(),
+                        output,
+                    });
+                }
+            }
+            _ => {
+                // Unknown role, skip
+            }
+        }
+    }
+
+    input
+}
+
 impl OpenAIQueryBuilder {
     pub fn new(provider_kind: AIProvider) -> Self {
         Self { provider_kind }
@@ -151,73 +326,48 @@ impl OpenAIQueryBuilder {
     async fn build_text_request(
         &self,
         args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-        _stream: bool,
+        _client: &AuthedClient,
+        _workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
-        // Build input messages for responses API
-        let mut input_messages = Vec::new();
+        // Convert full message history to Responses API input format
+        // (following frontend pattern from openai-responses.ts)
+        let input_items = convert_messages_to_responses_input(args.messages);
 
-        // Add system prompt if present
-        if let Some(system_prompt) = args.system_prompt {
-            if !system_prompt.is_empty() {
-                input_messages.push(ImageGenerationMessage {
-                    role: "system".to_string(),
-                    content: vec![ImageGenerationContent::InputText { text: system_prompt.to_string() }],
-                });
-            }
-        }
-
-        // Add user message
-        input_messages.push(ImageGenerationMessage {
-            role: "user".to_string(),
-            content: vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }],
-        });
-
-        // Add images if provided
-        if let Some(images) = args.images {
-            for image in images.iter() {
-                if !image.s3.is_empty() {
-                    let (mime_type, image_bytes) =
-                        download_and_encode_s3_image(image, client, workspace_id).await?;
-                    if let Some(last_msg) = input_messages.last_mut() {
-                        last_msg.content.push(ImageGenerationContent::InputImage {
-                            image_url: format!("data:{};base64,{}", mime_type, image_bytes),
-                        });
-                    }
-                }
-            }
-        }
-
-        // Convert tools to JSON values
-        let mut tools: Vec<serde_json::Value> = Vec::new();
+        // Build tools array using typed structs
+        let mut tools: Vec<ResponsesApiTool> = Vec::new();
 
         // Add websearch tool if enabled
         if args.has_websearch {
-            tools.push(serde_json::json!({
-                "type": "web_search"
+            tools.push(ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+                r#type: "web_search".to_string(),
+                quality: None,
             }));
         }
 
+        // Convert ToolDef to ResponsesApiFunctionTool (flat structure for Responses API)
         if let Some(tool_defs) = args.tools {
             for tool in tool_defs {
-                tools.push(serde_json::to_value(tool).map_err(|e| {
-                    Error::internal_err(format!("Failed to serialize tool: {}", e))
-                })?);
+                tools.push(ResponsesApiTool::Function(ResponsesApiFunctionTool::from(tool)));
             }
         }
 
         let request = ResponsesApiRequest {
             model: args.model,
-            input: input_messages,
-            instructions: None, // System prompt is in messages now
+            input: input_items,
+            instructions: args.system_prompt, // System prompt goes to instructions field
             tools,
+            stream: if stream { Some(true) } else { None },
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
         };
 
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+
+        info!("[OPENAI_RESPONSES_API] Request: {}", request_json);
+
+        Ok(request_json)
     }
 
     async fn build_image_request(
@@ -243,17 +393,21 @@ impl OpenAIQueryBuilder {
             }
         }
 
-        // Build the request with tools if provided
-        let tools: Vec<serde_json::Value> = vec![serde_json::json!({
-            "type": "image_generation",
-            "quality": "low"
+        // Build the request with image generation tool
+        let tools: Vec<ResponsesApiTool> = vec![ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+            r#type: "image_generation".to_string(),
+            quality: Some("low".to_string()),
         })];
 
         let request = ResponsesApiRequest {
             model: args.model,
-            input: vec![ImageGenerationMessage { role: "user".to_string(), content }],
+            input: vec![ResponsesApiInputItem::Message {
+                role: "user".to_string(),
+                content,
+            }],
             instructions: args.system_prompt,
             tools,
+            stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
         };
@@ -271,8 +425,26 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn supports_streaming(&self) -> bool {
-        // Responses API doesn't support streaming yet (or has different streaming mechanism)
-        false
+        true
+    }
+
+    async fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+        stream_event_processor: StreamEventProcessor,
+    ) -> Result<ParsedResponse, Error> {
+        let mut parser = OpenAIResponsesSSEParser::new(stream_event_processor);
+        parser.parse_events(response).await?;
+
+        Ok(ParsedResponse::Text {
+            content: if parser.accumulated_content.is_empty() {
+                None
+            } else {
+                Some(parser.accumulated_content)
+            },
+            tool_calls: parser.accumulated_tool_calls.into_values().collect(),
+            events_str: Some(parser.events_str),
+        })
     }
 
     async fn build_request(
@@ -298,6 +470,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
 
+        info!("[OPENAI_RESPONSES_API] Raw response: {}", response_text);
+
         let responses_response: ResponsesApiResponse = serde_json::from_str(&response_text)
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -306,20 +480,78 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 ))
             })?;
 
-        // Find the first completed output
-        for output in responses_response.output {
+        info!(
+            "[OPENAI_RESPONSES_API] Parsed {} outputs",
+            responses_response.output.len()
+        );
+
+        // Collect function_call outputs (for parallel tool calls)
+        let mut collected_tool_calls: Vec<OpenAIToolCall> = Vec::new();
+
+        for (idx, output) in responses_response.output.iter().enumerate() {
+            info!(
+                "[OPENAI_RESPONSES_API] Output[{}]: type={}, status={:?}, has_message={}, has_content={}, has_result={}, has_name={}, has_call_id={}",
+                idx,
+                output.r#type,
+                output.status,
+                output.message.is_some(),
+                output.content.is_some(),
+                output.result.is_some(),
+                output.name.is_some(),
+                output.call_id.is_some()
+            );
+
             match output.r#type.as_str() {
                 "image_generation_call" => {
                     if output.status.as_deref() == Some("completed") {
-                        if let Some(base64_image) = output.result {
-                            return Ok(ParsedResponse::Image { base64_data: base64_image });
+                        if let Some(ref base64_image) = output.result {
+                            info!("[OPENAI_RESPONSES_API] Returning image_generation_call result (len={})", base64_image.len());
+                            return Ok(ParsedResponse::Image { base64_data: base64_image.clone() });
                         }
+                    }
+                    info!("[OPENAI_RESPONSES_API] Skipping image_generation_call: status={:?}, has_result={}", output.status, output.result.is_some());
+                }
+                // Handle "function_call" type output (direct tool call from Responses API)
+                "function_call" => {
+                    if output.status.as_deref() == Some("completed") {
+                        if let (Some(name), Some(arguments), Some(call_id)) =
+                            (&output.name, &output.arguments, &output.call_id)
+                        {
+                            info!(
+                                "[OPENAI_RESPONSES_API] Collecting function_call: name={}, call_id={}",
+                                name, call_id
+                            );
+                            collected_tool_calls.push(OpenAIToolCall {
+                                id: call_id.clone(),
+                                function: OpenAIFunction {
+                                    name: name.clone(),
+                                    arguments: arguments.clone(),
+                                },
+                                r#type: "function".to_string(),
+                                extra_content: None,
+                            });
+                        } else {
+                            info!(
+                                "[OPENAI_RESPONSES_API] Skipping function_call: missing fields - has_name={}, has_args={}, has_call_id={}",
+                                output.name.is_some(), output.arguments.is_some(), output.call_id.is_some()
+                            );
+                        }
+                    } else {
+                        info!(
+                            "[OPENAI_RESPONSES_API] Skipping function_call: status={:?}",
+                            output.status
+                        );
                     }
                 }
                 "message_call" => {
-                    if let Some(message) = output.message {
+                    if let Some(ref message) = output.message {
+                        info!(
+                            "[OPENAI_RESPONSES_API] Returning message_call: has_content={}, has_tool_calls={}",
+                            message.content.is_some(),
+                            message.tool_calls.is_some()
+                        );
                         return Ok(ParsedResponse::Text {
-                            content: message.content.map(|c| match c {
+                            content: message.content.clone().map(|c| match c {
                                 OpenAIContent::Text(text) => text,
                                 OpenAIContent::Parts(parts) => {
                                     // Extract text from parts
@@ -333,15 +565,20 @@ impl QueryBuilder for OpenAIQueryBuilder {
                                         .join(" ")
                                 }
                             }),
-                            tool_calls: message.tool_calls.unwrap_or_default(),
+                            tool_calls: message.tool_calls.clone().unwrap_or_default(),
                             events_str: None,
                         });
                     }
+                    info!("[OPENAI_RESPONSES_API] Skipping message_call: no message field");
                 }
                 // Handle "message" type output (used with web search responses)
                 "message" => {
                     if output.status.as_deref() == Some("completed") {
-                        if let Some(content_items) = output.content {
+                        if let Some(ref content_items) = output.content {
+                            info!(
+                                "[OPENAI_RESPONSES_API] message output has {} content items",
+                                content_items.len()
+                            );
                             // Extract text from output_text content items
                             let text_content: String = content_items
                                 .iter()
@@ -352,6 +589,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
                                 .join(" ");
 
                             if !text_content.is_empty() {
+                                info!("[OPENAI_RESPONSES_API] Returning message with text (len={})", text_content.len());
                                 return Ok(ParsedResponse::Text {
                                     content: Some(text_content),
                                     tool_calls: Vec::new(),
@@ -360,12 +598,30 @@ impl QueryBuilder for OpenAIQueryBuilder {
                             }
                         }
                     }
+                    info!("[OPENAI_RESPONSES_API] Skipping message: status={:?}, has_content={}", output.status, output.content.is_some());
                 }
                 // Skip web_search_call and other types
-                _ => continue,
+                other => {
+                    info!("[OPENAI_RESPONSES_API] Skipping unknown output type: {}", other);
+                    continue;
+                }
             }
         }
 
+        // Return collected function calls if any were found
+        if !collected_tool_calls.is_empty() {
+            info!(
+                "[OPENAI_RESPONSES_API] Returning {} function_call(s)",
+                collected_tool_calls.len()
+            );
+            return Ok(ParsedResponse::Text {
+                content: None,
+                tool_calls: collected_tool_calls,
+                events_str: None,
+            });
+        }
+
+        info!("[OPENAI_RESPONSES_API] No completed output found, returning error");
         Err(Error::internal_err(
             "No completed output received from OpenAI Responses API".to_string(),
         ))

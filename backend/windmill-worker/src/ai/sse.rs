@@ -486,3 +486,190 @@ impl SSEParser for GeminiSSEParser {
         Ok(())
     }
 }
+
+// ============================================================================
+// OpenAI Responses API SSE Parser
+// ============================================================================
+
+/// Output item structure for OpenAI Responses API streaming
+#[derive(Deserialize, Debug)]
+pub struct ResponsesOutputItem {
+    pub id: Option<String>,
+    pub r#type: Option<String>,
+    pub name: Option<String>,
+    pub call_id: Option<String>,
+}
+
+/// SSE event types for OpenAI Responses API streaming
+/// Based on frontend implementation: openai-responses.ts:220-302
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum OpenAIResponsesSSEEvent {
+    /// Text content delta
+    #[serde(rename = "response.output_text.delta")]
+    OutputTextDelta { delta: String },
+
+    /// New output item added (e.g., function_call start)
+    #[serde(rename = "response.output_item.added")]
+    OutputItemAdded { item: ResponsesOutputItem },
+
+    /// Function call arguments delta (streaming arguments)
+    #[serde(rename = "response.function_call_arguments.delta")]
+    FunctionCallArgumentsDelta { item_id: String, delta: String },
+
+    /// Function call arguments complete
+    #[serde(rename = "response.function_call_arguments.done")]
+    FunctionCallArgumentsDone { item_id: String, arguments: String },
+
+    /// Response complete
+    #[serde(rename = "response.done")]
+    Done {},
+
+    /// Response created
+    #[serde(rename = "response.created")]
+    Created {},
+
+    /// Response in progress
+    #[serde(rename = "response.in_progress")]
+    InProgress {},
+
+    /// Output item done
+    #[serde(rename = "response.output_item.done")]
+    OutputItemDone {},
+
+    /// Content part added
+    #[serde(rename = "response.content_part.added")]
+    ContentPartAdded {},
+
+    /// Content part done
+    #[serde(rename = "response.content_part.done")]
+    ContentPartDone {},
+
+    /// Catch-all for unknown event types
+    #[serde(other)]
+    Other,
+}
+
+/// OpenAI Responses API SSE Parser for streaming responses
+pub struct OpenAIResponsesSSEParser {
+    pub accumulated_content: String,
+    pub accumulated_tool_calls: HashMap<String, OpenAIToolCall>,
+    /// Maps item_id -> (name, call_id) for function calls
+    tool_call_metadata: HashMap<String, (String, String)>,
+    /// Maps item_id -> accumulated arguments
+    tool_call_arguments: HashMap<String, String>,
+    pub events_str: String,
+    pub stream_event_processor: StreamEventProcessor,
+}
+
+impl OpenAIResponsesSSEParser {
+    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+        Self {
+            accumulated_content: String::new(),
+            accumulated_tool_calls: HashMap::new(),
+            tool_call_metadata: HashMap::new(),
+            tool_call_arguments: HashMap::new(),
+            events_str: String::new(),
+            stream_event_processor,
+        }
+    }
+}
+
+impl SSEParser for OpenAIResponsesSSEParser {
+    async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        let event: Option<OpenAIResponsesSSEEvent> = serde_json::from_str(data)
+            .inspect_err(|e| {
+                tracing::error!(
+                    "Failed to parse SSE as an OpenAI Responses event {}: {}",
+                    data,
+                    e
+                );
+            })
+            .ok();
+
+        if let Some(event) = event {
+            match event {
+                OpenAIResponsesSSEEvent::OutputTextDelta { delta } => {
+                    if !delta.is_empty() {
+                        self.accumulated_content.push_str(&delta);
+                        let event = StreamingEvent::TokenDelta { content: delta };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+                }
+
+                OpenAIResponsesSSEEvent::OutputItemAdded { item } => {
+                    // Handle function_call type items
+                    if item.r#type.as_deref() == Some("function_call") {
+                        if let (Some(item_id), Some(name), Some(call_id)) =
+                            (item.id, item.name, item.call_id)
+                        {
+                            // Store metadata for this function call
+                            self.tool_call_metadata
+                                .insert(item_id.clone(), (name.clone(), call_id.clone()));
+                            self.tool_call_arguments
+                                .insert(item_id.clone(), String::new());
+
+                            // Send tool call start event
+                            let event = StreamingEvent::ToolCall {
+                                call_id: call_id.clone(),
+                                function_name: name.clone(),
+                            };
+                            self.stream_event_processor
+                                .send(event, &mut self.events_str)
+                                .await?;
+                        }
+                    }
+                }
+
+                OpenAIResponsesSSEEvent::FunctionCallArgumentsDelta { item_id, delta } => {
+                    // Accumulate arguments for this function call
+                    if let Some(args) = self.tool_call_arguments.get_mut(&item_id) {
+                        args.push_str(&delta);
+                    }
+                }
+
+                OpenAIResponsesSSEEvent::FunctionCallArgumentsDone { item_id, arguments } => {
+                    // Function call is complete - create the tool call
+                    if let Some((name, call_id)) = self.tool_call_metadata.get(&item_id) {
+                        // Send tool call arguments event
+                        let event = StreamingEvent::ToolCallArguments {
+                            call_id: call_id.clone(),
+                            function_name: name.clone(),
+                            arguments: arguments.clone(),
+                        };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+
+                        // Store the complete tool call
+                        self.accumulated_tool_calls.insert(
+                            item_id.clone(),
+                            OpenAIToolCall {
+                                id: call_id.clone(),
+                                function: OpenAIFunction {
+                                    name: name.clone(),
+                                    arguments,
+                                },
+                                r#type: "function".to_string(),
+                                extra_content: None,
+                            },
+                        );
+                    }
+                }
+
+                // Ignore other event types
+                OpenAIResponsesSSEEvent::Done {}
+                | OpenAIResponsesSSEEvent::Created {}
+                | OpenAIResponsesSSEEvent::InProgress {}
+                | OpenAIResponsesSSEEvent::OutputItemDone {}
+                | OpenAIResponsesSSEEvent::ContentPartAdded {}
+                | OpenAIResponsesSSEEvent::ContentPartDone {}
+                | OpenAIResponsesSSEEvent::Other => {}
+            }
+        }
+
+        Ok(())
+    }
+}
