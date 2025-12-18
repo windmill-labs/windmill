@@ -1347,6 +1347,7 @@ async fn edit_datatable_config(
 #[derive(Deserialize, Debug)]
 struct PrepareQueriesRequest {
     datatable: String,
+    schema: Option<String>,
     query: String,
 }
 
@@ -1395,6 +1396,13 @@ async fn prepare_query_inner(
     let Some((_, client)) = pg_connections.get_mut(&request.datatable) else {
         return Err(Error::InternalErr("Failed to get pg client".to_string()));
     };
+
+    if let Some(schema) = &request.schema {
+        client
+            .execute(&*format!("SET search_path TO {}", schema), &[])
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to set schema: {}", e)))?;
+    }
 
     // Prepare query and extract column information
     let prepared = client

@@ -3031,6 +3031,9 @@ paths:
                   datatable:
                     type: string
                     description: Name of the datatable to query
+                  schema:
+                    type: string
+                    description: Optional schema search path for the datatable
                   query:
                     type: string
                     description: SQL query to prepare

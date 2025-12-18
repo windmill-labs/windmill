@@ -29,7 +29,8 @@ export function usePreparedAssetSqlQueries(
 					workspace,
 					requestBody: queries.map((q) => ({
 						datatable: q.source_name,
-						query: q.query_string
+						query: q.query_string,
+						schema: q.source_schema
 					}))
 				})
 
