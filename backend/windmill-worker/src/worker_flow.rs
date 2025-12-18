@@ -3262,8 +3262,8 @@ async fn push_next_flow_job(
                 .map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if !step.is_preprocessor_step()
-            && (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
+        let tag = if step.is_preprocessor_step()
+            || (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
         {
             payload_tag.tag.clone()
         } else {
