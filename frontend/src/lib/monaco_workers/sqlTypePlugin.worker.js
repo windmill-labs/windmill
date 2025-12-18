@@ -32,7 +32,8 @@ export function injectSqlTypes(code, queries) {
 			' }>'
 		let rightPart = transformed?.substring(splitIdx + addedOffset)
 
-		offsetMap[splitIdx - 1 + addedOffset] = middlePart.length
+		// Store the ORIGINAL position (splitIdx - 1), not the transformed one
+		offsetMap[splitIdx - 1] = middlePart.length
 		addedOffset += middlePart.length
 		transformed = leftPart + middlePart + rightPart
 	}
@@ -99,18 +100,20 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
 			let { offsetMap } = injectSqlTypes(originalCode, queries)
-			let offsetMapEntries = Object.entries(offsetMap)
+			let offsetMapEntries = Object.entries(offsetMap).sort((a, b) => Number(a[0]) - Number(b[0]))
 
+			let cumulativeOffset = 0
 			for (const [pos, offset] of offsetMapEntries) {
-				// If the position is after an injection point, add the offset
-				if (position > Number(pos)) {
-					position += offset
+				const originalPos = Number(pos)
+				// If the position is after this injection point in the original code
+				if (position > originalPos) {
+					cumulativeOffset += offset
 				} else {
 					break
 				}
 			}
 
-			return position
+			return position + cumulativeOffset
 		} catch (error) {
 			console.error('[SqlTypePlugin] Error mapping position to transformed:', error)
 			return position
@@ -137,18 +140,22 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 			const originalCode = originalSnapshot.getText(0, originalSnapshot.getLength())
 			let { offsetMap } = injectSqlTypes(originalCode, queries)
-			let offsetMapEntries = Object.entries(offsetMap)
+			let offsetMapEntries = Object.entries(offsetMap).sort((a, b) => Number(a[0]) - Number(b[0]))
 
+			let cumulativeOffset = 0
 			for (const [pos, offset] of offsetMapEntries) {
-				// If position is after an injection point, subtract the offset
-				if (position > Number(pos)) {
-					position -= offset
+				const originalPos = Number(pos)
+				const transformedPos = originalPos + cumulativeOffset
+
+				// If position in transformed code is after this injection point
+				if (position > transformedPos) {
+					cumulativeOffset += offset
 				} else {
 					break
 				}
 			}
 
-			return position
+			return position - cumulativeOffset
 		} catch (error) {
 			console.error('[SqlTypePlugin] Error mapping position to original:', error)
 			return position
@@ -663,13 +670,16 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 		const sqlDiagnostics = []
 		for (const query of queries) {
-			if (query?.prepared?.error && typeof query.prepared.error === 'string') {
+			let messageText = query?.prepared?.error
+			if (typeof messageText === 'string') {
 				let queryStartIdx = originalCode.indexOf('`', (query.span?.[0] || 1) - 1) + 1
 				// Create a diagnostic error for this query
+				let prefix = 'Failed to prepare query: db error: ERROR: '
+				if (messageText.startsWith(prefix)) messageText = messageText.substring(prefix.length)
 				const diagnostic = {
 					code: 'SQL_PREPARATION_ERROR',
 					category: ts.typescript.DiagnosticCategory.Error,
-					messageText: query.prepared.error,
+					messageText,
 					file: fileName,
 					start: queryStartIdx,
 					length: query.span?.[1] ? query.span[1] - queryStartIdx - 2 : 0,
