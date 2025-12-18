@@ -1,16 +1,6 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.90-slim-bookworm
 
-# Build libwindmill_duckdb_ffi_internal.so separately
-FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
-
-WORKDIR /windmill-duckdb-ffi-internal
-RUN apt-get update && apt-get install -y pkg-config clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-COPY ./backend/windmill-duckdb-ffi-internal .
-RUN cargo build --release -p windmill_duckdb_ffi_internal
-
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -29,6 +19,20 @@ WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
 # ENV CARGO_INCREMENTAL=1
+
+FROM rust_base AS windmill_duckdb_ffi_internal_builder
+
+WORKDIR /windmill-duckdb-ffi-internal
+
+RUN apt-get update && apt-get install -y clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY ./backend/windmill-duckdb-ffi-internal .
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo build --release -p windmill_duckdb_ffi_internal
 
 FROM node:24-alpine as frontend
 
@@ -232,7 +236,7 @@ RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 7
 
 
 
-# Create a non-root user 'windmill' with UID and GID 1000
+# Cr,.eate a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \
     adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
 

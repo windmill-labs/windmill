@@ -37,13 +37,14 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
-    get_database_url, parse_postgres_url,
+    get_database_url,
     utils::{
         get_custom_pg_instance_password, not_found_if_none, paginate, require_admin, Pagination,
         StripPath,
     },
     variables,
     worker::{CLOUD_HOSTED, TMP_DIR},
+    PgDatabase,
 };
 
 pub fn workspaced_service() -> Router {
@@ -473,15 +474,13 @@ pub async fn get_resource_value_interpolated_internal<'a>(
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
         let db = db_with_opt_authed.db();
         require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
-        let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
-        return Ok(Some(serde_json::json!({
-            "dbname": dbname,
-            "host": pg_creds.host,
-            "port": pg_creds.port,
-            "user": "custom_instance_user",
-            "sslmode": pg_creds.ssl_mode,
-            "password": get_custom_pg_instance_password(&db).await?,
-        })));
+        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+        pg_creds.dbname = dbname.to_string();
+        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        pg_creds.user = Some("custom_instance_user".to_string());
+        let pg_creds = serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?;
+        return Ok(Some(pg_creds));
     }
 
     if allow_cache {
