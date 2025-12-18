@@ -4,6 +4,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
+	import WebsearchToolDisplay from './WebsearchToolDisplay.svelte'
 
 	interface Props {
 		tool: AgentTool
@@ -47,6 +48,5 @@
 	<!-- MCP tool - use McpToolEditor -->
 	<McpToolEditor bind:tool={tool as McpTool} {noEditor} />
 {:else if isWebsearchTool(tool)}
-	<!-- Websearch tool - use WebsearchToolEditor -->
-	 <div>Websearch tool</div>
+	<WebsearchToolDisplay {noEditor} />
 {/if}

@@ -228,6 +228,7 @@ pub enum AnthropicSSEEvent {
 
 /// Tracks state of a content block during streaming
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ContentBlockState {
     Text,
     ToolUse { id: String, name: String },

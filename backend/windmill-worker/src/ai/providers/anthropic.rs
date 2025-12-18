@@ -230,6 +230,7 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
 
 /// Citation from Anthropic web search
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct AnthropicCitation {
     #[serde(default)]
     pub start_index: Option<usize>,
@@ -243,6 +244,7 @@ pub struct AnthropicCitation {
 
 /// Web search result content from Anthropic
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct AnthropicWebSearchContent {
     #[serde(default)]
     pub r#type: Option<String>,
@@ -257,6 +259,7 @@ pub struct AnthropicWebSearchContent {
 /// Anthropic content block - can be text, tool_use, server_tool_use, or web_search_tool_result
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum AnthropicContentBlock {
     #[serde(rename = "text")]
     Text {
@@ -287,6 +290,7 @@ pub enum AnthropicContentBlock {
 
 /// Anthropic native API response
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct AnthropicResponse {
     #[serde(default)]
     pub content: Vec<AnthropicContentBlock>,
