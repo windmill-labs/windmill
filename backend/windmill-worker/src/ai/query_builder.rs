@@ -94,14 +94,15 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     use windmill_common::ai_providers::AIProvider;
 
     match provider.kind {
+        // Google AI uses the Gemini API
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
-        AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
-        // OpenAI and Azure OpenAI use the Responses API
-        AIProvider::OpenAI | AIProvider::AzureOpenAI => {
+        // OpenAI use the Responses API
+        AIProvider::OpenAI => {
             Box::new(OpenAIQueryBuilder::new(provider.kind.clone()))
         }
         // Anthropic uses its own API format
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(provider.kind.clone())),
+        AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         // All other providers use the completion endpoint
         _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),
     }
