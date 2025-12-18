@@ -66,6 +66,7 @@ pub struct UrlCitation {
 
 /// Output text content item (used in "message" type outputs)
 #[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 pub struct OutputTextContent {
     pub r#type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,6 +76,7 @@ pub struct OutputTextContent {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct ResponsesOutput {
     pub r#type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -143,6 +145,7 @@ pub enum ResponsesApiInputItem {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 pub struct ImageGenerationMessage {
     pub role: String,
     pub content: Vec<ImageGenerationContent>,
