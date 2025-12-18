@@ -1,5 +1,6 @@
 <script lang="ts">
 	import IconedResourceType from './IconedResourceType.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
 
 	export let value: any
@@ -46,22 +47,31 @@
 	>
 	{#if enabled}
 		<div class="border rounded p-4 flex flex-col gap-6">
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Zitadel Url</span>
-				<span class="text-secondary font-normal text-xs">({'ZITADEL_URL/oauth/v2/authorize'})</span>
-				<input type="text" placeholder="yourorg" bind:value={org} />
+				<span class="text-secondary font-normal text-xs">{'ZITADEL_URL/oauth/v2/authorize'}</span>
+				<TextInput inputProps={{ type: 'text', placeholder: 'yourorg' }} bind:value={org} />
 			</label>
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+					bind:value={value['display_name']}
+				/>
 			</label>
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Id</span>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
 			<label>
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					bind:value={value['secret']}
+				/>
 			</label>
 		</div>
 	{/if}

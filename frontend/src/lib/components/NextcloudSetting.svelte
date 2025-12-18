@@ -1,8 +1,8 @@
 <script lang="ts">
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
-	import Tooltip from './Tooltip.svelte'
 
 	interface Props {
 		value: any
@@ -60,27 +60,39 @@
 	>
 	{#if enabled}
 		<div class="p-4 rounded-md border flex flex-col gap-6">
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Nextcloud Instance Domain</span>
-				<input type="text" placeholder="example.nextcloud.com" bind:value={value['domain']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'example.nextcloud.com' }}
+					bind:value={value['domain']}
+				/>
 			</label>
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+					bind:value={value['display_name']}
+				/>
 			</label>
-			<label>
-				<span class="text-emphasis font-semibold text-xs"
-					>Client Id <Tooltip>Client ID from your Nextcloud OAuth2 app configuration</Tooltip></span
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Id </span>
+				<span class="text-secondary font-normal text-xs"
+					>Client ID from your Nextcloud OAuth2 app configuration</span
 				>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
-			<label>
-				<span class="text-emphasis font-semibold text-xs"
-					>Client Secret <Tooltip
-						>Client Secret from your Nextcloud OAuth2 app configuration</Tooltip
-					></span
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
+				<span class="text-secondary font-normal text-xs"
+					>Client Secret from your Nextcloud OAuth2 app configuration</span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					bind:value={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4">

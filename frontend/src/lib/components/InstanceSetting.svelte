@@ -6,14 +6,14 @@
 	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import ConfirmButton from './ConfirmButton.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		ConfigService,
 		IndexSearchService,
 		SettingService,
 		type ListAvailablePythonVersionsResponse
 	} from '$lib/gen'
-	import { Button, SecondsInput, Skeleton } from './common'
+	import { Button, SecondsInput, Section, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
@@ -28,6 +28,7 @@
 	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Label from './Label.svelte'
 
 	interface Props {
 		setting: Setting
@@ -132,6 +133,8 @@
 	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
 	let isPyFetching = $state(false)
+	let clearJobsIndexModalOpen = $state(false)
+	let clearServiceLogsIndexModalOpen = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
@@ -509,166 +512,224 @@
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} smtpSettings={$values.smtp_settings || {}} />
 				{:else if setting.fieldType == 'indexer_rates'}
-					<div class="flex flex-col gap-4 mt-4">
+					<div class="flex flex-col gap-16 mt-4">
 						{#if $values[setting.key]}
-							<div class="flex flex-col gap-1">
-								<label for="writer_memory_budget" class="block text-xs font-semibold text-emphasis">
-									Index writer memory budget (MB)
-									<Tooltip>
-										The allocated memory arena for the indexer. A bigger value means less writing to
-										disk and potentially higher indexing throughput
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="writer_memory_budget"
-									placeholder="300"
-									oninput={(e) => {
-										if (e.target instanceof HTMLInputElement) {
-											if (e.target.valueAsNumber) {
-												$values[setting.key].writer_memory_budget =
-													e.target.valueAsNumber * (1024 * 1024)
+							<Section label="Memory" class="space-y-6">
+								<div class="flex flex-col gap-1">
+									<label
+										for="writer_memory_budget"
+										class="block text-xs font-semibold text-emphasis"
+									>
+										Index writer memory budget (MB)
+										<Tooltip>
+											The allocated memory arena for the indexer. A bigger value means less writing
+											to disk and potentially higher indexing throughput
+										</Tooltip>
+									</label>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '300',
+											id: 'writer_memory_budget',
+											disabled: !$enterpriseLicense,
+											oninput: (e) => {
+												if (e.target instanceof HTMLInputElement) {
+													if (e.target.valueAsNumber) {
+														$values[setting.key].writer_memory_budget =
+															e.target.valueAsNumber * (1024 * 1024)
+													}
+												}
 											}
-										}
+										}}
+										value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
+									/>
+								</div>
+								<Label label="Clear index">
+									<span class="text-xs text-secondary"
+										>This buttons will clear the whole index, and the service will start reindexing
+										from scratch. Full text search might be down during this time.</span
+									>
+									<div class="flex flex-row gap-2">
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											on:click={() => {
+												clearJobsIndexModalOpen = true
+											}}
+										>
+											Clear jobs index
+										</Button>
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											on:click={() => {
+												clearServiceLogsIndexModalOpen = true
+											}}
+										>
+											Clear service logs index
+										</Button>
+									</div>
+								</Label>
+								<ConfirmationModal
+									title="Clear jobs index"
+									confirmationText="Clear"
+									open={clearJobsIndexModalOpen}
+									type="danger"
+									on:canceled={() => {
+										clearJobsIndexModalOpen = false
 									}}
-									value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
-								/>
-							</div>
-							<h3 class="text-sm font-semibold text-emphasis mt-8">Completed Job Index</h3>
-							<div class="flex flex-col gap-1">
-								<label
-									for="commit_job_max_batch_size"
-									class="block text-xs font-semibold text-emphasis"
-								>
-									Commit max batch size <Tooltip>
-										The max amount of documents (here jobs) per commit. To optimize indexing
-										throughput, it is best to keep this as high as possible. However, especially
-										when reindexing the whole instance, it can be useful to have a limit on how many
-										jobs can be written without being committed. A commit will make the jobs
-										available for search, constitute a "checkpoint" state in the indexing and will
-										be logged.
-									</Tooltip>
-								</label>
-								<TextInput
-									inputProps={{
-										type: 'number',
-										placeholder: '100000',
-										id: 'commit_job_max_batch_size',
-										disabled: !$enterpriseLicense
-									}}
-									bind:value={$values[setting.key].commit_job_max_batch_size}
-								/>
-							</div>
-							<div class="flex flex-col gap-1">
-								<label for="refresh_index_period" class="block text-xs font-semibold text-emphasis">
-									Refresh index period (s) <Tooltip>
-										The index will query new jobs periodically and write them on the index. This
-										setting sets that period.
-									</Tooltip></label
-								>
-								<TextInput
-									inputProps={{
-										type: 'number',
-										placeholder: '300',
-										id: 'refresh_index_period',
-										disabled: !$enterpriseLicense
-									}}
-									bind:value={$values[setting.key].refresh_index_period}
-								/>
-							</div>
-							<div class="flex flex-col gap-1">
-								<label
-									for="max_indexed_job_log_size"
-									class="block text-xs font-semibold text-emphasis"
-								>
-									Max indexed job log size (KB) <Tooltip>
-										Job logs are included when indexing, but to avoid the index size growing
-										artificially, the logs will be truncated after a size has been reached.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="max_indexed_job_log_size"
-									placeholder="1024"
-									oninput={(e) => {
-										if (e.target instanceof HTMLInputElement) {
-											if (e.target.valueAsNumber) {
-												$values[setting.key].max_indexed_job_log_size =
-													e.target.valueAsNumber * 1024
-											}
-										}
-									}}
-									value={$values[setting.key].max_indexed_job_log_size / 1024}
-								/>
-							</div>
-							<h3 class="text-sm font-semibold text-emphasis mt-8">Service logs index</h3>
-							<div class="flex flex-col gap-1">
-								<label
-									for="commit_log_max_batch_size"
-									class="block text-xs font-semibold text-emphasis"
-									>Commit max batch size <Tooltip>
-										The max amount of documents per commit. In this case 1 document is one log file
-										representing all logs during 1 minute for a specific host. To optimize indexing
-										throughput, it is best to keep this as high as possible. However, especially
-										when reindexing the whole instance, it can be useful to have a limit on how many
-										logs can be written without being committed. A commit will make the logs
-										available for search, appear as a log line, and be a "checkpoint" of the
-										indexing progress.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="commit_log_max_batch_size"
-									placeholder="10000"
-									bind:value={$values[setting.key].commit_log_max_batch_size}
-								/>
-							</div>
-							<div class="flex flex-col gap-1">
-								<label
-									for="refresh_log_index_period"
-									class="block text-xs font-semibold text-emphasis"
-								>
-									Refresh index period (s) <Tooltip>
-										The index will query new service logs peridically and write them on the index.
-										This setting sets that period.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="refresh_log_index_period"
-									placeholder="300"
-									bind:value={$values[setting.key].refresh_log_index_period}
-								/>
-							</div>
-							<h3 class="text-sm font-semibold text-emphasis mt-8">Reset Index</h3>
-							<p class="text-xs text-primary font-normal">
-								This buttons will clear the whole index, and the service will start reindexing from
-								scratch. Full text search might be down during this time.
-							</p>
-							<div>
-								<ConfirmButton
-									on:click={async () => {
-										let r = await IndexSearchService.clearIndex({
+									on:confirmed={async () => {
+										const r = await IndexSearchService.clearIndex({
 											idxName: 'JobIndex'
 										})
-										console.log('asasd')
 										sendUserToast(r)
-									}}>Clear <b>Jobs</b> Index</ConfirmButton
+										clearJobsIndexModalOpen = false
+									}}
 								>
-								<ConfirmButton
-									on:click={async () => {
-										let r = await IndexSearchService.clearIndex({
+									Are you sure you want to clear the jobs index? The service will start reindexing
+									from scratch. Full text search might be down during this time.
+								</ConfirmationModal>
+								<ConfirmationModal
+									title="Clear service logs index"
+									confirmationText="Clear"
+									open={clearServiceLogsIndexModalOpen}
+									type="danger"
+									on:canceled={() => {
+										clearServiceLogsIndexModalOpen = false
+									}}
+									on:confirmed={async () => {
+										const r = await IndexSearchService.clearIndex({
 											idxName: 'ServiceLogIndex'
 										})
-										console.log('asasd')
 										sendUserToast(r)
-									}}>Clear <b>Service logs</b> index</ConfirmButton
+										clearServiceLogsIndexModalOpen = false
+									}}
 								>
-							</div>
+									Are you sure you want to clear the service logs index? The service will start
+									reindexing from scratch. Full text search might be down during this time.
+								</ConfirmationModal>
+							</Section>
+							<hr class="border-t -my-6" />
+							<Section label="Completed Job Index" class="space-y-6">
+								<div class="flex flex-col gap-1">
+									<label
+										for="commit_job_max_batch_size"
+										class="block text-xs font-semibold text-emphasis"
+									>
+										Commit max batch size <Tooltip>
+											The max amount of documents (here jobs) per commit. To optimize indexing
+											throughput, it is best to keep this as high as possible. However, especially
+											when reindexing the whole instance, it can be useful to have a limit on how
+											many jobs can be written without being committed. A commit will make the jobs
+											available for search, constitute a "checkpoint" state in the indexing and will
+											be logged.
+										</Tooltip>
+									</label>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '100000',
+											id: 'commit_job_max_batch_size',
+											disabled: !$enterpriseLicense
+										}}
+										bind:value={$values[setting.key].commit_job_max_batch_size}
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label
+										for="refresh_index_period"
+										class="block text-xs font-semibold text-emphasis"
+									>
+										Refresh index period (s) <Tooltip>
+											The index will query new jobs periodically and write them on the index. This
+											setting sets that period.
+										</Tooltip></label
+									>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '300',
+											id: 'refresh_index_period',
+											disabled: !$enterpriseLicense
+										}}
+										bind:value={$values[setting.key].refresh_index_period}
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label
+										for="max_indexed_job_log_size"
+										class="block text-xs font-semibold text-emphasis"
+									>
+										Max indexed job log size (KB) <Tooltip>
+											Job logs are included when indexing, but to avoid the index size growing
+											artificially, the logs will be truncated after a size has been reached.
+										</Tooltip>
+									</label>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '1024',
+											id: 'max_indexed_job_log_size',
+											disabled: !$enterpriseLicense,
+											oninput: (e) => {
+												if (e.target instanceof HTMLInputElement) {
+													if (e.target.valueAsNumber) {
+														$values[setting.key].max_indexed_job_log_size =
+															e.target.valueAsNumber * 1024
+													}
+												}
+											}
+										}}
+										value={$values[setting.key].max_indexed_job_log_size / 1024}
+									/>
+								</div>
+							</Section>
+							<hr class="border-t -my-6" />
+							<Section label="Service logs index" class="space-y-6">
+								<div class="flex flex-col gap-1">
+									<label
+										for="commit_log_max_batch_size"
+										class="block text-xs font-semibold text-emphasis"
+										>Commit max batch size <Tooltip>
+											The max amount of documents per commit. In this case 1 document is one log
+											file representing all logs during 1 minute for a specific host. To optimize
+											indexing throughput, it is best to keep this as high as possible. However,
+											especially when reindexing the whole instance, it can be useful to have a
+											limit on how many logs can be written without being committed. A commit will
+											make the logs available for search, appear as a log line, and be a
+											"checkpoint" of the indexing progress.
+										</Tooltip>
+									</label>
+									<input
+										disabled={!$enterpriseLicense}
+										type="number"
+										id="commit_log_max_batch_size"
+										placeholder="10000"
+										bind:value={$values[setting.key].commit_log_max_batch_size}
+									/>
+								</div>
+
+								<div class="flex flex-col gap-1">
+									<label
+										for="refresh_log_index_period"
+										class="block text-xs font-semibold text-emphasis"
+									>
+										Refresh index period (s) <Tooltip>
+											The index will query new service logs peridically and write them on the index.
+											This setting sets that period.
+										</Tooltip>
+									</label>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '300',
+											id: 'refresh_log_index_period',
+											disabled: !$enterpriseLicense
+										}}
+										bind:value={$values[setting.key].refresh_log_index_period}
+									/>
+								</div>
+							</Section>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel'}
@@ -695,38 +756,42 @@
 								/>
 							</div>
 
-							<div>
+							<div class="flex flex-col gap-1">
 								<label
 									for="OTEL_EXPORTER_OTLP_ENDPOINT"
 									class="block text-xs font-semibold text-emphasis">Endpoint</label
 								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="text"
-									id="OTEL_EXPORTER_OTLP_ENDPOINT"
-									placeholder="http://otel-collector.example.com:4317"
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'http://otel-collector.example.com:4317',
+										id: 'OTEL_EXPORTER_OTLP_ENDPOINT',
+										disabled: !$enterpriseLicense
+									}}
 									bind:value={$values[setting.key].otel_exporter_otlp_endpoint}
 								/>
 							</div>
-							<div>
+							<div class="flex flex-col gap-1">
 								<label
 									for="OTEL_EXPORTER_OTLP_HEADERS"
 									class="block text-xs font-semibold text-emphasis">Headers</label
 								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="text"
-									id="OTEL_EXPORTER_OTLP_HEADERS"
-									placeholder="Authorization=Bearer my-secret-token,Env=production"
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'Authorization=Bearer my-secret-token,Env=production',
+										id: 'OTEL_EXPORTER_OTLP_HEADERS',
+										disabled: !$enterpriseLicense
+									}}
 									bind:value={$values[setting.key].otel_exporter_otlp_headers}
 								/>
 							</div>
-							<div>
+							<div class="flex flex-col gap-1">
 								<label
 									for="OTEL_EXPORTER_OTLP_PROTOCOL"
 									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
-								gRPC
+								<span class="text-primary font-normal text-xs">gRPC</span>
 							</div>
 							<!-- <div>
 							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"

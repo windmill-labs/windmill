@@ -6,6 +6,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		value: any
@@ -82,22 +83,31 @@
 					</div>
 				</div>
 			</label>
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+					bind:value={value['display_name']}
+				/>
 			</label>
-			<label>
-				<span class="text-emphasis font-semibold text-xs"
-					>Client ID <Tooltip>Client ID credential of the auth0 service configuration</Tooltip
-					></span
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client ID </span>
+				<span class="text-secondary font-normal text-xs"
+					>Client ID credential of the auth0 service configuration</span
 				>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
-			<label>
+			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs"
 					>Client Secret <Tooltip>Client Secret of the auth0 service configuration</Tooltip></span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					bind:value={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">

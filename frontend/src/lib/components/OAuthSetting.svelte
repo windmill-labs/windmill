@@ -6,6 +6,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import Button from './common/button/Button.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		name: string
@@ -101,21 +102,30 @@
 			{#if name != 'slack' && name != 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Custom Name</span>
-					<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+					<TextInput
+						inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+						bind:value={value['display_name']}
+					/>
 				</label>
 			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Id</span>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret</span>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					bind:value={value['secret']}
+				/>
 			</label>
 			{#if name == 'microsoft' || name == 'teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Tenant Id</span>
-					<input type="text" placeholder="Tenant Id" bind:value={tenant} />
+					<TextInput inputProps={{ type: 'text', placeholder: 'Tenant Id' }} bind:value={tenant} />
 				</label>
 			{:else if login}
 				<label class="flex flex-col gap-1">
@@ -196,11 +206,16 @@
 								Create a new OAuth 2.0 Client <a
 									href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
 									target="_blank"
-									class="inline-flex items-center gap-1 whitespace-nowrap"
-								>in Microsoft portal</a>:
+									class="inline-flex items-center gap-1 whitespace-nowrap">in Microsoft portal</a
+								>:
 								<ul class="list-disc ml-4 mt-1 space-y-1">
 									<li>Click <strong>"Add"</strong> → <strong>"App Registration"</strong></li>
-									<li>Select <strong>"Accounts in this organizational directory only (Default Directory only - Single tenant)"</strong></li>
+									<li
+										>Select <strong
+											>"Accounts in this organizational directory only (Default Directory only -
+											Single tenant)"</strong
+										></li
+									>
 								</ul>
 							</div>
 						</div>
@@ -211,7 +226,11 @@
 								In the <strong>"Authentication"</strong> tab:
 								<ul class="list-disc ml-4 mt-1 space-y-1">
 									<li>Set the redirect URI to <strong>Web</strong></li>
-									<li>Add redirect URI: <code class="bg-surface px-1 rounded text-xs">BASE_URL/user/login_callback/microsoft</code></li>
+									<li
+										>Add redirect URI: <code class="bg-surface px-1 rounded text-xs"
+											>BASE_URL/user/login_callback/microsoft</code
+										></li
+									>
 								</ul>
 							</div>
 						</div>
@@ -223,7 +242,10 @@
 								<ul class="list-disc ml-4 mt-1 space-y-1">
 									<li>Copy <strong>"Directory (tenant ID)"</strong> to the tenant ID field</li>
 									<li>Copy <strong>"Application (client) ID"</strong> to the Client ID field</li>
-									<li>Create a secret in <strong>"Client credentials"</strong> and copy to Client Secret field</li>
+									<li
+										>Create a secret in <strong>"Client credentials"</strong> and copy to Client Secret
+										field</li
+									>
 								</ul>
 							</div>
 						</div>
