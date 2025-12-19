@@ -523,7 +523,7 @@
 						<div class="w-full max-w-lg">
 							{#if $enterpriseLicense && Array.isArray($values[setting.key])}
 								{#each $values[setting.key] ?? [] as v, i}
-									<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
+									<div class="flex w-full max-w-lg mt-1 gap-2 items-start">
 										<select
 											class="max-w-24"
 											onchange={(e) => {
@@ -574,7 +574,7 @@
 															$values['critical_error_channels'][i]?.teams_channel?.channel_name
 													}
 												: undefined}
-											<div class="flex flex-row gap-2 w-full">
+											<div class="flex flex-row gap-2 w-full items-start">
 												<TeamSelector
 													containerClass="w-44"
 													minWidth="140px"
