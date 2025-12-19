@@ -22,5 +22,7 @@
 			startIcon={{ icon: Settings }}
 			onclick={openSmtpSettings}>Configure SMTP</Button
 		>
+	{:else}
+		<span class="text-xs text-secondary">SMTP is configured by the instance admin</span>
 	{/if}
 </div>

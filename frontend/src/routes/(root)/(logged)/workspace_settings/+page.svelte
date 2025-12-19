@@ -1039,7 +1039,7 @@
 				{/if}
 				<Section
 					label="Workspace Error Handler"
-					description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. You can use a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>"
+					description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>"
 					class="space-y-6"
 				>
 					<ErrorOrRecoveryHandler
@@ -1091,9 +1091,10 @@
 								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 									!emptyString(errorHandlerScriptPath) &&
 									emptyString(errorHandlerExtraArgs['channel']))}
-							size="sm"
+							unifiedSize="md"
 							on:click={editErrorHandler}
 							startIcon={{ icon: Save }}
+							variant="accent"
 						>
 							Save error handler
 						</Button>

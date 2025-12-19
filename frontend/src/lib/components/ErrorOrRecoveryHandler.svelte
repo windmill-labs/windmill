@@ -59,6 +59,7 @@
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
+	import { SettingService } from '$lib/gen'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
@@ -101,6 +102,7 @@
 
 	let workspaceConnectedToSlack: boolean | undefined = $state(undefined)
 	let workspaceConnectedToTeams: boolean | undefined = $state(undefined)
+	let hasSmtpConfig: boolean = $state(false)
 
 	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined =
 		$state()
@@ -129,6 +131,33 @@
 			teams_team_name = settings.teams_team_name
 			teams_team_id = settings.teams_team_id
 		}
+	}
+
+	async function loadSmtpConfiguration() {
+		try {
+			const smtpSettings = (await SettingService.getGlobal({ key: 'smtp_settings' })) as Record<
+				string,
+				any
+			> | null
+			hasSmtpConfig = smtpSettings ? isSmtpSettingsValid(smtpSettings) : false
+		} catch (error) {
+			hasSmtpConfig = false
+		}
+	}
+
+	function isSmtpSettingsValid(smtpSettings: Record<string, any>) {
+		return (
+			smtpSettings &&
+			smtpSettings.smtp_host &&
+			smtpSettings.smtp_host.trim() !== '' &&
+			smtpSettings.smtp_port &&
+			smtpSettings.smtp_username &&
+			smtpSettings.smtp_username.trim() !== '' &&
+			smtpSettings.smtp_password &&
+			smtpSettings.smtp_password.trim() !== '' &&
+			smtpSettings.smtp_from &&
+			smtpSettings.smtp_from.trim() !== ''
+		)
 	}
 
 	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {
@@ -265,6 +294,7 @@
 			loadSlackResources()
 			loadTeamsResources()
 		}
+		loadSmtpConfiguration()
 	})
 
 	$effect(() => {
@@ -343,7 +373,7 @@
 		{/snippet}
 	</ToggleButtonGroup>
 
-	<div class="flex flex-col gap-4 p-4 rounded-md border">
+	<div class="flex flex-col gap-6 p-4 rounded-md border">
 		{#if handlerSelected === 'custom'}
 			<div class="flex flex-row mb-6">
 				<ScriptPicker
@@ -397,34 +427,32 @@
 				{/if}
 			{/if}
 		{:else if handlerSelected === 'slack'}
-			<div class="flex gap-4">
-				{#if workspaceConnectedToSlack}
-					<Toggle
-						disabled={!$enterpriseLicense || !isEditable}
-						checked={isSlackHandler(handlerPath)}
-						options={{ right: toggleText }}
-						on:change={async (e) => {
-							if (e.detail && errorOrRecovery === 'error') {
-								handlerPath = slackHandlerScriptPath
-							} else if (e.detail && errorOrRecovery === 'recovery') {
-								handlerPath = slackRecoveryHandler
-							} else if (e.detail && errorOrRecovery === 'success') {
-								handlerPath = slackSuccessHandler
-							} else {
-								handlerPath = undefined
-							}
-						}}
-					/>
-				{/if}
+			<!-- Slack Connection Status -->
+			<SlackConnectionStatus
+				isConnected={workspaceConnectedToSlack}
+				slackTeamName={slack_team_name}
+				mode="workspace"
+				onRefresh={loadSlackResources}
+			/>
 
-				<!-- Slack Connection Status -->
-				<SlackConnectionStatus
-					isConnected={workspaceConnectedToSlack}
-					slackTeamName={slack_team_name}
-					mode="workspace"
-					onRefresh={loadSlackResources}
+			{#if workspaceConnectedToSlack}
+				<Toggle
+					disabled={!$enterpriseLicense || !isEditable}
+					checked={isSlackHandler(handlerPath)}
+					options={{ right: toggleText }}
+					on:change={async (e) => {
+						if (e.detail && errorOrRecovery === 'error') {
+							handlerPath = slackHandlerScriptPath
+						} else if (e.detail && errorOrRecovery === 'recovery') {
+							handlerPath = slackRecoveryHandler
+						} else if (e.detail && errorOrRecovery === 'success') {
+							handlerPath = slackSuccessHandler
+						} else {
+							handlerPath = undefined
+						}
+					}}
 				/>
-			</div>
+			{/if}
 
 			{#if workspaceConnectedToSlack && isSlackHandler(handlerPath)}
 				<div class="flex flex-col gap-2">
@@ -483,34 +511,32 @@
 				<Loader2 class="animate-spin" size={10} />
 			{/if}
 		{:else if handlerSelected === 'teams'}
-			<div class="flex gap-4">
-				{#if workspaceConnectedToTeams}
-					<Toggle
-						disabled={!$enterpriseLicense || !isEditable}
-						checked={isTeamsHandler(handlerPath)}
-						options={{ right: toggleText }}
-						on:change={async (e) => {
-							if (e.detail && errorOrRecovery === 'error') {
-								handlerPath = teamsHandlerScriptPath
-							} else if (e.detail && errorOrRecovery === 'recovery') {
-								handlerPath = teamsRecoveryHandler
-							} else if (e.detail && errorOrRecovery === 'success') {
-								handlerPath = teamsSuccessHandler
-							} else {
-								handlerPath = undefined
-							}
-						}}
-					/>
-				{/if}
+			<!-- Teams Connection Status -->
+			<TeamsConnectionStatus
+				isConnected={workspaceConnectedToTeams}
+				teamsTeamName={teams_team_name}
+				mode="workspace"
+				onRefresh={loadTeamsResources}
+			/>
 
-				<!-- Teams Connection Status -->
-				<TeamsConnectionStatus
-					isConnected={workspaceConnectedToTeams}
-					teamsTeamName={teams_team_name}
-					mode="workspace"
-					onRefresh={loadTeamsResources}
+			{#if workspaceConnectedToTeams}
+				<Toggle
+					disabled={!$enterpriseLicense || !isEditable}
+					checked={isTeamsHandler(handlerPath)}
+					options={{ right: toggleText }}
+					on:change={async (e) => {
+						if (e.detail && errorOrRecovery === 'error') {
+							handlerPath = teamsHandlerScriptPath
+						} else if (e.detail && errorOrRecovery === 'recovery') {
+							handlerPath = teamsRecoveryHandler
+						} else if (e.detail && errorOrRecovery === 'success') {
+							handlerPath = teamsSuccessHandler
+						} else {
+							handlerPath = undefined
+						}
+					}}
 				/>
-			</div>
+			{/if}
 
 			<div class="flex flex-col gap-2">
 				{#if workspaceConnectedToTeams}
@@ -580,7 +606,7 @@
 					instances.
 				</Alert>
 			{:else}
-				<SmtpConfigurationStatus hasSmtpConfig />
+				<SmtpConfigurationStatus {hasSmtpConfig} />
 
 				<div class="flex flex-col gap-2">
 					<MultiSelect
@@ -602,7 +628,7 @@
 						class="w-full"
 					/>
 					{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
-						<span class="text-sm text-primary">
+						<span class="text-xs text-secondary">
 							{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
 								EMAIL_RECIPIENTS_KEY
 							]?.length === 1
