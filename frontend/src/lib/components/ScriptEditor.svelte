@@ -6,12 +6,7 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import {
-		inferArgs,
-		inferAssets,
-		inferAnsibleExecutionMode,
-		type InferAssetsSqlQueryDetails
-	} from '$lib/infer'
+	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -65,6 +60,7 @@
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
+	import { resource, watch } from 'runed'
 
 	interface Props {
 		// Exported
@@ -154,8 +150,8 @@
 		shellcheck: false
 	})
 
-	let _parsedAssetsSqlQueries: InferAssetsSqlQueryDetails[] | undefined = $state.raw()
-	let preparedAssetsSqlQueries = usePreparedAssetSqlQueries(() => _parsedAssetsSqlQueries)
+	let inferAssetsRes = resource([() => lang, () => code], () => inferAssets(lang, code))
+	let preparedSqlQueries = usePreparedAssetSqlQueries(() => inferAssetsRes.current?.sql_queries)
 
 	const dispatch = createEventDispatcher()
 
@@ -165,42 +161,34 @@
 			dispatch('change', { code, schema })
 	})
 
-	$effect(() => {
-		;[lang, code]
-		untrack(() => {
-			inferAssets(lang, code).then((inferAssetsResult) => {
-				if (inferAssetsResult.status === 'error') return
+	watch(
+		() => inferAssetsRes.current,
+		() => {
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
+			for (const asset of newAssets) {
+				const old = assets?.find((a) => assetEq(a, asset))
+				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+			}
+			if (!deepEqual(assets, newAssets)) assets = newAssets
+		}
+	)
 
-				if (!deepEqual(_parsedAssetsSqlQueries, inferAssetsResult.sql_queries)) {
-					_parsedAssetsSqlQueries = inferAssetsResult.sql_queries
-				}
-
-				let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
-				for (const asset of newAssets) {
-					const old = assets?.find((a) => assetEq(a, asset))
-					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
-				}
-				if (!deepEqual(assets, newAssets)) assets = newAssets
-			})
-
-			if (lang === 'ansible') {
-				inferAnsibleExecutionMode(code).then((v) => {
-					if (
-						v !== undefined &&
-						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !==
-								ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !==
-								ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !==
-								ansibleAlternativeExecutionMode?.inventories_location ||
-							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
-							v.git_ssh_identity !== ansibleGitSshIdentity)
-					) {
-						ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
-						ansibleGitSshIdentity = v.git_ssh_identity
-					}
-				})
+	watch([() => code, () => lang], () => {
+		if (lang !== 'ansible') return
+		inferAnsibleExecutionMode(code).then((v) => {
+			if (
+				v !== undefined &&
+				(v.delegate_to_git_repo_details === null ||
+					v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
+					v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
+					v.delegate_to_git_repo_details.inventories_location !==
+						ansibleAlternativeExecutionMode?.inventories_location ||
+					v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
+					v.git_ssh_identity !== ansibleGitSshIdentity)
+			) {
+				ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
+				ansibleGitSshIdentity = v.git_ssh_identity
 			}
 		})
 	})
@@ -923,7 +911,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={Object.values(preparedAssetsSqlQueries.current ?? {})}
+				preparedAssetsSqlQueries={Object.values(preparedSqlQueries.current ?? {})}
 			/>
 			<DiffEditor
 				className="h-full"
