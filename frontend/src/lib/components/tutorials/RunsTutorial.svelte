@@ -7,6 +7,8 @@
 	import { wait } from '$lib/utils'
 	import { waitJob } from '$lib/components/waitJob'
 	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, DELAY_ANIMATION, createFakeCursor } from './utils'
+	import { goto } from '$app/navigation'
+	import { base } from '$lib/base'
 
 	interface Props {
 		index: number
@@ -115,197 +117,150 @@
 	}
 
 	function getTutorialSteps(driver: any): DriveStep[] {
-		let successfulFlowPath: string | undefined = undefined
-		
 		return [
 			{
 				popover: {
 					title: 'Welcome to the Runs page!',
 					description:
-						"Let's explore how to monitor and manage your script and flow executions in Windmill. We'll create some example runs to demonstrate the features.",
+						"Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you to explore.",
 					onNextClick: () => {
 						driver.moveNext()
 					}
 				}
 			},
 			{
-				popover: {
-					title: 'Creating and running a flow...',
-					description:
-						'We\'ll create a simple flow, deploy it, and run it so you can see how runs appear in this page.',
-					onNextClick: async () => {
-						try {
-							successfulFlowPath = await createTutorialFlow()
+				element: '#runs-table-wrapper',
+				onHighlighted: async () => {
+					await wait(DELAY_MEDIUM)
+					
+					// Find both jobs
+					const allJobRows = Array.from(
+						document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
+					) as HTMLElement[]
+					
+					// Find successful job (green badge/check icon) - first one that's not failed
+					const successfulJobRow = allJobRows.find((el) => {
+						const hasRedBadge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+						const hasGreenBadge = el.querySelector('[class*="bg-green"], [class*="text-green"]')
+						return !hasRedBadge && hasGreenBadge !== null
+					}) || allJobRows[0]
+
+					// Find failed job (red badge/X icon)
+					const failedJobRow = allJobRows.find((el) => {
+						const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+						return badge !== null
+					})
+
+					if (successfulJobRow && failedJobRow) {
+						// Create cursor once for both clicks
+						const cursor = createFakeCursor()
+						
+						// Click on successful job first
+						const successRect = successfulJobRow.getBoundingClientRect()
+						cursor.style.left = `${successRect.left - 100}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_SHORT)
+						
+						cursor.style.left = `${successRect.left + successRect.width / 2}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+						
+						successfulJobRow.click()
+						await wait(DELAY_SHORT)
+						
+						// Wait for navigation to job details page
+						await wait(DELAY_LONG)
+						
+						// Navigate back to runs page using SvelteKit navigation
+						await goto(`${base}/runs?tutorial=runs-tutorial`, { replaceState: true })
+						await wait(DELAY_LONG)
+						
+						// Re-find the failed job after navigation
+						const failedJobRowAfterNav = Array.from(
+							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
+						).find((el) => {
+							const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+							return badge !== null
+						}) as HTMLElement
+						
+						if (failedJobRowAfterNav) {
+							// Click on failed job
+							const failedRect = failedJobRowAfterNav.getBoundingClientRect()
+							cursor.style.left = `${failedRect.left - 100}px`
+							cursor.style.top = `${failedRect.top + failedRect.height / 2}px`
+							await wait(DELAY_SHORT)
+							
+							cursor.style.left = `${failedRect.left + failedRect.width / 2}px`
+							cursor.style.top = `${failedRect.top + failedRect.height / 2}px`
+							await wait(DELAY_ANIMATION)
 							await wait(DELAY_MEDIUM)
-							if (successfulFlowPath) {
-								await runFlowAndWait(successfulFlowPath)
-								await wait(DELAY_LONG)
-							}
-							driver.moveNext()
-						} catch (error) {
-							console.error('Error creating/running flow:', error)
-							driver.moveNext()
+							
+							failedJobRowAfterNav.click()
+							await wait(DELAY_SHORT)
+							
+							// Wait for navigation to job details page
+							await wait(DELAY_LONG)
+							
+							// Navigate back to runs page using SvelteKit navigation
+							await goto(`${base}/runs?tutorial=runs-tutorial`, { replaceState: true })
+							await wait(DELAY_LONG)
 						}
+						
+						// Remove the cursor
+						cursor.remove()
+						// Move to next step which highlights canvas
+						driver.moveNext()
+					}
+				},
+				popover: {
+					title: 'Exploring job runs',
+					description:
+						'We\'re clicking on both a successful and a failed job to show you how to inspect different types of executions. Watch as we explore both!',
+					side: 'bottom',
+					onNextClick: () => {
+						// Don't move next here - it's handled in onHighlighted
 					}
 				}
 			},
 			{
 				element: 'canvas',
+				onHighlighted: async () => {
+					await wait(DELAY_MEDIUM)
+					// Find the button with data-value="ConcurrencyChart"
+					const concurrencyButton = document.querySelector(
+						'button[data-value="ConcurrencyChart"]'
+					) as HTMLElement
+					
+					if (concurrencyButton) {
+						// Create cursor with initial position
+						const cursor = createFakeCursor()
+						const buttonRect = concurrencyButton.getBoundingClientRect()
+						
+						// Set initial position (off-screen to the left)
+						cursor.style.left = `${buttonRect.left - 100}px`
+						cursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
+						await wait(DELAY_SHORT)
+						
+						// Animate to target position
+						cursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
+						cursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+						
+						// Click on the button
+						concurrencyButton.click()
+						await wait(DELAY_SHORT)
+						
+						// Remove the cursor
+						cursor.remove()
+						await wait(DELAY_MEDIUM)
+					}
+				},
 				popover: {
 					title: 'Visual run history',
 					description:
 						'This chart gives you a visual overview of your run history at a glance. You can quickly see the pattern of executions over time.',
-					side: 'bottom',
-					onNextClick: () => {
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '#runs-table-wrapper',
-				onHighlighted: async () => {
-					await wait(DELAY_MEDIUM)
-					// Find the first run row (div with cursor-pointer class inside the wrapper)
-					const firstRunRow = document.querySelector(
-						'#runs-table-wrapper .cursor-pointer'
-					) as HTMLElement
-					if (firstRunRow) {
-						// Create cursor with initial position
-						const cursor = createFakeCursor()
-						const rowRect = firstRunRow.getBoundingClientRect()
-						
-						// Set initial position (off-screen to the left)
-						cursor.style.left = `${rowRect.left - 100}px`
-						cursor.style.top = `${rowRect.top + rowRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						// Animate to target position
-						cursor.style.left = `${rowRect.left + rowRect.width / 2}px`
-						cursor.style.top = `${rowRect.top + rowRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						// Click on the run row
-						firstRunRow.click()
-						await wait(DELAY_SHORT)
-						
-						// Remove the cursor
-						cursor.remove()
-						// Wait for navigation to job details page
-						await wait(DELAY_LONG)
-					}
-				},
-				popover: {
-					title: 'Your execution history',
-					description:
-						'This table shows all your recent script and flow runs. We\'re clicking on the first run to view its details, logs, and results.',
-					side: 'bottom',
-					onNextClick: () => {
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: 'div.flex.flex-col.gap-2.items-start.p-4.pb-8.min-h-full',
-				onHighlighted: async () => {
-					// Wait for the results div to be visible
-					await wait(DELAY_MEDIUM)
-				},
-				popover: {
-					title: 'Job results',
-					description:
-						'Here you can see the results of the job execution, including any output data, return values, and execution details.',
-					side: 'bottom',
-					onNextClick: () => {
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				popover: {
-					title: 'Creating a broken flow...',
-					description:
-						'Now let\'s create a flow that will fail, so you can see how failed jobs appear in the runs list.',
-					onNextClick: async () => {
-						try {
-							// Navigate back to runs page first if we're on a job details page
-							if (window.location.pathname.includes('/run/')) {
-								window.history.back()
-								await wait(DELAY_LONG)
-							}
-							
-							const brokenFlowPath = await createBrokenFlow()
-							await wait(DELAY_MEDIUM)
-							// Run the broken flow
-							await runFlowAndWait(brokenFlowPath)
-							await wait(DELAY_LONG)
-							driver.moveNext()
-						} catch (error) {
-							console.error('Error creating/running broken flow:', error)
-							driver.moveNext()
-						}
-					}
-				}
-			},
-			{
-				element: '#runs-table-wrapper',
-				onHighlighted: async () => {
-					await wait(DELAY_MEDIUM)
-					// Find the failed job (red badge/X icon)
-					const failedJobRow = Array.from(
-						document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
-					).find((el) => {
-						// Look for a red badge or X icon indicating failure
-						const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
-						return badge !== null
-					}) as HTMLElement
-
-					if (failedJobRow) {
-						// Create cursor with initial position
-						const cursor = createFakeCursor()
-						const rowRect = failedJobRow.getBoundingClientRect()
-						
-						// Set initial position (off-screen to the left)
-						cursor.style.left = `${rowRect.left - 100}px`
-						cursor.style.top = `${rowRect.top + rowRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						// Animate to target position
-						cursor.style.left = `${rowRect.left + rowRect.width / 2}px`
-						cursor.style.top = `${rowRect.top + rowRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						// Click on the failed job row
-						failedJobRow.click()
-						await wait(DELAY_SHORT)
-						
-						// Remove the cursor
-						cursor.remove()
-						// Wait for navigation to job details page
-						await wait(DELAY_LONG)
-					}
-				},
-				popover: {
-					title: 'Failed jobs',
-					description:
-						'Failed jobs are marked with a red badge. Click on a failed job to see the error details and understand what went wrong.',
-					side: 'bottom',
-					onNextClick: () => {
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: 'div.flex.flex-col.gap-2.items-start.p-4.pb-8.min-h-full',
-				onHighlighted: async () => {
-					// Wait for the error results div to be visible
-					await wait(DELAY_MEDIUM)
-				},
-				popover: {
-					title: 'Error details',
-					description:
-						'Here you can see the error message and details from the failed job. This helps you understand what went wrong and how to fix it.',
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
@@ -327,8 +282,25 @@
 	}
 
 
-	// Start tutorial
-	export function runTutorial() {
+	// Start tutorial - create and run both jobs first
+	export async function runTutorial() {
+		// Create and run both flows at the beginning
+		try {
+			const successfulFlowPath = await createTutorialFlow()
+			const brokenFlowPath = await createBrokenFlow()
+			
+			// Run both flows in parallel
+			await Promise.all([
+				runFlowAndWait(successfulFlowPath),
+				runFlowAndWait(brokenFlowPath)
+			])
+			
+			// Wait a bit for jobs to appear
+			await wait(DELAY_LONG)
+		} catch (error) {
+			console.error('Error creating/running tutorial flows:', error)
+		}
+		
 		tutorial?.runTutorial()
 	}
 </script>
