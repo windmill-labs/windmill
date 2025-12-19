@@ -1684,3 +1684,21 @@ export function getJobKindIcon(jobKind: Job['job_kind']) {
 		return Bot
 	} else if (jobKind) return Code
 }
+
+export function chunkBy<T>(array: T[], getKey: (key: T) => string): T[][] {
+	const chunks: T[][] = []
+
+	for (const item of array) {
+		const key = getKey(item)
+		let lastChunk = chunks[chunks.length - 1]
+
+		if (!lastChunk || getKey(lastChunk[0]) !== key) {
+			lastChunk = []
+			chunks.push(lastChunk)
+		}
+
+		lastChunk.push(item)
+	}
+
+	return chunks
+}

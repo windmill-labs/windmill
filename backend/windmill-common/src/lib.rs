@@ -331,16 +331,16 @@ async fn reset() -> () {
 }
 
 #[derive(Serialize, Debug)]
-pub struct ColumnInfo {
+pub struct PrepareQueryColumnInfo {
     pub name: String,
     #[serde(rename = "type")]
     pub type_name: String,
 }
 
 #[derive(Serialize, Debug)]
-pub struct QueryResult {
+pub struct PrepareQueryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub columns: Option<Vec<ColumnInfo>>,
+    pub columns: Option<Vec<PrepareQueryColumnInfo>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

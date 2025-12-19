@@ -99,10 +99,12 @@ export type InferAssetsSqlQueryDetails = {
 	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
 	source_name: string // e.g., "main", "dt"
 	source_schema?: string // e.g., "public", optional
-	prepared?:
-		| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
-		| { error: string } // error message if preparation failed
+	prepared?: PreparedAssetsSqlQuery
 }
+
+export type PreparedAssetsSqlQuery =
+	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
+	| { error: string; columns?: undefined } // error message if preparation failed
 
 export async function inferAssets(
 	language: SupportedLanguage | undefined,

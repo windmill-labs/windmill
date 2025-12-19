@@ -38,7 +38,6 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
@@ -47,7 +46,6 @@ use windmill_common::workspaces::{
     DataTable, DataTableCatalogResourceType, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
-use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -135,7 +133,6 @@ pub fn workspaced_service() -> Router {
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
         .route("/edit_datatable_config", post(edit_datatable_config))
-        .route("/prepare_queries", post(prepare_queries))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1342,130 +1339,6 @@ async fn edit_datatable_config(
     tx.commit().await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
-}
-
-#[derive(Deserialize, Debug)]
-struct PrepareQueriesRequest {
-    datatable: String,
-    schema: Option<String>,
-    query: String,
-}
-
-#[derive(Serialize, Debug)]
-struct ColumnInfo {
-    name: String,
-    #[serde(rename = "type")]
-    type_name: String,
-}
-
-#[derive(Serialize, Debug)]
-struct QueryResult {
-    columns: Option<Vec<ColumnInfo>>,
-    error: Option<String>,
-}
-
-#[derive(Serialize, Debug)]
-struct PrepareQueriesResponse {
-    results: Vec<QueryResult>,
-}
-
-async fn prepare_query_inner(
-    request: &PrepareQueriesRequest,
-    pg_connections: &mut HashMap<
-        String,
-        (
-            tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>,
-            tokio_postgres::Client,
-        ),
-    >,
-    w_id: &str,
-    db: &DB,
-) -> Result<QueryResult> {
-    if !pg_connections.contains_key(&request.datatable) {
-        if pg_connections.len() >= 5 {
-            return Err(Error::BadRequest(
-                "Too many unique datatables in request (max 5)".to_string(),
-            ));
-        }
-        let db_resource =
-            get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
-        let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
-            Error::InternalErr(format!("Failed to parse datatable resource: {}", e))
-        })?;
-
-        let (client, connection) = database.connect().await?;
-        let join_handle = tokio::spawn(async move { connection.await });
-        pg_connections.insert(request.datatable.clone(), (join_handle, client));
-    }
-
-    let Some((_, client)) = pg_connections.get_mut(&request.datatable) else {
-        return Err(Error::InternalErr("Failed to get pg client".to_string()));
-    };
-
-    if let Some(schema) = &request.schema {
-        // Validate name to ensure it only contains alphanumeric characters
-        // Prevents SQL injection on the instance database
-        lazy_static::lazy_static! {
-            static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-        }
-        if !VALID_NAME.is_match(schema) {
-            return Err(Error::BadRequest(
-                "Schema name must be alphanumeric, underscores allowed".to_string(),
-            ));
-        }
-        client
-            .execute(&*format!("SET search_path TO {}", schema), &[])
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Failed to set schema: {}", e)))?;
-    } else {
-        client
-            .execute("RESET search_path", &[])
-            .await
-            .map_err(|e| Error::ExecutionErr(format!("Failed to reset search_path: {}", e)))?;
-    }
-
-    // Prepare query and extract column information
-    let prepared = client
-        .prepare(&request.query)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to prepare query: {}", e)))?;
-
-    let columns: Option<Vec<ColumnInfo>> = Some(
-        prepared
-            .columns()
-            .iter()
-            .map(|col| ColumnInfo {
-                name: col.name().to_string(),
-                type_name: col.type_().name().to_string(),
-            })
-            .collect(),
-    );
-    Ok(QueryResult { columns, error: None })
-}
-
-async fn prepare_queries(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(requests): Json<Vec<PrepareQueriesRequest>>,
-) -> JsonResult<PrepareQueriesResponse> {
-    let mut results = Vec::new();
-    let mut pg_connections = HashMap::new();
-
-    for request in &requests {
-        match prepare_query_inner(request, &mut pg_connections, &w_id, &db).await {
-            Ok(result) => results.push(result),
-            Err(err) => results.push(QueryResult { columns: None, error: Some(err.to_string()) }),
-        }
-    }
-
-    // Clean up connections
-    for (join_handle, client) in pg_connections.into_values() {
-        drop(client);
-        let _ = join_handle.await;
-    }
-
-    Ok(Json(PrepareQueriesResponse { results }))
 }
 
 #[derive(Deserialize)]

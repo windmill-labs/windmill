@@ -29,7 +29,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
-use windmill_common::{ColumnInfo, PgDatabase, QueryResult};
+use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -303,19 +303,19 @@ pub async fn do_postgresql(
                 let prepared = client.prepare(&query).await;
                 let prepared = match prepared {
                     Ok(prepared) => {
-                        let columns: Option<Vec<ColumnInfo>> = Some(
+                        let columns: Option<Vec<PrepareQueryColumnInfo>> = Some(
                             prepared
                                 .columns()
                                 .iter()
-                                .map(|col| ColumnInfo {
+                                .map(|col| PrepareQueryColumnInfo {
                                     name: col.name().to_string(),
                                     type_name: col.type_().name().to_string(),
                                 })
                                 .collect(),
                         );
-                        QueryResult { columns, error: None }
+                        PrepareQueryResult { columns, error: None }
                     }
-                    Err(e) => QueryResult { columns: None, error: Some(e.to_string()) },
+                    Err(e) => PrepareQueryResult { columns: None, error: Some(e.to_string()) },
                 };
                 results.push(vec![to_raw_value(&prepared)]);
                 continue;
