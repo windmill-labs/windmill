@@ -706,7 +706,7 @@ impl BedrockQueryBuilder {
             } else {
                 Some(events_str)
             },
-            annotations: None,
+            annotations: Vec::new(),
             used_websearch: false,
         })
     }

@@ -168,7 +168,7 @@ impl QueryBuilder for OtherQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
-            annotations: None,
+            annotations: Vec::new(),
             used_websearch: false,
         })
     }
