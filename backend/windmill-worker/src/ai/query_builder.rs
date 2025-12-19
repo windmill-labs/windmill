@@ -61,19 +61,18 @@ pub trait QueryBuilder: Send + Sync {
         workspace_id: &str,
     ) -> Result<String, Error>;
 
-    /// Parse the response from the provider
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error>;
+    /// Parse the image response from the provider
+    async fn parse_image_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error>;
 
     /// Parse streaming response from the provider
     async fn parse_streaming_response(
         &self,
         _response: reqwest::Response,
         _stream_event_processor: StreamEventProcessor,
-    ) -> Result<ParsedResponse, Error> {
-        return Err(Error::internal_err(
-            "Missing implementation for parse_streaming_response for this provider".to_string(),
-        ));
-    }
+    ) -> Result<ParsedResponse, Error>;
 
     /// Get the API endpoint for this provider
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;

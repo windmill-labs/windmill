@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
@@ -10,16 +10,6 @@ use crate::ai::{
     types::*,
     utils::should_use_structured_output_tool,
 };
-
-#[derive(Deserialize)]
-pub struct OpenAIChoice {
-    pub message: OpenAIMessage,
-}
-
-#[derive(Deserialize)]
-pub struct OpenAIResponse {
-    pub choices: Vec<OpenAIChoice>,
-}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -135,39 +125,13 @@ impl QueryBuilder for OtherQueryBuilder {
         self.build_text_request(args, client, workspace_id).await
     }
 
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // Parse text/chat completion response
-        let openai_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to parse response: {}", e)))?;
-
-        let first_choice = openai_response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::internal_err("No response from API"))?;
-
-        Ok(ParsedResponse::Text {
-            content: first_choice.message.content.map(|c| match c {
-                OpenAIContent::Text(text) => text,
-                OpenAIContent::Parts(parts) => {
-                    // Extract text from parts
-                    parts
-                        .into_iter()
-                        .filter_map(|part| match part {
-                            ContentPart::Text { text } => Some(text),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                }
-            }),
-            tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
-            events_str: None,
-            annotations: Vec::new(),
-            used_websearch: false,
-        })
+    async fn parse_image_response(
+        &self,
+        _response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        Err(Error::internal_err(
+            "Image response not supported".to_string(),
+        ))
     }
 
     async fn parse_streaming_response(

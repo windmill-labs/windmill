@@ -489,29 +489,16 @@ impl QueryBuilder for OpenAIQueryBuilder {
         }
     }
 
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
-
-        tracing::info!(
-            "[AI_PROVIDER_RESPONSE] OpenAI raw response: {}",
-            response_text
-        );
-
-        let responses_response: ResponsesApiResponse = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to parse OpenAI responses API response: {}. Raw response: {}",
-                    e, response_text
-                ))
-            })?;
-
-        // Collect function_call outputs (for parallel tool calls)
-        let mut collected_tool_calls: Vec<OpenAIToolCall> = Vec::new();
-        let mut used_websearch = false;
-        let mut collected_annotations: Vec<UrlCitation> = Vec::new();
+    async fn parse_image_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        let responses_response: ResponsesApiResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse OpenAI responses API response: {}",
+                e
+            ))
+        })?;
 
         for output in responses_response.output.iter() {
             match output.r#type.as_str() {
@@ -522,94 +509,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
                         }
                     }
                 }
-                "function_call" => {
-                    if output.status.as_deref() == Some("completed") {
-                        if let (Some(name), Some(arguments), Some(call_id)) =
-                            (&output.name, &output.arguments, &output.call_id)
-                        {
-                            collected_tool_calls.push(OpenAIToolCall {
-                                id: call_id.clone(),
-                                function: OpenAIFunction {
-                                    name: name.clone(),
-                                    arguments: arguments.clone(),
-                                },
-                                r#type: "function".to_string(),
-                                extra_content: None,
-                            });
-                        }
-                    }
+                _ => {
+                    continue;
                 }
-                "web_search_call" => {
-                    // Track that websearch was used
-                    used_websearch = true;
-                }
-                "message_call" => {
-                    if let Some(ref message) = output.message {
-                        return Ok(ParsedResponse::Text {
-                            content: message.content.clone().map(|c| match c {
-                                OpenAIContent::Text(text) => text,
-                                OpenAIContent::Parts(parts) => parts
-                                    .into_iter()
-                                    .filter_map(|part| match part {
-                                        ContentPart::Text { text } => Some(text),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" "),
-                            }),
-                            tool_calls: message.tool_calls.clone().unwrap_or_default(),
-                            events_str: None,
-                            annotations: collected_annotations,
-                            used_websearch,
-                        });
-                    }
-                }
-                "message" => {
-                    if output.status.as_deref() == Some("completed") {
-                        if let Some(ref content_items) = output.content {
-                            let text_content: String = content_items
-                                .iter()
-                                .filter(|item| item.r#type == "output_text")
-                                .filter_map(|item| item.text.as_ref())
-                                .cloned()
-                                .collect::<Vec<_>>()
-                                .join(" ");
-
-                            // Extract annotations from all output_text items
-                            let annotations: Vec<UrlCitation> = content_items
-                                .iter()
-                                .filter(|item| item.r#type == "output_text")
-                                .flat_map(|item| {
-                                    item.annotations.iter().cloned().map(UrlCitation::from)
-                                })
-                                .collect();
-
-                            if !text_content.is_empty() {
-                                return Ok(ParsedResponse::Text {
-                                    content: Some(text_content),
-                                    tool_calls: Vec::new(),
-                                    events_str: None,
-                                    annotations,
-                                    used_websearch,
-                                });
-                            }
-                        }
-                    }
-                }
-                // Skip other internal types
-                _ => continue,
             }
-        }
-
-        // Return collected function calls if any were found
-        if !collected_tool_calls.is_empty() {
-            return Ok(ParsedResponse::Text {
-                content: None,
-                tool_calls: collected_tool_calls,
-                events_str: None,
-                annotations: collected_annotations,
-                used_websearch,
-            });
         }
 
         Err(Error::internal_err(

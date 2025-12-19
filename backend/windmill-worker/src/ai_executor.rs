@@ -422,6 +422,8 @@ pub async fn run_agent(
         ));
     }
 
+    let is_text_output = output_type == &OutputType::Text;
+
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
         match &args.memory {
@@ -557,7 +559,7 @@ pub async fn run_agent(
     let mut structured_output_tool_name: Option<String> = None;
 
     // For text output with schema, handle structured output
-    if has_output_properties && output_type == &OutputType::Text {
+    if has_output_properties && is_text_output {
         let schema = args.output_schema.as_ref().unwrap();
         if should_use_structured_output_tool {
             // Anthropic uses a tool for structured output
@@ -585,7 +587,6 @@ pub async fn run_agent(
     }
 
     let user_wants_streaming = args.streaming.unwrap_or(false);
-    let is_text_output = output_type == &OutputType::Text;
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
@@ -690,16 +691,12 @@ pub async fn run_agent(
 
             match resp.error_for_status_ref() {
                 Ok(_) => {
-                    if is_text_output {
-                        if let Some(ref stream_event_processor) = stream_event_processor {
-                            query_builder
-                                .parse_streaming_response(resp, stream_event_processor.clone())
-                                .await?
-                        } else {
-                            query_builder.parse_response(resp).await?
-                        }
+                    if let Some(ref stream_event_processor) = stream_event_processor {
+                        query_builder
+                            .parse_streaming_response(resp, stream_event_processor.clone())
+                            .await?
                     } else {
-                        query_builder.parse_response(resp).await?
+                        query_builder.parse_image_response(resp).await?
                     }
                 }
                 Err(e) => {

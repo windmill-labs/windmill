@@ -1,11 +1,10 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{client::AuthedClient, error::Error, utils::rd_string};
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
-    providers::openai::{OpenAIFunction, OpenAIToolCall},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
@@ -140,41 +139,6 @@ pub struct GeminiGenerationConfig {
 // ============================================================================
 // Gemini API Response Types
 // ============================================================================
-
-/// Response from generateContent
-#[derive(Deserialize)]
-pub struct GeminiTextResponse {
-    pub candidates: Option<Vec<GeminiTextCandidate>>,
-    #[serde(rename = "groundingMetadata")]
-    #[allow(dead_code)]
-    pub grounding_metadata: Option<GeminiGroundingMetadata>,
-}
-
-/// A candidate response
-#[derive(Deserialize)]
-pub struct GeminiTextCandidate {
-    pub content: Option<GeminiResponseContent>,
-    #[serde(rename = "finishReason")]
-    #[allow(dead_code)]
-    pub finish_reason: Option<String>,
-}
-
-/// Content in a response
-#[derive(Deserialize)]
-pub struct GeminiResponseContent {
-    pub parts: Option<Vec<GeminiResponsePart>>,
-}
-
-/// A part of the response - can have text, inline data, or function call
-#[derive(Deserialize)]
-pub struct GeminiResponsePart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
-    pub inline_data: Option<GeminiInlineData>,
-    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<GeminiFunctionCall>,
-}
 
 /// Grounding metadata from Google Search
 #[derive(Deserialize)]
@@ -571,88 +535,6 @@ impl GoogleAIQueryBuilder {
             None
         }
     }
-
-    /// Parse text response from Gemini API
-    fn parse_text_response(
-        &self,
-        gemini_response: GeminiTextResponse,
-    ) -> Result<ParsedResponse, Error> {
-        let mut text_parts: Vec<String> = Vec::new();
-        let mut tool_calls: Vec<OpenAIToolCall> = Vec::new();
-
-        if let Some(candidates) = gemini_response.candidates {
-            for candidate in candidates {
-                if let Some(content) = candidate.content {
-                    if let Some(parts) = content.parts {
-                        for part in parts {
-                            if let Some(text) = part.text {
-                                text_parts.push(text);
-                            }
-                            if let Some(fc) = part.function_call {
-                                tool_calls.push(OpenAIToolCall {
-                                    id: format!("call_{}", rd_string(24)),
-                                    function: OpenAIFunction {
-                                        name: fc.name,
-                                        arguments: serde_json::to_string(&fc.args)
-                                            .unwrap_or_else(|_| "{}".to_string()),
-                                    },
-                                    r#type: "function".to_string(),
-                                    extra_content: None,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(ParsedResponse::Text {
-            content: if text_parts.is_empty() {
-                None
-            } else {
-                Some(text_parts.join(""))
-            },
-            tool_calls,
-            events_str: None,
-            annotations: Vec::new(),
-            used_websearch: false,
-        })
-    }
-
-    /// Parse image response from Gemini API
-    fn parse_image_response(
-        &self,
-        gemini_response: GeminiImageResponse,
-    ) -> Result<ParsedResponse, Error> {
-        // Try to find image data in candidates (Gemini models)
-        let image_data = gemini_response
-            .candidates
-            .as_ref()
-            .and_then(|candidates| {
-                candidates.iter().find_map(|candidate| {
-                    candidate
-                        .content
-                        .parts
-                        .iter()
-                        .find_map(|part| part.inline_data.as_ref().map(|data| &data.data))
-                })
-            })
-            // Or in predictions (Imagen models)
-            .or_else(|| {
-                gemini_response
-                    .predictions
-                    .as_ref()
-                    .and_then(|predictions| predictions.first().map(|p| &p.bytes_base64_encoded))
-            });
-
-        if let Some(base64_image) = image_data {
-            Ok(ParsedResponse::Image { base64_data: base64_image.clone() })
-        } else {
-            Err(Error::internal_err(
-                "No image data received from Gemini".to_string(),
-            ))
-        }
-    }
 }
 
 #[async_trait]
@@ -674,81 +556,42 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         }
     }
 
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        let url = response.url().path().to_string();
+    async fn parse_image_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        let gemini_response: GeminiImageResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!("Failed to parse Gemini image response: {}", e))
+        })?;
 
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+        // First, check Gemini models (candidates -> content -> parts -> inline_data)
+        let image_data_from_gemini = gemini_response.candidates.as_ref().and_then(|candidates| {
+            candidates.iter().find_map(|candidate| {
+                candidate
+                    .content
+                    .parts
+                    .iter()
+                    .find_map(|part| part.inline_data.as_ref().map(|data| &data.data))
+            })
+        });
 
-        tracing::info!(
-            "[AI_PROVIDER_RESPONSE] Google AI raw response: {}",
-            response_text
-        );
+        // Then, check Imagen models (predictions -> bytes_base64_encoded)
+        let image_data_from_imagen = gemini_response
+            .predictions
+            .as_ref()
+            .and_then(|predictions| predictions.first().map(|p| &p.bytes_base64_encoded));
 
-        // For Imagen predict endpoint
-        if url.contains(":predict") {
-            let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Failed to parse Gemini image response: {}. Raw response: {}",
-                        e, response_text
-                    ))
-                })?;
-            return self.parse_image_response(gemini_response);
-        }
+        // Image data, preferring Gemini first then Imagen models
+        let image_data = image_data_from_gemini.or(image_data_from_imagen);
 
-        // For generateContent (both text and image generation)
-        if url.contains(":generateContent") {
-            // Try to parse as text response first
-            if let Ok(gemini_response) = serde_json::from_str::<GeminiTextResponse>(&response_text)
-            {
-                // Check if it contains image data
-                let has_image = gemini_response
-                    .candidates
-                    .as_ref()
-                    .map(|candidates| {
-                        candidates.iter().any(|c| {
-                            c.content
-                                .as_ref()
-                                .map(|content| {
-                                    content
-                                        .parts
-                                        .as_ref()
-                                        .map(|parts| parts.iter().any(|p| p.inline_data.is_some()))
-                                        .unwrap_or(false)
-                                })
-                                .unwrap_or(false)
-                        })
-                    })
-                    .unwrap_or(false);
-
-                if has_image {
-                    // Parse as image response
-                    let gemini_response: GeminiImageResponse = serde_json::from_str(&response_text)
-                        .map_err(|e| {
-                            Error::internal_err(format!(
-                                "Failed to parse Gemini image response: {}. Raw response: {}",
-                                e, response_text
-                            ))
-                        })?;
-                    return self.parse_image_response(gemini_response);
-                }
-
-                return self.parse_text_response(gemini_response);
+        match image_data {
+            Some(base64_data) if !base64_data.is_empty() => {
+                Ok(ParsedResponse::Image { base64_data: base64_data.clone() })
             }
+            _ => Err(Error::internal_err(
+                "No image data received from Google Gemini/Imagen API".to_string(),
+            )),
         }
-
-        // Fallback: try to parse as text response
-        let gemini_response: GeminiTextResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to parse Gemini response: {}. Raw response: {}",
-                    e, response_text
-                ))
-            })?;
-        self.parse_text_response(gemini_response)
     }
 
     async fn parse_streaming_response(

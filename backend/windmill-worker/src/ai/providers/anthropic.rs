@@ -394,67 +394,13 @@ impl QueryBuilder for AnthropicQueryBuilder {
         self.build_text_request(args, client, workspace_id).await
     }
 
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        // Parse Anthropic native response format
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
-
-        tracing::info!(
-            "[AI_PROVIDER_RESPONSE] Anthropic raw response: {}",
-            response_text
-        );
-
-        let anthropic_response: AnthropicResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to parse Anthropic response: {}. Raw response: {}",
-                    e, response_text
-                ))
-            })?;
-
-        // Extract text content and tool calls from content blocks
-        let mut text_parts: Vec<String> = Vec::new();
-        let mut tool_calls: Vec<super::openai::OpenAIToolCall> = Vec::new();
-
-        for block in anthropic_response.content {
-            match block {
-                AnthropicContentBlock::Text { text, .. } => {
-                    text_parts.push(text);
-                }
-                AnthropicContentBlock::ToolUse { id, name, input } => {
-                    // Convert to OpenAI tool call format for compatibility
-                    tool_calls.push(super::openai::OpenAIToolCall {
-                        id,
-                        function: super::openai::OpenAIFunction {
-                            name,
-                            arguments: serde_json::to_string(&input).unwrap_or_default(),
-                        },
-                        r#type: "function".to_string(),
-                        extra_content: None,
-                    });
-                }
-                // Skip server_tool_use and web_search_tool_result - they are internal to Anthropic
-                AnthropicContentBlock::ServerToolUse { .. } => {}
-                AnthropicContentBlock::WebSearchToolResult { .. } => {}
-                AnthropicContentBlock::Unknown => {}
-            }
-        }
-
-        let content = if text_parts.is_empty() {
-            None
-        } else {
-            Some(text_parts.join(""))
-        };
-
-        Ok(ParsedResponse::Text {
-            content,
-            tool_calls,
-            events_str: None,
-            annotations: Vec::new(),
-            used_websearch: false,
-        })
+    async fn parse_image_response(
+        &self,
+        _response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        Err(Error::internal_err(
+            "Anthropic does not support image output".to_string(),
+        ))
     }
 
     async fn parse_streaming_response(

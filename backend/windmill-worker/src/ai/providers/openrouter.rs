@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    providers::other::{OpenAIResponse, OtherQueryBuilder},
+    providers::other::OtherQueryBuilder,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
@@ -102,64 +102,28 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         }
     }
 
-    async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+    async fn parse_image_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        let image_response: OpenRouterImageResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!("Failed to parse OpenRouter image response: {}", e))
+        })?;
 
-        // First try to parse as OpenRouter image response
-        if let Ok(image_response) = serde_json::from_str::<OpenRouterImageResponse>(&response_text)
+        if let Some(image) = image_response
+            .choices
+            .first()
+            .and_then(|choice| choice.message.images.as_ref())
+            .and_then(|images| images.first())
         {
-            // Extract base64 image from the first choice
-            let image_url = image_response
-                .choices
-                .get(0)
-                .and_then(|choice| choice.message.images.as_ref())
-                .and_then(|images| images.get(0))
-                .map(|image| &image.image_url.url);
-
-            if let Some(data_url) = image_url {
-                // Extract base64 data from data URL format: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
-                if let Some(base64_start) = data_url.find("base64,") {
-                    let base64_data = &data_url[base64_start + 7..]; // Skip "base64," prefix
-                    return Ok(ParsedResponse::Image { base64_data: base64_data.to_string() });
-                }
+            if let Some(base64_data) = image.image_url.url.strip_prefix("data:image/png;base64,") {
+                return Ok(ParsedResponse::Image { base64_data: base64_data.to_string() });
             }
         }
 
-        // If not an image response or parsing failed, try as regular OpenAI response
-        let openai_response: OpenAIResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to parse response: {}. Raw response: {}",
-                    e, response_text
-                ))
-            })?;
-
-        let first_choice = openai_response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::internal_err("No response from API"))?;
-
-        Ok(ParsedResponse::Text {
-            content: first_choice.message.content.map(|c| match c {
-                OpenAIContent::Text(text) => text,
-                OpenAIContent::Parts(parts) => parts
-                    .into_iter()
-                    .filter_map(|part| match part {
-                        ContentPart::Text { text } => Some(text),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            }),
-            tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
-            events_str: None,
-            annotations: Vec::new(),
-            used_websearch: false,
-        })
+        Err(Error::internal_err(
+            "No image data received from OpenRouter API".to_string(),
+        ))
     }
 
     async fn parse_streaming_response(
