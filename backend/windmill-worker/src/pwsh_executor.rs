@@ -487,15 +487,18 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let nsjail = !*DISABLE_NSJAIL
-        && job
-            .runnable_path
-            .as_ref()
-            .map(|x| {
-                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
-                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-            })
-            .unwrap_or(true);
+    // Check if this is a regular job (not init or periodic script)
+    // Init/periodic scripts need full system access without isolation
+    let is_regular_job = job
+        .runnable_path
+        .as_ref()
+        .map(|x| {
+            !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+        })
+        .unwrap_or(true);
+
+    let nsjail = !*DISABLE_NSJAIL && is_regular_job;
     let child = if nsjail {
         let _ = write_file(
             job_dir,
@@ -539,7 +542,14 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec![r".\wrapper.ps1"];
         }
 
-        let mut cmd = build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args);
+        // Only apply unshare isolation for regular jobs, not init/periodic scripts
+        let mut cmd = if is_regular_job {
+            build_command_with_isolation(POWERSHELL_PATH.as_str(), &cmd_args)
+        } else {
+            let mut c = Command::new(POWERSHELL_PATH.as_str());
+            c.args(&cmd_args);
+            c
+        };
 
         cmd.current_dir(job_dir)
             .env_clear()
