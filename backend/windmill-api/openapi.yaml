@@ -2167,6 +2167,8 @@ paths:
                     type: string
                   teams_team_name:
                     type: string
+                  teams_team_guid:
+                    type: string
                   auto_invite_domain:
                     type: string
                   auto_invite_operator:
