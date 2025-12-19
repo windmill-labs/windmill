@@ -1851,6 +1851,10 @@
 											workspaceId={job?.workspace_id}
 										/>
 									{/if}
+								{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
+									<div class="p-2">
+										<Alert type="info" title="Web search output is available on the AI agent node" />
+									</div>
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}

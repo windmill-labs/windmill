@@ -122,7 +122,8 @@
 					} else if (a.type === 'web_search') {
 						return {
 							id: AI_WEBSEARCH_PREFIX + '-' + node.id + '-' + idx,
-							name: 'Web Search'
+							name: 'Web Search',
+							type: 'websearch'
 						}
 					} else {
 						return {
@@ -312,7 +313,7 @@
 					<MessageCircle size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_WEBSEARCH_PREFIX) || data.type === 'websearch'}
+				{:else if data.moduleId.startsWith(AI_WEBSEARCH_PREFIX)}
 					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
