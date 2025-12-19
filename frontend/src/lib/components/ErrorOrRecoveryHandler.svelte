@@ -98,7 +98,7 @@
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
 	let teams_team_name: string | undefined = $state(undefined)
-	let teams_team_id: string | undefined = $state(undefined)
+	let teams_team_guid: string | undefined = $state(undefined)
 	let slack_team_name: string | undefined = $state(undefined)
 
 	let workspaceConnectedToSlack: boolean | undefined = $state(undefined)
@@ -130,7 +130,7 @@
 		}
 		if (workspaceConnectedToTeams) {
 			teams_team_name = settings.teams_team_name
-			teams_team_id = settings.teams_team_id
+			teams_team_guid = settings.teams_team_guid
 		}
 	}
 
@@ -539,7 +539,7 @@
 								containerClass="flex-grow"
 								minWidth="200px"
 								placeholder="Search Teams channels"
-								teamId={teams_team_id}
+								teamId={teams_team_guid}
 								selectedChannel={handlerExtraArgs['channel']
 									? {
 											channel_id: handlerExtraArgs['channel'],
