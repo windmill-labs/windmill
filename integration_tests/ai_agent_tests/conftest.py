@@ -129,7 +129,6 @@ class AIAgentTestClient:
 
     def create_variable(self, path: str, value: str, is_secret: bool = True):
         """Create a variable (typically for API keys)."""
-        print(f"Creating variable {path}")
         response = self._client.post(
             f"/api/w/{self.workspace}/variables/create",
             json={
@@ -144,11 +143,9 @@ class AIAgentTestClient:
             # Ignore if variable already exists
             if "already exists" not in error.lower():
                 raise Exception(f"Failed to create variable: {error}")
-            print(f"Variable {path} already exists, skipping")
 
     def create_resource(self, path: str, resource_type: str, value: dict[str, Any]):
         """Create a resource that can reference variables."""
-        print(f"Creating resource {path} of type {resource_type}")
         response = self._client.post(
             f"/api/w/{self.workspace}/resources/create",
             json={
@@ -163,11 +160,9 @@ class AIAgentTestClient:
             # Ignore if resource already exists
             if "already exists" not in error.lower():
                 raise Exception(f"Failed to create resource: {error}")
-            print(f"Resource {path} already exists, skipping")
 
     def upload_s3_file(self, s3_key: str, file_content: bytes, content_type: str = "image/png") -> dict:
         """Upload a file to S3 storage via Windmill API."""
-        print(f"Uploading file to S3: {s3_key}")
         response = self._client.post(
             f"/api/w/{self.workspace}/job_helpers/upload_s3_file",
             params={"file_key": s3_key},
@@ -177,9 +172,22 @@ class AIAgentTestClient:
         response.raise_for_status()
         return response.json()
 
+    def delete_s3_file(self, s3_key: str, storage: str | None = None) -> dict:
+        """Delete a file from S3 storage via Windmill API."""
+        params = {"file_key": s3_key}
+        if storage:
+            params["storage"] = storage
+
+        response = self._client.delete(
+            f"/api/w/{self.workspace}/job_helpers/delete_s3_file",
+            params=params,
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(f"Failed to delete S3 file: {response.content.decode()}")
+        return response.json()
+
     def configure_s3_storage(self, s3_resource_path: str):
         """Configure workspace large file storage with S3."""
-        print(f"Configuring workspace S3 storage with resource: {s3_resource_path}")
         response = self._client.post(
             f"/api/w/{self.workspace}/workspaces/edit_large_file_storage_config",
             json={

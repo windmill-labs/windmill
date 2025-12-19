@@ -26,11 +26,9 @@ class TestImageOutput:
         provider_config,
     ):
         """Test that output_type='image' generates an image and returns S3 object."""
-        input_transform = provider_config["input_transform"]
-        input_transform["value"]["model"] = "gemini-2.5-flash-image-preview"
 
         flow_value = create_ai_agent_flow(
-            provider_input_transform=input_transform,
+            provider_input_transform={"type": "static", "value": {"kind": "googleai", "model": "gemini-2.5-flash-image-preview", "resource": "$res:u/admin/googleai"}},
             system_prompt="You are an image generation assistant.",
             output_type="image",
         )
@@ -49,3 +47,7 @@ class TestImageOutput:
         assert result["s3"].startswith("ai_images/"), f"S3 key should start with 'ai_images/': {result['s3']}"
         assert result["s3"].endswith(".png"), f"S3 key should end with '.png': {result['s3']}"
         print(f"Image generation result: {result}")
+
+        # Clean up generated image
+        client.delete_s3_file(result["s3"])
+        print(f"Cleaned up image: {result['s3']}")

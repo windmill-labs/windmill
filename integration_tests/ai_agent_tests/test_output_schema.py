@@ -53,6 +53,9 @@ class TestOutputSchema:
 
         The agent should use the add_numbers tool and return structured output.
         """
+        if provider_config["name"] == "google_ai":
+            pytest.xfail("Google AI does not support output_schema with tools")
+
         tools = [
             create_rawscript_tool(
                 tool_id="add_numbers",
