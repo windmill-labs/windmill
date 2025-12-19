@@ -27,6 +27,7 @@
 	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
 	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
+	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Label from './Label.svelte'
 
@@ -35,9 +36,10 @@
 		version: string
 		values: Writable<Record<string, any>>
 		loading?: boolean
+		openSmtpSettings?: () => void
 	}
 
-	let { setting, version, values, loading = true }: Props = $props()
+	let { setting, version, values, loading = true, openSmtpSettings }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	if (
@@ -249,9 +251,11 @@
 				<div class="flex items-center justify-between">
 					<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
 						<div class="flex items-center justify-between gap-2 w-full">
-							<label for={setting.key} class="text-emphasis font-semibold text-xs"
-								>{setting.label}</label
-							>
+							{#if setting.fieldType != 'smtp_connect'}
+								<label for={setting.key} class="text-emphasis font-semibold text-xs"
+									>{setting.label}</label
+								>
+							{/if}
 							{#if setting.actionButton}
 								<Button
 									disabled={setting.ee_only != undefined && !$enterpriseLicense}
@@ -510,7 +514,7 @@
 						</div>
 					</div>
 				{:else if setting.fieldType == 'critical_error_channels'}
-					<CriticalAlertChannels {values} smtpSettings={$values.smtp_settings || {}} />
+					<CriticalAlertChannels {values} {openSmtpSettings} />
 				{:else if setting.fieldType == 'indexer_rates'}
 					<div class="flex flex-col gap-16 mt-4">
 						{#if $values[setting.key]}
@@ -873,6 +877,8 @@
 					</div>
 				{:else if setting.fieldType == 'select'}
 					TODO
+				{:else if setting.fieldType == 'smtp_connect'}
+					<SmtpSettings bind:smtpSettings={$values[setting.key]} disabled={loading} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-500 dark:text-red-400 text-sm">

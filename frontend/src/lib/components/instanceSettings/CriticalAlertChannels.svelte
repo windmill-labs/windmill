@@ -5,13 +5,14 @@
 	import EmailChannelCard from './EmailChannelCard.svelte'
 	import EEOnly from '../EEOnly.svelte'
 	import type { Writable } from 'svelte/store'
+	import { isSmtpSettingsValid } from './SmtpSettings.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
-		smtpSettings: Record<string, any>
+		openSmtpSettings?: () => void
 	}
 
-	let { values, smtpSettings }: Props = $props()
+	let { values, openSmtpSettings }: Props = $props()
 
 	// Derived state for each channel type
 	const slackChannels = $derived.by(() => {
@@ -34,7 +35,9 @@
 	// Compute dynamic order based on channel presence
 	const slackOrder = $derived(slackChannels.length > 0 || slackTeamName ? 1 : 4)
 	const teamsOrder = $derived(teamsChannels.length > 0 ? 2 : 5)
-	const emailOrder = $derived(emailChannels.length > 0 || smtpSettings?.smtp_host ? 3 : 6)
+	const emailOrder = $derived(
+		emailChannels.length > 0 || $values['smtp_connect']?.smtp_host ? 3 : 6
+	)
 
 	function addSlackChannel() {
 		if (
@@ -166,11 +169,12 @@
 	<!-- Email Card -->
 	<EmailChannelCard
 		channels={emailChannels}
-		{smtpSettings}
+		hasSmtpConfig={isSmtpSettingsValid($values['smtp_settings'])}
 		disabled={!$enterpriseLicense}
 		onAddChannel={addEmailChannel}
 		onRemoveChannel={removeChannel}
 		onUpdateChannel={updateChannel}
+		{openSmtpSettings}
 		{findChannelIndex}
 		style="order: {emailOrder};"
 	/>

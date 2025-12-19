@@ -1,14 +1,9 @@
 <script lang="ts">
-	import { Mail, X, Plus, ExternalLink, Settings, ChevronDown } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { Mail, X, Plus, Settings } from 'lucide-svelte'
+	import { Button, Badge } from '$lib/components/common'
 	import IntegrationCard from './IntegrationCard.svelte'
-	import Password from '../Password.svelte'
-	import Toggle from '../Toggle.svelte'
-	import { SettingService } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import { fade, slide } from 'svelte/transition'
+	import { fade } from 'svelte/transition'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface EmailChannel {
 		email: string
@@ -16,30 +11,29 @@
 
 	interface Props {
 		channels: EmailChannel[]
-		smtpSettings: Record<string, any>
 		disabled?: boolean
 		onAddChannel: () => void
 		onRemoveChannel: (index: number) => void
 		onUpdateChannel: (index: number, updatedChannel: EmailChannel) => void
 		findChannelIndex: (channel: EmailChannel) => number
+		openSmtpSettings?: () => void
 		class?: string
 		style?: string
+		hasSmtpConfig: boolean
 	}
 
 	let {
 		channels,
-		smtpSettings,
 		disabled = false,
 		onAddChannel,
 		onRemoveChannel,
 		onUpdateChannel,
 		findChannelIndex,
+		openSmtpSettings,
 		class: clazz,
-		style
+		style,
+		hasSmtpConfig
 	}: Props = $props()
-
-	let expanded = $state(false)
-	let testEmail = $state('')
 
 	function handleEmailInput(channel: EmailChannel, value: string) {
 		const index = findChannelIndex(channel)
@@ -54,61 +48,27 @@
 			onRemoveChannel(index)
 		}
 	}
-
-	function toggleExpanded() {
-		expanded = !expanded
-	}
-
-	async function testSmtpSettings() {
-		if (!testEmail) return
-
-		try {
-			await SettingService.testSmtp({
-				requestBody: {
-					to: testEmail,
-					smtp: {
-						host: smtpSettings['smtp_host'],
-						username: smtpSettings['smtp_username'],
-						password: smtpSettings['smtp_password'],
-						port: smtpSettings['smtp_port'],
-						from: smtpSettings['smtp_from'],
-						tls_implicit: smtpSettings['smtp_tls_implicit'],
-						disable_tls: smtpSettings['smtp_disable_tls']
-					}
-				}
-			})
-			sendUserToast('Test email sent successfully')
-		} catch (error) {
-			sendUserToast('Failed to send test email: ' + error.message, true)
-		}
-	}
-
-	let hasSmtpConfig = $derived(
-		smtpSettings && smtpSettings.smtp_host && smtpSettings.smtp_host !== ''
-	)
 </script>
 
 {#if channels.length > 0 || hasSmtpConfig}
 	<!-- Connected Email Card -->
 	<IntegrationCard title="Email" icon={Mail} isPlaceholder={false} class={clazz} {style}>
 		{#snippet actions()}
-			{#if hasSmtpConfig}
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					onclick={toggleExpanded}
-					aria-label="Toggle {expanded ? 'collapse' : 'expand'}"
-					startIcon={{ icon: Settings }}
-				>
-					<div class="flex items-center justify-center gap-2">
-						<span>Configure SMTP</span>
-						<ChevronDown
-							size={14}
-							class={twMerge('transition-transform', expanded ? 'transform rotate-180' : '')}
-						/>
-					</div>
-				</Button>
-			{/if}
+			<div class="flex items-center gap-2">
+				{#if hasSmtpConfig}
+					<Badge color="green">SMTP configured</Badge>
+				{:else}
+					<Badge color="red">SMTP not configured</Badge>
+				{/if}
+				{#if openSmtpSettings}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Settings }}
+						onclick={openSmtpSettings}>Configure SMTP</Button
+					>
+				{/if}
+			</div>
 		{/snippet}
 		{#snippet children()}
 			{#if channels.length > 0}
@@ -157,156 +117,6 @@
 					Add email address
 				</Button>
 			</div>
-
-			<!-- Expandable SMTP Configuration -->
-			{#if expanded || !hasSmtpConfig}
-				<div transition:slide={{ duration: 200 }}>
-					<div class="border-t pt-2">
-						<div class="mb-6">
-							<h4 class="text-sm font-semibold text-primary mb-1">SMTP Configuration</h4>
-							<p class="text-xs text-secondary"
-								>Configure SMTP settings for sending email alerts. <a
-									href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
-									>Learn more <ExternalLink size={12} class="inline-block" /></a
-								></p
-							>
-						</div>
-
-						<!-- SMTP Settings Form -->
-						<div class="space-y-6">
-							<div class="grid grid-cols-2 grid-rows-2 gap-x-2 gap-y-6">
-								<div class="flex flex-col gap-1">
-									<label for="smtp_host" class="block text-xs font-semibold text-emphasis mb-1">
-										Host
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'text',
-											id: 'smtp_host',
-											placeholder: 'smtp.gmail.com',
-											disabled: disabled
-										}}
-										bind:value={smtpSettings.smtp_host}
-									/>
-								</div>
-								<div class="flex flex-col gap-1">
-									<label for="smtp_port" class="block text-xs font-semibold text-emphasis mb-1">
-										Port
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'number',
-											id: 'smtp_port',
-											placeholder: '587',
-											disabled: disabled
-										}}
-										bind:value={smtpSettings.smtp_port}
-									/>
-								</div>
-
-								<div>
-									<label for="smtp_username" class="block text-xs font-semibold text-emphasis mb-1">
-										Username
-									</label>
-									<TextInput
-										inputProps={{
-											type: 'text',
-											id: 'smtp_username',
-											placeholder: 'user@example.com',
-											disabled: disabled
-										}}
-										bind:value={smtpSettings.smtp_username}
-									/>
-								</div>
-
-								<div>
-									<label for="smtp_password" class="block text-xs font-semibold text-emphasis mb-1">
-										Password
-									</label>
-									<Password bind:password={smtpSettings.smtp_password} small {disabled} />
-								</div>
-							</div>
-
-							<div>
-								<label for="smtp_from" class="block text-xs font-semibold text-emphasis mb-1">
-									From Address
-								</label>
-								<TextInput
-									inputProps={{
-										type: 'email',
-										id: 'smtp_from',
-										placeholder: 'noreply@example.com',
-										disabled: disabled
-									}}
-									bind:value={smtpSettings.smtp_from}
-								/>
-							</div>
-
-							<div class="flex gap-4">
-								<Toggle
-									disabled={smtpSettings.smtp_disable_tls || disabled}
-									id="smtp_tls_implicit"
-									bind:checked={smtpSettings.smtp_tls_implicit}
-									size="xs"
-									options={{ right: 'Implicit TLS' }}
-								/>
-
-								<Toggle
-									id="smtp_disable_tls"
-									{disabled}
-									bind:checked={smtpSettings.smtp_disable_tls}
-									size="xs"
-									on:change={() => {
-										if (smtpSettings.smtp_disable_tls) {
-											smtpSettings.smtp_tls_implicit = false
-										}
-									}}
-									options={{ right: 'Disable TLS' }}
-								/>
-							</div>
-
-							<!-- Test Email -->
-							<div class="flex flex-col gap-1">
-								<label for="test_email" class="block text-xs font-semibold text-emphasis"
-									>Test Email</label
-								>
-								<span class="text-xs text-secondary">
-									Enter a test email address to verify the SMTP settings.
-								</span>
-								<div class="flex gap-2">
-									<TextInput
-										inputProps={{
-											type: 'email',
-											placeholder: 'Test email address',
-											disabled: disabled,
-											id: 'test_email'
-										}}
-										bind:value={testEmail}
-									/>
-									<Button
-										size="xs"
-										onclick={testSmtpSettings}
-										disabled={!testEmail || disabled}
-										btnClasses="text-xs"
-									>
-										Test SMTP
-									</Button>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-			{:else if expanded && !hasSmtpConfig}
-				<div transition:slide|local={{ duration: 300 }}>
-					<div class="border-t border-gray-600 pt-3 mt-3">
-						<div class="text-center py-3">
-							<p class="text-xs text-secondary">
-								SMTP configuration not found. Please configure SMTP settings to send email alerts.
-							</p>
-						</div>
-					</div>
-				</div>
-			{/if}
 		{/snippet}
 	</IntegrationCard>
 {:else}

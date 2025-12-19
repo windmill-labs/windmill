@@ -252,6 +252,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	SMTP: [
+		{
+			label: 'SMTP',
+			key: 'smtp_settings',
+			fieldType: 'smtp_connect',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
 	'Auth/OAuth/SAML': [],
 	Registries: [
 		{
@@ -415,13 +424,6 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
-			storage: 'setting',
-			ee_only: ''
-		},
-		{
-			label: 'SMTP',
-			key: 'smtp_settings',
-			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
 		},

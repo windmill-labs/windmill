@@ -15,6 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import { ExternalLink } from 'lucide-svelte'
 
 	interface Props {
 		tab?: string
@@ -244,33 +245,40 @@
 			value.channel_name.trim() !== ''
 		)
 	}
+
+	function openSmtpSettings() {
+		tab = 'SMTP'
+	}
 </script>
 
 <div class="pb-8">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
-			<Tab value={category} label={category}></Tab>
+			{#key tab}
+				<Tab value={category} label={category}></Tab>
+			{/key}
 		{/each}
 
 		{#snippet content()}
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
-						<div class="text-secondary pb-4 text-xs"
-							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
-							instance or sending critical alerts.
+						<div class="text-secondary pb-4 text-xs">
+							Setting SMTP unlocks sending emails upon adding new users to the workspace or the
+							instance or sending critical alerts via email.
 							<a
 								target="_blank"
-								href="https://www.windmill.dev/docs/advanced/instance_settings#smtp">Learn more</a
-							></div
-						>
+								href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
+								>Learn more <ExternalLink size={12} class="inline-block" /></a
+							>
+						</div>
 					{:else if category == 'Indexer/Search'}
 						<div class="text-secondary pb-4 text-xs"
 							>The indexer service unlocks full text search across jobs and service logs. It
 							requires spinning up its own separate container
 							<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
-								>Learn how to</a
+								>Learn how to <ExternalLink size={12} class="inline-block" /></a
 							></div
 						>
 					{:else if category == 'Registries'}
@@ -360,9 +368,10 @@
 					<div>
 						<div class="flex-col flex gap-6 pb-4">
 							{#each settings[category] as setting}
-								<!-- slack connect and smtp connect are handled with the alert channels settings -->
-								{#if setting.fieldType != 'slack_connect' && setting.fieldType != 'smtp_connect'}
+								<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
+								{#if setting.fieldType != 'slack_connect'}
 									<InstanceSetting
+										{openSmtpSettings}
 										on:closeDrawer={() => closeDrawer?.()}
 										{loading}
 										{setting}
