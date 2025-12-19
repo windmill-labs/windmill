@@ -14,6 +14,7 @@
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
 	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
+	export const AI_WEBSEARCH_PREFIX = '_wm_ai_websearch'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 50
@@ -117,6 +118,11 @@
 						return {
 							id,
 							name: a.function_name
+						}
+					} else if (a.type === 'web_search') {
+						return {
+							id: AI_WEBSEARCH_PREFIX + '-' + node.id + '-' + idx,
+							name: 'Web Search'
 						}
 					} else {
 						return {
@@ -306,10 +312,10 @@
 					<MessageCircle size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
+				{:else if data.moduleId.startsWith(AI_WEBSEARCH_PREFIX) || data.type === 'websearch'}
+					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
-				{:else if data.type === 'websearch'}
-					<Globe size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}

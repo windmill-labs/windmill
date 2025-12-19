@@ -43,6 +43,7 @@
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
+		AI_WEBSEARCH_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -691,6 +692,11 @@
 								const success = mod.agent_actions_success?.[idx]
 								setModuleState(mcpToolCallId, {
 									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+								})
+							} else if (action.type == 'web_search') {
+								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
+								setModuleState(websearchId, {
+									type: 'Success'
 								})
 							} else if (action.type == 'message') {
 								const toolCallId = getToolCallId(idx, mod.id)
