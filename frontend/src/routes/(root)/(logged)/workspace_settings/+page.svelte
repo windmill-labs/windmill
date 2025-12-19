@@ -170,6 +170,26 @@
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let loadedSettings = $state(false)
+	let oauths: Record<string, any> = $state({})
+
+	// OAuth validation functions
+	function isSlackOAuthConfigured(slackConfig: any): boolean {
+		return slackConfig && slackConfig.id?.trim() && slackConfig.secret?.trim()
+	}
+
+	function isTeamsOAuthConfigured(teamsConfig: any): boolean {
+		return (
+			teamsConfig &&
+			teamsConfig.id?.trim() &&
+			teamsConfig.secret?.trim() &&
+			teamsConfig.tenant?.trim()
+		)
+	}
+
+	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
+
+	$inspect('dbg oauths', oauths)
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -384,6 +404,15 @@
 		}
 	}
 
+	async function loadGlobalOAuthSettings(): Promise<void> {
+		try {
+			oauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
+		} catch (e) {
+			console.error('Failed to load global OAuth config:', e)
+			oauths = {}
+		}
+	}
+
 	async function saveAndConnectSlack(): Promise<void> {
 		if (!$workspaceStore) return
 
@@ -459,6 +488,7 @@
 			untrack(() => {
 				loadSettings()
 				loadSlackOAuthConfig()
+				loadGlobalOAuthSettings()
 			})
 		}
 	})
@@ -809,6 +839,8 @@
 						onLoadSettings={loadSettings}
 						display_name={slack_team_name}
 						hideConnectButton={useCustomSlackApp && !slackOAuthConfigLoaded}
+						isOAuthEnabled={isSlackOAuthEnabled}
+						workspaceSpecificConnection={slackOAuthConfigLoaded}
 					>
 						{#snippet workspaceConfig()}
 							<!-- Workspace OAuth Configuration Section -->
@@ -897,6 +929,12 @@
 										</Button>
 									</div>
 								</div>
+							{:else if !isSlackOAuthEnabled}
+								<Alert type="warning" title="Slack OAuth not configured">
+									Slack OAuth is not configured at the instance level. Please ask your administrator
+									to configure Slack OAuth settings in the instance settings before you can use
+									Slack features.
+								</Alert>
 							{/if}
 						{/snippet}
 					</ConnectionSection>
@@ -908,26 +946,38 @@
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
 						<div class="pb-2"></div>
+					{:else}
+						<ConnectionSection
+							platform="teams"
+							teamName={teams_team_id}
+							bind:scriptPath={teamsScriptPath}
+							bind:initialPath={teamsInitialPath}
+							bind:itemKind
+							onDisconnect={async () => {
+								await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
+								loadSettings()
+								sendUserToast('Disconnected Teams')
+							}}
+							onSelect={editTeamsCommand}
+							connectHref={undefined}
+							createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+							createFlowHref="{base}/flows/add?hub=58"
+							documentationLink="https://www.windmill.dev/docs/integrations/teams"
+							onLoadSettings={loadSettings}
+							display_name={teams_team_name}
+							isOAuthEnabled={isTeamsOAuthEnabled}
+						>
+							{#snippet workspaceConfig()}
+								{#if !isTeamsOAuthEnabled}
+									<Alert type="warning" title="Teams OAuth not configured">
+										Teams OAuth is not configured at the instance level. Please ask your
+										administrator to configure Teams OAuth settings in the instance settings before
+										you can use Teams features.
+									</Alert>
+								{/if}
+							{/snippet}
+						</ConnectionSection>
 					{/if}
-					<ConnectionSection
-						platform="teams"
-						teamName={teams_team_id}
-						bind:scriptPath={teamsScriptPath}
-						bind:initialPath={teamsInitialPath}
-						bind:itemKind
-						onDisconnect={async () => {
-							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
-							loadSettings()
-							sendUserToast('Disconnected Teams')
-						}}
-						onSelect={editTeamsCommand}
-						connectHref={undefined}
-						createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-						createFlowHref="{base}/flows/add?hub=58"
-						documentationLink="https://www.windmill.dev/docs/integrations/teams"
-						onLoadSettings={loadSettings}
-						display_name={teams_team_name}
-					/>
 				{/if}
 			</Section>
 		{:else if tab == 'general'}

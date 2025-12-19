@@ -30,7 +30,9 @@
 		documentationLink,
 		onLoadSettings,
 		workspaceConfig,
-		hideConnectButton = false
+		hideConnectButton = false,
+		isOAuthEnabled = false,
+		workspaceSpecificConnection = false
 	}: {
 		platform: 'slack' | 'teams'
 		teamName: string | undefined
@@ -47,6 +49,8 @@
 		onLoadSettings: () => void
 		workspaceConfig?: import('svelte').Snippet
 		hideConnectButton?: boolean
+		isOAuthEnabled?: boolean
+		workspaceSpecificConnection?: boolean
 	} = $props()
 
 	let selectedTeam: TeamItem | undefined = $state(undefined)
@@ -90,7 +94,7 @@
 		{#if workspaceConfig}
 			{@render workspaceConfig()}
 		{/if}
-		{#if teamName}
+		{#if teamName || workspaceSpecificConnection}
 			<div class="flex flex-col gap-2 max-w-sm">
 				<div class="flex flex-row gap-2 items-center">
 					{#if display_name}
@@ -116,7 +120,7 @@
 			<div class="flex flex-col gap-2">
 				<div class="flex flex-row gap-2 items-center">
 					{#if platform === 'teams'}
-						{#if $enterpriseLicense}
+						{#if $enterpriseLicense && isOAuthEnabled}
 							<TeamSelector
 								bind:selectedTeam
 								minWidth="180px"
@@ -141,7 +145,13 @@
 							{$enterpriseLicense ? '' : '(EE only)'}
 						</Button>
 					{:else}
-						<Button size="xs" variant="accent" href={connectHref} startIcon={{ icon: Slack }}>
+						<Button
+							size="xs"
+							variant="accent"
+							href={connectHref}
+							startIcon={{ icon: Slack }}
+							disabled={!isOAuthEnabled}
+						>
 							Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
 						</Button>
 					{/if}

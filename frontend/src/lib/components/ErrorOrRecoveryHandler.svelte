@@ -524,8 +524,8 @@
 				/>
 			{/if}
 
-			<div class="flex flex-col gap-2">
-				{#if workspaceConnectedToTeams}
+			{#if workspaceConnectedToTeams}
+				<div class="flex flex-col gap-2">
 					<div class="w-2/3 flex flex-col gap-2">
 						<div class="flex flex-row items-center gap-2">
 							<p class="text-xs text-emphasis font-semibold">Teams Channel</p>
@@ -554,37 +554,37 @@
 							/>
 						</div>
 					</div>
-				{:else if workspaceConnectedToTeams == undefined}
-					<Loader2 class="animate-spin" size={10} />
-				{/if}
-				{#if $enterpriseLicense && isTeamsHandler(handlerPath) && workspaceConnectedToTeams}
-					<Button
-						disabled={emptyString(handlerExtraArgs['channel'])}
-						btnClasses="w-32 text-center whitespace-nowrap"
-						variant="default"
-						on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
-						size="xs">Send test message</Button
-					>
-					{#if connectionTestJob !== undefined}
-						<p class="text-normal text-2xs mt-1 gap-2">
-							{#if connectionTestJob.in_progress}
-								<RotateCw size={14} class="animate-spin" />
-							{:else if connectionTestJob.is_success}
-								<CheckCircle2 size={14} class="text-green-600" />
-							{:else}
-								<XCircle size={14} class="text-red-700" />
-							{/if}
-							Message sent via Windmill job
-							<a
-								target="_blank"
-								href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
-							>
-								{connectionTestJob.uuid}
-							</a>
-						</p>
+					{#if $enterpriseLicense && isTeamsHandler(handlerPath) && workspaceConnectedToTeams}
+						<Button
+							disabled={emptyString(handlerExtraArgs['channel'])}
+							btnClasses="w-32 text-center whitespace-nowrap"
+							variant="default"
+							on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
+							size="xs">Send test message</Button
+						>
+						{#if connectionTestJob !== undefined}
+							<p class="text-normal text-2xs mt-1 gap-2">
+								{#if connectionTestJob.in_progress}
+									<RotateCw size={14} class="animate-spin" />
+								{:else if connectionTestJob.is_success}
+									<CheckCircle2 size={14} class="text-green-600" />
+								{:else}
+									<XCircle size={14} class="text-red-700" />
+								{/if}
+								Message sent via Windmill job
+								<a
+									target="_blank"
+									href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+								>
+									{connectionTestJob.uuid}
+								</a>
+							</p>
+						{/if}
 					{/if}
-				{/if}
-			</div>
+				</div>
+			{:else if workspaceConnectedToTeams == undefined}
+				<Loader2 class="animate-spin" size={10} />
+			{/if}
 		{:else if handlerSelected === 'email'}
 			{#if isCloudHosted()}
 				<Alert type="info" title="Email notifications are not available in Cloud">
