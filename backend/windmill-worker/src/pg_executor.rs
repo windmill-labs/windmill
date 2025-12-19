@@ -300,8 +300,8 @@ pub async fn do_postgresql(
     let result_f = async move {
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
-            let query = remove_comments(query);
             if annotations.prepare {
+                let query = remove_comments(query);
                 // Used by the data table typechecker to set default schemas
                 if query.starts_with("SET search_path") || query.starts_with("RESET search_path") {
                     let _ = client.execute(&query.to_string(), &[]).await;
