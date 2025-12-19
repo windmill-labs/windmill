@@ -107,9 +107,9 @@ function getQueryStmtCountHeuristic(query: string): number {
 
 		switch (currState) {
 			case 'normal':
-				if (char === "'" && query[i - 1] !== '\\') {
+				if (char === "'") {
 					currState = 'single-quote'
-				} else if (char === '"' && query[i - 1] !== '\\') {
+				} else if (char === '"') {
 					currState = 'double-quote'
 				} else if (char === '-' && nextChar === '-') {
 					currState = 'line-comment'
@@ -123,14 +123,24 @@ function getQueryStmtCountHeuristic(query: string): number {
 				break
 
 			case 'single-quote':
-				if (char === "'" && query[i - 1] !== '\\') {
-					currState = 'normal'
+				if (char === "'") {
+					// In SQL, '' is an escaped single quote
+					if (nextChar === "'") {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
 				}
 				break
 
 			case 'double-quote':
-				if (char === '"' && query[i - 1] !== '\\') {
-					currState = 'normal'
+				if (char === '"') {
+					// In SQL, "" is an escaped double quote
+					if (nextChar === '"') {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
 				}
 				break
 
