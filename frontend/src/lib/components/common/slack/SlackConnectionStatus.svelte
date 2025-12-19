@@ -70,7 +70,7 @@
 		</Badge>
 
 		<a href={connectUrl} class="text-xs"
-			>{mode === 'instance' ? 'Connect intance to slack' : 'Open workspace slack settings'}</a
+			>{mode === 'instance' ? 'Connect instance to Slack' : 'Open workspace slack settings'}</a
 		>
 	{/if}
 </div>

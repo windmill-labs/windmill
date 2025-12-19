@@ -69,7 +69,7 @@
 				Configure Teams OAuth connection in instance settings
 			</span>
 		{:else}
-			<a href={connectUrl} class="text-xs">open workspace teams settings</a>
+			<a href={connectUrl} class="text-xs">Open workspace teams settings</a>
 		{/if}
 	{/if}
 </div>

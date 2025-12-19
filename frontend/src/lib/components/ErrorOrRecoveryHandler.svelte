@@ -60,6 +60,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 	import { SettingService } from '$lib/gen'
+	import { isSmtpSettingsValid } from './instanceSettings/SmtpSettings.svelte'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
@@ -143,21 +144,6 @@
 		} catch (error) {
 			hasSmtpConfig = false
 		}
-	}
-
-	function isSmtpSettingsValid(smtpSettings: Record<string, any>) {
-		return (
-			smtpSettings &&
-			smtpSettings.smtp_host &&
-			smtpSettings.smtp_host.trim() !== '' &&
-			smtpSettings.smtp_port &&
-			smtpSettings.smtp_username &&
-			smtpSettings.smtp_username.trim() !== '' &&
-			smtpSettings.smtp_password &&
-			smtpSettings.smtp_password.trim() !== '' &&
-			smtpSettings.smtp_from &&
-			smtpSettings.smtp_from.trim() !== ''
-		)
 	}
 
 	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {
