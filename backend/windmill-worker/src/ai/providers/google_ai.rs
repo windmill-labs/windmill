@@ -607,6 +607,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             accumulated_tool_calls,
             mut events_str,
             stream_event_processor,
+            annotations,
+            used_websearch,
             ..
         } = gemini_sse_parser;
 
@@ -628,8 +630,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
-            annotations: Vec::new(),
-            used_websearch: false,
+            annotations,
+            used_websearch,
         })
     }
 

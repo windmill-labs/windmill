@@ -217,10 +217,7 @@ pub enum AnthropicSSEEvent {
     #[serde(rename = "message_start")]
     MessageStart {},
     #[serde(rename = "content_block_start")]
-    ContentBlockStart {
-        index: usize,
-        content_block: AnthropicContentBlockStart,
-    },
+    ContentBlockStart { index: usize, content_block: AnthropicContentBlockStart },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta { index: usize, delta: AnthropicDelta },
     #[serde(rename = "content_block_stop")]
@@ -301,8 +298,10 @@ impl SSEParser for AnthropicSSEParser {
                             }
                         }
                         AnthropicContentBlockStart::ToolUse { id, name } => {
-                            self.content_blocks
-                                .insert(index, ContentBlockState::ToolUse { id: id.clone(), name: name.clone() });
+                            self.content_blocks.insert(
+                                index,
+                                ContentBlockState::ToolUse { id: id.clone(), name: name.clone() },
+                            );
                             // Send tool call start event
                             let event = StreamingEvent::ToolCall {
                                 call_id: id.clone(),
@@ -327,10 +326,12 @@ impl SSEParser for AnthropicSSEParser {
                             if name == "web_search" {
                                 self.used_websearch = true;
                             }
-                            self.content_blocks.insert(index, ContentBlockState::Unknown);
+                            self.content_blocks
+                                .insert(index, ContentBlockState::Unknown);
                         }
                         AnthropicContentBlockStart::Unknown => {
-                            self.content_blocks.insert(index, ContentBlockState::Unknown);
+                            self.content_blocks
+                                .insert(index, ContentBlockState::Unknown);
                         }
                     }
                 }
@@ -422,6 +423,29 @@ pub struct GeminiSSEContent {
     pub parts: Option<Vec<GeminiSSEPart>>,
 }
 
+/// Web reference in Gemini grounding chunk
+#[derive(Deserialize, Debug)]
+pub struct GeminiGroundingChunkWeb {
+    pub uri: String,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// Grounding chunk from Gemini web search
+#[derive(Deserialize, Debug)]
+pub struct GeminiGroundingChunk {
+    pub web: Option<GeminiGroundingChunkWeb>,
+}
+
+/// Grounding metadata from Gemini web search
+#[derive(Deserialize, Debug)]
+pub struct GeminiGroundingMetadata {
+    #[serde(rename = "groundingChunks", default)]
+    pub grounding_chunks: Vec<GeminiGroundingChunk>,
+    #[serde(rename = "webSearchQueries", default)]
+    pub web_search_queries: Vec<String>,
+}
+
 /// Candidate in Gemini streaming response
 #[derive(Deserialize, Debug)]
 pub struct GeminiSSECandidate {
@@ -429,6 +453,8 @@ pub struct GeminiSSECandidate {
     #[serde(rename = "finishReason")]
     #[allow(dead_code)]
     pub finish_reason: Option<String>,
+    #[serde(rename = "groundingMetadata")]
+    pub grounding_metadata: Option<GeminiGroundingMetadata>,
 }
 
 /// Gemini SSE event structure
@@ -444,6 +470,10 @@ pub struct GeminiSSEParser {
     pub events_str: String,
     pub stream_event_processor: StreamEventProcessor,
     tool_call_index: i64,
+    /// Collected URL citation annotations from web search
+    pub annotations: Vec<UrlCitation>,
+    /// Whether web search was used in this response
+    pub used_websearch: bool,
 }
 
 impl GeminiSSEParser {
@@ -454,6 +484,8 @@ impl GeminiSSEParser {
             events_str: String::new(),
             stream_event_processor,
             tool_call_index: 0,
+            annotations: Vec::new(),
+            used_websearch: false,
         }
     }
 }
@@ -505,14 +537,38 @@ impl SSEParser for GeminiSSEParser {
                                             id: call_id,
                                             function: OpenAIFunction {
                                                 name: function_call.name,
-                                                arguments: serde_json::to_string(&function_call.args)
-                                                    .unwrap_or_else(|_| "{}".to_string()),
+                                                arguments: serde_json::to_string(
+                                                    &function_call.args,
+                                                )
+                                                .unwrap_or_else(|_| "{}".to_string()),
                                             },
                                             r#type: "function".to_string(),
                                             extra_content: None,
                                         },
                                     );
                                 }
+                            }
+                        }
+                    }
+
+                    // Handle grounding metadata (web search results)
+                    if let Some(ref grounding_metadata) = candidate.grounding_metadata {
+                        // Set used_websearch if there are search queries or grounding chunks
+                        if !grounding_metadata.web_search_queries.is_empty()
+                            || !grounding_metadata.grounding_chunks.is_empty()
+                        {
+                            self.used_websearch = true;
+                        }
+
+                        // Extract citations from grounding chunks
+                        for chunk in &grounding_metadata.grounding_chunks {
+                            if let Some(ref web) = chunk.web {
+                                self.annotations.push(UrlCitation {
+                                    start_index: 0, // Gemini doesn't provide character indices
+                                    end_index: 0,
+                                    url: web.uri.clone(),
+                                    title: web.title.clone(),
+                                });
                             }
                         }
                     }
@@ -713,10 +769,7 @@ impl SSEParser for OpenAIResponsesSSEParser {
                             item_id.clone(),
                             OpenAIToolCall {
                                 id: call_id.clone(),
-                                function: OpenAIFunction {
-                                    name: name.clone(),
-                                    arguments,
-                                },
+                                function: OpenAIFunction { name: name.clone(), arguments },
                                 r#type: "function".to_string(),
                                 extra_content: None,
                             },
