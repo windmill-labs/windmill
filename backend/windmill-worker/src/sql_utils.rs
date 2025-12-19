@@ -1,30 +1,74 @@
 // input should contain a single statement. remove all comments before and after it
 pub fn remove_comments(stmt: &str) -> &str {
     let mut in_stmt = false;
-    let mut in_comment = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut in_string = false;
+    let mut string_delimiter = '\0';
     let mut start = None;
     let mut end = stmt.len();
 
-    let mut c = ' ';
-    for (next_i, next_char) in stmt.char_indices() {
-        if next_i > 0 {
-            let i = next_i - 1;
-            if !in_comment && in_stmt && c == ';' {
-                end = i + 1;
-                break;
-            } else if in_comment && c == '\n' {
-                in_comment = false;
-            } else if c == '-' && next_char == '-' {
-                in_comment = true;
-            } else if !in_comment && !c.is_whitespace() && start == None {
+    let chars: Vec<char> = stmt.chars().collect();
+    let len = chars.len();
+
+    for i in 0..len {
+        let c = chars[i];
+        let next_char = if i + 1 < len { chars[i + 1] } else { '\0' };
+        let prev_char = if i > 0 { chars[i - 1] } else { '\0' };
+
+        // Handle string literals (single or double quotes)
+        if !in_line_comment && !in_block_comment {
+            if (c == '\'' || c == '"') && prev_char != '\\' {
+                if in_string && c == string_delimiter {
+                    // Exiting string
+                    in_string = false;
+                    string_delimiter = '\0';
+                } else if !in_string {
+                    // Entering string
+                    in_string = true;
+                    string_delimiter = c;
+                }
+            }
+        }
+
+        // Handle comments only when not inside a string
+        if !in_string {
+            // Check for start of line comment
+            if !in_block_comment && c == '-' && next_char == '-' {
+                in_line_comment = true;
+            }
+            // Check for end of line comment
+            else if in_line_comment && c == '\n' {
+                in_line_comment = false;
+            }
+            // Check for start of block comment
+            else if !in_line_comment && c == '/' && next_char == '*' {
+                in_block_comment = true;
+            }
+            // Check for end of block comment
+            else if in_block_comment && c == '*' && next_char == '/' {
+                in_block_comment = false;
+                // Skip the closing '/' by continuing after incrementing i in the loop
+                continue;
+            }
+        }
+
+        // Track statement boundaries
+        if !in_line_comment && !in_block_comment && !in_string {
+            // Mark start of statement
+            if !in_stmt && !c.is_whitespace() {
                 start = Some(i);
                 in_stmt = true;
             }
+            // Mark end of statement at semicolon
+            if in_stmt && c == ';' {
+                end = i + 1;
+                break;
+            }
         }
-        c = next_char;
     }
 
-    return &stmt[start.unwrap_or(0)..end];
+    &stmt[start.unwrap_or(0)..end]
 }
 
 #[cfg(test)]
