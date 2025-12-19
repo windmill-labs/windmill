@@ -174,15 +174,23 @@ impl QueryBuilder for OtherQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/chat/completions", base_url)
+        if self.provider_kind.is_azure_openai(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "chat/completions")
+        } else {
+            format!("{}/chat/completions", base_url)
+        }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        _base_url: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure_openai(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
     }
 }

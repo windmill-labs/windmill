@@ -42,6 +42,15 @@ OPENAI = {
     ),
 }
 
+AZURE_OPENAI = {
+    "name": "azure_openai",
+    "input_transform": make_provider_input_transform(
+        kind="azure_openai",
+        model="gpt-4o",
+        resource_path="u/admin/azure_openai",
+    ),
+}
+
 ANTHROPIC = {
     "name": "anthropic",
     "input_transform": make_provider_input_transform(
@@ -81,6 +90,7 @@ OPENROUTER = {
 # All providers for parametrized tests
 ALL_PROVIDERS = [
     OPENAI,
+    AZURE_OPENAI,
     ANTHROPIC,
     GOOGLE_AI,
     BEDROCK,

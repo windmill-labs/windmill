@@ -330,6 +330,14 @@ def setup_providers(client):
             "api_key": "$var:u/admin/openai_api_key"
         })
 
+    # Azure OpenAI
+    if os.environ.get("AZURE_OPENAI_API_KEY") and os.environ.get("AZURE_OPENAI_BASE_URL"):
+        client.create_variable("u/admin/azure_openai_api_key", os.environ["AZURE_OPENAI_API_KEY"])
+        client.create_resource("u/admin/azure_openai", "azure_openai", {
+            "apiKey": "$var:u/admin/azure_openai_api_key",
+            "baseUrl": os.environ["AZURE_OPENAI_BASE_URL"],
+        })
+
     # Anthropic
     if os.environ.get("ANTHROPIC_API_KEY"):
         client.create_variable("u/admin/anthropic_api_key", os.environ["ANTHROPIC_API_KEY"])

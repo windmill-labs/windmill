@@ -230,8 +230,8 @@ pub enum ToolChoice {
     Required,
 }
 
-/// Query builder for OpenAI and Azure OpenAI using the Responses API
 pub struct OpenAIQueryBuilder {
+    #[allow(dead_code)]
     provider_kind: AIProvider,
 }
 
@@ -521,24 +521,15 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        // Always use responses endpoint for OpenAI/Azure
-        if self.provider_kind.is_azure_openai(base_url) {
-            AIProvider::build_azure_openai_url(base_url, "responses")
-        } else {
-            format!("{}/responses", base_url)
-        }
+        format!("{}/responses", base_url)
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        base_url: &str,
+        _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        if self.provider_kind.is_azure_openai(base_url) {
-            vec![("api-key", api_key.to_string())]
-        } else {
-            vec![("Authorization", format!("Bearer {}", api_key))]
-        }
+        vec![("Authorization", format!("Bearer {}", api_key))]
     }
 }
