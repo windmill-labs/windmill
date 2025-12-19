@@ -1705,9 +1705,15 @@ export function chunkBy<T>(array: T[], getKey: (key: T) => string): T[][] {
 
 // AI generated
 export function getQueryStmtCountHeuristic(query: string): number {
+	// Handle empty or whitespace-only strings
+	if (query.trim() === '') {
+		return 0
+	}
+
 	let count = 0
 	let currState: 'normal' | 'single-quote' | 'double-quote' | 'line-comment' | 'block-comment' =
 		'normal'
+	let hasContentAfterLastSemicolon = false
 
 	for (let i = 0; i < query.length; i++) {
 		const char = query[i]
@@ -1717,16 +1723,23 @@ export function getQueryStmtCountHeuristic(query: string): number {
 			case 'normal':
 				if (char === "'") {
 					currState = 'single-quote'
+					hasContentAfterLastSemicolon = true
 				} else if (char === '"') {
 					currState = 'double-quote'
+					hasContentAfterLastSemicolon = true
 				} else if (char === '-' && nextChar === '-') {
 					currState = 'line-comment'
 					i++ // skip next char
 				} else if (char === '/' && nextChar === '*') {
 					currState = 'block-comment'
+					hasContentAfterLastSemicolon = true
 					i++ // skip next char
 				} else if (char === ';') {
 					count++
+					hasContentAfterLastSemicolon = false
+				} else if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+					// Non-whitespace character means we have content
+					hasContentAfterLastSemicolon = true
 				}
 				break
 
@@ -1767,7 +1780,19 @@ export function getQueryStmtCountHeuristic(query: string): number {
 		}
 	}
 
-	if (currState === 'normal' && !query.trimEnd().endsWith(';')) {
+	// Count implicit final statement if:
+	// 1. We're in normal state and query doesn't end with semicolon, OR
+	// 2. We're in a quote state (unclosed quote) - there's an implicit statement
+	// 3. We're in a block comment state - there's an implicit statement before the unclosed comment
+	// 4. We're in a line comment state and we had content after the last semicolon before entering the comment
+	const trimmedQuery = query.trimEnd()
+	if (currState === 'normal' && trimmedQuery !== '' && !trimmedQuery.endsWith(';')) {
+		count++
+	} else if (currState === 'single-quote' || currState === 'double-quote' || currState === 'block-comment') {
+		// Unclosed quote or unclosed block comment means there's an implicit statement
+		count++
+	} else if (currState === 'line-comment' && hasContentAfterLastSemicolon) {
+		// Line comment with content before it means there's an implicit statement
 		count++
 	}
 
