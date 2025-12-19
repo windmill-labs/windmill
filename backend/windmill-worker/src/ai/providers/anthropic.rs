@@ -411,8 +411,14 @@ impl QueryBuilder for AnthropicQueryBuilder {
         let mut anthropic_sse_parser = AnthropicSSEParser::new(stream_event_processor);
         anthropic_sse_parser.parse_events(response).await?;
 
-        let AnthropicSSEParser { accumulated_content, accumulated_tool_calls, events_str, .. } =
-            anthropic_sse_parser;
+        let AnthropicSSEParser {
+            accumulated_content,
+            accumulated_tool_calls,
+            events_str,
+            annotations,
+            used_websearch,
+            ..
+        } = anthropic_sse_parser;
 
         // Note: Tool call arguments events are already sent by the parser during streaming
         // when content_block_stop is received
@@ -425,8 +431,8 @@ impl QueryBuilder for AnthropicQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
-            annotations: Vec::new(),
-            used_websearch: false,
+            annotations,
+            used_websearch,
         })
     }
 

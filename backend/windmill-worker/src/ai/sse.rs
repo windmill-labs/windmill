@@ -180,8 +180,20 @@ pub enum AnthropicContentBlockStart {
     },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
+    #[serde(rename = "server_tool_use")]
+    ServerToolUse { id: String, name: String },
     #[serde(other)]
     Unknown,
+}
+
+/// Citation from Anthropic web search delta events
+#[derive(Deserialize, Debug)]
+pub struct AnthropicCitationDelta {
+    #[allow(dead_code)]
+    pub r#type: String,
+    pub url: String,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 /// Delta types for Anthropic streaming content blocks
@@ -192,6 +204,8 @@ pub enum AnthropicDelta {
     TextDelta { text: String },
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
+    #[serde(rename = "citations_delta")]
+    CitationsDelta { citation: AnthropicCitationDelta },
     #[serde(other)]
     Unknown,
 }
@@ -243,6 +257,10 @@ pub struct AnthropicSSEParser {
     pub stream_event_processor: StreamEventProcessor,
     /// Track content block types by index
     content_blocks: HashMap<usize, ContentBlockState>,
+    /// Collected URL citation annotations from web search
+    pub annotations: Vec<UrlCitation>,
+    /// Whether web search was used in this response
+    pub used_websearch: bool,
 }
 
 impl AnthropicSSEParser {
@@ -253,6 +271,8 @@ impl AnthropicSSEParser {
             events_str: String::new(),
             stream_event_processor,
             content_blocks: HashMap::new(),
+            annotations: Vec::new(),
+            used_websearch: false,
         }
     }
 }
@@ -302,6 +322,13 @@ impl SSEParser for AnthropicSSEParser {
                                 },
                             );
                         }
+                        AnthropicContentBlockStart::ServerToolUse { name, .. } => {
+                            // Detect websearch tool usage
+                            if name == "web_search" {
+                                self.used_websearch = true;
+                            }
+                            self.content_blocks.insert(index, ContentBlockState::Unknown);
+                        }
                         AnthropicContentBlockStart::Unknown => {
                             self.content_blocks.insert(index, ContentBlockState::Unknown);
                         }
@@ -326,6 +353,15 @@ impl SSEParser for AnthropicSSEParser {
                             {
                                 tool_call.function.arguments.push_str(&partial_json);
                             }
+                        }
+                        AnthropicDelta::CitationsDelta { citation } => {
+                            // Collect URL citations from web search
+                            self.annotations.push(UrlCitation {
+                                start_index: 0, // Anthropic doesn't provide start/end indices
+                                end_index: 0,
+                                url: citation.url,
+                                title: citation.title,
+                            });
                         }
                         AnthropicDelta::Unknown => {}
                     }
