@@ -78,6 +78,9 @@ vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features/worker
 		getScriptSnapshot(_fileName: string) {
 			return this._mockScriptSnapshot
 		}
+		getScriptVersion(_fileName: string) {
+			return '1'
+		}
 	},
 	ts: undefined,
 	initialize: undefined
