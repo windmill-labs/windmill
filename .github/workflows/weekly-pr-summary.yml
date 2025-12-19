@@ -3,7 +3,7 @@ name: Weekly PR Summary
 on:
   schedule:
     # Every Friday at 8:00 AM UTC
-    - cron: "0 8 * * 5"
+    - cron: '0 8 * * 5'
   workflow_dispatch:
     # Allow manual triggering for testing
 
@@ -112,6 +112,7 @@ jobs:
             - Verify the file was created by running: `ls -lh summary.md`
           claude_args: |
             --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
+            --model haiku
 
       - name: Send Summary to Windmill
         if: hashFiles('summary.md') != ''

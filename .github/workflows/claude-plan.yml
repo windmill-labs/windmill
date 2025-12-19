@@ -64,9 +64,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          allowed_bots: "windmill-internal-app[bot]"
-          trigger_phrase: "/plan"
+          allowed_bots: 'windmill-internal-app[bot]'
+          trigger_phrase: '/plan'
           claude_args: |
+            --model opus
             --system-prompt "# Claude Planning Mode
 
             You are operating in PLANNING MODE ONLY. Your role is to create detailed, structured plans without making any code changes.

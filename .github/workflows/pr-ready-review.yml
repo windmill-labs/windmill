@@ -45,3 +45,4 @@ jobs:
             At the end of your review, add complete instructions to reproduce the added changes through the app interface. These instructions will be given to a tester so he can verify the changes. It should be a short descriptive text (not a step by step or a list) on how to navigate the app (what page, what action, what input, etc) to see the changes.
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --model opus
