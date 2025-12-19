@@ -1536,7 +1536,7 @@
 			declare module 'windmill-client' {
 				import { ducklake as _og_ducklake, datatable as _og_datatable } from 'windmill-client';
 				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): ReturnType<typeof _og_ducklake>;
-				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): ReturnType<typeof _og_ducklake>;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): ReturnType<typeof _og_datatable>;
 			}`,
 			'file:///custom_wmill_types.d.ts'
 		)
