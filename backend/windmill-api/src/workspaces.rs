@@ -1382,6 +1382,11 @@ async fn prepare_query_inner(
     db: &DB,
 ) -> Result<QueryResult> {
     if !pg_connections.contains_key(&request.datatable) {
+        if pg_connections.len() >= 5 {
+            return Err(Error::BadRequest(
+                "Too many unique datatables in request (max 5)".to_string(),
+            ));
+        }
         let db_resource =
             get_datatable_resource_from_db_unchecked(&db, &w_id, &request.datatable).await?;
         let database: PgDatabase = serde_json::from_value(db_resource).map_err(|e| {
