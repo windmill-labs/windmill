@@ -852,6 +852,8 @@ components:
             itered:
               type: array
               items: {}
+            itered_len:
+              type: integer
             args: {}
         flow_jobs:
           type: array

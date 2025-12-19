@@ -5612,7 +5612,11 @@ fn create_restarted_module(
             Ok(FlowStatusModule::InProgress {
                 id: module.id(),
                 job: new_flow_jobs[new_flow_jobs.len() - 1],
-                iterator: Some(FlowIterator { index: branch_or_iteration_n - 1, itered: vec![] }),
+                iterator: Some(FlowIterator {
+                    index: branch_or_iteration_n - 1,
+                    itered: None,
+                    itered_len: None,
+                }),
                 flow_jobs: Some(new_flow_jobs),
                 flow_jobs_success: new_flow_jobs_success,
                 flow_jobs_duration: new_flow_jobs_timeline,

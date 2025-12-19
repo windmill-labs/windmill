@@ -128,6 +128,7 @@
 		{/if}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect
+				isPreprocessor={module.id == 'preprocessor'}
 				placeholder={customUi?.tagSelectPlaceholder}
 				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
@@ -175,6 +176,7 @@
 
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect
+			isPreprocessor={module.id == 'preprocessor'}
 			placeholder={customUi?.tagSelectPlaceholder}
 			noLabel={customUi?.tagSelectNoLabel}
 			nullTag={tag}

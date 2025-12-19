@@ -9,12 +9,14 @@
 		tag = $bindable(),
 		nullTag,
 		placeholder,
-		noLabel
+		noLabel,
+		isPreprocessor
 	}: {
 		tag: string | undefined
 		nullTag?: string | undefined
 		placeholder?: string
 		noLabel?: boolean
+		isPreprocessor: boolean
 	} = $props()
 
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -32,7 +34,7 @@
 {#if $workerTags}
 	{#if $workerTags?.length > 0}
 		<div class="w-40">
-			{#if flowStore.val.tag == undefined}
+			{#if flowStore.val.tag == undefined || isPreprocessor}
 				<WorkerTagSelect
 					{noLabel}
 					{placeholder}
