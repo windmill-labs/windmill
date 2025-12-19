@@ -21,6 +21,8 @@ export function usePreparedAssetSqlQueries(
 			),
 		async (toFetch) => {
 			let queries = Object.entries(clone(toFetch))
+			// We only support preparing single-statement queries for now.
+			queries = queries.filter(([_, q]) => getQueryStmtCountHeuristic(q.query_string) === 1)
 
 			if (!queries?.length) return {}
 			try {
@@ -52,6 +54,8 @@ export function usePreparedAssetSqlQueries(
 									args: { database: `datatable://${chunk[0][1]?.source_name}` }
 								}
 							})) as { error?: string; columns?: { name: string; type: string }[] }[]
+
+							console.log('Prepared query content:', res)
 
 							let res2: [string, PreparedAssetsSqlQuery][] = res.map((r, i) => [
 								chunk[i][0],
@@ -89,4 +93,65 @@ export function usePreparedAssetSqlQueries(
 			return extendedQueries
 		}
 	}
+}
+
+// AI generated
+function getQueryStmtCountHeuristic(query: string): number {
+	let count = 0
+	let currState: 'normal' | 'single-quote' | 'double-quote' | 'line-comment' | 'block-comment' =
+		'normal'
+
+	for (let i = 0; i < query.length; i++) {
+		const char = query[i]
+		const nextChar = query[i + 1]
+
+		switch (currState) {
+			case 'normal':
+				if (char === "'" && query[i - 1] !== '\\') {
+					currState = 'single-quote'
+				} else if (char === '"' && query[i - 1] !== '\\') {
+					currState = 'double-quote'
+				} else if (char === '-' && nextChar === '-') {
+					currState = 'line-comment'
+					i++ // skip next char
+				} else if (char === '/' && nextChar === '*') {
+					currState = 'block-comment'
+					i++ // skip next char
+				} else if (char === ';') {
+					count++
+				}
+				break
+
+			case 'single-quote':
+				if (char === "'" && query[i - 1] !== '\\') {
+					currState = 'normal'
+				}
+				break
+
+			case 'double-quote':
+				if (char === '"' && query[i - 1] !== '\\') {
+					currState = 'normal'
+				}
+				break
+
+			case 'line-comment':
+				if (char === '\n') {
+					currState = 'normal'
+				}
+				break
+
+			case 'block-comment':
+				if (char === '*' && nextChar === '/') {
+					currState = 'normal'
+					i++ // skip next char
+				}
+				break
+		}
+	}
+
+	if (currState === 'normal' && !query.trimEnd().endsWith(';')) {
+		count++
+	}
+
+	return count
 }
