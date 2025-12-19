@@ -210,6 +210,7 @@ def create_ai_agent_flow(
     output_schema: dict[str, Any] | None = None,
     streaming: bool | None = None,
     include_user_images: bool = False,
+    output_type: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a FlowValue for an AI agent.
@@ -221,6 +222,7 @@ def create_ai_agent_flow(
         output_schema: Optional JSON schema for structured output
         streaming: Optional flag to enable streaming responses
         include_user_images: If True, adds user_images input from flow_input
+        output_type: Optional output type ("text" or "image")
 
     Returns:
         A FlowValue dictionary ready to be sent to preview_flow
@@ -242,6 +244,10 @@ def create_ai_agent_flow(
     # Add user_images if enabled
     if include_user_images:
         input_transforms["user_images"] = {"type": "javascript", "expr": "flow_input.user_images"}
+
+    # Add output_type if provided
+    if output_type is not None:
+        input_transforms["output_type"] = {"type": "static", "value": output_type}
 
     module_value = {
         "type": "aiagent",

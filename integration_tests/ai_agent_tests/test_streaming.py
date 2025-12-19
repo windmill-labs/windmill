@@ -171,7 +171,7 @@ class TestStreaming:
 
         # wm_stream should not be present or should be empty/null
         wm_stream = result.get("wm_stream")
-        assert wm_stream is None or wm_stream == "", f"Expected no wm_stream when disabled: {wm_stream}"
+        assert wm_stream is None, f"Expected no wm_stream when disabled"
 
         print(f"Non-streaming result from {provider_config['name']}: no wm_stream (as expected)")
 
