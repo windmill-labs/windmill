@@ -62,7 +62,7 @@
 	} = $props()
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
-	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext') || {}
 	let selectedId = $derived(selectionManager?.getSelectedId())
 
 	let allModules = $derived(getAllModules(modules))
