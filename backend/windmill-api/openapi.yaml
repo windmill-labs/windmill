@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.594.0
+  version: 1.595.0
   title: Windmill API
 
   contact:
@@ -2166,6 +2166,8 @@ paths:
                   teams_command_script:
                     type: string
                   teams_team_name:
+                    type: string
+                  teams_team_guid:
                     type: string
                   auto_invite_domain:
                     type: string

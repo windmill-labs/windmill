@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.595.0](https://github.com/windmill-labs/windmill/compare/v1.594.0...v1.595.0) (2025-12-19)
+
+
+### Features
+
+* email triggers custom cert ([#7415](https://github.com/windmill-labs/windmill/issues/7415)) ([0bf7407](https://github.com/windmill-labs/windmill/commit/0bf74074192d22e3ba28acae65d88464f9958fb8))
+
+
+### Bug Fixes
+
+* **backend:** put for loop itered in a separate table ([#7419](https://github.com/windmill-labs/windmill/issues/7419)) ([f89fb29](https://github.com/windmill-labs/windmill/commit/f89fb292da320f54d682e8de5ff57acac0405efa))
+* do not use unshare for init scripts ([#7418](https://github.com/windmill-labs/windmill/issues/7418)) ([c28e771](https://github.com/windmill-labs/windmill/commit/c28e77110e3a97c597b0781124a97b6d16a34810))
+* **frontend:** settings redesign ([#7406](https://github.com/windmill-labs/windmill/issues/7406)) ([210b828](https://github.com/windmill-labs/windmill/commit/210b8285d4d9a693f67b40831d5bb39d6aeffb92))
+* Python Enum types generate proper dropdown schemas with descriptions ([#7400](https://github.com/windmill-labs/windmill/issues/7400)) ([da500fc](https://github.com/windmill-labs/windmill/commit/da500fcf3e79f76e14d1724f07dd69e58a6307e8))
+* teams, need both guid and thread id format ([#7420](https://github.com/windmill-labs/windmill/issues/7420)) ([8268354](https://github.com/windmill-labs/windmill/commit/8268354889d0eb1fb44c083fd1c6243f08788e2c))
+
 ## [1.594.0](https://github.com/windmill-labs/windmill/compare/v1.593.1...v1.594.0) (2025-12-19)
 
 
