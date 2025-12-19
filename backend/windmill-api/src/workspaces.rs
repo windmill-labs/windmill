@@ -1398,10 +1398,25 @@ async fn prepare_query_inner(
     };
 
     if let Some(schema) = &request.schema {
+        // Validate name to ensure it only contains alphanumeric characters
+        // Prevents SQL injection on the instance database
+        lazy_static::lazy_static! {
+            static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+        }
+        if !VALID_NAME.is_match(schema) {
+            return Err(Error::BadRequest(
+                "Schema name must be alphanumeric, underscores allowed".to_string(),
+            ));
+        }
         client
             .execute(&*format!("SET search_path TO {}", schema), &[])
             .await
             .map_err(|e| Error::ExecutionErr(format!("Failed to set schema: {}", e)))?;
+    } else {
+        client
+            .execute("RESET search_path", &[])
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to reset search_path: {}", e)))?;
     }
 
     // Prepare query and extract column information
