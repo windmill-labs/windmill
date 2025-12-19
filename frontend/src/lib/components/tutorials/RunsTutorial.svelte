@@ -102,7 +102,7 @@
 		}
 
 		await FlowService.createFlow({
-			workspace: $workspaceStore!,
+					workspace: $workspaceStore!,
 			requestBody: flow
 		})
 
@@ -125,18 +125,44 @@
 
 	function getTutorialSteps(driver: any): DriveStep[] {
 		return [
-			{
-				popover: {
-					title: 'Welcome to your monitoring dashboard!',
-					description: "Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you.",
-					onNextClick: () => {
-						driver.moveNext()
-					},
-					onPrevClick: () => {
-						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
+		{
+			onHighlighted: () => {
+				// Center the popover when there's no element - try immediately and retry if needed
+				const centerPopover = () => {
+					const popoverWrapper = document.querySelector('.driver-popover') as HTMLElement
+					if (popoverWrapper) {
+						popoverWrapper.style.position = 'fixed'
+						popoverWrapper.style.left = '50%'
+						popoverWrapper.style.top = '50%'
+						popoverWrapper.style.transform = 'translate(-50%, -50%)'
+						popoverWrapper.style.margin = '0'
+						return true
 					}
+					return false
+				}
+				
+				// Try immediately
+				if (!centerPopover()) {
+					// If not found, try on next frame
+					requestAnimationFrame(() => {
+						if (!centerPopover()) {
+							// Last attempt after a microtask
+							setTimeout(centerPopover, 0)
+						}
+					})
 				}
 			},
+			popover: {
+				title: 'Welcome to your monitoring dashboard!',
+				description: "Let's explore how to monitor and manage your script and flow executions in Windmill.<p style='margin-top: 12px;'>In this tutorial, we will show you a successful job execution <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='color: #22c55e; display: inline-block; vertical-align: middle;'><circle cx='12' cy='12' r='10'/><path d='m9 12 2 2 4-4'/></svg>, a failed job execution <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='color: #ef4444; display: inline-block; vertical-align: middle;'><circle cx='12' cy='12' r='10'/><path d='m12 8v4'/><path d='m12 16h.01'/></svg>, and available monitoring filters.</p>",
+				onNextClick: () => {
+					driver.moveNext()
+				},
+				onPrevClick: () => {
+					sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
+				}
+			}
+		},
 			{
 				element: '#runs-table-wrapper',
 				onHighlighted: async () => {
