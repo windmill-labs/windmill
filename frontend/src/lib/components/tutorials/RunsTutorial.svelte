@@ -9,6 +9,7 @@
 	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, DELAY_ANIMATION, createFakeCursor } from './utils'
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		index: number
@@ -18,6 +19,11 @@
 
 	let tutorial: Tutorial | undefined = $state(undefined)
 	let tutorialFlowPaths: string[] = $state([])
+
+	// Flags to track if steps are complete
+	let step2Complete = $state(false)
+	let step4Complete = $state(false)
+	let step5Complete = $state(false)
 
 	// Create a simple flow
 	async function createTutorialFlow(): Promise<string> {
@@ -126,12 +132,16 @@
 						"Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you.",
 					onNextClick: () => {
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
 			{
 				element: '#runs-table-wrapper',
 				onHighlighted: async () => {
+					step2Complete = false
 					await wait(DELAY_MEDIUM)
 					
 					// Find both jobs
@@ -210,6 +220,7 @@
 						
 						// Remove the cursor
 						cursor.remove()
+						step2Complete = true
 					}
 				},
 				popover: {
@@ -218,6 +229,10 @@
 						'We\'re clicking on both jobs to show you how to inspect different types of executions.',
 					side: 'bottom',
 					onNextClick: async () => {
+						if (!step2Complete) {
+							sendUserToast('Please wait for the job clicks to complete...', false, [], undefined, 3000)
+							return
+						}
 						// Find and click the failed job again (last one clicked) without showing cursor
 						const failedJobRow = Array.from(
 							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
@@ -239,6 +254,9 @@
 						}
 						
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -251,12 +269,16 @@
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
 			{
 				element: 'div.p-2.px-4.pt-8.w-full.border-b',
 				onHighlighted: async () => {
+					step4Complete = false
 					await wait(DELAY_MEDIUM)
 					// Find the button with data-value="ConcurrencyChart"
 					const concurrencyButton = document.querySelector(
@@ -286,6 +308,7 @@
 						// Remove the cursor
 						cursor.remove()
 						await wait(DELAY_MEDIUM)
+						step4Complete = true
 					}
 				},
 				popover: {
@@ -294,13 +317,21 @@
 						'You can switch between different chart views to analyze your runs. The concurrency chart allows you to see how many jobs are running concurrently over time.',
 					side: 'bottom',
 					onNextClick: () => {
+						if (!step4Complete) {
+							sendUserToast('Please wait for the chart switch to complete...', false, [], undefined, 3000)
+							return
+						}
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
 			{
 				element: 'div.flex.flex-row.items-start.w-full.border-b.px-4.gap-8',
 				onHighlighted: async () => {
+					step5Complete = false
 					await wait(DELAY_MEDIUM)
 					
 					// Find the success and failure filter buttons
@@ -347,6 +378,7 @@
 						// Remove the cursor
 						cursor.remove()
 						await wait(DELAY_MEDIUM)
+						step5Complete = true
 					}
 				},
 				popover: {
@@ -355,7 +387,14 @@
 						'You can filter jobs, for example by status (failed, running, success). This helps you focus on specific types of executions.',
 					side: 'bottom',
 					onNextClick: () => {
+						if (!step5Complete) {
+							sendUserToast('Please wait for the filter clicks to complete...', false, [], undefined, 3000)
+							return
+						}
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
@@ -368,6 +407,9 @@
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
 			},
