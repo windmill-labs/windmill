@@ -226,6 +226,7 @@
 				<Alert type="warning" title="Limited to 10 SSO users">
 					Without EE, the number of SSO users is limited to 10. SCIM/SAML is available on EE
 				</Alert>
+				<div class="mb-2"></div>
 			{/if}
 
 			<div class="mb-2">

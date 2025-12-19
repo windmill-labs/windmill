@@ -154,24 +154,30 @@
 	}
 </script>
 
+{#snippet LabelSnippet()}
+	<!-- svelte-ignore a11y_label_has_associated_control -->
+	<label class="flex flex-col gap-1 mb-1">
+		<div class="flex gap-1">
+			<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
+			{#if setting.ee_only != undefined && !$enterpriseLicense}
+				<EEOnly>
+					{#if setting.ee_only != ''}{setting.ee_only}{/if}
+				</EEOnly>
+			{/if}
+		</div>
+		{#if setting.description}
+			<span class="text-secondary text-xs font-normal">
+				{@html setting.description}
+			</span>
+		{/if}
+	</label>
+{/snippet}
+
 <!-- {JSON.stringify($values, null, 2)} -->
 {#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
-	{#if setting.ee_only != undefined && !$enterpriseLicense}
-		<EEOnly>
-			{#if setting.ee_only != ''}{setting.ee_only}{/if}
-		</EEOnly>
-	{/if}
 	{#if setting.fieldType == 'select'}
 		<div>
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label>
-				<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
-				{#if setting.description}
-					<span class="text-secondary text-xs font-normal">
-						{@html setting.description}
-					</span>
-				{/if}
-			</label>
+			{@render LabelSnippet()}
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButton })}
 					{#each setting.select_items ?? [] as item}
@@ -188,14 +194,7 @@
 	{:else if setting.fieldType == 'select_python'}
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="mb-1 flex flex-col gap-1">
-				<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
-				{#if setting.description}
-					<span class="text-secondary text-xs font-normal">
-						{@html setting.description}
-					</span>
-				{/if}
-			</label>
+			{@render LabelSnippet()}
 
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
 				{#snippet children({ item: toggleButtonn })}
@@ -253,9 +252,16 @@
 					<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 w-full">
 						<div class="flex items-center justify-between gap-2 w-full">
 							{#if setting.fieldType != 'smtp_connect'}
-								<label for={setting.key} class="text-emphasis font-semibold text-xs"
-									>{setting.label}</label
-								>
+								<div class="flex gap-1">
+									<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
+									{#if setting.ee_only != undefined && !$enterpriseLicense}
+										{#if setting.ee_only != ''}
+											<EEOnly>{setting.ee_only}</EEOnly>
+										{:else}
+											<EEOnly />
+										{/if}
+									{/if}
+								</div>
 							{/if}
 							{#if setting.actionButton}
 								<Button

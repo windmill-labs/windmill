@@ -3,7 +3,6 @@
 	import SlackChannelCard from './SlackChannelCard.svelte'
 	import TeamsChannelCard from './TeamsChannelCard.svelte'
 	import EmailChannelCard from './EmailChannelCard.svelte'
-	import EEOnly from '../EEOnly.svelte'
 	import type { Writable } from 'svelte/store'
 	import { isSmtpSettingsValid } from './SmtpSettings.svelte'
 
@@ -146,10 +145,6 @@
 		}
 	}
 </script>
-
-{#if !$enterpriseLicense}
-	<EEOnly>Channels other than tracing are only available in the EE version</EEOnly>
-{/if}
 
 <div class="gap-y-4 pt-2 flex flex-col">
 	<!-- Slack Card -->
