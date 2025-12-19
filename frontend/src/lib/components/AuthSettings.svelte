@@ -434,7 +434,7 @@
 													}
 												}}
 											/>
-											<span style="font-size: 14px; font-weight: 600;"
+											<span class="text-xs font-semibold text-emphasis"
 												>Support Client Credentials Flow</span
 											>
 											<Tooltip>

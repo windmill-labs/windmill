@@ -30,8 +30,7 @@ const config = {
 			'rubendev.wimill.xyz',
 			'windmill.xyz',
 			'app.windmill.xyz',
-			'public.windmill.xyz',
-			'hernial-latoyia-flammable.ngrok-free.dev'
+			'public.windmill.xyz'
 		],
 		port: 3000,
 		cors: { origin: '*' },
@@ -118,8 +117,7 @@ const config = {
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					setupFiles: ['src/lib/test-setup.ts']
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
 				}
 			}
 		]
