@@ -71,6 +71,7 @@ use windmill_common::worker::CLOUD_HOSTED;
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
 
+#[cfg(any(target_os = "linux"))]
 use crate::cgroups::disable_oom_group;
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -511,10 +512,12 @@ async fn windmill_main() -> anyhow::Result<()> {
     let worker_mode = num_workers > 0;
 
     if worker_mode {
+        #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
             tracing::warn!("failed to disable oom group: {:?}", e);
         }
     }
+
     let conn = if mode == Mode::Agent {
         conn
     } else {
