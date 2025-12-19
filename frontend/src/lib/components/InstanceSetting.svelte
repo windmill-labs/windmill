@@ -37,9 +37,10 @@
 		values: Writable<Record<string, any>>
 		loading?: boolean
 		openSmtpSettings?: () => void
+		oauths?: Record<string, any>
 	}
 
-	let { setting, version, values, loading = true, openSmtpSettings }: Props = $props()
+	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	if (
@@ -514,7 +515,7 @@
 						</div>
 					</div>
 				{:else if setting.fieldType == 'critical_error_channels'}
-					<CriticalAlertChannels {values} {openSmtpSettings} />
+					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'indexer_rates'}
 					<div class="flex flex-col gap-16 mt-4">
 						{#if $values[setting.key]}

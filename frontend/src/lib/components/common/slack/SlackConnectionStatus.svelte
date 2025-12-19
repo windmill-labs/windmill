@@ -40,9 +40,9 @@
 				<Plug size={14} />
 				<span class="text-xs text-primary">
 					{#if slackTeamName}
-						Workspace connected to the Slack workspace '{slackTeamName}'
+						{mode === 'instance' ? 'Instance' : 'Workspace'} connected to the Slack workspace '{slackTeamName}'
 					{:else}
-						Workspace connected to Slack workspace
+						{mode === 'instance' ? 'Instance' : 'Workspace'} connected to Slack workspace
 					{/if}
 				</span>
 			</Badge>
@@ -64,9 +64,13 @@
 
 		<Badge color="red">
 			<Unplug size={14} />
-			<span class="text-xs text-primary">Workspace not connected to Slack</span>
+			<span class="text-xs text-primary"
+				>{mode === 'instance' ? 'Instance' : 'Workspace'} not connected to Slack</span
+			>
 		</Badge>
 
-		<a href={connectUrl} class="text-xs">open slack settings </a>
+		<a href={connectUrl} class="text-xs"
+			>{mode === 'instance' ? 'Connect intance to slack' : 'Open workspace slack settings'}</a
+		>
 	{/if}
 </div>

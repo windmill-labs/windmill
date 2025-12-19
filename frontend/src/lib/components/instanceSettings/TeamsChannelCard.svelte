@@ -6,6 +6,7 @@
 	import ChannelSelector from '../ChannelSelector.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import TeamsConnectionStatus from '../common/teams/TeamsConnectionStatus.svelte'
 
 	interface TeamsChannelEntry {
 		teams_channel?: {
@@ -30,6 +31,7 @@
 			channel: TeamsChannelEntry
 		) => void
 		findChannelIndex: (channel: TeamsChannelEntry) => number
+		isTeamsConnected?: boolean
 		class?: string
 		style?: string
 	}
@@ -42,6 +44,7 @@
 		onTeamChange,
 		onChannelChange,
 		findChannelIndex,
+		isTeamsConnected,
 		class: clazz,
 		style
 	}: Props = $props()
@@ -63,7 +66,14 @@
 		class={clazz}
 		{style}
 	>
+		{#snippet actions()}
+			<TeamsConnectionStatus isConnected={isTeamsConnected} mode="instance" />
+		{/snippet}
 		{#snippet children()}
+			{#if channels.length > 0}
+				<span class="text-xs text-secondary"> Channels to send alerts to. </span>
+			{/if}
+
 			<!-- Channel Configuration -->
 			{#if channels.length > 0}
 				<!-- Column Headers -->

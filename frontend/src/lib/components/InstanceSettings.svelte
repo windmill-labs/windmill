@@ -362,6 +362,7 @@
 										{setting}
 										{values}
 										{version}
+										{oauths}
 									/>
 								{/each}
 							</div>
@@ -380,6 +381,7 @@
 								{setting}
 								{values}
 								{version}
+								{oauths}
 							/>
 						{/if}
 					{/each}

@@ -10,9 +10,10 @@
 	interface Props {
 		values: Writable<Record<string, any>>
 		openSmtpSettings?: () => void
+		oauths?: Record<string, any>
 	}
 
-	let { values, openSmtpSettings }: Props = $props()
+	let { values, openSmtpSettings, oauths }: Props = $props()
 
 	// Derived state for each channel type
 	const slackChannels = $derived.by(() => {
@@ -32,12 +33,22 @@
 
 	const slackTeamName = $derived($values['slack']?.['team_name'])
 
+	// Teams OAuth validation function
+	function isTeamsOAuthConfigured(teamsConfig: any): boolean {
+		return (
+			teamsConfig &&
+			teamsConfig.id?.trim() &&
+			teamsConfig.secret?.trim() &&
+			teamsConfig.tenant?.trim()
+		)
+	}
+
+	const isTeamsConnected = $derived(isTeamsOAuthConfigured(oauths?.teams))
+
 	// Compute dynamic order based on channel presence
-	const slackOrder = $derived(slackChannels.length > 0 || slackTeamName ? 1 : 4)
+	const slackOrder = $derived(slackChannels.length > 0 ? 1 : 4)
 	const teamsOrder = $derived(teamsChannels.length > 0 ? 2 : 5)
-	const emailOrder = $derived(
-		emailChannels.length > 0 || $values['smtp_connect']?.smtp_host ? 3 : 6
-	)
+	const emailOrder = $derived(emailChannels.length > 0 ? 3 : 6)
 
 	function addSlackChannel() {
 		if (
@@ -163,6 +174,7 @@
 		onTeamChange={handleTeamChange}
 		onChannelChange={handleChannelChange}
 		{findChannelIndex}
+		{isTeamsConnected}
 		style="order: {teamsOrder};"
 	/>
 

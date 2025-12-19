@@ -15,9 +15,7 @@
 
 	// Connection URLs based on mode
 	let connectUrl = $derived(
-		mode === 'instance'
-			? `${base}/api/oauth/connect_teams?instance=true`
-			: `${base}/workspace_settings?tab=teams`
+		mode === 'instance' ? `${base}/#superadmin-settings` : `${base}/workspace_settings?tab=teams`
 	)
 </script>
 
@@ -61,9 +59,17 @@
 	{:else}
 		<Badge color="red">
 			<Unplug size={14} />
-			<span class="text-xs text-primary">Teams not connected to this workspace</span>
+			<span class="text-xs text-primary"
+				>{mode === 'instance' ? 'Instance' : 'Workspace'} not connected to Teams</span
+			>
 		</Badge>
 
-		<a href={connectUrl} class="text-xs">open teams settings</a>
+		{#if mode === 'instance'}
+			<span class="text-xs text-secondary">
+				Configure Teams OAuth connection in instance settings
+			</span>
+		{:else}
+			<a href={connectUrl} class="text-xs">open workspace teams settings</a>
+		{/if}
 	{/if}
 </div>

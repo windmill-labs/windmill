@@ -127,7 +127,7 @@
 						label: team.team_name,
 						value: team.team_id
 					}))}
-					placeholder={isFetching ? 'Searching...' : 'Search teams...'}
+					placeholder={isFetching ? 'Searching...' : 'Pick a team...'}
 					clearable
 					{disabled}
 					bind:filterText={searchFilterText}
