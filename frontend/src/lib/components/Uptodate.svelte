@@ -20,7 +20,7 @@
 </script>
 
 {#if uptodate}
-	<span class="text-blue-400">
+	<span class="text-accent text-xs">
 		{uptodate} &nbsp;
 		<Tooltip>
 			{#if isCloudHosted()}

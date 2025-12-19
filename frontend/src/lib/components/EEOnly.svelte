@@ -17,7 +17,6 @@
 			'flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap px-1',
 			className
 		)}
-		title="Enterprise Edition only feature"
 		aria-label="Enterprise Edition only feature"
 		role="tooltip"
 	>

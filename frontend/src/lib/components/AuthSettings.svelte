@@ -5,7 +5,6 @@
 	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
 	import OktaSetting from './OktaSetting.svelte'
 	import Auth0Setting from './Auth0Setting.svelte'
-	import CloseButton from './common/CloseButton.svelte'
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
@@ -14,11 +13,15 @@
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, type Item } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
-	import { ExternalLink, Plus } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import { APP_TO_ICON_COMPONENT } from './icons'
+	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { tick } from 'svelte'
+	import { Popover } from './meltComponents'
 
 	interface Props {
 		snowflakeAccountIdentifier?: string
@@ -74,16 +77,142 @@
 		'apify'
 	]
 
-	let oauth_name = $state(undefined)
+	let showCustomOAuthForm = $state(false)
+	let customOAuthName = $state('')
+	let customNameInput = $state<HTMLInputElement>()
+	let dropdownOpen = $state(false)
 
-	let clientName = $state('')
-	let resourceName = $state('')
+	let ssoPopoverOpen = $state(false)
+	let ssoClientName = $state('')
+	let ssoNameInput = $state<HTMLInputElement>()
 
 	let tab: 'sso' | 'oauth' | 'scim' = $state('sso')
+
+	function createOAuthClient(name: string) {
+		if (oauths && name) {
+			// Create a new object to ensure the new item is added at the end
+			const newOauths = { ...oauths }
+			newOauths[name] = { id: '', secret: '', grant_types: ['authorization_code'] }
+			oauths = newOauths
+			dropdownOpen = false
+		}
+	}
+
+	function handleCustomOAuthClient() {
+		showCustomOAuthForm = true
+		customOAuthName = ''
+		dropdownOpen = false
+		// Focus the input on next tick
+		tick().then(() => {
+			customNameInput?.focus()
+		})
+	}
+
+	function submitCustomOAuthClient() {
+		const trimmedName = customOAuthName.trim()
+		if (trimmedName) {
+			createOAuthClient(trimmedName)
+			showCustomOAuthForm = false
+			customOAuthName = ''
+		}
+	}
+
+	function cancelCustomOAuthForm() {
+		showCustomOAuthForm = false
+		customOAuthName = ''
+	}
+
+	function handleCustomOAuthKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault()
+			submitCustomOAuthClient()
+		} else if (event.key === 'Escape') {
+			event.preventDefault()
+			cancelCustomOAuthForm()
+		}
+	}
+
+	function handleSsoPopoverOpen() {
+		ssoPopoverOpen = true
+		ssoClientName = ''
+		// Focus the input on next tick
+		tick().then(() => {
+			ssoNameInput?.focus()
+		})
+	}
+
+	function submitSsoClient() {
+		const trimmedName = ssoClientName.trim()
+		if (trimmedName && oauths) {
+			// Create a new object to ensure the new item is added at the end
+			const newOauths = { ...oauths }
+			newOauths[trimmedName] = { id: '', secret: '', login_config: {} }
+			oauths = newOauths
+			ssoPopoverOpen = false
+			ssoClientName = ''
+		}
+	}
+
+	function cancelSsoPopover() {
+		ssoPopoverOpen = false
+		ssoClientName = ''
+	}
+
+	function handleSsoKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault()
+			submitSsoClient()
+		} else if (event.key === 'Escape') {
+			event.preventDefault()
+			cancelSsoPopover()
+		}
+	}
+
+	function getOAuthProviderIcon(name: string) {
+		// Handle special cases
+		if (name === 'teams') {
+			return APP_TO_ICON_COMPONENT.ms_teams_webhook
+		}
+		if (name === 'snowflake_oauth') {
+			return APP_TO_ICON_COMPONENT.snowflake
+		}
+		if (name === 'azure_oauth') {
+			return APP_TO_ICON_COMPONENT.azure
+		}
+
+		// Try direct mapping, fallback to Circle icon if not found
+		return APP_TO_ICON_COMPONENT[name as keyof typeof APP_TO_ICON_COMPONENT] || Circle
+	}
+
+	function generateOAuthDropdownItems(): Item[] {
+		const items: Item[] = []
+
+		// Add built-in providers that are not already configured
+		windmillBuiltins.forEach((name) => {
+			// Only show providers that are not already in the oauths object
+			if (!oauths || !oauths[name]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					displayName: capitalize(name),
+					action: () => createOAuthClient(name),
+					icon: icon
+				})
+			}
+		})
+
+		// Add custom option
+		items.push({
+			displayName: `Custom OAuth client ${!$enterpriseLicense ? '(requires ee)' : ''}`,
+			action: handleCustomOAuthClient,
+			disabled: !$enterpriseLicense
+		})
+
+		return items
+	}
 </script>
 
 <div>
-	<Tabs bind:selected={tab} class="mt-2 mb-4">
+	<Tabs bind:selected={tab} class="mb-4">
 		<Tab value="sso" label="SSO" />
 		<Tab value="oauth" label="OAuth" />
 		<Tab value="scim" label="SCIM/SAML" />
@@ -97,18 +226,26 @@
 				<Alert type="warning" title="Limited to 10 SSO users">
 					Without EE, the number of SSO users is limited to 10. SCIM/SAML is available on EE
 				</Alert>
+				<div class="mb-2"></div>
 			{/if}
 
-			<div class="py-1"></div>
 			<div class="mb-2">
-				<span class="text-primary text-xs"
+				<div class="text-primary text-xs"
 					>When at least one of the below options is set, users will be able to login to Windmill
 					via their third-party account.
 					<br /> To test SSO, the recommended workflow is to to save the settings and try to login
 					in an incognito window.
 					<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso">Learn more</a
-					></span
-				>
+					>
+				</div>
+			</div>
+			<div class="flex gap-2 py-4">
+				<Toggle
+					options={{
+						right: 'Require users to have been added manually to Windmill to sign in through SSO'
+					}}
+					bind:checked={requirePreexistingUserForOauth}
+				/>
 			</div>
 			<div class="flex flex-col gap-4 py-4">
 				<OAuthSetting name="google" bind:value={oauths['google']} />
@@ -125,14 +262,19 @@
 				<ZitadelSetting bind:value={oauths['zitadel']} />
 				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud'].includes(k) && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud'].includes(k) && oauths[k] && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">
 									<!-- svelte-ignore a11y_label_has_associated_control -->
-									<label class="text-md font-semibold text-primary">{k}</label>
-									<CloseButton
-										on:close={() => {
+									<label class="text-xs font-semibold text-emphasis">{k}</label>
+									<Button
+										variant="subtle"
+										destructive
+										iconOnly
+										unifiedSize="sm"
+										startIcon={{ icon: X }}
+										onclick={() => {
 											if (oauths) {
 												delete oauths[k]
 												oauths = { ...oauths }
@@ -140,7 +282,7 @@
 										}}
 									/>
 								</div>
-								<div class="p-2 border rounded">
+								<div class="p-4 border rounded">
 									<label class="block pb-2">
 										<span class="text-primary font-semibold text-xs">Custom Name</span>
 										<input
@@ -170,78 +312,101 @@
 					{/if}
 				{/each}
 			</div>
-			<div class="flex gap-2 py-4 whitespace-nowrap">
-				<input type="text" placeholder="client_id" bind:value={clientName} />
-				<Button
-					variant="accent"
-					hover="yo"
-					size="sm"
-					endIcon={{ icon: Plus }}
-					disabled={clientName == ''}
-					on:click={() => {
-						if (oauths) {
-							oauths[clientName] = { id: '', secret: '', login_config: {} }
-						}
-						clientName = ''
-					}}
-				>
-					Add custom SSO client {!$enterpriseLicense ? '(requires ee)' : ''}
-				</Button>
-			</div>
-			<div class="flex gap-2 py-4">
-				<Toggle
-					options={{
-						right: 'Require users to have been added manually to Windmill to sign in through OAuth'
-					}}
-					bind:checked={requirePreexistingUserForOauth}
-				/>
+			<div class="flex justify-start py-4">
+				<Popover placement="bottom-start" bind:isOpen={ssoPopoverOpen} onClose={cancelSsoPopover}>
+					{#snippet trigger()}
+						<Button
+							variant="default"
+							hover="yo"
+							size="sm"
+							endIcon={{ icon: Plus }}
+							disabled={!$enterpriseLicense}
+							onclick={handleSsoPopoverOpen}
+						>
+							Add custom SSO client {!$enterpriseLicense ? '(requires ee)' : ''}
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<div class="flex flex-col gap-2 p-4 min-w-64">
+							<div class="flex gap-2">
+								<input
+									type="text"
+									placeholder="Custom SSO client name"
+									bind:value={ssoClientName}
+									onkeydown={handleSsoKeydown}
+									class="flex-1 px-3 py-2 text-sm border rounded"
+									bind:this={ssoNameInput}
+								/>
+								<Button
+									size="sm"
+									variant="accent"
+									disabled={!ssoClientName.trim()}
+									onclick={submitSsoClient}
+								>
+									Add
+								</Button>
+								<Button size="sm" variant="subtle" onclick={cancelSsoPopover}>Cancel</Button>
+							</div>
+						</div>
+					{/snippet}
+				</Popover>
 			</div>
 		{:else if tab === 'oauth'}
 			<div class="mb-2">
-				<span class="text-primary text-xs"
-					>When one of the below options is set, you will be able to create a specific resource
-					containing a token automatically generated by the third-party provider.
-					<br />
-					To test it after setting an oauth client, go to the Resources menu and create a new one of
-					the type of your oauth client (i.e. a 'github' resource if you set Github OAuth).
-					<br /><a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#oauth"
-						>Learn more</a
-					></span
+				<div class="text-primary text-xs"
+					>Connect third-party services like Slack, Teams or Google to let users authenticate
+					directly from Windmill and automatically obtain access tokens. Once configured, users can
+					create resources of the corresponding type (e.g. a 'github' resource) and authenticate via
+					OAuth without manually handling credentials.
+					<a
+						target="_blank"
+						href="https://www.windmill.dev/docs/misc/setup_oauth#oauth"
+						class="inline-flex items-center whitespace-nowrap"
+						>Learn more&nbsp;<ExternalLink size={12} /></a
+					></div
 				>
 			</div>
-			<div class="py-1"></div>
+			<div class="h-1"></div>
 			<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
-			<div class="py-1"></div>
+			<div class="h-6"></div>
 			<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
-			<div class="py-1"></div>
+			<div class="h-6"></div>
 
 			{#each Object.keys(oauths) as k}
-				{#if oauths[k] && !('login_config' in oauths[k])}
+				{#if oauths[k] && !(oauths[k] && 'login_config' in oauths[k])}
 					{#if !['slack', 'teams'].includes(k) && oauths[k]}
-						<div class="flex flex-col gap-2 pb-4">
+						{@const IconComponent = getOAuthProviderIcon(k) as any}
+						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
+								<IconComponent size={24} width="24" height="24" class="shrink-0" />
 								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-md font-semibold text-primary">{k}</label>
-								<CloseButton
-									on:close={() => {
+								<label class="text-xs font-semibold text-emphasis">{k}</label>
+								<Button
+									variant="subtle"
+									destructive
+									onclick={() => {
 										if (oauths) {
 											delete oauths[k]
 											oauths = { ...oauths }
 										}
 									}}
+									iconOnly
+									unifiedSize="sm"
+									startIcon={{ icon: X }}
+									wrapperClasses="h-fit w-fit"
 								/>
 							</div>
-							<div class="p-2 border rounded">
-								<label class="block pb-2">
+							<div class="p-4 border rounded-md flex flex-col gap-6">
+								<label>
 									<span class="text-primary font-semibold text-xs">Client Id</span>
 									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 								</label>
-								<label class="block pb-2">
+								<label>
 									<span class="text-primary font-semibold text-xs">Client Secret</span>
 									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 								</label>
 								{#if k === 'visma' || !windmillBuiltins.includes(k)}
-									<div style="margin-bottom: 8px;">
+									<div class="mb-8">
 										<div style="display: flex; align-items: center; gap: 8px;">
 											<input
 												type="checkbox"
@@ -263,13 +428,13 @@
 															}
 														} else {
 															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
-																(gt) => gt !== 'client_credentials'
+																(gt: string) => gt !== 'client_credentials'
 															)
 														}
 													}
 												}}
 											/>
-											<span style="font-size: 14px; font-weight: 600;"
+											<span class="text-xs font-semibold text-emphasis"
 												>Support Client Credentials Flow</span
 											>
 											<Tooltip>
@@ -310,38 +475,72 @@
 				{/if}
 			{/each}
 
-			<div class="flex gap-2">
-				<select name="oauth_name" id="oauth_name" bind:value={oauth_name}>
-					<option value={undefined}>Select an OAuth client</option>
-					<option value="custom">Fully Custom (requires ee)</option>
-					{#each windmillBuiltins as name}
-						<option value={name}>{capitalize(name)}</option>
-					{/each}
-				</select>
-				{#if oauth_name == 'custom'}
-					<input type="text" placeholder="client_id" bind:value={resourceName} />
-				{:else}
-					<input type="text" value={oauth_name ?? ''} disabled />
-				{/if}
-				<Button
-					variant="accent"
-					hover="yo"
-					size="sm"
-					endIcon={{ icon: Plus }}
-					disabled={!oauth_name ||
-						(oauth_name == 'custom' && resourceName == '') ||
-						(oauth_name == 'custom' && !$enterpriseLicense)}
-					on:click={() => {
-						if (oauths) {
-							let name = oauth_name == 'custom' ? resourceName : oauth_name
-							oauths[name ?? ''] = { id: '', secret: '', grant_types: ['authorization_code'] }
-						}
-						resourceName = ''
-					}}
-				>
-					Add OAuth client {oauth_name == 'custom' && !$enterpriseLicense ? '(requires ee)' : ''}
-				</Button>
-			</div>
+			{#if showCustomOAuthForm}
+				<div class="flex flex-col gap-2 p-4 border rounded-lg bg-surface">
+					<div class="flex gap-2">
+						<input
+							type="text"
+							placeholder="Custom OAuth client name"
+							bind:value={customOAuthName}
+							onkeydown={handleCustomOAuthKeydown}
+							class="flex-1 px-3 py-2 text-sm border rounded"
+							bind:this={customNameInput}
+						/>
+						<Button
+							size="sm"
+							variant="accent"
+							disabled={!customOAuthName.trim()}
+							onclick={submitCustomOAuthClient}
+						>
+							Add
+						</Button>
+						<Button size="sm" variant="subtle" onclick={cancelCustomOAuthForm}>Cancel</Button>
+					</div>
+				</div>
+			{:else}
+				<div class="flex justify-start">
+					<DropdownV2
+						placement="bottom-start"
+						items={generateOAuthDropdownItems}
+						btnText="Add OAuth client"
+						maxHeight="25vh"
+						customMenu={true}
+						bind:open={dropdownOpen}
+					>
+						{#snippet buttonReplacement()}
+							<Button variant="default" hover="yo" size="sm" endIcon={{ icon: Plus }}>
+								Add OAuth client
+							</Button>
+						{/snippet}
+						{#snippet menu()}
+							<div
+								class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+								style="max-height: 25vh;"
+							>
+								{#each generateOAuthDropdownItems() as item}
+									{@const IconComponent = item.icon}
+									<button
+										class="w-full px-4 py-2 text-left hover:bg-surface-hover transition-colors flex items-center gap-2"
+										class:opacity-50={item.disabled}
+										disabled={item.disabled}
+										onclick={item.action}
+									>
+										<IconComponent
+											size={14}
+											width="14"
+											height="14"
+											class="shrink-0 w-[14px] h-[14px]"
+										/>
+										<span class="text-xs font-normal text-primary truncate grow min-w-0">
+											{item.displayName}
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/snippet}
+					</DropdownV2>
+				</div>
+			{/if}
 		{:else if tab == 'scim'}
 			{@render scim?.()}
 		{/if}

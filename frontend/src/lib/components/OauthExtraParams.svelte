@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from './common'
-	import { Minus, Plus } from 'lucide-svelte'
+	import { X, Plus } from 'lucide-svelte'
 
 	export let extra_params: Record<string, string> = {}
 
@@ -12,19 +12,18 @@
 </script>
 
 {#each extra_params_vec as o}
-	<div class="flex flex-row max-w-md mb-2">
+	<div class="flex flex-row max-w-md mb-2 gap-2">
 		<input type="text" on:keyup={sync} bind:value={o[0]} />
 		<input type="text" on:keyup={sync} bind:value={o[1]} />
 		<Button
-			variant="default"
+			variant="subtle"
 			destructive
-			size="xs"
-			btnClasses="mx-6"
+			unifiedSize="md"
 			on:click={() => {
 				extra_params_vec = extra_params_vec.filter((e) => e[0] != o[0])
 				sync()
 			}}
-			startIcon={{ icon: Minus }}
+			startIcon={{ icon: X }}
 			iconOnly
 		/>
 	</div>
@@ -42,7 +41,9 @@
 	>
 		Add item
 	</Button>
-	<span class="ml-2 text-sm text-primary">
-		({(extra_params_vec ?? []).length} item{(extra_params_vec ?? []).length > 1 ? 's' : ''})
-	</span>
+	{#if (extra_params_vec ?? []).length > 0}
+		<span class="ml-2 text-2xs text-secondary">
+			({(extra_params_vec ?? []).length} item{(extra_params_vec ?? []).length > 1 ? 's' : ''})
+		</span>
+	{/if}
 </div>

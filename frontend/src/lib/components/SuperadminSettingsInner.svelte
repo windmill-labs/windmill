@@ -15,7 +15,7 @@
 	import { truncate } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -116,16 +116,18 @@
 			<div><Uptodate /></div></div
 		>
 	</div>
-	<div class="flex flex-row-reverse">
-		<Button
-			variant="default"
-			target="_blank"
-			href="{base}/?workspace=admins"
-			endIcon={{ icon: ExternalLink }}
-		>
-			Admins workspace
-		</Button>
-	</div>
+	{#if $workspaceStore !== 'admins'}
+		<div class="flex flex-row-reverse">
+			<Button
+				variant="default"
+				target="_blank"
+				href="{base}/?workspace=admins"
+				endIcon={{ icon: ExternalLink }}
+			>
+				Admins workspace
+			</Button>
+		</div>
+	{/if}
 	<div class="pt-4 h-full">
 		<Tabs bind:selected={tab}>
 			<Tab
@@ -371,7 +373,7 @@
 					</div>
 				</TabContent>
 				<TabContent value="" values={settingsKeys}>
-					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} {closeDrawer} />
+					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave bind:tab {closeDrawer} />
 				</TabContent>
 			{/snippet}
 		</Tabs>

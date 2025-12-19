@@ -904,7 +904,7 @@
 												<div class="w-10">
 													{#if is_linked}
 														<Popover>
-															<Link />
+															<Link size={16} />
 															{#snippet text()}
 																<div>
 																	This resource is linked with a variable of the same path. They are
