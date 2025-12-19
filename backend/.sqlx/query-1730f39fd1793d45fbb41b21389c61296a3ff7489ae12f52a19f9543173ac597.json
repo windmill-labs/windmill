@@ -172,6 +172,11 @@
         "ordinal": 33,
         "name": "datatable",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 34,
+        "name": "teams_team_guid",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -208,6 +213,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true,

@@ -233,6 +233,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teams_team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
@@ -532,6 +534,7 @@ async fn get_settings(
             slack_team_id,
             teams_team_id,
             teams_team_name,
+            teams_team_guid,
             slack_name,
             slack_command_script,
             teams_command_script,
