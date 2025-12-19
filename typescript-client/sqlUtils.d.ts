@@ -74,6 +74,9 @@ export type SqlStatement<T> = {
 export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
 }
+export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
+  query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
+}
 
-export declare function datatable(name: string): SqlTemplateFunction;
+export declare function datatable(name: string): DatatableSqlTemplateFunction;
 export declare function ducklake(name: string): SqlTemplateFunction;

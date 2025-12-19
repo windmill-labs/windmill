@@ -1534,9 +1534,9 @@
 		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
 			`export {};
 			declare module 'windmill-client' {
-				import { type SqlTemplateFunction } from 'windmill-client';
-				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
-				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
+				import { ducklake as _og_ducklake, datatable as _og_datatable } from 'windmill-client';
+				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): ReturnType<typeof _og_ducklake>;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): ReturnType<typeof _og_ducklake>;
 			}`,
 			'file:///custom_wmill_types.d.ts'
 		)

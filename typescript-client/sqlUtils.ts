@@ -91,7 +91,7 @@ export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
 }
 
-interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
+export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
