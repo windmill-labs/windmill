@@ -3,9 +3,11 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum CgroupError {
+    #[allow(unused)]
     PathNotFound(PathBuf),
     NotSupported,
     PermissionDenied,
+    #[allow(unused)]
     Io(std::io::Error),
 }
 
