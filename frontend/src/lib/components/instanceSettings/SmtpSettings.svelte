@@ -23,13 +23,14 @@
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { Mail } from 'lucide-svelte'
+	import type { Writable } from 'svelte/store'
 
 	interface Props {
-		smtpSettings: Record<string, any>
+		values: Writable<Record<string, any>>
 		disabled?: boolean
 	}
 
-	let { smtpSettings = $bindable({}), disabled = false }: Props = $props()
+	let { values, disabled = false }: Props = $props()
 
 	let testEmail = $state('')
 
@@ -39,13 +40,13 @@
 				requestBody: {
 					to: testEmail,
 					smtp: {
-						host: smtpSettings.smtp_host,
-						username: smtpSettings.smtp_username,
-						password: smtpSettings.smtp_password,
-						port: smtpSettings.smtp_port,
-						from: smtpSettings.smtp_from,
-						tls_implicit: smtpSettings.smtp_tls_implicit || false,
-						disable_tls: smtpSettings.smtp_disable_tls || false
+						host: $values['smtp_settings'].smtp_host,
+						username: $values['smtp_settings'].smtp_username,
+						password: $values['smtp_settings'].smtp_password,
+						port: $values['smtp_settings'].smtp_port,
+						from: $values['smtp_settings'].smtp_from,
+						tls_implicit: $values['smtp_settings'].smtp_tls_implicit || false,
+						disable_tls: $values['smtp_settings'].smtp_disable_tls || false
 					}
 				}
 			})
@@ -69,7 +70,7 @@
 						placeholder: 'smtp.gmail.com',
 						disabled: disabled
 					}}
-					bind:value={smtpSettings.smtp_host}
+					bind:value={$values['smtp_settings'].smtp_host}
 				/>
 			</div>
 			<div class="flex flex-col gap-1">
@@ -81,7 +82,7 @@
 						placeholder: '587',
 						disabled: disabled
 					}}
-					bind:value={smtpSettings.smtp_port}
+					bind:value={$values['smtp_settings'].smtp_port}
 				/>
 			</div>
 
@@ -96,7 +97,7 @@
 						placeholder: 'user@example.com',
 						disabled: disabled
 					}}
-					bind:value={smtpSettings.smtp_username}
+					bind:value={$values['smtp_settings'].smtp_username}
 				/>
 			</div>
 
@@ -104,7 +105,7 @@
 				<label for="smtp_password" class="block text-xs font-semibold text-emphasis mb-1">
 					Password
 				</label>
-				<Password bind:password={smtpSettings.smtp_password} small {disabled} />
+				<Password bind:password={$values['smtp_settings'].smtp_password} small {disabled} />
 			</div>
 		</div>
 
@@ -119,15 +120,15 @@
 					placeholder: 'noreply@example.com',
 					disabled: disabled
 				}}
-				bind:value={smtpSettings.smtp_from}
+				bind:value={$values['smtp_settings'].smtp_from}
 			/>
 		</div>
 
 		<div class="flex gap-4">
 			<Toggle
-				disabled={smtpSettings.smtp_disable_tls || disabled}
+				disabled={$values['smtp_settings'].smtp_disable_tls || disabled}
 				id="smtp_tls_implicit"
-				bind:checked={smtpSettings.smtp_tls_implicit}
+				bind:checked={$values['smtp_settings'].smtp_tls_implicit}
 				size="xs"
 				options={{ right: 'Implicit TLS' }}
 			/>
@@ -135,11 +136,11 @@
 			<Toggle
 				id="smtp_disable_tls"
 				{disabled}
-				bind:checked={smtpSettings.smtp_disable_tls}
+				bind:checked={$values['smtp_settings'].smtp_disable_tls}
 				size="xs"
 				on:change={(e) => {
 					if (e.detail) {
-						smtpSettings.smtp_tls_implicit = false
+						$values['smtp_settings'].smtp_tls_implicit = false
 					}
 				}}
 				options={{ right: 'Disable TLS' }}
@@ -166,7 +167,7 @@
 					unifiedSize="md"
 					variant="accent"
 					onclick={testSmtpSettings}
-					disabled={!testEmail || !isSmtpSettingsValid(smtpSettings) || disabled}
+					disabled={!testEmail || !isSmtpSettingsValid($values['smtp_settings']) || disabled}
 					btnClasses="text-xs"
 					startIcon={{ icon: Mail }}
 				>

@@ -878,7 +878,7 @@
 				{:else if setting.fieldType == 'select'}
 					TODO
 				{:else if setting.fieldType == 'smtp_connect'}
-					<SmtpSettings bind:smtpSettings={$values[setting.key]} disabled={loading} />
+					<SmtpSettings {values} disabled={loading} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-500 dark:text-red-400 text-sm">
