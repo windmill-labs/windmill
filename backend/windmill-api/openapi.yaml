@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.593.0
+  version: 1.594.0
   title: Windmill API
 
   contact:
@@ -2558,7 +2558,13 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: search
           in: query
-          description: Search teams by name
+          description: Search teams by name. If omitted, returns first page of all teams.
+          required: false
+          schema:
+            type: string
+        - name: next_link
+          in: query
+          description: Pagination cursor URL from previous response. Pass this to fetch the next page of results.
           required: false
           schema:
             type: string
@@ -2568,14 +2574,27 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    team_name:
-                      type: string
-                    team_id:
-                      type: string
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        team_name:
+                          type: string
+                        team_id:
+                          type: string
+                  total_count:
+                    type: integer
+                    description: Total number of teams across all pages
+                  per_page:
+                    type: integer
+                    description: Number of teams per page (configurable via TEAMS_PER_PAGE env var)
+                  next_link:
+                    type: string
+                    nullable: true
+                    description: URL to fetch next page of results. Null if no more pages.
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
@@ -2591,26 +2610,25 @@ paths:
           required: true
           schema:
             type: string
-        - name: search
-          in: query
-          description: Search channels by name
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: List of channels for the specified team
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    channel_name:
-                      type: string
-                    channel_id:
-                      type: string
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel_name:
+                          type: string
+                        channel_id:
+                          type: string
+                  total_count:
+                    type: integer
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -8317,7 +8335,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
+  /w/{workspace}/jobs/restart/f/{id}:
     post:
       summary: restart a completed flow at a given step
       operationId: restartFlowAtStep
@@ -8326,20 +8344,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
-        - name: step_id
-          description: step id to restart the flow from
-          required: true
-          in: path
-          schema:
-            type: string
-        - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
-            restart
-          required: true
-          in: path
-          schema:
-            type: integer
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -8362,12 +8366,24 @@ paths:
             type: boolean
 
       requestBody:
-        description: flow args
+        description: restart flow parameters
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              type: object
+              required:
+                - step_id
+              properties:
+                step_id:
+                  type: string
+                  description: step id to restart the flow from
+                branch_or_iteration_n:
+                  type: integer
+                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                flow_version:
+                  type: integer
+                  description: specific flow version to use for restart (optional, uses current version if not specified)
 
       responses:
         "201":
@@ -20181,6 +20197,8 @@ components:
         step_id:
           type: string
         branch_or_iteration_n:
+          type: integer
+        flow_version:
           type: integer
 
     Policy:
