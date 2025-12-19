@@ -17,6 +17,7 @@
 	let { index }: Props = $props()
 
 	let tutorial: Tutorial | undefined = $state(undefined)
+	let tutorialFlowPaths: string[] = $state([])
 
 	// Create a simple flow
 	async function createTutorialFlow(): Promise<string> {
@@ -209,8 +210,6 @@
 						
 						// Remove the cursor
 						cursor.remove()
-						// Move to next step which highlights canvas
-						driver.moveNext()
 					}
 				},
 				popover: {
@@ -218,13 +217,45 @@
 					description:
 						'We\'re clicking on both a successful and a failed job to show you how to inspect different types of executions. Watch as we explore both!',
 					side: 'bottom',
-					onNextClick: () => {
-						// Don't move next here - it's handled in onHighlighted
+					onNextClick: async () => {
+						// Find and click the failed job again (last one clicked) without showing cursor
+						const failedJobRow = Array.from(
+							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
+						).find((el) => {
+							const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+							return badge !== null
+						}) as HTMLElement
+						
+						if (failedJobRow) {
+							failedJobRow.click()
+							await wait(DELAY_SHORT)
+							
+							// Wait for navigation to job details page
+							await wait(DELAY_LONG)
+							
+							// Navigate back to runs page using SvelteKit navigation
+							await goto(`${base}/runs?tutorial=runs-tutorial`, { replaceState: true })
+							await wait(DELAY_LONG)
+						}
+						
+						driver.moveNext()
 					}
 				}
 			},
 			{
-				element: 'canvas',
+				element: 'div.p-2.px-4.pt-8.w-full.border-b',
+				popover: {
+					title: 'Visual run history',
+					description:
+						'This chart gives you a visual overview of your run history at a glance. You can quickly see the pattern of executions over time.',
+					side: 'bottom',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: 'div.p-2.px-4.pt-8.w-full.border-b',
 				onHighlighted: async () => {
 					await wait(DELAY_MEDIUM)
 					// Find the button with data-value="ConcurrencyChart"
@@ -258,9 +289,82 @@
 					}
 				},
 				popover: {
-					title: 'Visual run history',
+					title: 'Switching chart views',
 					description:
-						'This chart gives you a visual overview of your run history at a glance. You can quickly see the pattern of executions over time.',
+						'You can switch between different chart views to analyze your runs. The Concurrency Chart allows you to see how many jobs are running concurrently over time.',
+					side: 'bottom',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: 'div.flex.flex-row.items-start.w-full.border-b.px-4.gap-8',
+				onHighlighted: async () => {
+					await wait(DELAY_MEDIUM)
+					
+					// Find the success and failure filter buttons
+					const successButton = document.querySelector(
+						'button[data-value="success"]'
+					) as HTMLElement
+					const failureButton = document.querySelector(
+						'button[data-value="failure"]'
+					) as HTMLElement
+					
+					if (successButton && failureButton) {
+						// Create cursor once for both clicks
+						const cursor = createFakeCursor()
+						
+						// Click on success button first
+						const successRect = successButton.getBoundingClientRect()
+						cursor.style.left = `${successRect.left - 100}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_SHORT)
+						
+						cursor.style.left = `${successRect.left + successRect.width / 2}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+						
+						successButton.click()
+						await wait(DELAY_SHORT)
+						await wait(DELAY_MEDIUM)
+						
+						// Click on failure button
+						const failureRect = failureButton.getBoundingClientRect()
+						cursor.style.left = `${failureRect.left - 100}px`
+						cursor.style.top = `${failureRect.top + failureRect.height / 2}px`
+						await wait(DELAY_SHORT)
+						
+						cursor.style.left = `${failureRect.left + failureRect.width / 2}px`
+						cursor.style.top = `${failureRect.top + failureRect.height / 2}px`
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+						
+						failureButton.click()
+						await wait(DELAY_SHORT)
+						
+						// Remove the cursor
+						cursor.remove()
+						await wait(DELAY_MEDIUM)
+					}
+				},
+				popover: {
+					title: 'Filtering jobs date, kind, status',
+					description:
+						'You can filter jobs, for example by status (failed, running, success). This helps you focus on specific types of executions. Watch as we click on both filter buttons!',
+					side: 'bottom',
+					onNextClick: () => {
+						driver.moveNext()
+					}
+				}
+			},
+			{
+				element: 'div.flex.flex-row.gap-4.items-center.px-2.py-1.grow-0.justify-between',
+				popover: {
+					title: 'More filtering options',
+					description:
+						'Even more filters are available to help you find exactly what you\'re looking for. Explore the additional filtering options to refine your search.',
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
@@ -272,9 +376,11 @@
 					title: 'Tutorial complete! 🎉',
 					description:
 						'You now know how to use the Runs page to monitor your executions, view successful results, and debug failed jobs.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu.</p>',
-					onNextClick: () => {
+					onNextClick: async () => {
 						updateProgress(index)
 						driver.destroy()
+						// Cleanup tutorial flows silently
+						await cleanupTutorialFlows()
 					}
 				}
 			}
@@ -282,12 +388,29 @@
 	}
 
 
+	// Cleanup function to delete tutorial flows
+	async function cleanupTutorialFlows() {
+		for (const flowPath of tutorialFlowPaths) {
+			try {
+				await FlowService.deleteFlowByPath({
+					workspace: $workspaceStore!,
+					path: flowPath
+				})
+			} catch (error) {
+				console.error(`Error deleting tutorial flow ${flowPath}:`, error)
+			}
+		}
+	}
+
 	// Start tutorial - create and run both jobs first
 	export async function runTutorial() {
 		// Create and run both flows at the beginning
 		try {
 			const successfulFlowPath = await createTutorialFlow()
 			const brokenFlowPath = await createBrokenFlow()
+			
+			// Store flow paths for cleanup
+			tutorialFlowPaths = [successfulFlowPath, brokenFlowPath]
 			
 			// Run both flows in parallel
 			await Promise.all([
