@@ -22,6 +22,7 @@
 	import { resource } from 'runed'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import AssetsDropdownButton from '../assets/AssetsDropdownButton.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
@@ -115,7 +116,10 @@
 		[() => inlineScript?.language, () => inlineScript?.content],
 		async () => inlineScript && inferAssets(inlineScript.language, inlineScript.content)
 	)
-	let preparedSqlQueries = usePreparedAssetSqlQueries(() => inferAssetsRes.current?.sql_queries)
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => inferAssetsRes.current?.sql_queries,
+		() => $workspaceStore
+	)
 	$effect(() => {
 		if (inlineScript && inferAssetsRes.current) inlineScript.assets = inferAssetsRes.current?.assets
 	})

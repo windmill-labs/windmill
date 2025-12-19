@@ -349,7 +349,8 @@
 	}
 
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
-		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId]
+		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
+		() => $workspaceStore
 	)
 </script>
 

@@ -150,8 +150,11 @@
 		shellcheck: false
 	})
 
-	let inferAssetsRes = resource([() => lang, () => code], () => inferAssets(lang, code))
-	let preparedSqlQueries = usePreparedAssetSqlQueries(() => inferAssetsRes.current?.sql_queries)
+	let inferAssetsRes = resource([() => lang, () => code, () => code], () => inferAssets(lang, code))
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => inferAssetsRes.current?.sql_queries,
+		() => $workspaceStore
+	)
 
 	const dispatch = createEventDispatcher()
 

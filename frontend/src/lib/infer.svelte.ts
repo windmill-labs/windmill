@@ -1,7 +1,5 @@
-import { get } from 'svelte/store'
 import { WorkspaceService } from './gen'
 import type { InferAssetsSqlQueryDetails } from './infer'
-import { workspaceStore } from './stores'
 import { ChangeOnDeepInequality, MapResource } from './svelte5Utils.svelte'
 import { sqlDataTypeToJsTypeHeuristic } from './components/apps/components/display/dbtable/utils'
 import { clone } from './utils'
@@ -11,15 +9,16 @@ function computeQueryKey(query: InferAssetsSqlQueryDetails, workspace?: string) 
 }
 
 export function usePreparedAssetSqlQueries(
-	_getQueries: () => InferAssetsSqlQueryDetails[] | undefined
+	_getQueries: () => InferAssetsSqlQueryDetails[] | undefined,
+	getWorkspace: () => string | undefined
 ): { current: InferAssetsSqlQueryDetails[] | undefined } {
-	let workspace = get(workspaceStore) ?? ''
-
 	let getQueries = new ChangeOnDeepInequality(_getQueries)
 
 	let map = new MapResource<InferAssetsSqlQueryDetails, InferAssetsSqlQueryDetails['prepared']>(
 		() =>
-			Object.fromEntries(getQueries.value?.map((q) => [computeQueryKey(q, workspace), q]) || []),
+			Object.fromEntries(
+				getQueries.value?.map((q) => [computeQueryKey(q, getWorkspace() ?? ''), q]) || []
+			),
 		async (toFetch) => {
 			let queries = Object.values(clone(toFetch))
 			let keys = Object.keys(clone(toFetch))
@@ -27,9 +26,9 @@ export function usePreparedAssetSqlQueries(
 			queries = queries?.filter((q) => q.source_kind === 'datatable') // We only support datatable sources for now
 			if (!queries?.length) return {}
 			try {
-				console.log('Preparing queries', queries)
+				console.log('Preparing SQL queries', queries)
 				let prepareQueriesResponse = await WorkspaceService.prepareQueries({
-					workspace,
+					workspace: getWorkspace() ?? '',
 					requestBody: queries.map((q) => ({
 						datatable: q.source_name,
 						query: q.query_string,
@@ -58,7 +57,7 @@ export function usePreparedAssetSqlQueries(
 	let extendedQueries = $derived.by(() =>
 		getQueries.value?.map((q) => ({
 			...q,
-			prepared: map.current?.[computeQueryKey(q, workspace)]
+			prepared: map.current?.[computeQueryKey(q, getWorkspace())]
 		}))
 	)
 	return {
