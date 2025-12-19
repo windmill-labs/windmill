@@ -881,7 +881,7 @@ export function prepareFlowUserMessage(
 	// Handle context elements
 	const contextInstructions = selectedContext ? buildContextString(selectedContext) : ''
 
-	if (!flow || !selectedId) {
+	if (!flow) {
 		let userMessage = `## INSTRUCTIONS:
 ${instructions}`
 		return {
