@@ -304,14 +304,7 @@ pub async fn do_postgresql(
                 if query.trim().starts_with("SET search_path")
                     || query.trim().starts_with("RESET search_path")
                 {
-                    let res = client.execute(&query.to_string(), &[]).await;
-                    match res {
-                        Ok(_) => {}
-                        Err(e) => results.push(vec![to_raw_value(&PrepareQueryResult {
-                            columns: None,
-                            error: Some(e.to_string()),
-                        })]),
-                    }
+                    let _ = client.execute(&query.to_string(), &[]).await;
                     continue;
                 }
                 let prepared = client.prepare(&query).await;
