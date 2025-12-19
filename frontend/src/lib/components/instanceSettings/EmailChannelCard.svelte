@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Mail, X, Plus, Settings } from 'lucide-svelte'
-	import { Button, Badge } from '$lib/components/common'
+	import { Mail, X, Plus } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import IntegrationCard from './IntegrationCard.svelte'
 	import { fade } from 'svelte/transition'
 	import TextInput from '../text_input/TextInput.svelte'
+	import SmtpConfigurationStatus from '../common/smtp/SmtpConfigurationStatus.svelte'
 
 	interface EmailChannel {
 		email: string
@@ -54,21 +55,7 @@
 	<!-- Connected Email Card -->
 	<IntegrationCard title="Email" icon={Mail} isPlaceholder={false} class={clazz} {style}>
 		{#snippet actions()}
-			<div class="flex items-center gap-2">
-				{#if hasSmtpConfig}
-					<Badge color="green">SMTP configured</Badge>
-				{:else}
-					<Badge color="red">SMTP not configured</Badge>
-				{/if}
-				{#if openSmtpSettings}
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						startIcon={{ icon: Settings }}
-						onclick={openSmtpSettings}>Configure SMTP</Button
-					>
-				{/if}
-			</div>
+			<SmtpConfigurationStatus {hasSmtpConfig} {openSmtpSettings} />
 		{/snippet}
 		{#snippet children()}
 			{#if channels.length > 0}

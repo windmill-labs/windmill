@@ -34,7 +34,6 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
-	import Description from '$lib/components/Description.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		FlowService,
@@ -59,6 +58,7 @@
 	} from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
+	import SmtpConfigurationStatus from './common/smtp/SmtpConfigurationStatus.svelte'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
@@ -580,10 +580,7 @@
 					instances.
 				</Alert>
 			{:else}
-				<Description>
-					Configure email addresses to receive notifications when jobs fail. This feature requires
-					SMTP to be configured.
-				</Description>
+				<SmtpConfigurationStatus hasSmtpConfig />
 
 				<div class="flex flex-col gap-2">
 					<MultiSelect
