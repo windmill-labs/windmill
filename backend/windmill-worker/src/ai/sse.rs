@@ -10,7 +10,7 @@ use windmill_common::{error::Error, utils::rd_string};
 use crate::ai::{
     providers::openai::{ExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventProcessor,
-    types::StreamingEvent,
+    types::{StreamingEvent, UrlCitation},
 };
 
 #[derive(Deserialize)]
@@ -501,6 +501,17 @@ pub struct ResponsesOutputItem {
     pub call_id: Option<String>,
 }
 
+/// URL citation annotation from OpenAI Responses API SSE events
+#[derive(Deserialize, Debug)]
+pub struct OpenAIUrlCitationEvent {
+    #[allow(dead_code)]
+    pub r#type: String,
+    pub start_index: usize,
+    pub end_index: usize,
+    pub url: String,
+    pub title: Option<String>,
+}
+
 /// SSE event types for OpenAI Responses API streaming
 /// Based on frontend implementation: openai-responses.ts:220-302
 #[derive(Deserialize, Debug)]
@@ -546,6 +557,10 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.content_part.done")]
     ContentPartDone {},
 
+    /// Annotation added (e.g., URL citation from web search)
+    #[serde(rename = "response.output_text.annotation.added")]
+    AnnotationAdded { annotation: OpenAIUrlCitationEvent },
+
     /// Catch-all for unknown event types
     #[serde(other)]
     Other,
@@ -561,6 +576,10 @@ pub struct OpenAIResponsesSSEParser {
     tool_call_arguments: HashMap<String, String>,
     pub events_str: String,
     pub stream_event_processor: StreamEventProcessor,
+    /// Collected URL citation annotations from web search
+    pub annotations: Vec<UrlCitation>,
+    /// Whether web search was used in this response
+    pub used_websearch: bool,
 }
 
 impl OpenAIResponsesSSEParser {
@@ -572,6 +591,8 @@ impl OpenAIResponsesSSEParser {
             tool_call_arguments: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
+            annotations: Vec::new(),
+            used_websearch: false,
         }
     }
 }
@@ -601,26 +622,33 @@ impl SSEParser for OpenAIResponsesSSEParser {
                 }
 
                 OpenAIResponsesSSEEvent::OutputItemAdded { item } => {
-                    // Handle function_call type items
-                    if item.r#type.as_deref() == Some("function_call") {
-                        if let (Some(item_id), Some(name), Some(call_id)) =
-                            (item.id, item.name, item.call_id)
-                        {
-                            // Store metadata for this function call
-                            self.tool_call_metadata
-                                .insert(item_id.clone(), (name.clone(), call_id.clone()));
-                            self.tool_call_arguments
-                                .insert(item_id.clone(), String::new());
+                    match item.r#type.as_deref() {
+                        // Handle function_call type items
+                        Some("function_call") => {
+                            if let (Some(item_id), Some(name), Some(call_id)) =
+                                (item.id, item.name, item.call_id)
+                            {
+                                // Store metadata for this function call
+                                self.tool_call_metadata
+                                    .insert(item_id.clone(), (name.clone(), call_id.clone()));
+                                self.tool_call_arguments
+                                    .insert(item_id.clone(), String::new());
 
-                            // Send tool call start event
-                            let event = StreamingEvent::ToolCall {
-                                call_id: call_id.clone(),
-                                function_name: name.clone(),
-                            };
-                            self.stream_event_processor
-                                .send(event, &mut self.events_str)
-                                .await?;
+                                // Send tool call start event
+                                let event = StreamingEvent::ToolCall {
+                                    call_id: call_id.clone(),
+                                    function_name: name.clone(),
+                                };
+                                self.stream_event_processor
+                                    .send(event, &mut self.events_str)
+                                    .await?;
+                            }
                         }
+                        // Handle web_search_call type items
+                        Some("web_search_call") => {
+                            self.used_websearch = true;
+                        }
+                        _ => {}
                     }
                 }
 
@@ -658,6 +686,16 @@ impl SSEParser for OpenAIResponsesSSEParser {
                             },
                         );
                     }
+                }
+
+                OpenAIResponsesSSEEvent::AnnotationAdded { annotation } => {
+                    // Collect URL citation annotations from web search
+                    self.annotations.push(UrlCitation {
+                        start_index: annotation.start_index,
+                        end_index: annotation.end_index,
+                        url: annotation.url,
+                        title: annotation.title,
+                    });
                 }
 
                 // Ignore other event types

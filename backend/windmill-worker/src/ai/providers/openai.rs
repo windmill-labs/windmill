@@ -472,8 +472,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
             },
             tool_calls: parser.accumulated_tool_calls.into_values().collect(),
             events_str: Some(parser.events_str),
-            annotations: Vec::new(),
-            used_websearch: false,
+            annotations: parser.annotations,
+            used_websearch: parser.used_websearch,
         })
     }
 
