@@ -287,6 +287,14 @@
 							>Learn how to <ExternalLink size={12} class="inline-block" /></a
 						></div
 					>
+				{:else if category == 'Alerts'}
+					<div class="text-secondary pb-4 text-xs">
+						Critical alerts automatically notify administrators about system events like job crashes,
+						license issues, worker failures, and queue delays through email, Slack, or Teams.
+						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+							>Learn more <ExternalLink size={12} class="inline-block" /></a
+						>
+					</div>
 				{:else if category == 'Registries'}
 					<div class="text-secondary pb-4 text-xs">
 						Add private registries for Pip, Bun and npm. <a
