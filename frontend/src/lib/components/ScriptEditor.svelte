@@ -911,7 +911,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={Object.values(preparedSqlQueries.current ?? {})}
+				preparedAssetsSqlQueries={preparedSqlQueries.current}
 			/>
 			<DiffEditor
 				className="h-full"

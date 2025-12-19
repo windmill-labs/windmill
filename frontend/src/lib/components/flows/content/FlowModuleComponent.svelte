@@ -17,7 +17,7 @@
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -57,6 +57,7 @@
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { editor as meditor } from 'monaco-editor'
 	import { DynamicInput } from '$lib/utils'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 
 	const {
 		selectionManager,
@@ -139,6 +140,7 @@
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -345,6 +347,10 @@
 	function onJobDone() {
 		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
 	}
+
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId]
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -502,6 +508,7 @@
 													)}
 													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 													moduleId={flowModule.id}
+													preparedAssetsSqlQueries={preparedSqlQueries.current}
 												/>
 											</div>
 											<DiffEditor
