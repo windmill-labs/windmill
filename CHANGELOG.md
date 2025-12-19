@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.594.0](https://github.com/windmill-labs/windmill/compare/v1.593.1...v1.594.0) (2025-12-19)
+
+
+### Features
+
+* restart flow from step with different flow version ([#7409](https://github.com/windmill-labs/windmill/issues/7409)) ([a699382](https://github.com/windmill-labs/windmill/commit/a6993823affeff6baf7b6c2b40bdb35713bbffe5))
+
+
+### Bug Fixes
+
+* **backend:** correctly apply preprocessor step tag ([#7412](https://github.com/windmill-labs/windmill/issues/7412)) ([0fe7a2a](https://github.com/windmill-labs/windmill/commit/0fe7a2a17e810153bc7628b9278e2926b869c389))
+* disable oomgroup by default ([8060244](https://github.com/windmill-labs/windmill/commit/806024403ee6496dfff886d3ecdb53d4a2b646e6))
+* improve teams search ux ([#7407](https://github.com/windmill-labs/windmill/issues/7407)) ([96aacee](https://github.com/windmill-labs/windmill/commit/96aaceef951c23a7d5f4af6ad6b95883f5ba8f71))
+
 ## [1.593.1](https://github.com/windmill-labs/windmill/compare/v1.593.0...v1.593.1) (2025-12-18)
 
 
