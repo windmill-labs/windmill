@@ -708,9 +708,7 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 
 	async getSyntacticDiagnostics(fileName) {
 		const diagnostics = await super.getSyntacticDiagnostics(fileName)
-		const mappedDiagnostics = this._mapDiagnostics(diagnostics, fileName)
-		const sqlDiagnostics = this._createSqlErrorDiagnostics(fileName)
-		return [...mappedDiagnostics, ...sqlDiagnostics]
+		return this._mapDiagnostics(diagnostics, fileName)
 	}
 
 	async getSemanticDiagnostics(fileName) {
