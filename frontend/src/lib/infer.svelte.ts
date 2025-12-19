@@ -53,7 +53,6 @@ export function usePreparedAssetSqlQueries(
 								}
 							})) as { error?: string; columns?: { name: string; type: string }[] }[]
 
-							res = res.filter((_, idx) => idx % 2 === 1)
 							let res2: [string, PreparedAssetsSqlQuery][] = res.map((r, i) => [
 								chunk[i][0],
 								r.columns

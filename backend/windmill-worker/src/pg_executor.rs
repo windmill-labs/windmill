@@ -300,6 +300,20 @@ pub async fn do_postgresql(
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
+                // Used by the data table typechecker to set default schemas
+                if query.trim().starts_with("SET search_path")
+                    || query.trim().starts_with("RESET search_path")
+                {
+                    let res = client.execute(&query.to_string(), &[]).await;
+                    match res {
+                        Ok(_) => {}
+                        Err(e) => results.push(vec![to_raw_value(&PrepareQueryResult {
+                            columns: None,
+                            error: Some(e.to_string()),
+                        })]),
+                    }
+                    continue;
+                }
                 let prepared = client.prepare(&query).await;
                 let prepared = match prepared {
                     Ok(prepared) => {
