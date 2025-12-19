@@ -6,7 +6,7 @@
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { Trash2 } from 'lucide-svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, inferAssets } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema } from '$lib/utils'
@@ -19,6 +19,9 @@
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
+	import { resource } from 'runed'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
+	import AssetsDropdownButton from '../assets/AssetsDropdownButton.svelte'
 
 	interface Props {
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
@@ -107,6 +110,15 @@
 
 	const dispatch = createEventDispatcher()
 	let width = $state(0)
+
+	let inferAssetsRes = resource(
+		[() => inlineScript?.language, () => inlineScript?.content],
+		async () => inlineScript && inferAssets(inlineScript.language, inlineScript.content)
+	)
+	let preparedSqlQueries = usePreparedAssetSqlQueries(() => inferAssetsRes.current?.sql_queries)
+	$effect(() => {
+		if (inlineScript && inferAssetsRes.current) inlineScript.assets = inferAssetsRes.current?.assets
+	})
 </script>
 
 {#if inlineScript}
@@ -172,6 +184,11 @@
 		</div>
 
 		<div class="border-y h-full w-full relative">
+			<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+				{#if inlineScript.assets?.length}
+					<AssetsDropdownButton assets={inlineScript.assets} />
+				{/if}
+			</div>
 			<Editor
 				path={path + '/' + id}
 				bind:this={editor}
@@ -203,6 +220,7 @@
 					acc[key] = obj.type === 'static' ? obj.value : undefined
 					return acc
 				}, {})}
+				preparedAssetsSqlQueries={preparedSqlQueries.current}
 			/>
 
 			<DiffEditor
