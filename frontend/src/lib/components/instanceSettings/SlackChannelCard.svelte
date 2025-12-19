@@ -50,7 +50,7 @@
 	}
 </script>
 
-{#if channels.length > 0 || slackTeamName}
+{#if channels.length > 0}
 	<!-- Connected Slack Card -->
 	<IntegrationCard title="Slack" icon={Slack} isPlaceholder={false} class={clazz} {style}>
 		{#snippet actions()}

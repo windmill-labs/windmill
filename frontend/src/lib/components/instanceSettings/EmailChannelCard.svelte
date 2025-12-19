@@ -51,7 +51,7 @@
 	}
 </script>
 
-{#if channels.length > 0 || hasSmtpConfig}
+{#if channels.length > 0}
 	<!-- Connected Email Card -->
 	<IntegrationCard title="Email" icon={Mail} isPlaceholder={false} class={clazz} {style}>
 		{#snippet actions()}
