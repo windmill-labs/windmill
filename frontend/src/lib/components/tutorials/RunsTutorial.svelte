@@ -128,8 +128,7 @@
 			{
 				popover: {
 					title: 'Welcome to your monitoring dashboard!',
-					description:
-						"Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you.",
+					description: "Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you.",
 					onNextClick: () => {
 						driver.moveNext()
 					},
@@ -208,7 +207,7 @@
 							await wait(DELAY_MEDIUM)
 							
 							failedJobRowAfterNav.click()
-							await wait(DELAY_SHORT)
+		await wait(DELAY_SHORT)
 							
 							// Wait for navigation to job details page
 							await wait(DELAY_LONG)
@@ -224,7 +223,7 @@
 					}
 				},
 				popover: {
-					title: 'Exploring job runs. 1 success ✅ and 1 failure ❌',
+					title: 'Exploring job runs. 1 success <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #22c55e; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> and 1 failure <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m12 8v4"/><path d="m12 16h.01"/></svg>',
 					description:
 						'We\'re clicking on both jobs to show you how to inspect different types of executions.',
 					side: 'bottom',
@@ -243,7 +242,7 @@
 						
 						if (failedJobRow) {
 							failedJobRow.click()
-							await wait(DELAY_SHORT)
+			await wait(DELAY_SHORT)
 							
 							// Wait for navigation to job details page
 							await wait(DELAY_LONG)
@@ -346,22 +345,7 @@
 						// Create cursor once for both clicks
 						const cursor = createFakeCursor()
 						
-						// Click on success button first
-						const successRect = successButton.getBoundingClientRect()
-						cursor.style.left = `${successRect.left - 100}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						cursor.style.left = `${successRect.left + successRect.width / 2}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						successButton.click()
-						await wait(DELAY_SHORT)
-						await wait(DELAY_MEDIUM)
-						
-						// Click on failure button
+						// Click on failure button first
 						const failureRect = failureButton.getBoundingClientRect()
 						cursor.style.left = `${failureRect.left - 100}px`
 						cursor.style.top = `${failureRect.top + failureRect.height / 2}px`
@@ -373,6 +357,21 @@
 						await wait(DELAY_MEDIUM)
 						
 						failureButton.click()
+						await wait(DELAY_SHORT)
+						await wait(DELAY_MEDIUM)
+						
+						// Click on success button
+						const successRect = successButton.getBoundingClientRect()
+						cursor.style.left = `${successRect.left - 100}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_SHORT)
+						
+						cursor.style.left = `${successRect.left + successRect.width / 2}px`
+						cursor.style.top = `${successRect.top + successRect.height / 2}px`
+						await wait(DELAY_ANIMATION)
+						await wait(DELAY_MEDIUM)
+						
+						successButton.click()
 						await wait(DELAY_SHORT)
 						
 						// Remove the cursor
