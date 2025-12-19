@@ -330,6 +330,19 @@ async fn reset() -> () {
     todo!()
 }
 
+#[derive(Serialize, Debug)]
+pub struct ColumnInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+}
+
+#[derive(Serialize, Debug)]
+pub struct QueryResult {
+    pub columns: Option<Vec<ColumnInfo>>,
+    pub error: Option<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct PgDatabase {
     pub host: String,

@@ -706,6 +706,7 @@ pub struct TypeScriptAnnotations {
 pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]

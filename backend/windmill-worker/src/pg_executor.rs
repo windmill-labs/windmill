@@ -29,7 +29,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
-use windmill_common::PgDatabase;
+use windmill_common::{ColumnInfo, PgDatabase, QueryResult};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -299,6 +299,28 @@ pub async fn do_postgresql(
     let result_f = async move {
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
+            if annotations.prepare {
+                let prepared = client.prepare(&query).await;
+                let prepared = match prepared {
+                    Ok(prepared) => {
+                        let columns: Option<Vec<ColumnInfo>> = Some(
+                            prepared
+                                .columns()
+                                .iter()
+                                .map(|col| ColumnInfo {
+                                    name: col.name().to_string(),
+                                    type_name: col.type_().name().to_string(),
+                                })
+                                .collect(),
+                        );
+                        QueryResult { columns, error: None }
+                    }
+                    Err(e) => QueryResult { columns: None, error: Some(e.to_string()) },
+                };
+                results.push(vec![to_raw_value(&prepared)]);
+                continue;
+            }
+
             let result = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,
