@@ -3,6 +3,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { RefreshCcw } from 'lucide-svelte'
+	import { Button } from './common'
 
 	interface ChannelItem {
 		channel_id?: string
@@ -45,7 +46,10 @@
 
 	let displayChannels = $derived.by(() => {
 		const baseChannels = channels || loadedChannels
-		if (selectedChannel && !baseChannels.find((c) => c.channel_id === selectedChannel?.channel_id)) {
+		if (
+			selectedChannel &&
+			!baseChannels.find((c) => c.channel_id === selectedChannel?.channel_id)
+		) {
 			return [selectedChannel, ...baseChannels]
 		}
 		return baseChannels
@@ -117,7 +121,7 @@
 
 <div class={containerClass}>
 	<div class="flex flex-col gap-1">
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-1">
 			<div class="flex-grow" style="min-width: {minWidth};">
 				{#if searchMode}
 					<Select
@@ -130,7 +134,8 @@
 							}))}
 						placeholder={isFetching ? 'Loading...' : teamId ? placeholder : 'Select a team first'}
 						clearable
-						disabled={disabled || isFetching || !teamId}
+						disabled={disabled || !teamId}
+						loading={isFetching}
 						bind:value={selectedChannelId}
 					/>
 				{:else}
@@ -151,14 +156,15 @@
 			</div>
 
 			{#if showRefreshButton && searchMode}
-				<button
+				<Button
 					onclick={refreshChannels}
 					disabled={isFetching || disabled || !teamId}
-					class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
 					title="Refresh channels"
-				>
-					<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-				</button>
+					startIcon={{ icon: RefreshCcw, props: { class: isFetching ? 'animate-spin' : '' } }}
+					unifiedSize="sm"
+					variant="subtle"
+					iconOnly
+				/>
 			{/if}
 		</div>
 

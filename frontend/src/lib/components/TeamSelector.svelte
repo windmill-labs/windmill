@@ -4,6 +4,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import { debounce } from '$lib/utils'
+	import { Button } from './common'
 
 	interface TeamItem {
 		team_id: string
@@ -62,7 +63,9 @@
 	})
 
 	$effect(() => {
-		const newTeam = selectedTeamId ? displayTeams.find((t) => t.team_id === selectedTeamId) : undefined
+		const newTeam = selectedTeamId
+			? displayTeams.find((t) => t.team_id === selectedTeamId)
+			: undefined
 
 		if (newTeam?.team_id !== selectedTeam?.team_id) {
 			selectedTeam = newTeam
@@ -257,6 +260,7 @@
 						placeholder={isFetching ? 'Loading...' : 'Search teams...'}
 						clearable
 						disabled={disabled || isFetching}
+						loading={isFetching}
 						bind:filterText={searchFilterText}
 						bind:value={selectedTeamId}
 					/>
@@ -276,14 +280,13 @@
 			</div>
 
 			{#if showRefreshButton}
-				<button
+				<Button
 					onclick={refreshTeams}
 					disabled={isFetching || disabled}
 					class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
 					title={searchMode ? 'Refresh teams' : 'Refresh teams from Microsoft'}
-				>
-					<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-				</button>
+					startIcon={{ icon: RefreshCcw, props: { class: isFetching ? 'animate-spin' : '' } }}
+				/>
 			{/if}
 		</div>
 
@@ -294,7 +297,7 @@
 				</span>
 				<button
 					type="button"
-					class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+					class="text-xs text-accent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 					onclick={loadMoreTeams}
 					disabled={isLoadingMore}
 				>
