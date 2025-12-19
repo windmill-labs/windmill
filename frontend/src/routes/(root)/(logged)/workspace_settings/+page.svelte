@@ -1029,14 +1029,14 @@
 				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
+			{#if !$enterpriseLicense}
+				<div class="pb-2"></div>
+				<Alert type="warning" title="Workspace error handler is an EE feature">
+					Workspace error handler is a Windmill EE feature. It enables using your current Slack
+					connection or a custom script to send notifications anytime any job would fail.
+				</Alert>
+			{/if}
 			<div class="flex flex-col gap-12 py-4">
-				{#if !$enterpriseLicense}
-					<Alert type="warning" title="Workspace error handler is an EE feature">
-						Workspace error handler is a Windmill EE feature. It enables using your current Slack
-						connection or a custom script to send notifications anytime any job would fail.
-					</Alert>
-					<div class="pb-2"></div>
-				{/if}
 				<Section
 					label="Workspace Error Handler"
 					description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>"
