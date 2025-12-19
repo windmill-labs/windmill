@@ -48,5 +48,5 @@
 	<!-- MCP tool - use McpToolEditor -->
 	<McpToolEditor bind:tool={tool as McpTool} {noEditor} />
 {:else if isWebsearchTool(tool)}
-	<WebsearchToolDisplay {noEditor} />
+	<WebsearchToolDisplay />
 {/if}

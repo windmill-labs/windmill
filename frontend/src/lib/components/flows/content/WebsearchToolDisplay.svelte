@@ -1,11 +1,5 @@
 <script lang="ts">
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-
-	interface Props {
-		noEditor?: boolean
-	}
-
-	let { noEditor = false }: Props = $props()
 </script>
 
 <div class="flex flex-col gap-4 p-4">
