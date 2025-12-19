@@ -91,7 +91,7 @@ async function initWasmRuby() {
 
 type InferAssetsResult =
 	| { status: 'ok'; assets: AssetWithAccessType[]; sql_queries?: InferAssetsSqlQueryDetails[] }
-	| { status: 'error'; error: string }
+	| { status: 'error'; error: string; assets?: undefined; sql_queries?: undefined }
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations

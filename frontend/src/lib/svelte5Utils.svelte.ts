@@ -170,3 +170,20 @@ export class MapResource<U, T> {
 		return this._fetcherResource.error
 	}
 }
+
+export class ChangeOnDeepInequality<T> {
+	private _cached: T | undefined = $state()
+
+	constructor(compute: () => T) {
+		$effect.pre(() => {
+			const newVal = compute()
+			if (!deepEqual(newVal, this._cached)) {
+				this._cached = newVal
+			}
+		})
+	}
+
+	get value(): T {
+		return this._cached!
+	}
+}

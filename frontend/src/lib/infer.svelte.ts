@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { WorkspaceService } from './gen'
 import type { InferAssetsSqlQueryDetails } from './infer'
 import { workspaceStore } from './stores'
-import { MapResource } from './svelte5Utils.svelte'
+import { ChangeOnDeepInequality, MapResource } from './svelte5Utils.svelte'
 import { sqlDataTypeToJsTypeHeuristic } from './components/apps/components/display/dbtable/utils'
 import { clone } from './utils'
 
@@ -11,12 +11,15 @@ function computeQueryKey(query: InferAssetsSqlQueryDetails, workspace?: string) 
 }
 
 export function usePreparedAssetSqlQueries(
-	getQueries: () => InferAssetsSqlQueryDetails[] | undefined
+	_getQueries: () => InferAssetsSqlQueryDetails[] | undefined
 ): { current: InferAssetsSqlQueryDetails[] | undefined } {
 	let workspace = get(workspaceStore) ?? ''
 
+	let getQueries = new ChangeOnDeepInequality(_getQueries)
+
 	let map = new MapResource<InferAssetsSqlQueryDetails, InferAssetsSqlQueryDetails['prepared']>(
-		() => Object.fromEntries(getQueries()?.map((q) => [computeQueryKey(q, workspace), q]) || []),
+		() =>
+			Object.fromEntries(getQueries.value?.map((q) => [computeQueryKey(q, workspace), q]) || []),
 		async (toFetch) => {
 			let queries = Object.values(clone(toFetch))
 			let keys = Object.keys(clone(toFetch))
@@ -53,7 +56,7 @@ export function usePreparedAssetSqlQueries(
 	)
 
 	let extendedQueries = $derived.by(() =>
-		getQueries()?.map((q) => ({
+		getQueries.value?.map((q) => ({
 			...q,
 			prepared: map.current?.[computeQueryKey(q, workspace)]
 		}))
