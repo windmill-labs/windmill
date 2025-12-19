@@ -44,6 +44,7 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
@@ -299,11 +300,10 @@ pub async fn do_postgresql(
     let result_f = async move {
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
+            let query = remove_comments(query);
             if annotations.prepare {
                 // Used by the data table typechecker to set default schemas
-                if query.trim().starts_with("SET search_path")
-                    || query.trim().starts_with("RESET search_path")
-                {
+                if query.starts_with("SET search_path") || query.starts_with("RESET search_path") {
                     let _ = client.execute(&query.to_string(), &[]).await;
                     continue;
                 }
