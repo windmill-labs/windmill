@@ -584,17 +584,19 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    // Check if streaming is enabled and supported
-    let should_stream = args.streaming.unwrap_or(false)
-        && query_builder.supports_streaming()
-        && output_type == &OutputType::Text;
-
-    *has_stream = should_stream;
+    let user_wants_streaming = args.streaming.unwrap_or(false);
+    let is_text_output = output_type == &OutputType::Text;
+    *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
 
-    let stream_event_processor = if should_stream {
-        Some(StreamEventProcessor::new(conn, job))
+    // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
+    let stream_event_processor = if is_text_output {
+        if user_wants_streaming {
+            Some(StreamEventProcessor::new(conn, job))
+        } else {
+            Some(StreamEventProcessor::new_silent())
+        }
     } else {
         None
     };
@@ -618,6 +620,7 @@ pub async fn run_agent(
                 ));
             };
             // Use Bedrock SDK via dedicated query builder
+            // Always use streaming for text output
             crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                 .execute_request(
                     &messages,
@@ -627,7 +630,6 @@ pub async fn run_agent(
                     args.max_completion_tokens,
                     api_key,
                     region,
-                    should_stream,
                     stream_event_processor.clone(),
                     client,
                     &job.workspace_id,
@@ -652,16 +654,13 @@ pub async fn run_agent(
                 has_websearch,
             };
 
+            // Always use streaming for text output
             let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id, should_stream)
+                .build_request(&build_args, client, &job.workspace_id)
                 .await?;
 
-            let endpoint = query_builder.get_endpoint(
-                &base_url,
-                args.provider.get_model(),
-                output_type,
-                should_stream,
-            );
+            let endpoint =
+                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
             let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
@@ -691,12 +690,15 @@ pub async fn run_agent(
 
             match resp.error_for_status_ref() {
                 Ok(_) => {
-                    if let Some(stream_event_processor) = stream_event_processor.clone() {
-                        query_builder
-                            .parse_streaming_response(resp, stream_event_processor)
-                            .await?
+                    if is_text_output {
+                        if let Some(ref stream_event_processor) = stream_event_processor {
+                            query_builder
+                                .parse_streaming_response(resp, stream_event_processor.clone())
+                                .await?
+                        } else {
+                            query_builder.parse_response(resp).await?
+                        }
                     } else {
-                        // Handle non-streaming response
                         query_builder.parse_response(resp).await?
                     }
                 }
@@ -712,9 +714,28 @@ pub async fn run_agent(
         };
 
         match parsed {
-            ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
+            ParsedResponse::Text {
+                content: response_content,
+                tool_calls,
+                events_str,
+                annotations,
+                used_websearch,
+            } => {
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
+                }
+
+                // Add websearch tool message if websearch was used
+                if used_websearch {
+                    actions.push(AgentAction::WebSearch {});
+                    messages.push(OpenAIMessage {
+                        role: "tool".to_string(),
+                        content: Some(OpenAIContent::Text(
+                            "Used websearch tool successfully".to_string(),
+                        )),
+                        agent_action: Some(AgentAction::WebSearch {}),
+                        ..Default::default()
+                    });
                 }
 
                 if let Some(ref response_content) = response_content {
@@ -723,6 +744,11 @@ pub async fn run_agent(
                         role: "assistant".to_string(),
                         content: Some(OpenAIContent::Text(response_content.clone())),
                         agent_action: Some(AgentAction::Message {}),
+                        annotations: if annotations.is_empty() {
+                            None
+                        } else {
+                            Some(annotations.clone())
+                        },
                         ..Default::default()
                     });
 
@@ -923,14 +949,19 @@ pub async fn run_agent(
         None => to_raw_value(&""),
     };
 
-    if let Some(stream_event_processor) = stream_event_processor {
-        if let Some(handle) = stream_event_processor.to_handle() {
-            if let Err(e) = handle.await {
-                return Err(Error::internal_err(format!(
-                    "Error waiting for stream event processor: {}",
-                    e
-                )));
-            }
+    // Wait for stream event processor to finish persisting events (if any)
+    if let Some(handle) = {
+        if let Some(stream_event_processor) = stream_event_processor {
+            stream_event_processor.to_handle()
+        } else {
+            None
+        }
+    } {
+        if let Err(e) = handle.await {
+            return Err(Error::internal_err(format!(
+                "Error waiting for stream event processor: {}",
+                e
+            )));
         }
     }
 

@@ -17,7 +17,6 @@ use windmill_common::{client::AuthedClient, error::Error};
 
 /// Constants for commonly used strings to avoid allocations
 const FUNCTION_TYPE: &str = "function";
-const EMPTY_JSON: &str = "{}";
 
 #[derive(Debug, Clone)]
 pub struct BearerTokenProvider {
@@ -109,34 +108,6 @@ where
             format!("Request timeout: {:?}", err)
         }
         _ => format!("{:?}", error),
-    }
-}
-
-/// Convert AWS Smithy Document to serde_json::Value
-fn document_to_json(doc: &aws_smithy_types::Document) -> serde_json::Value {
-    use aws_smithy_types::Document;
-
-    match doc {
-        Document::Object(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map {
-                obj.insert(k.clone(), document_to_json(v));
-            }
-            serde_json::Value::Object(obj)
-        }
-        Document::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(document_to_json).collect())
-        }
-        Document::Number(num) => {
-            // Try to parse as different number types
-            serde_json::Value::Number(
-                serde_json::Number::from_f64(num.to_f64_lossy())
-                    .unwrap_or(serde_json::Number::from(0)),
-            )
-        }
-        Document::String(s) => serde_json::Value::String(s.clone()),
-        Document::Bool(b) => serde_json::Value::Bool(*b),
-        Document::Null => serde_json::Value::Null,
     }
 }
 
@@ -457,53 +428,6 @@ pub fn create_inference_config(
     Some(builder.build())
 }
 
-/// Extract text content and tool calls from Bedrock Converse response
-pub fn bedrock_response_to_openai(
-    output: &aws_sdk_bedrockruntime::operation::converse::ConverseOutput,
-) -> Result<(Option<String>, Vec<OpenAIToolCall>), Error> {
-    let mut text_content = String::new();
-    let mut tool_calls = Vec::new();
-
-    if let Some(message) = output.output().and_then(|o| o.as_message().ok()) {
-        let content_blocks = message.content();
-        if !content_blocks.is_empty() {
-            for block in content_blocks {
-                match block {
-                    ContentBlock::Text(text) => {
-                        text_content.push_str(&text);
-                    }
-                    ContentBlock::ToolUse(tool_use) => {
-                        // Convert to OpenAI tool call format
-                        // Convert aws_smithy_types::Document to serde_json::Value
-                        let input_value = document_to_json(tool_use.input());
-                        let arguments = serde_json::to_string(&input_value)
-                            .unwrap_or_else(|_| EMPTY_JSON.to_string());
-
-                        tool_calls.push(OpenAIToolCall {
-                            id: tool_use.tool_use_id().to_string(),
-                            r#type: FUNCTION_TYPE.to_string(),
-                            function: OpenAIFunction {
-                                name: tool_use.name().to_string(),
-                                arguments,
-                            },
-                            extra_content: None, // Bedrock doesn't use thought signatures
-                        });
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let content = if text_content.is_empty() {
-        None
-    } else {
-        Some(text_content)
-    };
-
-    Ok((content, tool_calls))
-}
-
 /// Extract text delta from Bedrock stream event
 pub fn bedrock_stream_event_to_text(event: &ConverseStreamOutput) -> Option<String> {
     match event {
@@ -586,7 +510,6 @@ impl BedrockQueryBuilder {
         max_tokens: Option<u32>,
         api_key: &str,
         region: &str,
-        should_stream: bool,
         stream_event_processor: Option<StreamEventProcessor>,
         client: &AuthedClient,
         workspace_id: &str,
@@ -619,28 +542,16 @@ impl BedrockQueryBuilder {
         // Build tool configuration with optional ToolChoice
         let tool_config = self.build_tool_config(tools, structured_output_tool_name.is_some())?;
 
-        if should_stream {
-            self.execute_converse_stream(
-                &bedrock_client,
-                model,
-                bedrock_messages,
-                system_prompts,
-                inference_config,
-                tool_config,
-                stream_event_processor,
-            )
-            .await
-        } else {
-            self.execute_converse(
-                &bedrock_client,
-                model,
-                bedrock_messages,
-                system_prompts,
-                inference_config,
-                tool_config,
-            )
-            .await
-        }
+        self.execute_converse_stream(
+            &bedrock_client,
+            model,
+            bedrock_messages,
+            system_prompts,
+            inference_config,
+            tool_config,
+            stream_event_processor,
+        )
+        .await
     }
 
     /// Build tool configuration with optional ToolChoice for structured output
@@ -670,46 +581,6 @@ impl BedrockQueryBuilder {
         } else {
             Ok(None)
         }
-    }
-
-    /// Execute non-streaming Bedrock request
-    async fn execute_converse(
-        &self,
-        bedrock_client: &BedrockClient,
-        model: &str,
-        bedrock_messages: Vec<aws_sdk_bedrockruntime::types::Message>,
-        system_prompts: Vec<aws_sdk_bedrockruntime::types::SystemContentBlock>,
-        inference_config: Option<aws_sdk_bedrockruntime::types::InferenceConfiguration>,
-        tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
-    ) -> Result<ParsedResponse, Error> {
-        let mut request_builder = bedrock_client
-            .client()
-            .converse()
-            .model_id(model)
-            .set_messages(Some(bedrock_messages));
-
-        if !system_prompts.is_empty() {
-            request_builder = request_builder.set_system(Some(system_prompts));
-        }
-
-        if let Some(config) = inference_config {
-            request_builder = request_builder.inference_config(config);
-        }
-
-        if let Some(config) = tool_config {
-            request_builder = request_builder.set_tool_config(Some(config));
-        }
-
-        // Execute the request
-        let response = request_builder.send().await.map_err(|e| {
-            let error_msg = format!("Bedrock API error: {}", format_bedrock_error(&e));
-            Error::internal_err(error_msg)
-        })?;
-
-        // Convert response back to OpenAI format
-        let (content, tool_calls) = bedrock_response_to_openai(&response)?;
-
-        Ok(ParsedResponse::Text { content, tool_calls, events_str: None })
     }
 
     /// Execute streaming Bedrock request
@@ -835,6 +706,8 @@ impl BedrockQueryBuilder {
             } else {
                 Some(events_str)
             },
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 }

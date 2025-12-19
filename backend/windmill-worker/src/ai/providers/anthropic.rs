@@ -310,7 +310,6 @@ impl AnthropicQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
         // First prepare messages (handles S3 object to base64 conversion)
         let prepared_messages =
@@ -371,7 +370,7 @@ impl AnthropicQueryBuilder {
             tool_choice,
             temperature: args.temperature,
             max_tokens: Some(args.max_tokens.unwrap_or(64000)),
-            stream,
+            stream: true,
         };
 
         serde_json::to_string(&request)
@@ -386,20 +385,13 @@ impl QueryBuilder for AnthropicQueryBuilder {
         matches!(_output_type, OutputType::Text)
     }
 
-    fn supports_streaming(&self) -> bool {
-        // Anthropic supports streaming
-        true
-    }
-
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
-        self.build_text_request(args, client, workspace_id, stream)
-            .await
+        self.build_text_request(args, client, workspace_id).await
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
@@ -408,6 +400,11 @@ impl QueryBuilder for AnthropicQueryBuilder {
             .text()
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+
+        tracing::info!(
+            "[AI_PROVIDER_RESPONSE] Anthropic raw response: {}",
+            response_text
+        );
 
         let anthropic_response: AnthropicResponse =
             serde_json::from_str(&response_text).map_err(|e| {
@@ -451,7 +448,13 @@ impl QueryBuilder for AnthropicQueryBuilder {
             Some(text_parts.join(""))
         };
 
-        Ok(ParsedResponse::Text { content, tool_calls, events_str: None })
+        Ok(ParsedResponse::Text {
+            content,
+            tool_calls,
+            events_str: None,
+            annotations: Vec::new(),
+            used_websearch: false,
+        })
     }
 
     async fn parse_streaming_response(
@@ -476,16 +479,12 @@ impl QueryBuilder for AnthropicQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        _model: &str,
-        _output_type: &OutputType,
-        _stream: bool,
-    ) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
         format!("{}/messages", base_url)
     }
 

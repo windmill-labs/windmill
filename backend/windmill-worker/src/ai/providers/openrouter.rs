@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    providers::other::{OtherQueryBuilder, OpenAIResponse},
+    providers::other::{OpenAIResponse, OtherQueryBuilder},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
@@ -71,61 +71,28 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         true
     }
 
-    fn supports_streaming(&self) -> bool {
-        // OpenRouter supports streaming for text output
-        true
-    }
-
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
-                // For text, use standard completion format without modalities
                 self.other_builder
-                    .build_request(args, client, workspace_id, stream)
+                    .build_request(args, client, workspace_id)
                     .await
             }
             OutputType::Image => {
-                // For image generation, we need to add modalities field
-                // First, prepare the messages
                 let prepared_messages =
                     prepare_messages_for_api(args.messages, client, workspace_id).await?;
-
-                // Check if we need to add response_format for structured output
-                let has_output_properties = args
-                    .output_schema
-                    .and_then(|schema| schema.properties.as_ref())
-                    .map(|props| !props.is_empty())
-                    .unwrap_or(false);
-
-                let response_format = if has_output_properties && args.output_schema.is_some() {
-                    let schema = args.output_schema.unwrap();
-                    let strict_schema = schema.clone().make_strict();
-                    Some(ResponseFormat {
-                        r#type: "json_schema".to_string(),
-                        json_schema: JsonSchemaFormat {
-                            name: "structured_output".to_string(),
-                            schema: strict_schema,
-                            strict: Some(true),
-                        },
-                    })
-                } else {
-                    None
-                };
-
-                // Build OpenRouter-specific request with modalities
                 let request = OpenRouterChatRequest {
                     model: args.model,
                     messages: &prepared_messages,
                     tools: args.tools,
                     temperature: args.temperature,
                     max_completion_tokens: args.max_tokens,
-                    response_format,
+                    response_format: None,
                     modalities: Some(vec!["image", "text"]),
                 };
 
@@ -190,6 +157,8 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             }),
             tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
             events_str: None,
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
@@ -203,14 +172,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             .await
     }
 
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        _model: &str,
-        _output_type: &OutputType,
-        _stream: bool,
-    ) -> String {
-        // OpenRouter uses the same endpoint for both text and image generation
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
         format!("{}/chat/completions", base_url)
     }
 

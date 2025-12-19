@@ -11,7 +11,6 @@ use crate::ai::{
     utils::should_use_structured_output_tool,
 };
 
-
 #[derive(Deserialize)]
 pub struct OpenAIChoice {
     pub message: OpenAIMessage,
@@ -63,7 +62,6 @@ impl OtherQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
         let prepared_messages =
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
@@ -113,7 +111,7 @@ impl OtherQueryBuilder {
             max_completion_tokens: args.max_tokens,
             response_format,
             tool_choice,
-            stream,
+            stream: true,
         };
 
         serde_json::to_string(&request)
@@ -128,20 +126,13 @@ impl QueryBuilder for OtherQueryBuilder {
         matches!(_output_type, OutputType::Text)
     }
 
-    fn supports_streaming(&self) -> bool {
-        // Most providers support streaming for text output
-        true
-    }
-
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
-        self.build_text_request(args, client, workspace_id, stream)
-            .await
+        self.build_text_request(args, client, workspace_id).await
     }
 
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error> {
@@ -174,6 +165,8 @@ impl QueryBuilder for OtherQueryBuilder {
             }),
             tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
             events_str: None,
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
@@ -211,16 +204,12 @@ impl QueryBuilder for OtherQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        _model: &str,
-        _output_type: &OutputType,
-        _stream: bool,
-    ) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
         format!("{}/chat/completions", base_url)
     }
 

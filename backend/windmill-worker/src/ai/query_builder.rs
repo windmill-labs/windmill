@@ -35,8 +35,16 @@ pub struct BuildRequestArgs<'a> {
 
 /// Response from AI provider
 pub enum ParsedResponse {
-    Text { content: Option<String>, tool_calls: Vec<OpenAIToolCall>, events_str: Option<String> },
-    Image { base64_data: String },
+    Text {
+        content: Option<String>,
+        tool_calls: Vec<OpenAIToolCall>,
+        events_str: Option<String>,
+        annotations: Vec<UrlCitation>,
+        used_websearch: bool,
+    },
+    Image {
+        base64_data: String,
+    },
 }
 
 /// Trait for building provider-specific AI requests
@@ -45,16 +53,12 @@ pub trait QueryBuilder: Send + Sync {
     /// Check if this provider supports tools with the given output type
     fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool;
 
-    /// Check if this provider supports streaming
-    fn supports_streaming(&self) -> bool;
-
     /// Build the request body for the provider
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error>;
 
     /// Parse the response from the provider
@@ -72,13 +76,7 @@ pub trait QueryBuilder: Send + Sync {
     }
 
     /// Get the API endpoint for this provider
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        model: &str,
-        output_type: &OutputType,
-        stream: bool,
-    ) -> String;
+    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;
 
     /// Get the authentication headers for this provider
     fn get_auth_headers(
@@ -97,9 +95,7 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         // Google AI uses the Gemini API
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         // OpenAI use the Responses API
-        AIProvider::OpenAI => {
-            Box::new(OpenAIQueryBuilder::new(provider.kind.clone()))
-        }
+        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
         // Anthropic uses its own API format
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(provider.kind.clone())),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
@@ -109,7 +105,7 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
 }
 
 pub struct StreamEventProcessor {
-    tx: tokio::sync::mpsc::Sender<String>,
+    tx: Option<tokio::sync::mpsc::Sender<String>>,
     pub handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -120,6 +116,7 @@ impl Clone for StreamEventProcessor {
 }
 
 impl StreamEventProcessor {
+    /// Create a new StreamEventProcessor that persists events to the database.
     pub fn new(conn: &Connection, job: &MiniPulledJob) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
         let conn = conn.clone();
@@ -148,16 +145,27 @@ impl StreamEventProcessor {
             }
         });
 
-        Self { tx, handle: Some(handle) }
+        Self { tx: Some(tx), handle: Some(handle) }
+    }
+
+    /// Create a silent StreamEventProcessor that only accumulates events locally
+    /// without persisting them to the database. Used when streaming is disabled.
+    pub fn new_silent() -> Self {
+        Self { tx: None, handle: None }
     }
 
     pub async fn send(&self, event: StreamingEvent, events_str: &mut String) -> Result<(), Error> {
+        // In silent mode, skip both persistence AND accumulation (no overhead)
+        let Some(ref tx) = self.tx else {
+            return Ok(());
+        };
+
         match serde_json::to_string(&event) {
             Ok(event_json) => {
                 let event_json = format!("{}\n", event_json);
                 events_str.push_str(&event_json);
-                if let Err(err) = self
-                    .tx
+
+                if let Err(err) = tx
                     .send(event_json.clone())
                     .await
                     .map_err(|e| Error::internal_err(format!("Failed to send event: {}", e)))

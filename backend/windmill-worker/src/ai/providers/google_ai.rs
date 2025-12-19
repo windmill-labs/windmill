@@ -12,7 +12,6 @@ use crate::ai::{
     utils::parse_data_url,
 };
 
-
 // ============================================================================
 // Gemini API Types - Shared between text and image
 // ============================================================================
@@ -482,7 +481,6 @@ impl GoogleAIQueryBuilder {
         Ok(parts)
     }
 
-
     /// Find function name by tool call ID from previous messages
     fn find_function_name_by_id(&self, messages: &[OpenAIMessage], tool_call_id: &str) -> String {
         for msg in messages {
@@ -616,6 +614,8 @@ impl GoogleAIQueryBuilder {
             },
             tool_calls,
             events_str: None,
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
@@ -662,17 +662,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         matches!(output_type, OutputType::Text)
     }
 
-    fn supports_streaming(&self) -> bool {
-        // Google AI supports streaming for text output
-        true
-    }
-
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        _stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => self.build_text_request(args, client, workspace_id).await,
@@ -687,6 +681,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             .text()
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+
+        tracing::info!(
+            "[AI_PROVIDER_RESPONSE] Google AI raw response: {}",
+            response_text
+        );
 
         // For Imagen predict endpoint
         if url.contains(":predict") {
@@ -786,6 +785,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
@@ -794,21 +795,13 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         _base_url: &str, // Ignored - always use Google's URL
         model: &str,
         output_type: &OutputType,
-        stream: bool,
     ) -> String {
         match output_type {
             OutputType::Text => {
-                let action = if stream {
-                    "streamGenerateContent"
-                } else {
-                    "generateContent"
-                };
-                let url = format!("{}/models/{}:{}", GEMINI_BASE_URL, model, action);
-                if stream {
-                    format!("{}?alt=sse", url)
-                } else {
-                    url
-                }
+                format!(
+                    "{}/models/{}:streamGenerateContent?alt=sse",
+                    GEMINI_BASE_URL, model
+                )
             }
             OutputType::Image => {
                 let url_suffix = if model.contains("imagen") {

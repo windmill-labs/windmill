@@ -52,16 +52,27 @@ pub struct ResponsesMessage {
     pub tool_calls: Option<Vec<OpenAIToolCall>>,
 }
 
-/// URL citation annotation for web search results
+/// URL citation annotation from OpenAI API response (includes type field for deserialization)
 #[derive(Deserialize, Clone, Debug)]
 #[allow(dead_code)]
-pub struct UrlCitation {
+pub struct OpenAIUrlCitation {
     pub r#type: String,
     pub start_index: usize,
     pub end_index: usize,
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+}
+
+impl From<OpenAIUrlCitation> for UrlCitation {
+    fn from(c: OpenAIUrlCitation) -> Self {
+        UrlCitation {
+            start_index: c.start_index,
+            end_index: c.end_index,
+            url: c.url,
+            title: c.title,
+        }
+    }
 }
 
 /// Output text content item (used in "message" type outputs)
@@ -72,7 +83,7 @@ pub struct OutputTextContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default)]
-    pub annotations: Vec<UrlCitation>,
+    pub annotations: Vec<OpenAIUrlCitation>,
 }
 
 #[derive(Deserialize)]
@@ -127,21 +138,11 @@ pub enum ImageGenerationContent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponsesApiInputItem {
     /// User/assistant/system message
-    Message {
-        role: String,
-        content: Vec<ImageGenerationContent>,
-    },
+    Message { role: String, content: Vec<ImageGenerationContent> },
     /// Function call from model (must echo back from previous response)
-    FunctionCall {
-        call_id: String,
-        name: String,
-        arguments: String,
-    },
+    FunctionCall { call_id: String, name: String, arguments: String },
     /// Tool result output linked by call_id
-    FunctionCallOutput {
-        call_id: String,
-        output: String,
-    },
+    FunctionCallOutput { call_id: String, output: String },
 }
 
 #[derive(Serialize)]
@@ -235,7 +236,9 @@ pub struct OpenAIQueryBuilder {
 }
 
 /// Convert OpenAIContent to ImageGenerationContent array
-fn convert_content_to_responses_format(content: &Option<OpenAIContent>) -> Vec<ImageGenerationContent> {
+fn convert_content_to_responses_format(
+    content: &Option<OpenAIContent>,
+) -> Vec<ImageGenerationContent> {
     match content {
         Some(OpenAIContent::Text(text)) => {
             vec![ImageGenerationContent::InputText { text: text.clone() }]
@@ -248,7 +251,9 @@ fn convert_content_to_responses_format(content: &Option<OpenAIContent>) -> Vec<I
                         Some(ImageGenerationContent::InputText { text: text.clone() })
                     }
                     ContentPart::ImageUrl { image_url } => {
-                        Some(ImageGenerationContent::InputImage { image_url: image_url.url.clone() })
+                        Some(ImageGenerationContent::InputImage {
+                            image_url: image_url.url.clone(),
+                        })
                     }
                     // S3 objects should have been resolved earlier, but handle gracefully
                     ContentPart::S3Object { .. } => None,
@@ -278,10 +283,7 @@ fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<Respon
                 // Regular message with content
                 let content = convert_content_to_responses_format(&m.content);
                 if !content.is_empty() {
-                    input.push(ResponsesApiInputItem::Message {
-                        role: m.role.clone(),
-                        content,
-                    });
+                    input.push(ResponsesApiInputItem::Message { role: m.role.clone(), content });
                 }
             }
             "assistant" => {
@@ -339,7 +341,6 @@ impl OpenAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
         // First prepare messages (handles S3 object to base64 conversion)
         let prepared_messages =
@@ -363,7 +364,9 @@ impl OpenAIQueryBuilder {
         // Convert ToolDef to ResponsesApiFunctionTool (flat structure for Responses API)
         if let Some(tool_defs) = args.tools {
             for tool in tool_defs {
-                tools.push(ResponsesApiTool::Function(ResponsesApiFunctionTool::from(tool)));
+                tools.push(ResponsesApiTool::Function(ResponsesApiFunctionTool::from(
+                    tool,
+                )));
             }
         }
 
@@ -390,7 +393,7 @@ impl OpenAIQueryBuilder {
             input: input_items,
             instructions: args.system_prompt, // System prompt goes to instructions field
             tools,
-            stream: if stream { Some(true) } else { None },
+            stream: Some(true),
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
             text,
@@ -424,17 +427,15 @@ impl OpenAIQueryBuilder {
         }
 
         // Build the request with image generation tool
-        let tools: Vec<ResponsesApiTool> = vec![ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
-            r#type: "image_generation".to_string(),
-            quality: Some("low".to_string()),
-        })];
+        let tools: Vec<ResponsesApiTool> =
+            vec![ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+                r#type: "image_generation".to_string(),
+                quality: Some("low".to_string()),
+            })];
 
         let request = ResponsesApiRequest {
             model: args.model,
-            input: vec![ResponsesApiInputItem::Message {
-                role: "user".to_string(),
-                content,
-            }],
+            input: vec![ResponsesApiInputItem::Message { role: "user".to_string(), content }],
             instructions: args.system_prompt,
             tools,
             stream: None, // Image generation doesn't use streaming
@@ -455,10 +456,6 @@ impl QueryBuilder for OpenAIQueryBuilder {
         true
     }
 
-    fn supports_streaming(&self) -> bool {
-        true
-    }
-
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
@@ -475,6 +472,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
             },
             tool_calls: parser.accumulated_tool_calls.into_values().collect(),
             events_str: Some(parser.events_str),
+            annotations: Vec::new(),
+            used_websearch: false,
         })
     }
 
@@ -483,13 +482,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
-            OutputType::Text => {
-                self.build_text_request(args, client, workspace_id, stream)
-                    .await
-            }
+            OutputType::Text => self.build_text_request(args, client, workspace_id).await,
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
         }
     }
@@ -499,6 +494,11 @@ impl QueryBuilder for OpenAIQueryBuilder {
             .text()
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read response text: {}", e)))?;
+
+        tracing::info!(
+            "[AI_PROVIDER_RESPONSE] OpenAI raw response: {}",
+            response_text
+        );
 
         let responses_response: ResponsesApiResponse = serde_json::from_str(&response_text)
             .map_err(|e| {
@@ -510,6 +510,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
 
         // Collect function_call outputs (for parallel tool calls)
         let mut collected_tool_calls: Vec<OpenAIToolCall> = Vec::new();
+        let mut used_websearch = false;
+        let mut collected_annotations: Vec<UrlCitation> = Vec::new();
 
         for output in responses_response.output.iter() {
             match output.r#type.as_str() {
@@ -537,24 +539,28 @@ impl QueryBuilder for OpenAIQueryBuilder {
                         }
                     }
                 }
+                "web_search_call" => {
+                    // Track that websearch was used
+                    used_websearch = true;
+                }
                 "message_call" => {
                     if let Some(ref message) = output.message {
                         return Ok(ParsedResponse::Text {
                             content: message.content.clone().map(|c| match c {
                                 OpenAIContent::Text(text) => text,
-                                OpenAIContent::Parts(parts) => {
-                                    parts
-                                        .into_iter()
-                                        .filter_map(|part| match part {
-                                            ContentPart::Text { text } => Some(text),
-                                            _ => None,
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join(" ")
-                                }
+                                OpenAIContent::Parts(parts) => parts
+                                    .into_iter()
+                                    .filter_map(|part| match part {
+                                        ContentPart::Text { text } => Some(text),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
                             }),
                             tool_calls: message.tool_calls.clone().unwrap_or_default(),
                             events_str: None,
+                            annotations: collected_annotations,
+                            used_websearch,
                         });
                     }
                 }
@@ -569,17 +575,28 @@ impl QueryBuilder for OpenAIQueryBuilder {
                                 .collect::<Vec<_>>()
                                 .join(" ");
 
+                            // Extract annotations from all output_text items
+                            let annotations: Vec<UrlCitation> = content_items
+                                .iter()
+                                .filter(|item| item.r#type == "output_text")
+                                .flat_map(|item| {
+                                    item.annotations.iter().cloned().map(UrlCitation::from)
+                                })
+                                .collect();
+
                             if !text_content.is_empty() {
                                 return Ok(ParsedResponse::Text {
                                     content: Some(text_content),
                                     tool_calls: Vec::new(),
                                     events_str: None,
+                                    annotations,
+                                    used_websearch,
                                 });
                             }
                         }
                     }
                 }
-                // Skip web_search_call and other internal types
+                // Skip other internal types
                 _ => continue,
             }
         }
@@ -590,6 +607,8 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 content: None,
                 tool_calls: collected_tool_calls,
                 events_str: None,
+                annotations: collected_annotations,
+                used_websearch,
             });
         }
 
@@ -598,13 +617,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         ))
     }
 
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        _model: &str,
-        _output_type: &OutputType,
-        _stream: bool,
-    ) -> String {
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
         // Always use responses endpoint for OpenAI/Azure
         if self.provider_kind.is_azure_openai(base_url) {
             AIProvider::build_azure_openai_url(base_url, "responses")
