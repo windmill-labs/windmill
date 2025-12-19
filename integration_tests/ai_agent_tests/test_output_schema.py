@@ -28,9 +28,9 @@ export function main(a: number, b: number): number {
 RESULT_SCHEMA = {
     "type": "object",
     "properties": {
-        "result": {"type": "number"}
+        "sum": {"type": "number"}
     },
-    "required": ["result"]
+    "required": ["sum"]
 }
 
 
@@ -76,7 +76,7 @@ class TestOutputSchema:
 
         assert result is not None
         # The result should be structured with a "result" field
-        assert "result" in result or "12" in str(result), f"Expected structured result with '12': {result}"
+        assert "sum" in result or "12" in str(result), f"Expected structured result with '12': {result}"
         print(f"Output schema with tool result from {provider_config['name']}: {result}")
 
     @pytest.mark.parametrize(
@@ -109,7 +109,7 @@ class TestOutputSchema:
 
         assert result is not None
         # The result should be structured with a "result" field
-        assert "result" in result or "12" in str(result), f"Expected structured result with '12': {result}"
+        assert "sum" in result or "12" in str(result), f"Expected structured result with '12': {result}"
         print(f"Output schema without tool result from {provider_config['name']}: {result}")
 
 
