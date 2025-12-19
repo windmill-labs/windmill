@@ -373,7 +373,7 @@
 					</div>
 				</TabContent>
 				<TabContent value="" values={settingsKeys}>
-					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} {closeDrawer} />
+					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave bind:tab {closeDrawer} />
 				</TabContent>
 			{/snippet}
 		</Tabs>
