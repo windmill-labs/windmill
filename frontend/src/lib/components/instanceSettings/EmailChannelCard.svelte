@@ -79,14 +79,16 @@
 							value={channel.email || ''}
 						/>
 
-						<button
+						<Button
 							onclick={() => handleRemoveChannel(channel)}
-							class="text-secondary hover:text-primary transition-colors"
-							aria-label="Remove email"
+							title="Remove email"
 							{disabled}
-						>
-							<X size={14} />
-						</button>
+							startIcon={{ icon: X }}
+							iconOnly
+							unifiedSize="md"
+							variant="subtle"
+							destructive
+						/>
 					</div>
 				{/each}
 			</div>

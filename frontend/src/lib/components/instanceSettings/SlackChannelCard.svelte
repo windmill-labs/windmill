@@ -84,14 +84,16 @@
 								value={channel.slack_channel || ''}
 							/>
 						</div>
-						<button
+						<Button
 							onclick={() => handleRemoveChannel(channel)}
-							class="text-secondary hover:text-primary transition-colors"
-							aria-label="Remove channel"
+							title="Remove channel"
+							iconOnly
 							{disabled}
-						>
-							<X size={14} />
-						</button>
+							startIcon={{ icon: X }}
+							unifiedSize="md"
+							variant="subtle"
+							destructive
+						/>
 					</div>
 				{/each}
 			</div>

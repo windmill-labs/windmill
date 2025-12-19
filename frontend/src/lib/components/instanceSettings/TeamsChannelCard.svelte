@@ -105,7 +105,7 @@
 							}
 						: undefined}
 
-					<div class="flex items-center gap-2 w-full">
+					<div class="flex items-start gap-2 w-full">
 						<div class="flex flex-row gap-2 flex-1">
 							<TeamSelector
 								containerClass="w-44"
@@ -129,14 +129,16 @@
 							{/if}
 						</div>
 
-						<button
+						<Button
 							onclick={() => handleRemoveChannel(channel)}
-							class="text-secondary hover:text-primary transition-colors"
-							aria-label="Remove channel"
+							title="Remove channel"
 							{disabled}
-						>
-							<X size={14} />
-						</button>
+							startIcon={{ icon: X }}
+							iconOnly
+							unifiedSize="md"
+							variant="subtle"
+							destructive
+						></Button>
 					</div>
 				{/each}
 			</div>
