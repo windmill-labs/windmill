@@ -28,7 +28,7 @@ export function injectSqlTypes(code, queries) {
 		let middlePart =
 			'<{ ' +
 			Object.entries(query?.prepared?.columns ?? {})
-				.map(([key, type]) => `"${key}": ${type}`)
+				.map(([key, type]) => `${JSON.stringify(key)}: ${type}`)
 				.join('; ') +
 			' }>'
 		let rightPart = transformed?.substring(splitIdx + addedOffset)

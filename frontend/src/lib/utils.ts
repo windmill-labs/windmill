@@ -1702,3 +1702,74 @@ export function chunkBy<T>(array: T[], getKey: (key: T) => string): T[][] {
 
 	return chunks
 }
+
+// AI generated
+export function getQueryStmtCountHeuristic(query: string): number {
+	let count = 0
+	let currState: 'normal' | 'single-quote' | 'double-quote' | 'line-comment' | 'block-comment' =
+		'normal'
+
+	for (let i = 0; i < query.length; i++) {
+		const char = query[i]
+		const nextChar = query[i + 1]
+
+		switch (currState) {
+			case 'normal':
+				if (char === "'") {
+					currState = 'single-quote'
+				} else if (char === '"') {
+					currState = 'double-quote'
+				} else if (char === '-' && nextChar === '-') {
+					currState = 'line-comment'
+					i++ // skip next char
+				} else if (char === '/' && nextChar === '*') {
+					currState = 'block-comment'
+					i++ // skip next char
+				} else if (char === ';') {
+					count++
+				}
+				break
+
+			case 'single-quote':
+				if (char === "'") {
+					// In SQL, '' is an escaped single quote
+					if (nextChar === "'") {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'double-quote':
+				if (char === '"') {
+					// In SQL, "" is an escaped double quote
+					if (nextChar === '"') {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'line-comment':
+				if (char === '\n') {
+					currState = 'normal'
+				}
+				break
+
+			case 'block-comment':
+				if (char === '*' && nextChar === '/') {
+					currState = 'normal'
+					i++ // skip next char
+				}
+				break
+		}
+	}
+
+	if (currState === 'normal' && !query.trimEnd().endsWith(';')) {
+		count++
+	}
+
+	return count
+}
