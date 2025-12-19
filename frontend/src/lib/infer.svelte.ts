@@ -21,6 +21,8 @@ export function usePreparedAssetSqlQueries(
 			),
 		async (toFetch) => {
 			let queries = Object.entries(clone(toFetch))
+			// We only support preparing datatable source kinds for now.
+			queries = queries.filter(([_, q]) => q.source_kind === 'datatable')
 			// We only support preparing single-statement queries for now.
 			queries = queries.filter(([_, q]) => getQueryStmtCountHeuristic(q.query_string) === 1)
 
