@@ -121,9 +121,9 @@
 		return [
 			{
 				popover: {
-					title: 'Welcome to the Runs page!',
+					title: 'Welcome to your monitoring dashboard!',
 					description:
-						"Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you to explore.",
+						"Let's explore how to monitor and manage your script and flow executions in Windmill. We've created some example runs for you.",
 					onNextClick: () => {
 						driver.moveNext()
 					}
@@ -213,9 +213,9 @@
 					}
 				},
 				popover: {
-					title: 'Exploring job runs',
+					title: 'Exploring job runs. 1 success ✅ and 1 failure ❌',
 					description:
-						'We\'re clicking on both a successful and a failed job to show you how to inspect different types of executions. Watch as we explore both!',
+						'We\'re clicking on both jobs to show you how to inspect different types of executions.',
 					side: 'bottom',
 					onNextClick: async () => {
 						// Find and click the failed job again (last one clicked) without showing cursor
@@ -247,7 +247,7 @@
 				popover: {
 					title: 'Visual run history',
 					description:
-						'This chart gives you a visual overview of your run history at a glance. You can quickly see the pattern of executions over time.',
+						'This chart gives you a visual overview of your run history at a glance. The duration chart shows how long each job takes to complete over time.',
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
@@ -291,7 +291,7 @@
 				popover: {
 					title: 'Switching chart views',
 					description:
-						'You can switch between different chart views to analyze your runs. The Concurrency Chart allows you to see how many jobs are running concurrently over time.',
+						'You can switch between different chart views to analyze your runs. The concurrency chart allows you to see how many jobs are running concurrently over time.',
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()
@@ -352,7 +352,7 @@
 				popover: {
 					title: 'Filtering jobs date, kind, status',
 					description:
-						'You can filter jobs, for example by status (failed, running, success). This helps you focus on specific types of executions. Watch as we click on both filter buttons!',
+						'You can filter jobs, for example by status (failed, running, success). This helps you focus on specific types of executions.',
 					side: 'bottom',
 					onNextClick: () => {
 						driver.moveNext()

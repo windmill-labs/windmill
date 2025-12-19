@@ -92,7 +92,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 			{
 				id: 'runs-tutorial',
 				icon: History,
-				title: 'Explore the Runs page',
+				title: 'Discover your monitoring dashboard',
 				description: 'Learn how to monitor, filter, and manage your script and flow executions.',
 				onClick: () => {
 					window.location.href = `${base}/runs?tutorial=runs-tutorial`
@@ -100,7 +100,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				index: 7,
 				active: true,
 				comingSoon: false,
-				roles: ['admin', 'developer'],
+				roles: ['admin', 'developer','operator'],
 				order: 4
 			},
 			{
@@ -115,7 +115,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				active: true,
 				comingSoon: false,
 				roles: ['operator'],
-				order: 6
+				order: 1
 			},	
 		]
 	},
