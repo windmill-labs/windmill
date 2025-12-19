@@ -189,8 +189,6 @@
 	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
 	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
 
-	$inspect('dbg oauths', oauths)
-
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
 			if (slackInitialPath === slackScriptPath) return
