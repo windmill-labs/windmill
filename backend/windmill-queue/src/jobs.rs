@@ -2664,16 +2664,22 @@ impl PulledJobResult {
                 }
             }
 
-            if kind.is_dependency()
+            if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
                 && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
                 && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
-                legacy_accumulate_args(j, db).await?;
-            } else if let (Some(pulled_args), Some(arg_name_to_accumulate)) = (
-                j.args.as_mut(),
+                // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
+                if let Some(args) = &mut j.args {
+                    args.remove(match kind {
+                        JobKind::FlowDependencies => "nodes_to_relock",
+                        JobKind::AppDependencies => "components_to_relock",
+                        _ => unreachable!(),
+                    });
+                }
+            } else if let Some(arg_name_to_accumulate) =
                 // TODO: Maybe support multipe arguments in future
-                debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0)),
-            ) {
+                debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
+            {
                 let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
                 for str_o in sqlx::query_scalar!(
                     "WITH ids AS (
@@ -2694,18 +2700,22 @@ impl PulledJobResult {
                     }
                 }
 
-                pulled_args.insert(
-                    arg_name_to_accumulate.to_owned(),
-                    to_raw_value(&accumulated_arg),
-                );
+                // TODO: test job without args.
+                j.args
+                    .get_or_insert(Json(Default::default()))
+                    .as_mut()
+                    .insert(
+                        arg_name_to_accumulate.to_owned(),
+                        to_raw_value(&accumulated_arg),
+                    );
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
             if kind.is_dependency()
                 && j.args
                     .as_ref()
-                    .map(|x| x.get("triggered_by_relative_import").is_some())
-                    .unwrap_or_default()
+                    .and_then(|x| x.get("triggered_by_relative_import"))
+                    .is_some()
                 && !*WMDEBUG_NO_DJOB_DEBOUNCING
             {
                 clone_runnable(j, db).await?;
@@ -2714,62 +2724,6 @@ impl PulledJobResult {
 
         Ok(())
     }
-}
-
-async fn legacy_accumulate_args(j: &mut PulledJob, db: &DB) -> error::Result<()> {
-    if let Some(to_relock_field) = match &j.kind {
-        JobKind::FlowDependencies => Some("nodes_to_relock"),
-        JobKind::AppDependencies => Some("components_to_relock"),
-        _ => None, // Scripts don't use accumulated stale data
-    } {
-        tracing::debug!(
-            job_id = %j.id,
-            job_kind = ?j.kind,
-            field = %to_relock_field,
-            "Retrieving accumulated stale data from debounced requests"
-        );
-
-        if let Some(stale_data) = sqlx::query_scalar!(
-            "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
-            j.id
-        )
-        .fetch_optional(db)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                job_id = %j.id,
-                "Failed to retrieve debounce_stale_data"
-            );
-            e
-        })?
-        .flatten()
-        {
-            tracing::debug!(
-                job_id = %j.id,
-                node_count = stale_data.len(),
-                nodes = ?stale_data,
-                "Retrieved accumulated nodes/components from {} debounced requests",
-                stale_data.len()
-            );
-
-            // Replace the job's relock list with the accumulated data
-            // This ensures all nodes from all debounced requests are processed
-            if let Some(args) = j.args.as_mut() {
-                args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
-                tracing::debug!(
-                    field = %to_relock_field,
-                    "Updated job args with accumulated debounce data"
-                );
-            }
-        } else {
-            tracing::trace!(
-                job_id = %j.id,
-                "No accumulated stale data found (no debounced requests or already cleaned up)"
-            );
-        }
-    }
-    Ok(())
 }
 
 async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
