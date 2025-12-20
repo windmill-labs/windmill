@@ -3,11 +3,11 @@ use rustpython_parser::{ast::Suite, Parse};
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
     asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsResult,
+    ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
+pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     let ast = Suite::parse(input, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
@@ -25,7 +25,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
         }
     }
 
-    Ok(merge_assets(assets_finder.assets))
+    Ok(ParseAssetsOutput { assets: merge_assets(assets_finder.assets), ..Default::default() })
 }
 
 type VarAssetName = String;
@@ -216,7 +216,7 @@ impl AssetsFinder {
                 match windmill_parser_sql::parse_assets(&sql) {
                     Ok(mut sql_assets) => {
                         if let Some(schema_name) = schema {
-                            for asset in &mut sql_assets {
+                            for asset in &mut sql_assets.assets {
                                 if asset.kind == *kind && asset.path.starts_with(path.as_str()) {
                                     asset.path = format!(
                                         "{}/{}.{}",
@@ -227,7 +227,7 @@ impl AssetsFinder {
                                 }
                             }
                         }
-                        self.assets.extend(sql_assets);
+                        self.assets.extend(sql_assets.assets);
                     }
                     _ => {}
                 }
@@ -290,7 +290,7 @@ import wmill
 def main():
     wmill.load_s3_file('s3:///test.csv')
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -308,7 +308,7 @@ import wmill
 def main():
     db = wmill.datatable()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -327,7 +327,7 @@ def main(x: int):
     db = wmill.datatable('dt')
     return db.query('SELECT * FROM friends WHERE age = $1', x).fetch()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -348,7 +348,7 @@ def main(x: int):
     db.query('SELECT * FROM friends WHERE age = $1', x).fetch_one()
     db.query('SELECT * FROM analytics').fetch()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![
@@ -380,7 +380,7 @@ def main():
 def g():
     db = wmill.ducklake('another2')
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![
@@ -412,7 +412,7 @@ def main():
 def g():
     db = wmill.ducklake()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![
@@ -438,7 +438,7 @@ def main(x: int):
     db = wmill.datatable('dt:public')
     return db.query('SELECT * FROM friends WHERE age = $1', x).fetch()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -457,7 +457,7 @@ def main():
     db = wmill.ducklake('lake1:analytics')
     return db.query('SELECT * FROM metrics').fetch()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -477,7 +477,7 @@ def main(x: int):
     db.query('INSERT INTO users VALUES ($1)', x).fetch()
     return db.query('SELECT * FROM users').fetch()
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -495,7 +495,7 @@ import wmill
 def main():
     db = wmill.datatable('dt:public')
 "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {

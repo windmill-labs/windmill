@@ -35,15 +35,19 @@
 	}
 </script>
 
-<label class="block pb-2" for="tenant-id">
-	<span class="text-primary font-semibold text-sm flex gap-2 items-center">
+<label class="flex flex-col gap-1" for="tenant-id">
+	<span class="text-primary font-semibold text-xs flex gap-2 items-center"> Azure tenant id </span>
+	<span class="text-secondary font-normal text-xs">
+		Identifies the specific Microsoft Entra ID tenant for authentication. Controls who can sign into
+		the application and determines the organizational boundary for OAuth requests.
 		<a
 			href="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app"
 			target="_blank"
+			class="inline-flex items-center gap-1 whitespace-nowrap"
 		>
-			Azure Tenant Id
+			Learn more
+			<ExternalLink size={12} />
 		</a>
-		<ExternalLink size={12} />
 	</span>
 	<input
 		id="tenant-id"
@@ -53,8 +57,8 @@
 		bind:value={connect_config.extra_params.tenant_id}
 	/>
 </label>
-<label class="block pb-2" for="scopes-label">
-	<span class="text-primary font-semibold text-sm">Scopes</span>
+<label class="flex flex-col gap-1" for="scopes-label">
+	<span class="text-primary font-semibold text-xs">Scopes</span>
 	<div id="scopes-label">
 		<OauthScopes bind:scopes={connect_config.scopes} />
 	</div>

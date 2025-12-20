@@ -377,3 +377,39 @@ export function datatypeHasLength(datatype: string): boolean {
 	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
 	return lengthDataTypes.some((type) => datatype === type)
 }
+
+export function sqlDataTypeToJsTypeHeuristic(datatype: string): string {
+	datatype = datatype.toLowerCase()
+	if (
+		datatype.includes('int') ||
+		datatype === 'decimal' ||
+		datatype === 'numeric' ||
+		datatype === 'float' ||
+		datatype === 'real' ||
+		datatype === 'double'
+	) {
+		return 'number'
+	} else if (
+		datatype === 'varchar' ||
+		datatype === 'char' ||
+		datatype === 'text' ||
+		datatype === 'nvarchar' ||
+		datatype === 'nchar' ||
+		datatype === 'string'
+	) {
+		return 'string'
+	} else if (datatype === 'boolean' || datatype === 'bool' || datatype === 'bit') {
+		return 'boolean'
+	} else if (
+		datatype === 'date' ||
+		datatype === 'datetime' ||
+		datatype === 'timestamp' ||
+		datatype === 'timestamptz'
+	) {
+		return 'Date'
+	} else if (datatype === 'json' || datatype === 'jsonb') {
+		return 'object'
+	} else {
+		return 'any'
+	}
+}

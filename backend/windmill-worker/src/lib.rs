@@ -65,6 +65,7 @@ mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
 pub mod scoped_dependency_map;
+pub mod sql_utils;
 mod universal_pkg_installer;
 mod worker;
 mod worker_flow;

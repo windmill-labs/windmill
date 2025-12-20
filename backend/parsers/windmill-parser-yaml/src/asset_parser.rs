@@ -1,10 +1,10 @@
 use windmill_parser::asset_parser::{
-    merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
 };
 
 use crate::{parse_ansible_reqs, ResourceOrVariablePath};
 
-pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
+pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     let mut assets = vec![];
     if let (_, Some(ansible_reqs), _) = parse_ansible_reqs(input)? {
         if let Some(delegate_to_git_repo_details) = ansible_reqs.delegate_to_git_repo {
@@ -36,5 +36,5 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
         }
     }
 
-    Ok(merge_assets(assets))
+    Ok(ParseAssetsOutput { assets: merge_assets(assets), ..Default::default() })
 }
