@@ -49,7 +49,7 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
-    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
+    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
 };
 
 use windmill_common::{
@@ -69,7 +69,9 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{schedule::push_scheduled_job, PushIsolationLevel};
+use windmill_queue::{
+    schedule::push_scheduled_job, PushIsolationLevel, WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
+};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -2312,6 +2314,17 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
             "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        && !ns.debouncing_settings.is_legacy_compatible()
+        && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+    {
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind {
+            feature: "V2 Debouncing".into(),
+            min_version: "1.599.0".into(), // TODO: set proper version
+        })
     } else {
         Ok(())
     }

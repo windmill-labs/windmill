@@ -179,6 +179,17 @@ impl DebouncingSettings {
             ..self
         }
     }
+
+    pub fn is_legacy_compatible(&self) -> bool {
+        if self.max_total_debouncing_time.is_some()
+            || self.max_total_debounces_amount.is_some()
+            || self.debounce_args_to_accumulate.is_some()
+        {
+            false
+        } else {
+            true
+        }
+    }
 }
 
 impl ConcurrencySettings {

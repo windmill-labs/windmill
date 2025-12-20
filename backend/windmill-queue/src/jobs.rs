@@ -46,7 +46,10 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{
+    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+    SCRIPT_TOKEN_EXPIRY,
+};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -117,6 +120,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 
     pub static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
+    pub static ref WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: bool = std::env::var("WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT").is_ok();
 
     static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
         .ok()
@@ -2619,7 +2623,7 @@ impl PulledJobResult {
             .0;
 
         let (kind, j_id, runnable_path) = (j.kind, j.id, j.runnable_path().to_owned());
-        if debounce_delay_s.is_some() {
+        if debounce_delay_s.is_some() && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
             use DebouncingLimitsReport::*;
             let mut tx = db.begin().await?;
 
@@ -2682,7 +2686,9 @@ impl PulledJobResult {
                         limits.debounced_times.unwrap_or_default() as i32,
                     ),
                     (max_total_debouncing_time, max_total_debounces_amount),
-                ) {
+                )
+                .await
+                {
                     reason @ (MaxCountExceeded | TimeExceeded) => {
                         tracing::debug!(job_id = %j_id, "Skip Debouncing. Reason: {:?}", reason);
                         tracing::debug!(job_id = %j_id, "Restoring debounce_key row");
@@ -2701,7 +2707,7 @@ impl PulledJobResult {
                             db,
                             &std::mem::replace(&mut self.job, None).unwrap().job.into(),
                             true,
-                            false,
+                            true,
                             sqlx::types::Json(&to_raw_value(&format!(
                                 "Debounced Late by {}",
                                 r.job_id
@@ -2724,10 +2730,8 @@ impl PulledJobResult {
             }
 
             if kind.is_dependency()
-                && true
-                && *windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
-                    .read()
-                    .await
+                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
                 legacy_accumulate_args(j, db).await?;
             } else if let (Some(pulled_args), Some(arg_name_to_accumulate)) = (
@@ -3303,22 +3307,29 @@ pub enum DebouncingLimitsReport {
     CanDebounce,
 }
 
-pub fn check_debouncing_within_limits(
+pub async fn check_debouncing_within_limits(
     (current_time, current_amount): (DateTime<Utc>, i32),
     (allowed_time, allowed_amount): (Option<i32>, Option<i32>),
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
+
+    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
+
+    // TODO: warning that limits aren't checked because of min version not supporting v2
 
     // TODO: Improve tracing
     tracing::debug!("Checking if debouncing is within limits");
     if allowed_amount
         .map(|allowed_amount| current_amount > allowed_amount)
         .unwrap_or_default()
+        && no_legacy_compat
     {
         MaxCountExceeded
     } else if allowed_time
         .map(|allowed_time| (Utc::now() - current_time).num_seconds() as i32 > allowed_time)
         .unwrap_or_default()
+        && no_legacy_compat
     {
         TimeExceeded
     } else {

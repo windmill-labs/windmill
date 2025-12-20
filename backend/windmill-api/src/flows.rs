@@ -34,7 +34,9 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
+use windmill_common::worker::{
+    to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -46,6 +48,7 @@ use windmill_common::{
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_queue::WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
 use windmill_worker::scoped_dependency_map::ScopedDependencyMap;
 
@@ -1490,6 +1493,20 @@ async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        && !nf
+            .parse_flow_value()?
+            .debouncing_settings
+            .is_legacy_compatible()
+        && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+    {
+        tracing::warn!(
+            "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind {
+            feature: "V2 Debouncing".into(),
+            min_version: "1.599.0".into(), // TODO: set proper version
+        })
     } else {
         Ok(())
     }
