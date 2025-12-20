@@ -3029,6 +3029,7 @@ paths:
             application/json:
               schema: {}
 
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings

@@ -58,13 +58,12 @@ export function buildWorkerDefinition() {
 				)
 			},
 			typescript: () => {
+				// Use our custom TypeScript worker with SQL type inference plugin
 				return new Worker(
-					new URL(
-						'@codingame/monaco-vscode-standalone-typescript-language-features/worker',
-						import.meta.url
-					),
+					new URL('../monaco_workers/sqlTypePlugin.worker.js', import.meta.url),
 					{
-						type: 'module'
+						type: 'module',
+						name: 'typescript-sql-aware'
 					}
 				)
 			},

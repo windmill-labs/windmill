@@ -330,6 +330,21 @@ async fn reset() -> () {
     todo!()
 }
 
+#[derive(Serialize, Debug)]
+pub struct PrepareQueryColumnInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+}
+
+#[derive(Serialize, Debug)]
+pub struct PrepareQueryResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns: Option<Vec<PrepareQueryColumnInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct PgDatabase {
     pub host: String,
@@ -460,7 +475,7 @@ impl PgDatabase {
         let password = parsed_url.password().map(|p| p.to_string());
         let password = match password {
             Some(p) => Some(urlencoding::decode(&p).map_err(to_anyhow)?.to_string()),
-            None => None, 
+            None => None,
         };
         let host = parsed_url
             .host_str()
