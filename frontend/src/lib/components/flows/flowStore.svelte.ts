@@ -3,7 +3,6 @@ import { writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
-
 export type FlowMode = 'push' | 'pull'
 
 export const importFlowStore = writable<Flow | undefined>(undefined)

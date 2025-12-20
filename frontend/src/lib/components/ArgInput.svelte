@@ -266,7 +266,7 @@
 				} else if (inputCat == 'boolean') {
 					nvalue = false
 				} else if (inputCat == 'list') {
-					nvalue = []
+					nvalue = nullable ? null : []
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
@@ -1165,6 +1165,15 @@
 										/>
 									{/if}
 								{/key}
+								{#if !s3StorageConfigured && obj['x-no-s3-storage-workspace-warning']}
+									<Alert
+										type="warning"
+										title={obj['x-no-s3-storage-workspace-warning']}
+										size="xs"
+										titleClass="text-2xs"
+									/>
+								{/if}
+	
 							{:else if disabled}
 								<textarea disabled></textarea>
 							{:else}

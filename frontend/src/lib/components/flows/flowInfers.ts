@@ -4,7 +4,7 @@ import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
 
-export const AI_AGENT_SCHEMA = {
+export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
 	properties: {
 		provider: {
@@ -21,7 +21,7 @@ export const AI_AGENT_SCHEMA = {
 		user_message: {
 			type: 'string',
 			description:
-				'The message to give as input to the AI agent. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
+				'The message to give as input to the AI agent. Optional when messages array is provided. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
 		},
 		system_prompt: {
 			type: 'string',
@@ -33,12 +33,86 @@ export const AI_AGENT_SCHEMA = {
 			default: true,
 			showExpr: "fields.output_type === 'text'"
 		},
-		messages_context_length: {
-			type: 'number',
+		memory: {
+			type: 'object',
 			description:
-				'Maximum number of conversation messages to store and retrieve from memory. If not set or 0, memory is disabled.',
-			'x-no-s3-storage-workspace-warning':
-				'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.',
+				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
+			oneOf: [
+				{
+					type: 'object',
+					title: 'auto',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['auto'],
+							default: 'auto',
+							description: 'Automatically manage conversation history'
+						},
+						context_length: {
+							type: 'number',
+							description:
+								'Number of most recent messages to store and load. Set to 0 to disable memory.',
+							default: 0
+						}
+					},
+					required: ['kind'],
+					'x-no-s3-storage-workspace-warning':
+						'When no S3 storage is configured in your workspace settings, memory will be stored in database, which implies a limit of 100KB per memory entry. If you need to store more messages, you should use S3 storage in your workspace settings.'
+				},
+				{
+					type: 'object',
+					title: 'manual',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['manual'],
+							description:
+								'Manually provide conversation messages, bypassing automatic memory management'
+						},
+						messages: {
+							type: 'array',
+							description: 'Array of conversation messages to use as history',
+							items: {
+								type: 'object',
+								properties: {
+									role: {
+										type: 'string',
+										enum: ['user', 'assistant', 'system']
+									},
+									content: {
+										type: 'string'
+									},
+									tool_calls: {
+										type: 'array',
+										nullable: true,
+										items: {
+											type: 'object',
+											properties: {
+												id: { type: 'string' },
+												type: { type: 'string' },
+												function: {
+													type: 'object',
+													properties: {
+														name: { type: 'string' },
+														arguments: { type: 'string' }
+													}
+												}
+											}
+										}
+									},
+									tool_call_id: {
+										type: 'string',
+										nullable: true,
+										description: 'The ID of the tool call this message is responding to'
+									}
+								},
+								required: ['role']
+							}
+						}
+					},
+					required: ['kind', 'messages']
+				}
+			],
 			showExpr: "fields.output_type === 'text'"
 		},
 		output_schema: {
@@ -52,7 +126,7 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'Array of images to give as input to the AI agent. Requires a configured workspace S3 storage.',
 			items: {
-				type: 'object' as const,
+				type: 'object',
 				resourceType: 's3object'
 			}
 		},
@@ -73,20 +147,52 @@ export const AI_AGENT_SCHEMA = {
 			default: 10
 		}
 	},
-	required: ['provider', 'user_message', 'output_type'],
+	required: ['provider', 'output_type'],
 	type: 'object',
 	order: [
 		'provider',
 		'output_type',
 		'user_message',
 		'system_prompt',
-		'messages_context_length',
+		'streaming',
+		'memory',
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
 	]
+}
+
+function migrateAiAgentInputTransforms(
+	inputTransforms: Record<string, InputTransform>
+): Record<string, InputTransform> {
+	// Check if this has the legacy format
+	if ('messages_context_length' in inputTransforms && !('memory' in inputTransforms)) {
+		const legacyValue = inputTransforms.messages_context_length
+		if (legacyValue) {
+			if (legacyValue?.type === 'static') {
+				inputTransforms.memory = {
+					type: 'static',
+					value: {
+						kind: 'auto',
+						context_length: legacyValue.value ?? 0
+					}
+				}
+			} else if (legacyValue.type === 'javascript') {
+				// For dynamic expressions, wrap in the new format
+				inputTransforms.memory = {
+					type: 'javascript',
+					expr: `{ kind: 'auto', context_length: ${legacyValue.expr} }`
+				}
+			}
+
+			// Remove the legacy field
+			delete inputTransforms.messages_context_length
+		}
+	}
+
+	return inputTransforms
 }
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
@@ -140,7 +246,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			schema: schema ?? emptySchema()
 		}
 	} else if (mod.type === 'aiagent') {
-		let input_transforms = mod.input_transforms ?? {}
+		let input_transforms = migrateAiAgentInputTransforms(mod.input_transforms ?? {})
 		return {
 			input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
 				accu[key] = input_transforms[key] ?? {

@@ -43,10 +43,9 @@
 		try {
 			if (code == '') {
 				value = undefined
-				error = ''
-				return
+			} else {
+				value = JSON.parse(code ?? '')
 			}
-			value = JSON.parse(code ?? '')
 			dispatchIfMounted('changeValue', value)
 			error = ''
 		} catch (e) {

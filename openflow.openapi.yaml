@@ -741,7 +741,7 @@ components:
               $ref: "#/components/schemas/InputTransform"
             streaming:
               $ref: "#/components/schemas/InputTransform"
-            messages_context_length:
+            memory:
               $ref: "#/components/schemas/InputTransform"
             output_schema:
               $ref: "#/components/schemas/InputTransform"
