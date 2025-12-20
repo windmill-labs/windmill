@@ -92,7 +92,7 @@ mail-parser = { workspace = true, features = ["serde_support"], optional = true 
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
-tokio-tar.workspace = true
+astral-tokio-tar.workspace = true
 tokio-postgres.workspace = true
 postgres-native-tls.workspace = true
 hmac.workspace = true
