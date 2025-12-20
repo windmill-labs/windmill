@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use futures::future::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
@@ -21,7 +21,6 @@ use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
 use serde::{ser::SerializeMap, Serialize};
-use serde_json::Value;
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
@@ -466,7 +465,6 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
-        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -521,7 +519,6 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
-        None,
         None,
         None,
         None,
@@ -1395,7 +1392,6 @@ async fn restart_job_if_perpetual_inner(
             None,
             None,
             None,
-            None,
         )
         .await?;
         tx.commit().await?;
@@ -1959,7 +1955,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
-        None,
         None,
         None,
         None,
@@ -2612,121 +2607,61 @@ impl PulledJobResult {
             return Ok(());
         };
 
-        let DebouncingSettings {
-            debounce_key,
-            debounce_delay_s,
-            max_total_debouncing_time,
-            max_total_debounces_amount,
-            debounce_args_to_accumulate,
-        } = RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
-            .await?
-            .0;
+        let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
+            RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
+                .await?
+                .0;
 
-        let (kind, j_id, runnable_path) = (j.kind, j.id, j.runnable_path().to_owned());
+        // TODO: test nodes_to_relock. And especially overlaying ones.
+        let (kind, j_id) = (j.kind, j.id);
         if debounce_delay_s.is_some() && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
-            use DebouncingLimitsReport::*;
-            let mut tx = db.begin().await?;
-
-            let hm = HashMap::new();
-            let resolved_key = resolve_debounce_key(
-                debounce_key,
-                &Some(runnable_path.clone()),
-                &j.workspace_id,
-                kind,
-                &PushArgs { extra: None, args: &hm },
-                // &j.args.as_ref().unwrap_or_default(),
-            );
-
             let r = sqlx::query!(
-                "DELETE
-                FROM debounce_key WHERE key = $1
-                RETURNING job_id, (SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $2) as debounce_batch",
-                &resolved_key,
+                "
+                WITH deleted_key AS (
+                    DELETE FROM debounce_key WHERE job_id = $1 RETURNING key
+                ) SELECT
+                    debounce_batch,
+                    (SELECT key FROM deleted_key) AS debounce_key,
+                    (status = 'skipped') AS needs_debounce
+                FROM v2_job_debounce_batch jb
+                    LEFT JOIN v2_job_completed j ON j.id = jb.id
+                WHERE jb.id = $1
+                ",
                 j_id,
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(db)
             .await?;
 
             // debounce_key isn't owned by this job, so this either means:
             // 1. it wasn't debounced because of exceeding limits
             // 2. or job being pulled while someone tried to debounce it.
-            if r.job_id != j_id {
+            if let Some(resolved_key) = r.debounce_key {
+                tracing::debug!(
+                    job_id = %j_id,
+                    debounce_key = %resolved_key,
+                    "Successfully deleted debounce_key"
+                );
+            } else {
                 // Relatively rare, so we can afford extra db call.
                 tracing::debug!(
-                    "job id that is associated with debounce_key is misaligned with pulled job id"
+                    job_id = %j_id,
+                    "Debounce key wasn't deleted"
                 );
 
-                // We can't take the data from debounce_key
-                // (new job is using it for it's own needs)
-                // instead we recreate that data
-                //
-                // So:
-                // debounced_times - amount of rows for same debounce batch
-                // first_started_at - oldest created_at in jobs in same debounce batch
-                let limits = sqlx::query!(
-                    "
-                        SELECT
-                        (SELECT COUNT(*) FROM v2_job_debounce_batch WHERE debounce_batch = $1) as debounced_times,
-                        (SELECT created_at
-                            FROM v2_job_debounce_batch db
-                            LEFT JOIN v2_job j ON db.id = j.id
-                            WHERE debounce_batch = $1 ORDER BY created_at ASC LIMIT 1
-                        ) as first_started_at
-                    ",
-                    r.debounce_batch
-                )
-                .fetch_one(&mut *tx)
-                .await?;
-
-                // TODO: trace limits
-
-                match check_debouncing_within_limits(
-                    (
-                        limits.first_started_at.unwrap_or(Utc::now()),
-                        limits.debounced_times.unwrap_or_default() as i32,
-                    ),
-                    (max_total_debouncing_time, max_total_debounces_amount),
-                )
-                .await
-                {
-                    reason @ (MaxCountExceeded | TimeExceeded) => {
-                        tracing::debug!(job_id = %j_id, "Skip Debouncing. Reason: {:?}", reason);
-                        tracing::debug!(job_id = %j_id, "Restoring debounce_key row");
-
-                        // It is pro
-                        // TODO: more tracing
-                        tx.rollback().await?;
-                    }
-                    CanDebounce => {
-                        // TODO: late debounce
-                        tx.commit().await?;
-
-                        tracing::debug!(job_id = %j_id, "Late Debouncing itself");
-
-                        Box::pin(add_completed_job(
-                            db,
-                            &std::mem::replace(&mut self.job, None).unwrap().job.into(),
-                            true,
-                            true,
-                            sqlx::types::Json(&to_raw_value(&format!(
-                                "Debounced Late by {}",
-                                r.job_id
-                            ))),
-                            None,
-                            0,
-                            None,
-                            true, /* TODO: Tripple check */
-                            None,
-                            false,
-                            false,
-                        ))
-                        .await?;
-
-                        return Ok(());
-                    }
+                if r.needs_debounce.unwrap_or_default() {
+                    tracing::info!(
+                        job_id = %j_id,
+                        "Late debounce: job was already debounced by another job, skipping execution"
+                    );
+                    self.job = None;
+                    return Ok(());
+                } else {
+                    // Limits exceeded, execute job
+                    tracing::info!(
+                        job_id = %j_id,
+                        "Debouncing limits exceeded: proceeding with job execution"
+                    );
                 }
-            } else {
-                tx.commit().await?;
             }
 
             if kind.is_dependency()
@@ -3310,71 +3245,75 @@ pub enum DebouncingLimitsReport {
 pub async fn check_debouncing_within_limits(
     (current_time, current_amount): (DateTime<Utc>, i32),
     (allowed_time, allowed_amount): (Option<i32>, Option<i32>),
+    job_id: &Uuid,
+    runnable_path: &Option<String>,
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
 
     let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
-    // TODO: warning that limits aren't checked because of min version not supporting v2
+    if !no_legacy_compat {
+        tracing::warn!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            allowed_time = ?allowed_time,
+            allowed_amount = ?allowed_amount,
+            "Debouncing limits not enforced: workers are behind minimum version for v2 debouncing (require >= 1.599.0)"
+        );
+    }
 
-    // TODO: Improve tracing
-    tracing::debug!("Checking if debouncing is within limits");
+    let elapsed_seconds = (Utc::now() - current_time).num_seconds() as i32;
+
+    tracing::debug!(
+        job_id = %job_id,
+        runnable_path = ?runnable_path,
+        current_amount = current_amount,
+        allowed_amount = ?allowed_amount,
+        elapsed_seconds = elapsed_seconds,
+        allowed_time = ?allowed_time,
+        first_started_at = %current_time,
+        no_legacy_compat = no_legacy_compat,
+        "Checking debouncing limits"
+    );
+
     if allowed_amount
         .map(|allowed_amount| current_amount > allowed_amount)
         .unwrap_or_default()
         && no_legacy_compat
     {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            allowed_amount = allowed_amount,
+            "Debouncing limit exceeded: max debounce count reached"
+        );
         MaxCountExceeded
     } else if allowed_time
-        .map(|allowed_time| (Utc::now() - current_time).num_seconds() as i32 > allowed_time)
+        .map(|allowed_time| elapsed_seconds > allowed_time)
         .unwrap_or_default()
         && no_legacy_compat
     {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            elapsed_seconds = elapsed_seconds,
+            allowed_time = allowed_time,
+            first_started_at = %current_time,
+            "Debouncing limit exceeded: max debounce time window reached"
+        );
         TimeExceeded
     } else {
+        tracing::debug!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            elapsed_seconds = elapsed_seconds,
+            "Debouncing within limits: can continue debouncing"
+        );
         CanDebounce
     }
-}
-
-/// Helper function to extract nodes/components to relock from job arguments
-/// Returns the list of nodes to relock if present in either nodes_to_relock (flows) or components_to_relock (apps)
-fn extract_to_relock_from_args(args: &HashMap<String, Box<RawValue>>) -> Option<Vec<String>> {
-    args.get("nodes_to_relock") // For flows
-        .or(args.get("components_to_relock")) // For apps
-        .and_then(|rv| {
-            serde_json::from_str::<Vec<String>>(&rv.to_string())
-                .map_err(|e| tracing::warn!("Failed to deserialize relock data: {}", e))
-                .ok()
-        })
-}
-
-/// Helper function to accumulate nodes/components to relock for a debounced job
-/// This merges new items with existing ones, removing duplicates
-async fn accumulate_debounce_stale_data(
-    tx: &mut Transaction<'_, Postgres>,
-    job_id: &Uuid,
-    to_relock: &[String],
-) -> Result<(), Error> {
-    sqlx::query!(
-        "
-        INSERT INTO debounce_stale_data (job_id, to_relock)
-            VALUES ($1, $2)
-            ON CONFLICT (job_id)
-                DO UPDATE SET to_relock = (
-                    SELECT array_agg(DISTINCT x)
-                    FROM unnest(
-                        -- Combine existing array with new values, removing duplicates
-                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)
-                    ) AS x
-                )
-        ",
-        job_id,
-        to_relock
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -4109,9 +4048,6 @@ pub async fn push<'c, 'd>(
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
     end_user_email: Option<String>,
-    // If we know there is already a debounce job, we can use this for debouncing.
-    // NOTE: Only works with dependency jobs triggered by relative imports
-    debounce_job_id_o: Option<Uuid>,
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {

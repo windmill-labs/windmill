@@ -570,7 +570,6 @@ async fn create_flow(
         None,
         None,
         None,
-        None,
     )
     .await?;
 
@@ -972,14 +971,6 @@ async fn update_flow(
         .await?;
     }
 
-    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
-    tokio::time::timeout(
-        core::time::Duration::from_secs(60),
-        windmill_common::jobs::lock_debounce_key(&w_id, &nf.path, &mut tx),
-    )
-    .warn_after_seconds(10)
-    .await??;
-
     // tracing::error!("Updating flow: {:?}", nf.value.get());
 
     // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
@@ -1114,7 +1105,6 @@ async fn update_flow(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
         None,
         None,
         None,

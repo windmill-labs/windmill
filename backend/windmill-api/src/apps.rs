@@ -1251,7 +1251,6 @@ async fn create_app_internal<'a>(
         None,
         None,
         None,
-        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1535,14 +1534,6 @@ async fn update_app_internal<'a>(
         path.to_owned()
     };
     let v_id = if let Some(nvalue) = &ns.value {
-        // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
-        tokio::time::timeout(
-            core::time::Duration::from_secs(60),
-            windmill_common::jobs::lock_debounce_key(&w_id, &npath, &mut tx),
-        )
-        .warn_after_seconds(10)
-        .await??;
-
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             npath,
@@ -1643,7 +1634,6 @@ async fn update_app_internal<'a>(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
         None,
         None,
         None,
@@ -1977,7 +1967,6 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        None,
         None,
         None,
     )

@@ -498,26 +498,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         args.insert(
             "triggered_by_relative_import".to_string(),
-            to_raw_value(&()),
-        );
-
-        // Lock the debounce_key entry FOR UPDATE to coordinate with the push side.
-        // This prevents concurrent modifications during dependency job scheduling.
-        //
-        // The lock serves two purposes:
-        // 1. Ensures we get the current debounce_job_id atomically
-        // 2. Blocks new push requests from modifying this key until we commit
-        // 3. Blocks puller from actually starting the job and gives us a chance to still squeeze the debounce in.
-        //
-        // After our transaction commits, any pending push/pull requests can proceed with
-        // their debounce logic.
-        let debounce_job_id_o =
-            windmill_common::jobs::lock_debounce_key(w_id, &importer_path, &mut tx).await?;
-
-        tracing::debug!(
-            debounce_job_id = ?debounce_job_id_o,
-            importer_path = %importer_path,
-            "Retrieved debounce job ID (if exists)"
+            to_raw_value(&true),
         );
 
         let mut debouncing_settings = DebouncingSettings {
@@ -671,7 +652,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
             false,
             None,
-            debounce_job_id_o,
             None,
             None,
         )
