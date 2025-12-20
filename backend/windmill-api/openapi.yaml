@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.595.0
+  version: 1.596.0
   title: Windmill API
 
   contact:
@@ -3028,6 +3028,7 @@ paths:
           content:
             application/json:
               schema: {}
+
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:

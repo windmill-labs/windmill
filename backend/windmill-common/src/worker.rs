@@ -34,7 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::GIT_SEM_VERSION,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -707,6 +707,7 @@ pub struct TypeScriptAnnotations {
 pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]
@@ -852,7 +853,7 @@ impl SqlResultCollectionStrategy {
                 }
             }
             (true, false) => match values.into_iter().last() {
-                Some(rows) => Ok(to_raw_value(&rows)),
+                Some(rows) => Ok(merge_raw_values_to_array(rows.as_slice())),
                 None => Ok(null()),
             },
             (false, true) => {
@@ -860,9 +861,11 @@ impl SqlResultCollectionStrategy {
                     .into_iter()
                     .map(|rows| rows.into_iter().next().unwrap_or_else(null))
                     .collect::<Vec<_>>();
-                Ok(to_raw_value(&values))
+                Ok(merge_raw_values_to_array(values.as_slice()))
             }
-            (false, false) => Ok(to_raw_value(&values)),
+            (false, false) => Ok(merge_nested_raw_values_to_array(
+                values.iter().map(|x| x.iter()),
+            )),
         }
     }
 }
