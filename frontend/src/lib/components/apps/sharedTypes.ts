@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
+import type { AssetWithAltAccessType } from '../assets/lib'
 
 export type InlineScript = {
 	content: string
@@ -11,4 +12,5 @@ export type InlineScript = {
 	refreshOn?: { id: string; key: string }[]
 	suggestedRefreshOn?: { id: string; key: string }[]
 	id?: number
+	assets?: AssetWithAltAccessType[]
 }

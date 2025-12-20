@@ -10,11 +10,11 @@ use sqlparser::{
 };
 use windmill_parser::asset_parser::{
     asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsResult,
+    ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
+pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     let statements = Parser::parse_sql(&DuckDbDialect, input)?;
 
     let mut collector = AssetCollector::new();
@@ -30,7 +30,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
         }
     }
 
-    Ok(merge_assets(collector.assets))
+    Ok(ParseAssetsOutput { assets: merge_assets(collector.assets), ..Default::default() })
 }
 
 /// Visitor that collects S3 asset literals from SQL statements
@@ -402,7 +402,7 @@ mod tests {
             SELECT * FROM read_parquet('s3:///a.parquet');
             COPY (SELECT * FROM 's3://snd/b.parquet') TO 's3:///c.parquet';
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![
@@ -432,7 +432,7 @@ mod tests {
             SELECT 2;
             USE dl;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -449,7 +449,7 @@ mod tests {
             ATTACH 'ducklake://my_dl' AS dl;
             SELECT * FROM dl.table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -467,7 +467,7 @@ mod tests {
             SELECT dt.read_bait FROM unrelated_table; -- dt. doesn't access the asset
             INSERT INTO dt.table1 VALUES ('test');
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -485,7 +485,7 @@ mod tests {
             DETACH dl;
             SELECT * FROM dl.table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
     }
 
@@ -498,7 +498,7 @@ mod tests {
             USE memory;
             SELECT * FROM table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -515,7 +515,7 @@ mod tests {
             ATTACH 'datatable' AS dl;
             INSERT INTO dl.table1 VALUES ('test');
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -537,7 +537,7 @@ mod tests {
             INSERT INTO friends VALUES ($name, $age);
             SELECT * FROM friends;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -555,7 +555,7 @@ mod tests {
             ATTACH 'ducklake' AS dl; USE dl;
             SELECT * FROM a_function('');
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -573,7 +573,7 @@ mod tests {
             USE dl;
             DELETE FROM table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -591,7 +591,7 @@ mod tests {
             USE dl;
             UPDATE table1 SET id = NULL;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -609,7 +609,7 @@ mod tests {
             USE db;
             SELECT * FROM table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -626,7 +626,7 @@ mod tests {
             ATTACH 'ducklake' AS dl;
             UPDATE dl.table1 SET id = NULL;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -644,7 +644,7 @@ mod tests {
             UPDATE dl.sch.table1 SET id = NULL;
             SELECT * FROM dl.sch.table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
@@ -663,7 +663,7 @@ mod tests {
             UPDATE sch.table1 SET id = NULL;
             SELECT * FROM sch.table1;
         "#;
-        let s = parse_assets(input);
+        let s = parse_assets(input).map(|s| s.assets);
         assert_eq!(
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {

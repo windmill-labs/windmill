@@ -1,6 +1,5 @@
 <!--
-	Useful to listen to changes on a list without recomputing the whole list
-	when a single item changes
+	DEPRECATED: Use nested $effect or watch() from 'runed' instead.
 -->
 
 <script lang="ts" generics="T">

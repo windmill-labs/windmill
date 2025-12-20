@@ -1561,7 +1561,7 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
  */
-datatable(name: string = "main"): SqlTemplateFunction
+datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -2621,4 +2621,3 @@ workspace related commands
   - \`-y --yes\` - Skip confirmation prompt
 
 `;
-

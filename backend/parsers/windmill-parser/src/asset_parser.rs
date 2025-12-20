@@ -27,6 +27,22 @@ pub struct ParseAssetsResult {
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
 }
 
+#[derive(Serialize, Debug, PartialEq)]
+pub struct SqlQueryDetails {
+    pub query_string: String, // SQL query with $1 placeholders for interpolations
+    pub span: (u32, u32),     // (start, end) byte positions in source code
+    pub source_kind: AssetKind, // DataTable or Ducklake
+    pub source_name: String,  // e.g., "main", "dt"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_schema: Option<String>, // e.g., Some("public"), None
+}
+
+#[derive(Serialize, Debug, Default)]
+pub struct ParseAssetsOutput {
+    pub assets: Vec<ParseAssetsResult>,
+    pub sql_queries: Vec<SqlQueryDetails>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DelegateToGitRepoDetails {
     pub resource: String,

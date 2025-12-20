@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
-use swc_common::{sync::Lrc, FileName, SourceMap};
+use swc_common::{sync::Lrc, FileName, SourceMap, Spanned};
 use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
     asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsResult,
+    ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
+pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
@@ -35,9 +35,13 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult>> {
             anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
         })?
         .body;
-    let mut assets_finder = AssetsFinder { assets: vec![], var_identifiers: HashMap::new() };
+    let mut assets_finder =
+        AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
-    Ok(merge_assets(assets_finder.assets))
+    Ok(ParseAssetsOutput {
+        assets: merge_assets(assets_finder.assets),
+        sql_queries: assets_finder.sql_queries,
+    })
 }
 
 type VarAssetName = String;
@@ -52,6 +56,8 @@ struct AssetsFinder {
     // so that when we see a tagged template expression with tag "sql" we know which datatable it
     // corresponds to. This allows us to infer if a datatable is Read or Write based on the SQL query.
     var_identifiers: HashMap<String, (AssetKind, VarAssetName, VarAssetSchema)>,
+
+    sql_queries: Vec<SqlQueryDetails>,
 }
 
 /// Helper function to extract wmill.datatable() or wmill.ducklake() calls,
@@ -220,26 +226,47 @@ impl Visit for AssetsFinder {
         };
 
         // Extract the SQL query from the template quasis (string parts)
+        // Substitute ${} with $1, $2, etc.
         let sql: String = node
             .tpl
             .quasis
             .iter()
             .map(|quasi| quasi.raw.as_str())
-            .collect::<Vec<_>>()
-            .join("$1"); // placeholder for expressions
+            .enumerate()
+            .fold(String::new(), |acc, (i, s)| {
+                if i == 0 {
+                    s.to_string()
+                } else {
+                    format!("{}${}{}", acc, i, s)
+                }
+            });
 
         let duckdb_conn_prefix = match kind {
             AssetKind::DataTable => "datatable",
             AssetKind::Ducklake => "ducklake",
             _ => return,
         };
-        let sql = format!("ATTACH '{duckdb_conn_prefix}://{asset_name}' AS dt; USE dt; {sql}");
+
+        // Capture SQL query details before transforming for SQL parser
+        let span = node.span();
+        let span_tuple = (span.lo.0, span.hi.0);
+
+        self.sql_queries.push(SqlQueryDetails {
+            query_string: sql.clone(),
+            span: span_tuple,
+            source_kind: *kind,
+            source_name: asset_name.clone(),
+            source_schema: schema.clone(),
+        });
+
+        let sql_with_attach =
+            format!("ATTACH '{duckdb_conn_prefix}://{asset_name}' AS dt; USE dt; {sql}");
 
         // We use the SQL parser to detect if it's a read or write query
-        match windmill_parser_sql::parse_assets(&sql) {
+        match windmill_parser_sql::parse_assets(&sql_with_attach) {
             Ok(mut sql_assets) => {
                 if let Some(schema) = schema {
-                    for asset in &mut sql_assets {
+                    for asset in &mut sql_assets.assets {
                         if asset.kind == *kind && asset.path.starts_with(asset_name) {
                             asset.path = format!(
                                 "{}/{}.{}",
@@ -250,7 +277,7 @@ impl Visit for AssetsFinder {
                         }
                     }
                 }
-                self.assets.extend(sql_assets);
+                self.assets.extend(sql_assets.assets);
             }
             _ => {}
         }
@@ -307,7 +334,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
                 path: "/test.csv".to_string(),
@@ -326,7 +353,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
@@ -346,7 +373,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/friends".to_string(),
@@ -368,7 +395,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
@@ -403,7 +430,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
@@ -437,7 +464,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
@@ -464,7 +491,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main/myschema.friends".to_string(),
@@ -485,7 +512,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/public.users".to_string(),
@@ -504,7 +531,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
@@ -525,7 +552,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/users".to_string(),
@@ -547,7 +574,7 @@ mod tests {
         "#;
         let s = parse_assets(input);
         assert_eq!(
-            s.map_err(|e| e.to_string()),
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
@@ -561,5 +588,96 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_query_details() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // Check assets
+        assert_eq!(result.assets.len(), 1);
+        assert_eq!(result.assets[0].kind, AssetKind::DataTable);
+        assert_eq!(result.assets[0].path, "dt/friends");
+
+        // Check SQL query details
+        assert_eq!(result.sql_queries.len(), 1);
+        let query_detail = &result.sql_queries[0];
+        assert_eq!(
+            query_detail.query_string,
+            "SELECT * FROM friends WHERE age = $1"
+        );
+        assert_eq!(query_detail.source_kind, AssetKind::DataTable);
+        assert_eq!(query_detail.source_name, "dt");
+        assert_eq!(query_detail.source_schema, None);
+        // Span should be non-zero
+        assert!(query_detail.span.0 > 0);
+        assert!(query_detail.span.1 > query_detail.span.0);
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_query_details_with_schema() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt:public')
+                await sql`INSERT INTO users VALUES (${x})`.fetch()
+                return await sql`SELECT * FROM users`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // Check SQL query details
+        assert_eq!(result.sql_queries.len(), 2);
+
+        // First query (INSERT)
+        assert_eq!(
+            result.sql_queries[0].query_string,
+            "INSERT INTO users VALUES ($1)"
+        );
+        assert_eq!(result.sql_queries[0].source_kind, AssetKind::DataTable);
+        assert_eq!(result.sql_queries[0].source_name, "dt");
+        assert_eq!(
+            result.sql_queries[0].source_schema,
+            Some("public".to_string())
+        );
+
+        // Second query (SELECT)
+        assert_eq!(result.sql_queries[1].query_string, "SELECT * FROM users");
+        assert_eq!(result.sql_queries[1].source_kind, AssetKind::DataTable);
+        assert_eq!(result.sql_queries[1].source_name, "dt");
+        assert_eq!(
+            result.sql_queries[1].source_schema,
+            Some("public".to_string())
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_query_details_ducklake() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                let sql = wmill.ducklake('my_lake')
+                return await sql`SELECT id, name FROM products LIMIT 10`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // Check SQL query details
+        assert_eq!(result.sql_queries.len(), 1);
+        let query_detail = &result.sql_queries[0];
+        assert_eq!(
+            query_detail.query_string,
+            "SELECT id, name FROM products LIMIT 10"
+        );
+        assert_eq!(query_detail.source_kind, AssetKind::Ducklake);
+        assert_eq!(query_detail.source_name, "my_lake");
+        assert_eq!(query_detail.source_schema, None);
     }
 }

@@ -19,7 +19,12 @@ export {
   type S3ObjectRecord,
   type S3ObjectURI,
 } from "./s3Types";
-export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
+export {
+  datatable,
+  ducklake,
+  type SqlTemplateFunction,
+  type DatatableSqlTemplateFunction,
+} from "./sqlUtils";
 export type Sql = string;
 export type Email = string;
 export type Base64 = string;

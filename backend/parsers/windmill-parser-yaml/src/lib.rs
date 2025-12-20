@@ -958,7 +958,7 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 "#;
-        let a = parse_assets(p).unwrap();
+        let a = parse_assets(p).unwrap().assets;
         println!("The resulting assets are: {}", a.len());
 
         let a = parse_ansible_reqs(p).unwrap();
