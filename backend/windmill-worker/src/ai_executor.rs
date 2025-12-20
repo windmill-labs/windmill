@@ -398,7 +398,7 @@ pub async fn run_agent(
     let mut flow_context = get_flow_context(db, job).await;
 
     // Determine if we're using manual messages (which bypasses memory)
-    let use_manual_messages = matches!(args.history, Some(History::Manual { .. }));
+    let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));
 
     // Check if user_message is provided and non-empty
     let has_user_message = args
@@ -407,23 +407,23 @@ pub async fn run_agent(
         .map(|m| !m.is_empty())
         .unwrap_or(false);
 
-    // Validate: at least one of history with manual messages or user_message must be provided
+    // Validate: at least one of memory with manual messages or user_message must be provided
     if !use_manual_messages && !has_user_message {
         return Err(Error::internal_err(
-            "Either 'history' with manual messages or 'user_message' must be provided".to_string(),
+            "Either 'memory' with manual messages or 'user_message' must be provided".to_string(),
         ));
     }
 
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
-        match &args.history {
-            Some(History::Manual { messages: manual_messages }) => {
+        match &args.memory {
+            Some(Memory::Manual { messages: manual_messages }) => {
                 // Use explicitly provided messages (bypass memory)
                 if !manual_messages.is_empty() {
                     messages.extend(manual_messages.clone());
                 }
             }
-            Some(History::Auto { context_length }) if *context_length > 0 => {
+            Some(Memory::Auto { context_length }) if *context_length > 0 => {
                 // Auto mode: load from memory
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     if let Some(memory_id) = flow_context
@@ -929,7 +929,7 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(History::Auto { context_length }) = &args.history {
+        if let Some(Memory::Auto { context_length }) = &args.memory {
             if *context_length > 0 {
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     // Extract OpenAIMessages from final_messages

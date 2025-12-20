@@ -464,7 +464,7 @@
 							(accu, key) => {
 								if (key === 'user_message') {
 									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-								} else if (key === 'history') {
+								} else if (key === 'memory') {
 									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
 								} else {
 									accu[key] = {
@@ -495,7 +495,7 @@
 			}
 
 			// Set messages_context_length to 10
-			value.input_transforms['history'] = {
+			value.input_transforms['memory'] = {
 				type: 'static',
 				value: { kind: 'auto', context_length: 10 }
 			}

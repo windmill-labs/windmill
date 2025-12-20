@@ -33,10 +33,10 @@ export const AI_AGENT_SCHEMA: Schema = {
 			default: true,
 			showExpr: "fields.output_type === 'text'"
 		},
-		history: {
+		memory: {
 			type: 'object',
 			description:
-				'Configure how conversation history is managed. Choose "auto" to automatically store and load messages from memory (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
+				'Configure how conversation memory is managed. Choose "auto" to let Windmill automatically store and load messages (up to N last messages), or "manual" to provide an explicit array of conversation messages. The system_prompt and user_message are added to the messages if provided.',
 			oneOf: [
 				{
 					type: 'object',
@@ -46,12 +46,12 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'string',
 							enum: ['auto'],
 							default: 'auto',
-							description: 'Automatically manage conversation history using memory'
+							description: 'Automatically manage conversation history'
 						},
 						context_length: {
 							type: 'number',
 							description:
-								'Number of most recent messages to store and load from memory. Set to 0 to disable memory.',
+								'Number of most recent messages to store and load. Set to 0 to disable memory.',
 							default: 0
 						}
 					},
@@ -155,7 +155,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'user_message',
 		'system_prompt',
 		'streaming',
-		'history',
+		'memory',
 		'output_schema',
 		'user_images',
 		'max_completion_tokens',
@@ -168,11 +168,11 @@ function migrateAiAgentInputTransforms(
 	inputTransforms: Record<string, InputTransform>
 ): Record<string, InputTransform> {
 	// Check if this has the legacy format
-	if ('messages_context_length' in inputTransforms && !('history' in inputTransforms)) {
+	if ('messages_context_length' in inputTransforms && !('memory' in inputTransforms)) {
 		const legacyValue = inputTransforms.messages_context_length
 		if (legacyValue) {
 			if (legacyValue?.type === 'static') {
-				inputTransforms.history = {
+				inputTransforms.memory = {
 					type: 'static',
 					value: {
 						kind: 'auto',
@@ -181,7 +181,7 @@ function migrateAiAgentInputTransforms(
 				}
 			} else if (legacyValue.type === 'javascript') {
 				// For dynamic expressions, wrap in the new format
-				inputTransforms.history = {
+				inputTransforms.memory = {
 					type: 'javascript',
 					expr: `{ kind: 'auto', context_length: ${legacyValue.expr} }`
 				}

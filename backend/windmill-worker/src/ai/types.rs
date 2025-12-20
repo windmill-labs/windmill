@@ -108,7 +108,7 @@ impl Default for OutputType {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum History {
+pub enum Memory {
     Auto {
         #[serde(default)]
         context_length: usize,
@@ -130,7 +130,7 @@ struct AIAgentArgsRaw {
     user_images: Option<Vec<S3Object>>,
     streaming: Option<bool>,
     max_iterations: Option<usize>,
-    history: Option<History>,
+    memory: Option<Memory>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
 }
@@ -148,15 +148,15 @@ pub struct AIAgentArgs {
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
-    pub history: Option<History>,
+    pub memory: Option<Memory>,
 }
 
 impl From<AIAgentArgsRaw> for AIAgentArgs {
     fn from(raw: AIAgentArgsRaw) -> Self {
         // Backward compatibility: if messages_context_length is set, use auto mode
-        let history = raw.history.or_else(|| {
+        let memory = raw.memory.or_else(|| {
             raw.messages_context_length
-                .map(|context_length| History::Auto { context_length })
+                .map(|context_length| Memory::Auto { context_length })
         });
 
         AIAgentArgs {
@@ -170,7 +170,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             user_images: raw.user_images,
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
-            history,
+            memory,
         }
     }
 }
