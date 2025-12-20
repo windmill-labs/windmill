@@ -663,7 +663,7 @@ dependencies = [
  "bytes",
  "http 1.4.0",
  "rand 0.8.5",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde-aux",
  "serde_json",
@@ -5384,9 +5384,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flatbuffers"
-version = "25.9.23"
+version = "25.12.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09b6620799e7340ebd9968d2e0708eb82cf1971e9a16821e2091b6d6e475eed5"
+checksum = "35f6839d7b3b98adde531effaf34f0c2badc6f4735d26fe74709d8e513a96ef3"
 dependencies = [
  "bitflags 2.9.4",
  "rustc_version 0.4.1",
@@ -6100,7 +6100,7 @@ dependencies = [
  "google-cloud-token",
  "home",
  "jsonwebtoken 9.3.1",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6143,7 +6143,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d901aeb453fd80e51d64df4ee005014f6cf39f2d736dd64f7239c132d9d39a6a"
 dependencies = [
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -6458,7 +6458,7 @@ dependencies = [
  "native-tls",
  "num_cpus",
  "rand 0.9.0",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -8639,9 +8639,9 @@ dependencies = [
 
 [[package]]
 name = "ntapi"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
+checksum = "c70f219e21142367c70c0b30c6a9e3a14d55b4d12a204d897fbec83a0363f081"
 dependencies = [
  "winapi",
 ]
@@ -8953,7 +8953,7 @@ dependencies = [
  "getrandom 0.2.16",
  "http 1.4.0",
  "rand 0.8.5",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -9011,7 +9011,7 @@ dependencies = [
  "percent-encoding",
  "quick-xml 0.37.5",
  "rand 0.9.0",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "ring 0.17.14",
  "rustls-pemfile 2.2.0",
  "serde",
@@ -9444,7 +9444,7 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
  "smallvec",
  "windows-link 0.2.1",
 ]
@@ -10722,10 +10722,11 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.25"
+version = "0.12.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6eff9328d40131d43bd911d42d79eb6a47312002a4daefc9e37f17e74a7701a"
+checksum = "9d0946410b9f7b082a427e4ef5c8ff541a88b357bc6c637c40db3a68ac70a36f"
 dependencies = [
+ "async-compression",
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
@@ -10778,7 +10779,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "http 1.4.0",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "thiserror 1.0.69",
  "tower-service",
@@ -10796,7 +10797,7 @@ dependencies = [
  "getrandom 0.2.16",
  "http 1.4.0",
  "hyper 1.8.1",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "reqwest-middleware",
  "retry-policies",
  "thiserror 2.0.17",
@@ -10913,7 +10914,7 @@ dependencies = [
  "paste",
  "pin-project-lite",
  "rand 0.9.0",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "rmcp-macros",
  "schemars 1.1.0",
  "serde",
@@ -14147,7 +14148,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba3beec919fbdf99d719de8eda6adae3281f8a5b71ae40431f44dc7423053d34"
 dependencies = [
  "loki-api",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "snap",
@@ -15192,7 +15193,7 @@ dependencies = [
  "prometheus",
  "quote",
  "rand 0.9.0",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "rustls 0.23.35",
  "serde",
  "serde_derive",
@@ -15297,7 +15298,7 @@ dependencies = [
  "rand 0.9.0",
  "rdkafka",
  "regex",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "rmcp",
  "rsa",
  "rumqttc",
@@ -15453,7 +15454,7 @@ dependencies = [
  "quick_cache",
  "rand 0.9.0",
  "regex",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "reqwest-middleware",
  "reqwest-retry",
  "rmcp",
@@ -15772,7 +15773,7 @@ dependencies = [
  "prometheus",
  "quick_cache",
  "regex",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -15861,7 +15862,7 @@ dependencies = [
  "prometheus",
  "rand 0.9.0",
  "regex",
- "reqwest 0.12.25",
+ "reqwest 0.12.24",
  "reqwest-middleware",
  "rmcp",
  "rust_decimal",
