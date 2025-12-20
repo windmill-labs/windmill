@@ -21,6 +21,7 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
@@ -519,6 +520,12 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             "Retrieved debounce job ID (if exists)"
         );
 
+        let mut debouncing_settings = DebouncingSettings {
+            debounce_key: Some(format!("{w_id}:{importer_path}:dependency")),
+            debounce_delay_s: Some(5),
+            ..Default::default()
+        };
+
         let job_payload = match importer_kind.as_str() {
             // TODO: Make it query only non-archived
             // Scripts
@@ -541,6 +548,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         hash: ScriptHash(hash),
                         language: info.language,
                         dedicated_worker: info.dedicated_worker,
+                        debouncing_settings,
                     }
                 }
                 None => {
@@ -575,10 +583,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&importer_node_ids),
                     );
 
+                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["nodes_to_relock".into()]);
+
                     JobPayload::FlowDependencies {
                         path: importer_path.clone(),
                         version,
                         dedicated_worker: None,
+                        debouncing_settings,
                     }
                 }
                 None => {
@@ -608,7 +619,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(importer_node_ids),
                     );
 
-                    JobPayload::AppDependencies { path: importer_path.clone(), version }
+                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["components_to_relock".into()]);
+
+                    JobPayload::AppDependencies { path: importer_path.clone(), version, debouncing_settings }
                 }
                 None => {
                     ScopedDependencyMap::clear_map_for_item(importer_path, w_id, "app", tx, &None)

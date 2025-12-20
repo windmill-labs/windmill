@@ -116,14 +116,13 @@ lazy_static::lazy_static! {
         .connect_timeout(std::time::Duration::from_secs(10)))
         .build().unwrap();
 
+    pub static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
 
     static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-    // TODO: Remove
-    static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -2635,8 +2634,11 @@ impl PulledJobResult {
             );
 
             let r = sqlx::query!(
-                "DELETE FROM debounce_key WHERE key = $1 RETURNING job_id, debounced_times, first_started_at",
-                &resolved_key
+                "DELETE
+                FROM debounce_key WHERE key = $1
+                RETURNING job_id, (SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $2) as debounce_batch",
+                &resolved_key,
+                j_id,
             )
             .fetch_one(&mut *tx)
             .await?;
@@ -2645,11 +2647,40 @@ impl PulledJobResult {
             // 1. it wasn't debounced because of exceeding limits
             // 2. or job being pulled while someone tried to debounce it.
             if r.job_id != j_id {
+                // Relatively rare, so we can afford extra db call.
                 tracing::debug!(
                     "job id that is associated with debounce_key is misaligned with pulled job id"
                 );
+
+                // We can't take the data from debounce_key
+                // (new job is using it for it's own needs)
+                // instead we recreate that data
+                //
+                // So:
+                // debounced_times - amount of rows for same debounce batch
+                // first_started_at - oldest created_at in jobs in same debounce batch
+                let limits = sqlx::query!(
+                    "
+                        SELECT
+                        (SELECT COUNT(*) FROM v2_job_debounce_batch WHERE debounce_batch = $1) as debounced_times,
+                        (SELECT created_at
+                            FROM v2_job_debounce_batch db
+                            LEFT JOIN v2_job j ON db.id = j.id
+                            WHERE debounce_batch = $1 ORDER BY created_at ASC LIMIT 1
+                        ) as first_started_at
+                    ",
+                    r.debounce_batch
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+
+                // TODO: trace limits
+
                 match check_debouncing_within_limits(
-                    (r.first_started_at, r.debounced_times),
+                    (
+                        limits.first_started_at.unwrap_or(Utc::now()),
+                        limits.debounced_times.unwrap_or_default() as i32,
+                    ),
                     (max_total_debouncing_time, max_total_debounces_amount),
                 ) {
                     reason @ (MaxCountExceeded | TimeExceeded) => {
@@ -2673,7 +2704,7 @@ impl PulledJobResult {
                             false,
                             sqlx::types::Json(&to_raw_value(&format!(
                                 "Debounced Late by {}",
-                                j_id
+                                r.job_id
                             ))),
                             None,
                             0,
@@ -2837,16 +2868,14 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
                     .as_mut()
                     .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
 
-                let cloned_script = windmill_common::scripts::clone_script(
+                windmill_common::scripts::clone_script(
                     base_hash,
                     &j.workspace_id,
                     deployment_message,
                     db,
-                    &mut db.begin().await?,
                 )
-                .await?;
-
-                cloned_script.new_hash
+                .await?
+                .new_hash
             }
             JobKind::FlowDependencies => {
                 sqlx::query_scalar!(
@@ -3275,11 +3304,12 @@ pub enum DebouncingLimitsReport {
 }
 
 pub fn check_debouncing_within_limits(
-    (current_time, current_amount): (NaiveDateTime, i32),
+    (current_time, current_amount): (DateTime<Utc>, i32),
     (allowed_time, allowed_amount): (Option<i32>, Option<i32>),
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
 
+    // TODO: Improve tracing
     tracing::debug!("Checking if debouncing is within limits");
     if allowed_amount
         .map(|allowed_amount| current_amount > allowed_amount)
@@ -3287,9 +3317,7 @@ pub fn check_debouncing_within_limits(
     {
         MaxCountExceeded
     } else if allowed_time
-        .map(|allowed_time| {
-            (Utc::now().naive_utc() - current_time).num_seconds() as i32 > allowed_time
-        })
+        .map(|allowed_time| (Utc::now() - current_time).num_seconds() as i32 > allowed_time)
         .unwrap_or_default()
     {
         TimeExceeded
@@ -4419,12 +4447,19 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             ..Default::default()
         },
-        JobPayload::Dependencies { hash, language, path, dedicated_worker } => JobPayloadUntagged {
+        JobPayload::Dependencies {
+            hash,
+            language,
+            path,
+            dedicated_worker,
+            debouncing_settings,
+        } => JobPayloadUntagged {
             runnable_id: Some(hash.0),
-            runnable_path: Some(path.clone()),
+            runnable_path: Some(path),
             job_kind: JobKind::Dependencies,
             language: Some(language),
             dedicated_worker,
+            debouncing_settings,
             ..Default::default()
         },
 
@@ -4446,7 +4481,7 @@ pub async fn push<'c, 'd>(
             raw_flow: Some(flow_value),
             ..Default::default()
         },
-        JobPayload::FlowDependencies { path, dedicated_worker, version } => {
+        JobPayload::FlowDependencies { path, dedicated_worker, version, debouncing_settings } => {
             #[cfg(test)]
             let skip_compat = args
                 .args
@@ -4473,13 +4508,15 @@ pub async fn push<'c, 'd>(
                 job_kind: JobKind::FlowDependencies,
                 raw_flow: value_o,
                 dedicated_worker,
+                debouncing_settings,
                 ..Default::default()
             }
         }
-        JobPayload::AppDependencies { path, version } => JobPayloadUntagged {
+        JobPayload::AppDependencies { path, version, debouncing_settings } => JobPayloadUntagged {
             runnable_id: Some(version),
             runnable_path: Some(path.clone()),
             job_kind: JobKind::AppDependencies,
+            debouncing_settings,
             ..Default::default()
         },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
@@ -5029,191 +5066,191 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
-    // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
-    // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
-    // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
-    // 2. Reusing existing jobs when possible, or creating new ones when the existing job is already running
-    // 3. Accumulating the nodes/components that need relocking across all debounced requests
-    match (
-        scheduled_for_o.is_some(),
-        job_kind.is_dependency(),
-        runnable_path.clone(),
-        *WMDEBUG_NO_DJOB_DEBOUNCING,
-        *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
-        // We only do debouncing for jobs triggered by relative imports
-        // We do not want this be the case for normal djobs, since they will always be sequential.
-        args.args.contains_key("triggered_by_relative_import"),
-    ) {
-        (_, _, _, _, false, _) => {
-            tracing::warn!(
-                "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
-                Please update workers to enable debouncing feature."
-            );
-        }
-        // === DEPENDENCY JOB DEBOUNCING ===
-        //
-        // Debouncing consolidates multiple dependency job requests into a single execution,
-        // reducing redundant work when many scripts/flows/apps are updated simultaneously.
-        //
-        // Prerequisites for debouncing (all must be true):
-        // 1. Job is scheduled in the future (debounce_delay is not None) - provides consolidation window
-        // 2. Job is a dependency job
-        // 3. Object path is provided (script/flow/app path)
-        // 4. Fallback mode is disabled (normal operation)
-        // 5. min version supports debouncing
-        // 6. Job was created by relative imports (triggered by dependency chain)
-        //
-        // How it works:
-        //
-        // PHASE 1 - PUSH (in jobs.rs::push):
-        //   When a dependency job is scheduled with delay, check debounce_key table
-        //   - If key exists: Merge request into existing job, accumulate nodes/components
-        //   - If key doesn't exist: Create new entry and store initial nodes/components
-        //
-        // PHASE 2 - ACCUMULATION:
-        //   During the debounce window (typically 5-15 seconds), multiple requests merge
-        //   - Each request adds nodes/components to debounce_stale_data table
-        //   - SQL DISTINCT automatically removes duplicates during merge
-        //
-        // PHASE 3 - PULL (in jobs.rs::pull):
-        //   When the delayed job finally executes:
-        //   - Lock debounce_key FOR UPDATE to prevent races
-        //   - Retrieve all accumulated nodes/components from debounce_stale_data
-        //   - Process all collected dependencies in single execution
-        //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true, true) => {
-            // Generate unique debounce key: "workspace_id:object_path:dependency"
-            // This ensures each workspace+path combination has independent debounce window
-            let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
+    // // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
+    // // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
+    // // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
+    // // 2. Reusing existing jobs when possible, or creating new ones when the existing job is already running
+    // // 3. Accumulating the nodes/components that need relocking across all debounced requests
+    // match (
+    //     scheduled_for_o.is_some(),
+    //     job_kind.is_dependency(),
+    //     runnable_path.clone(),
+    //     *WMDEBUG_NO_DJOB_DEBOUNCING,
+    //     *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
+    //     // We only do debouncing for jobs triggered by relative imports
+    //     // We do not want this be the case for normal djobs, since they will always be sequential.
+    //     args.args.contains_key("triggered_by_relative_import"),
+    // ) {
+    //     (_, _, _, _, false, _) => {
+    //         tracing::warn!(
+    //             "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
+    //             Please update workers to enable debouncing feature."
+    //         );
+    //     }
+    //     // === DEPENDENCY JOB DEBOUNCING ===
+    //     //
+    //     // Debouncing consolidates multiple dependency job requests into a single execution,
+    //     // reducing redundant work when many scripts/flows/apps are updated simultaneously.
+    //     //
+    //     // Prerequisites for debouncing (all must be true):
+    //     // 1. Job is scheduled in the future (debounce_delay is not None) - provides consolidation window
+    //     // 2. Job is a dependency job
+    //     // 3. Object path is provided (script/flow/app path)
+    //     // 4. Fallback mode is disabled (normal operation)
+    //     // 5. min version supports debouncing
+    //     // 6. Job was created by relative imports (triggered by dependency chain)
+    //     //
+    //     // How it works:
+    //     //
+    //     // PHASE 1 - PUSH (in jobs.rs::push):
+    //     //   When a dependency job is scheduled with delay, check debounce_key table
+    //     //   - If key exists: Merge request into existing job, accumulate nodes/components
+    //     //   - If key doesn't exist: Create new entry and store initial nodes/components
+    //     //
+    //     // PHASE 2 - ACCUMULATION:
+    //     //   During the debounce window (typically 5-15 seconds), multiple requests merge
+    //     //   - Each request adds nodes/components to debounce_stale_data table
+    //     //   - SQL DISTINCT automatically removes duplicates during merge
+    //     //
+    //     // PHASE 3 - PULL (in jobs.rs::pull):
+    //     //   When the delayed job finally executes:
+    //     //   - Lock debounce_key FOR UPDATE to prevent races
+    //     //   - Retrieve all accumulated nodes/components from debounce_stale_data
+    //     //   - Process all collected dependencies in single execution
+    //     //   - Clean up both debounce_key and debounce_stale_data entries
+    //     (true, true, Some(obj_path), false, true, true) => {
+    //         // Generate unique debounce key: "workspace_id:object_path:dependency"
+    //         // This ensures each workspace+path combination has independent debounce window
+    //         let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
 
-            tracing::debug!(
-                workspace_id = %workspace_id,
-                object_path = %obj_path,
-                debounce_key = %debounce_key,
-                "Checking for existing debounced dependency job"
-            );
+    //         tracing::debug!(
+    //             workspace_id = %workspace_id,
+    //             object_path = %obj_path,
+    //             debounce_key = %debounce_key,
+    //             "Checking for existing debounced dependency job"
+    //         );
 
-            // Check if there's already a pending job registered for this debounce key
-            // The debounce_job_id_o is passed in by the caller after locking the key FOR UPDATE
-            // IMPORTANT: This is assumed that the caller will lock debounce_key row in this transaction.
-            // We do this to block puller from further actions until we are done with consolidation and stuff that we do here in push.
-            if let Some(debounce_job_id) = debounce_job_id_o {
-                tracing::debug!(
-                    existing_job_id = %debounce_job_id,
-                    new_job_id = %job_id,
-                    "Found existing debounced job, merging this request"
-                );
+    //         // Check if there's already a pending job registered for this debounce key
+    //         // The debounce_job_id_o is passed in by the caller after locking the key FOR UPDATE
+    //         // IMPORTANT: This is assumed that the caller will lock debounce_key row in this transaction.
+    //         // We do this to block puller from further actions until we are done with consolidation and stuff that we do here in push.
+    //         if let Some(debounce_job_id) = debounce_job_id_o {
+    //             tracing::debug!(
+    //                 existing_job_id = %debounce_job_id,
+    //                 new_job_id = %job_id,
+    //                 "Found existing debounced job, merging this request"
+    //             );
 
-                // NOTE: Race condition handling:
-                // In rare cases, the debounce_key entry may still exist even though the job
-                // has been pulled and is running. This can happen because:
-                // - Job pull marks job as running first
-                // - Then debounce_key cleanup happens (without transaction for performance)
-                // - Between these steps, new requests might see the old debounce_key
-                //
-                // This is acceptable because the puller will be blocked and cannot proceed until this transaction finishes.
-                // This will give us some space to add consolidated data (if such) and debounce the request.
-                // Once tx is commited, the puller will be unblocked and continue execution.
-                // Accumulate the nodes/components that need relocking from this request
+    //             // NOTE: Race condition handling:
+    //             // In rare cases, the debounce_key entry may still exist even though the job
+    //             // has been pulled and is running. This can happen because:
+    //             // - Job pull marks job as running first
+    //             // - Then debounce_key cleanup happens (without transaction for performance)
+    //             // - Between these steps, new requests might see the old debounce_key
+    //             //
+    //             // This is acceptable because the puller will be blocked and cannot proceed until this transaction finishes.
+    //             // This will give us some space to add consolidated data (if such) and debounce the request.
+    //             // Once tx is commited, the puller will be unblocked and continue execution.
+    //             // Accumulate the nodes/components that need relocking from this request
 
-                // This ensures all dependency updates are handled even if jobs are debounced
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %debounce_job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Accumulating nodes/components to existing debounced job"
-                    );
+    //             // This ensures all dependency updates are handled even if jobs are debounced
+    //             if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
+    //                 tracing::debug!(
+    //                     job_id = %debounce_job_id,
+    //                     node_count = to_relock.len(),
+    //                     nodes = ?to_relock,
+    //                     "Accumulating nodes/components to existing debounced job"
+    //                 );
 
-                    accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %debounce_job_id,
-                                debounce_key = %debounce_key,
-                                "Failed to accumulate stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %debounce_job_id,
-                        "No nodes to relock in this request, skipping accumulation"
-                    );
-                }
+    //                 accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock)
+    //                     .await
+    //                     .map_err(|e| {
+    //                         tracing::error!(
+    //                             error = %e,
+    //                             job_id = %debounce_job_id,
+    //                             debounce_key = %debounce_key,
+    //                             "Failed to accumulate stale data for debounced job"
+    //                         );
+    //                         e
+    //                     })?;
+    //             } else {
+    //                 tracing::trace!(
+    //                     job_id = %debounce_job_id,
+    //                     "No nodes to relock in this request, skipping accumulation"
+    //                 );
+    //             }
 
-                // Return the existing job ID, effectively debouncing this request
-                // The new job_id we generated won't be used
-                tracing::debug!(
-                    returned_job_id = %debounce_job_id,
-                    skipped_job_id = %job_id,
-                    "Debounced: returning existing job ID instead of creating new job"
-                );
+    //             // Return the existing job ID, effectively debouncing this request
+    //             // The new job_id we generated won't be used
+    //             tracing::debug!(
+    //                 returned_job_id = %debounce_job_id,
+    //                 skipped_job_id = %job_id,
+    //                 "Debounced: returning existing job ID instead of creating new job"
+    //             );
 
-                // We will skip some of the work downstream and just debounce the job.
-                return Ok((debounce_job_id, tx));
-            } else {
-                // No existing debounce entry - this is the first request in the debounce window
-                tracing::debug!(
-                    job_id = %job_id,
-                    debounce_key = %debounce_key,
-                    "Creating new debounce entry (first request in window)"
-                );
+    //             // We will skip some of the work downstream and just debounce the job.
+    //             return Ok((debounce_job_id, tx));
+    //         } else {
+    //             // No existing debounce entry - this is the first request in the debounce window
+    //             tracing::debug!(
+    //                 job_id = %job_id,
+    //                 debounce_key = %debounce_key,
+    //                 "Creating new debounce entry (first request in window)"
+    //             );
 
-                sqlx::query!(
-                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
-                    &debounce_key,
-                    job_id,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        debounce_key = %debounce_key,
-                        job_id = %job_id,
-                        "Failed to insert debounce_key entry"
-                    );
-                    Error::InternalErr(format!("Failed to create debounce entry: {}", e))
-                })?;
+    //             sqlx::query!(
+    //                 "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
+    //                 &debounce_key,
+    //                 job_id,
+    //             )
+    //             .execute(&mut *tx)
+    //             .await
+    //             .map_err(|e| {
+    //                 tracing::error!(
+    //                     error = %e,
+    //                     debounce_key = %debounce_key,
+    //                     job_id = %job_id,
+    //                     "Failed to insert debounce_key entry"
+    //                 );
+    //                 Error::InternalErr(format!("Failed to create debounce entry: {}", e))
+    //             })?;
 
-                // Store initial nodes/components to relock if provided
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Storing initial nodes/components for new debounced job"
-                    );
+    //             // Store initial nodes/components to relock if provided
+    //             if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
+    //                 tracing::debug!(
+    //                     job_id = %job_id,
+    //                     node_count = to_relock.len(),
+    //                     nodes = ?to_relock,
+    //                     "Storing initial nodes/components for new debounced job"
+    //                 );
 
-                    accumulate_debounce_stale_data(&mut tx, &job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %job_id,
-                                "Failed to store initial stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %job_id,
-                        "No initial nodes to relock, debounce entry created without stale data"
-                    );
-                }
-            }
-        }
-        _ => {
-            // Debouncing not applicable - proceed with normal job creation
-            tracing::trace!(
-                job_id = %job_id,
-                job_kind = ?job_kind,
-                "Debouncing conditions not met, proceeding with normal job creation"
-            );
-        }
-    };
+    //                 accumulate_debounce_stale_data(&mut tx, &job_id, &to_relock)
+    //                     .await
+    //                     .map_err(|e| {
+    //                         tracing::error!(
+    //                             error = %e,
+    //                             job_id = %job_id,
+    //                             "Failed to store initial stale data for debounced job"
+    //                         );
+    //                         e
+    //                     })?;
+    //             } else {
+    //                 tracing::trace!(
+    //                     job_id = %job_id,
+    //                     "No initial nodes to relock, debounce entry created without stale data"
+    //                 );
+    //             }
+    //         }
+    //     }
+    //     _ => {
+    //         // Debouncing not applicable - proceed with normal job creation
+    //         tracing::trace!(
+    //             job_id = %job_id,
+    //             job_kind = ?job_kind,
+    //             "Debouncing conditions not met, proceeding with normal job creation"
+    //         );
+    //     }
+    // };
 
     // #[cfg(all(feature = "enterprise", feature = "private"))]
     #[cfg(feature = "private")]

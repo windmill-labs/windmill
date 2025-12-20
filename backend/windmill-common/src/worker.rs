@@ -265,6 +265,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -428,10 +429,6 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ), delete_debounce AS NOT MATERIALIZED (
-            DELETE FROM debounce_key
-            USING j
-            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -1294,6 +1291,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
     *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
         min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
 

@@ -1087,6 +1087,7 @@ async fn create_script_internal<'c>(
                 language: ns.language,
                 path: ns.path.clone(),
                 dedicated_worker: ns.dedicated_worker,
+                debouncing_settings: Default::default(),
             },
             windmill_queue::PushArgs::from(&args),
             &authed.username,

@@ -407,6 +407,7 @@ pub enum JobPayload {
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job
@@ -414,12 +415,14 @@ pub enum JobPayload {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
