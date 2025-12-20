@@ -43,10 +43,10 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
-    JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::ScriptHash;
+use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -61,6 +61,7 @@ use windmill_common::{
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Step, Suspend},
+    worker::MIN_VERSION_IS_AT_LEAST_1_595,
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
@@ -73,6 +74,58 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
+
+/// Helper function to write itered data to separate table
+/// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
+async fn write_itered_to_db(
+    db: &DB,
+    job_id: Uuid,
+    itered: &Vec<Box<RawValue>>,
+) -> error::Result<Option<Vec<Box<RawValue>>>> {
+    if *MIN_VERSION_IS_AT_LEAST_1_595.read().await {
+        // Write to separate table
+        sqlx::query!(
+            "INSERT INTO flow_iterator_data (job_id, itered) VALUES ($1, $2)
+             ON CONFLICT (job_id) DO UPDATE SET itered = $2",
+            job_id,
+            Json(itered) as Json<&Vec<Box<RawValue>>>,
+        )
+        .execute(db)
+        .await?;
+        // Return None to indicate itered should not be stored in JSONB
+        Ok(None)
+    } else {
+        // Return Some(itered) to indicate it should be stored in JSONB for backwards compatibility
+        Ok(Some(itered.clone()))
+    }
+}
+
+/// Helper function to read itered data from separate table
+/// Falls back to reading from JSONB flow_status if not found in separate table or version too old
+async fn read_itered_from_db(
+    db: &DB,
+    job_id: Uuid,
+    itered_from_status: &Option<Vec<Box<RawValue>>>,
+) -> error::Result<Vec<Box<RawValue>>> {
+    // Only try to read from separate table if version supports it
+    if *MIN_VERSION_IS_AT_LEAST_1_595.read().await {
+        let result = sqlx::query_scalar!(
+            "SELECT itered as \"itered: Json<Vec<Box<RawValue>>>\" FROM flow_iterator_data WHERE job_id = $1",
+            job_id,
+        )
+        .fetch_optional(db)
+        .await?;
+
+        if let Some(Json(itered)) = result {
+            // Found in separate table
+            return Ok(itered);
+        }
+    }
+
+    // Fall back to reading from JSONB flow_status (backwards compatibility or not found in table)
+    Ok(itered_from_status.clone().unwrap_or_default()) // can be none for restarted flows, in which case we return an empty vector
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
@@ -81,6 +134,7 @@ pub async fn update_flow_status_after_job_completion(
     job_id_for_status: &Uuid,
     w_id: &str,
     success: bool,
+    canceled_by: Option<CanceledBy>,
     result: Arc<Box<RawValue>>,
     flow_job_duration: Option<FlowJobDuration>,
     unrecoverable: bool,
@@ -100,6 +154,7 @@ pub async fn update_flow_status_after_job_completion(
         flow,
         job_id_for_status: job_id_for_status.clone(),
         success,
+        canceled_by,
         result,
         flow_job_duration,
         stop_early_override,
@@ -115,6 +170,7 @@ pub async fn update_flow_status_after_job_completion(
             &rec.job_id_for_status,
             w_id,
             rec.success,
+            rec.canceled_by,
             rec.flow_job_duration.clone(),
             rec.result,
             unrecoverable,
@@ -141,6 +197,7 @@ pub async fn update_flow_status_after_job_completion(
                     &rec.job_id_for_status,
                     w_id,
                     false,
+                    None,
                     rec.flow_job_duration,
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
@@ -199,6 +256,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     job_id_for_status: Uuid,
     success: bool,
     result: Arc<Box<RawValue>>,
+    canceled_by: Option<CanceledBy>,
     flow_job_duration: Option<FlowJobDuration>,
     stop_early_override: Option<bool>,
     has_triggered_error_handler: bool,
@@ -283,6 +341,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     job_id_for_status: &Uuid,
     w_id: &str,
     mut success: bool,
+    canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
@@ -542,6 +601,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
                     (Some(FlowIterator { itered, .. }), _) => {
+                        // Read itered from separate table or fallback to JSONB
+                        let itered = read_itered_from_db(db, flow, itered).await?;
+
                         let position = if flow_jobs_success.is_some() {
                             find_flow_job_index(jobs, job_id_for_status)
                         } else {
@@ -870,14 +932,21 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
             FlowStatusModule::InProgress {
-                iterator: Some(FlowIterator { index, itered, .. }),
+                iterator: Some(FlowIterator { index, itered_len, itered }),
                 flow_jobs_success,
                 flow_jobs,
                 while_loop,
                 ..
-            } if (*while_loop
-                || (*index + 1 < itered.len()) && (success || skip_loop_failures))
-                && !stop_early =>
+            } if {
+                let itered_len = if let Some(itered_len) = itered_len {
+                    *itered_len
+                } else {
+                    // backwards compatibility
+                    itered.as_ref().map(|itered| itered.len()).unwrap_or(0)
+                };
+                (*while_loop || (*index + 1 < itered_len) && (success || skip_loop_failures))
+                    && !stop_early
+            } =>
             {
                 if let Some(jobs) = flow_jobs {
                     set_success_and_duration_in_flow_job_success(
@@ -1546,7 +1615,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     ),
                     None,
                     0,
-                    None,
+                    canceled_by.clone(),
                     true,
                     None,
                     false,
@@ -1618,6 +1687,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         flow: parent_job,
                         job_id_for_status: flow,
                         success: success && !is_failure_step,
+                        canceled_by: if !success { canceled_by.clone() } else { None },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
                         stop_early_override: if stop_early {
@@ -3170,6 +3240,9 @@ async fn push_next_flow_job(
                 simple_input_transforms,
             } => {
                 if let Ok(args) = args.as_ref() {
+                    // Read itered from separate table or fallback to JSONB
+                    let itered = read_itered_from_db(db, flow_job.id, itered).await?;
+
                     let mut hm = HashMap::new();
                     for (k, v) in args.iter() {
                         hm.insert(k.to_string(), v.to_owned());
@@ -3262,8 +3335,8 @@ async fn push_next_flow_job(
                 .map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if !step.is_preprocessor_step()
-            && (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
+        let tag = if step.is_preprocessor_step()
+            || (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
         {
             payload_tag.tag.clone()
         } else {
@@ -3448,6 +3521,7 @@ async fn push_next_flow_job(
                 ForloopNextIteration {
                     index,
                     itered,
+                    itered_len,
                     mut flow_jobs,
                     while_loop,
                     mut flow_jobs_success,
@@ -3466,9 +3540,18 @@ async fn push_next_flow_job(
             if let Some(flow_jobs_duration) = &mut flow_jobs_duration {
                 flow_jobs_duration.push(&None);
             }
+
+            // Conditionally write itered to separate table if all workers support it
+            // Returns None if written to table, Some(itered) if should be in JSONB
+            let itered_for_status = write_itered_to_db(db, flow_job.id, &itered).await?;
+
             FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(FlowIterator { index, itered }),
+                iterator: Some(FlowIterator {
+                    index,
+                    itered: itered_for_status,
+                    itered_len: Some(itered_len),
+                }),
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
                 flow_jobs_duration,
@@ -3482,21 +3565,34 @@ async fn push_next_flow_job(
                 agent_actions_success: None,
             }
         }
-        NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
-            job: flow_job.id,
-            iterator,
-            flow_jobs_success: Some(vec![None; uuids.len()]),
-            flow_jobs: Some(uuids.clone()),
-            flow_jobs_duration: Some(FlowJobsDuration::new(uuids.len())),
-            branch_chosen: None,
-            branchall,
-            id: status_module.id(),
-            parallel: true,
-            while_loop: false,
-            progress: None,
-            agent_actions: None,
-            agent_actions_success: None,
-        },
+        NextStatus::AllFlowJobs { iterator, branchall, .. } => {
+            // Conditionally write itered to separate table if all workers support it
+            // write_itered_to_db returns None if written to table, Some(itered) if should be in JSONB
+            let iterator_for_status = if let Some(mut iter) = iterator {
+                if let Some(ref itered) = iter.itered {
+                    iter.itered = write_itered_to_db(db, flow_job.id, itered).await?;
+                }
+                Some(iter)
+            } else {
+                None
+            };
+
+            FlowStatusModule::InProgress {
+                job: flow_job.id,
+                iterator: iterator_for_status,
+                flow_jobs_success: Some(vec![None; uuids.len()]),
+                flow_jobs: Some(uuids.clone()),
+                flow_jobs_duration: Some(FlowJobsDuration::new(uuids.len())),
+                branch_chosen: None,
+                branchall,
+                id: status_module.id(),
+                parallel: true,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+            }
+        }
         NextStatus::NextBranchStep(NextBranch {
             mut flow_jobs,
             status,
@@ -3743,6 +3839,7 @@ async fn push_next_flow_job(
 struct ForloopNextIteration {
     index: usize,
     itered: Vec<Box<RawValue>>,
+    itered_len: usize,
     flow_jobs: Vec<Uuid>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
@@ -4032,6 +4129,7 @@ async fn compute_next_flow_transform(
                 ForloopNextIteration {
                     index: next_loop_idx,
                     itered: vec![],
+                    itered_len: 0,
                     flow_jobs: flow_jobs,
                     flow_jobs_success: flow_jobs_success,
                     flow_jobs_duration: flow_jobs_duration,
@@ -4086,6 +4184,7 @@ async fn compute_next_flow_transform(
                 flow_env,
                 client,
                 &parallel,
+                db,
             )
             .await?;
 
@@ -4152,7 +4251,11 @@ async fn compute_next_flow_transform(
                         ContinuePayload::ParallelJobs(payloads),
                         NextStatus::AllFlowJobs {
                             branchall: None,
-                            iterator: Some(FlowIterator { index: 0, itered }),
+                            iterator: Some(FlowIterator {
+                                index: 0,
+                                itered_len: Some(itered.len()),
+                                itered: Some(itered),
+                            }),
                             // we removed the is_simple_case for simple_input_transforms
                             // if is_simple {
                             //     match value {
@@ -4450,6 +4553,7 @@ async fn next_forloop_status(
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: &AuthedClient,
     parallel: &bool,
+    db: &DB,
 ) -> Result<ForLoopStatus, Error> {
     let next_loop_status = match status_module {
         FlowStatusModule::WaitingForPriorSteps { .. }
@@ -4504,6 +4608,7 @@ async fn next_forloop_status(
                 let iter = Iter { index: 0 as i32, value: first.to_owned() };
                 ForLoopStatus::NextIteration(ForloopNextIteration {
                     index: 0,
+                    itered_len: itered.len(),
                     itered,
                     flow_jobs: vec![],
                     flow_jobs_success: Some(vec![]),
@@ -4517,12 +4622,15 @@ async fn next_forloop_status(
         }
 
         FlowStatusModule::InProgress {
-            iterator: Some(FlowIterator { itered, index }),
+            iterator: Some(FlowIterator { itered, index, .. }),
             flow_jobs: Some(flow_jobs),
             flow_jobs_success,
             flow_jobs_duration,
             ..
         } if !*parallel => {
+            // Read itered from separate table or fallback to JSONB
+            let itered = read_itered_from_db(db, flow_job.id, itered).await?;
+
             let itered_new = if itered.is_empty() {
                 // it's possible we need to re-compute the iterator Input Transforms here, in particular if the flow is being restarted inside the loop
                 let by_id = if let Some(x) = by_id {
@@ -4575,6 +4683,7 @@ async fn next_forloop_status(
             ForLoopStatus::NextIteration(ForloopNextIteration {
                 index,
                 itered: itered_new.clone(),
+                itered_len: itered_new.len(),
                 flow_jobs: flow_jobs.clone(),
                 flow_jobs_success: flow_jobs_success.clone(),
                 flow_jobs_duration: flow_jobs_duration.clone(),
@@ -4749,13 +4858,14 @@ pub async fn script_to_payload(
             timeout,
             on_behalf_of_email,
             created_by,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            runnable_settings:
+                ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
             ..
-        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0).await?;
+        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
         } else {
@@ -4769,16 +4879,8 @@ pub async fn script_to_payload(
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
-                concurrency_settings: ConcurrencySettings {
-                    concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                },
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 cache_ignore_s3_path: module.cache_ignore_s3_path,
                 language,

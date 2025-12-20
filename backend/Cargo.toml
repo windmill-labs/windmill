@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.592.1"
+version = "1.595.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.592.1"
+version = "1.595.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -125,6 +125,7 @@ windmill-autoscaling = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
+sql-builder.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true

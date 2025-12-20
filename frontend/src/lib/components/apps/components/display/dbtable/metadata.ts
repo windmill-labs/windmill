@@ -2,7 +2,13 @@ import { JobService, ResourceService } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
-import { getLanguageByResourceType, resourceTypeToLang, scripts, type TableMetadata } from './utils'
+import {
+	getLanguageByResourceType,
+	resourceTypeToLang,
+	legacyScripts,
+	scriptsV2,
+	type TableMetadata
+} from './utils'
 
 import { type Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
@@ -289,8 +295,13 @@ export async function getDbSchemas(
 	resourcePath: string,
 	workspace: string | undefined,
 	dbSchemas: DBSchemas,
-	errorCallback: (message: string) => void
+	errorCallback: (message: string) => void,
+	options: {
+		useLegacyScripts?: boolean // To avoid breaking app policies
+	} = {}
 ): Promise<void> {
+	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
+
 	if (!scripts[resourceType]) return
 
 	return new Promise(async (resolve, reject) => {

@@ -24,6 +24,7 @@ use crate::{
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
@@ -202,6 +203,8 @@ pub struct QueuedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runnable_settings_handle: Option<i64>,
 }
 
 impl QueuedJob {
@@ -275,6 +278,7 @@ impl Default for QueuedJob {
             cache_ignore_s3_path: None,
             priority: None,
             preprocessed: None,
+            runnable_settings_handle: None,
         }
     }
 }
@@ -444,6 +448,7 @@ pub enum JobPayload {
         completed_job_id: Uuid,
         step_id: String,
         branch_or_iteration_n: Option<usize>,
+        flow_version: Option<i64>,
     },
 
     /// Flow Preview
@@ -481,108 +486,6 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
-}
-
-// TODO: Add validation logic.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct DebouncingSettings {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "debounce_key",
-        alias = "custom_debounce_key"
-    )]
-    /// debounce key is usually stored in the db
-    /// including when:
-    ///
-    /// 1. User have created custom debounce key from ui or cli
-    /// 2. User used default one
-    ///
-    /// in either cases this argument serves as reactive way of overwriting debounce key from the backend.
-    /// Default: hash(path + step_id + inputs)
-    pub custom_key: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none", rename = "debounce_delay_s")]
-    /// Debouncing delay will be determined by the first job with the key.
-    /// All subsequent jobs with Some will get debounced.
-    /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
-    pub delay_s: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "max_total_debouncing_time"
-    )]
-    pub max_total_time: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "max_total_debounces_amount"
-    )]
-    pub max_total_amount: Option<i32>,
-
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "debounce_args_to_accumulate"
-    )]
-    /// top level arguments to preserve
-    /// For every debounce selected arguments will be saved
-    /// in the end (when job finally starts) arguments will be appended and passed to runnable
-    ///
-    /// NOTE: selected args should be the lists.
-    pub args_to_accumulate: Option<Vec<String>>,
-}
-
-impl DebouncingSettings {
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct ConcurrencySettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, Default)]
-pub struct ConcurrencySettingsWithCustom {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-}
-
-impl From<ConcurrencySettings> for ConcurrencySettingsWithCustom {
-    fn from(
-        ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }: ConcurrencySettings,
-    ) -> Self {
-        ConcurrencySettingsWithCustom {
-            custom_concurrency_key: concurrency_key,
-            concurrency_time_window_s,
-            concurrent_limit,
-        }
-    }
-}
-
-impl From<ConcurrencySettingsWithCustom> for ConcurrencySettings {
-    fn from(
-        ConcurrencySettingsWithCustom {
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-        }: ConcurrencySettingsWithCustom,
-    ) -> Self {
-        ConcurrencySettings {
-            concurrency_key: custom_concurrency_key,
-            concurrency_time_window_s,
-            concurrent_limit,
-        }
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -703,11 +606,11 @@ pub async fn script_path_to_payload<'e>(
         let ScriptHashInfo {
             hash,
             tag,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
+            runnable_settings:
+                super::scripts::ScriptRunnableSettingsInline {
+                    concurrency_settings,
+                    debouncing_settings,
+                },
             cache_ttl,
             cache_ignore_s3_path,
             language,
@@ -719,7 +622,10 @@ pub async fn script_path_to_payload<'e>(
             on_behalf_of_email,
             created_by,
             ..
-        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
+        } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
@@ -741,17 +647,8 @@ pub async fn script_path_to_payload<'e>(
                 priority,
                 apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                     && has_preprocessor.unwrap_or(false),
-                concurrency_settings: ConcurrencySettingsWithCustom {
-                    custom_concurrency_key: concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                }
-                .into(),
-                debouncing_settings: DebouncingSettings {
-                    custom_key: debounce_key,
-                    delay_s: debounce_delay_s,
-                    ..Default::default()
-                },
+                debouncing_settings,
+                concurrency_settings,
             },
             tag,
             delete_after_use,

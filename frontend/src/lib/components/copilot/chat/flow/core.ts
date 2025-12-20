@@ -10,7 +10,6 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import type { ChatCompletionTool as ChatCompletionFunctionTool } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
@@ -120,29 +119,17 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 )
 
 // Using string for modules and schema because Gemini-2.5-flash performs better with strings (MALFORMED_FUNCTION_CALL errors happens more often with objects)
-const setFlowJsonToolDef: ChatCompletionFunctionTool = {
-	type: 'function',
-	function: {
-		name: 'set_flow_json',
-		description:
-			'Set the entire flow by providing the complete flow object. This replaces all existing modules and schema.',
-		strict: false,
-		parameters: {
-			type: 'object',
-			properties: {
-				modules: {
-					type: 'string',
-					description: 'JSON string containing the flow modules'
-				},
-				schema: {
-					type: 'string',
-					description: 'JSON string containing the flow input schema'
-				}
-			},
-			required: []
-		}
-	}
-}
+const setFlowJsonToolSchema = z.object({
+	modules: z.string().optional().nullable().describe('JSON string containing the flow modules'),
+	schema: z.string().optional().nullable().describe('JSON string containing the flow input schema')
+})
+
+const setFlowJsonToolDef = createToolDef(
+	setFlowJsonToolSchema,
+	'set_flow_json',
+	'Set the entire flow by providing the complete flow object. This replaces all existing modules and schema.',
+	{ strict: false }
+)
 
 class WorkspaceScriptsSearch {
 	private uf: uFuzzy
@@ -210,7 +197,8 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	'Execute a test run of a specific step in the flow'
+	'Execute a test run of a specific step in the flow',
+	{ strict: false }
 )
 
 const inspectInlineScriptSchema = z.object({
@@ -335,7 +323,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		// set strict to false to avoid issues with open ai models
-		def: { ...testRunStepToolDef, function: { ...testRunStepToolDef.function, strict: false } },
+		def: testRunStepToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -893,7 +881,7 @@ export function prepareFlowUserMessage(
 	// Handle context elements
 	const contextInstructions = selectedContext ? buildContextString(selectedContext) : ''
 
-	if (!flow || !selectedId) {
+	if (!flow) {
 		let userMessage = `## INSTRUCTIONS:
 ${instructions}`
 		return {

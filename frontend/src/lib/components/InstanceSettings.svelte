@@ -15,6 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import { ExternalLink } from 'lucide-svelte'
 
 	interface Props {
 		tab?: string
@@ -244,136 +245,158 @@
 			value.channel_name.trim() !== ''
 		)
 	}
+
+	function openSmtpSettings() {
+		tab = 'SMTP'
+	}
 </script>
 
-<div class="pb-8">
+<div class="pb-12">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
-	<Tabs {hideTabs} bind:selected={tab}>
-		{#each settingsKeys as category}
-			<Tab value={category} label={category}></Tab>
-		{/each}
-
-		{#snippet content()}
-			{#each Object.keys(settings) as category}
-				<TabContent value={category}>
-					{#if category == 'SMTP'}
-						<div class="text-secondary pb-4 text-xs"
-							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
-							instance or sending critical alerts.
-							<a
-								target="_blank"
-								href="https://www.windmill.dev/docs/advanced/instance_settings#smtp">Learn more</a
-							></div
-						>
-					{:else if category == 'Indexer/Search'}
-						<div class="text-secondary pb-4 text-xs"
-							>The indexer service unlocks full text search across jobs and service logs. It
-							requires spinning up its own separate container
-							<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
-								>Learn how to</a
-							></div
-						>
-					{:else if category == 'Registries'}
-						<div class="text-secondary pb-4 text-xs">
-							Add private registries for Pip, Bun and npm. <a
-								target="_blank"
-								href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
-							>
-						</div>
-					{:else if category == 'Slack'}
-						<div class="text-secondary pb-4 text-xs">
-							Connecting your instance to a Slack workspace enables critical alerts to be sent to a
-							Slack channel.
-							<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim"
-								>Learn more</a
-							>
-						</div>
-					{:else if category == 'SCIM/SAML'}
-						<div class="text-secondary pb-4 text-xs">
-							Setting up SAML and SCIM allows you to authenticate users using your identity
-							provider.
-							<a
-								target="_blank"
-								href="https://www.windmill.dev/docs/advanced/instance_settings#slack">Learn more</a
-							>
-						</div>
-					{:else if category == 'Debug'}
-						<div class="text-secondary pb-4 text-xs">
-							Enable debug mode to get more detailed logs.
-						</div>
-					{:else if category == 'Telemetry'}
-						<div class="text-primary pb-4 text-xs">
-							Anonymous usage data is collected to help improve Windmill.
-							<br />The following information is collected:
-							<ul class="list-disc list-inside pl-2">
-								<li>version of your instances</li>
-								<li>instance base URL</li>
-								<li>job usage (language, total duration, count)</li>
-								<li>login type usage (login type, count)</li>
-								<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-								<li>user usage (author count, operator count)</li>
-								<li>superadmin email addresses</li>
-								<li>vCPU usage</li>
-								<li>memory usage</li>
-								<li>development instance status</li>
-							</ul>
-						</div>
-						{#if $enterpriseLicense}
-							<div class="text-primary pb-4 text-xs">
-								On Enterprise Edition, you must send data to check that usage is in line with the
-								terms of the subscription. You can either enable telemetry or regularly send usage
-								data by clicking the button below.
-							</div>
-							<Button
-								on:click={sendStats}
-								variant="default"
-								btnClasses="w-auto"
-								wrapperClasses="mb-4"
-								loading={sendingStats}
-								size="xs"
-							>
-								Send usage
-							</Button>
-						{/if}
-					{:else if category == 'Auth/OAuth/SAML'}
-						<AuthSettings
-							bind:oauths
-							bind:snowflakeAccountIdentifier
-							bind:requirePreexistingUserForOauth
-							baseUrl={$values?.base_url}
-						>
-							{#snippet scim()}
-								<div class="flex-col flex gap-2 pb-4">
-									{#each scimSamlSetting as setting}
-										<InstanceSetting
-											on:closeDrawer={() => closeDrawer?.()}
-											{loading}
-											{setting}
-											{values}
-											{version}
-										/>
-									{/each}
-								</div>
-							{/snippet}
-						</AuthSettings>
-					{/if}
-					<div>
-						<div class="flex-col flex gap-4 pb-4">
-							{#each settings[category] as setting}
-								<InstanceSetting
-									on:closeDrawer={() => closeDrawer?.()}
-									{loading}
-									{setting}
-									{values}
-									{version}
-								/>
-							{/each}
-						</div>
-					</div>
-				</TabContent>
+	{#if hideTabs}
+		{@render tabsContent()}
+	{:else}
+		<Tabs bind:selected={tab}>
+			{#each settingsKeys as category}
+				<Tab value={category} label={category}></Tab>
 			{/each}
-		{/snippet}
-	</Tabs>
+
+			{#snippet content()}
+				<div class="pt-4"></div>
+				{@render tabsContent()}
+			{/snippet}
+		</Tabs>
+	{/if}
+
+	{#snippet tabsContent()}
+		{#each Object.keys(settings) as category}
+			<TabContent value={category}>
+				{#if category == 'SMTP'}
+					<div class="text-secondary pb-4 text-xs">
+						Setting SMTP unlocks sending emails upon adding new users to the workspace or the
+						instance or sending critical alerts via email.
+						<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp"
+							>Learn more <ExternalLink size={12} class="inline-block" /></a
+						>
+					</div>
+				{:else if category == 'Indexer/Search'}
+					<div class="text-secondary pb-4 text-xs"
+						>The indexer service unlocks full text search across jobs and service logs. It requires
+						spinning up its own separate container
+						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
+							>Learn how to <ExternalLink size={12} class="inline-block" /></a
+						></div
+					>
+				{:else if category == 'Alerts'}
+					<div class="text-secondary pb-4 text-xs">
+						Critical alerts automatically notify administrators about system events like job crashes,
+						license issues, worker failures, and queue delays through email, Slack, or Teams.
+						<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+							>Learn more <ExternalLink size={12} class="inline-block" /></a
+						>
+					</div>
+				{:else if category == 'Registries'}
+					<div class="text-secondary pb-4 text-xs">
+						Add private registries for Pip, Bun and npm. <a
+							target="_blank"
+							href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
+						>
+					</div>
+				{:else if category == 'Slack'}
+					<div class="text-secondary pb-4 text-xs">
+						Connecting your instance to a Slack workspace enables critical alerts to be sent to a
+						Slack channel.
+						<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a
+						>
+					</div>
+				{:else if category == 'SCIM/SAML'}
+					<div class="text-secondary pb-4 text-xs">
+						Setting up SAML and SCIM allows you to authenticate users using your identity provider.
+						<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack"
+							>Learn more</a
+						>
+					</div>
+				{:else if category == 'Debug'}
+					<div class="text-secondary pb-4 text-xs">
+						Enable debug mode to get more detailed logs.
+					</div>
+				{:else if category == 'Telemetry'}
+					<div class="text-primary pb-4 text-xs">
+						Anonymous usage data is collected to help improve Windmill.
+						<br />The following information is collected:
+						<ul class="list-disc list-inside pl-2">
+							<li>version of your instances</li>
+							<li>instance base URL</li>
+							<li>job usage (language, total duration, count)</li>
+							<li>login type usage (login type, count)</li>
+							<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+							<li>user usage (author count, operator count)</li>
+							<li>superadmin email addresses</li>
+							<li>vCPU usage</li>
+							<li>memory usage</li>
+							<li>development instance status</li>
+						</ul>
+					</div>
+					{#if $enterpriseLicense}
+						<div class="text-primary pb-4 text-xs">
+							On Enterprise Edition, you must send data to check that usage is in line with the
+							terms of the subscription. You can either enable telemetry or regularly send usage
+							data by clicking the button below.
+						</div>
+						<Button
+							on:click={sendStats}
+							variant="default"
+							btnClasses="w-auto"
+							wrapperClasses="mb-4"
+							loading={sendingStats}
+							size="xs"
+						>
+							Send usage
+						</Button>
+					{/if}
+				{:else if category == 'Auth/OAuth/SAML'}
+					<AuthSettings
+						bind:oauths
+						bind:snowflakeAccountIdentifier
+						bind:requirePreexistingUserForOauth
+						baseUrl={$values?.base_url}
+					>
+						{#snippet scim()}
+							<div class="flex-col flex gap-6 pb-4">
+								{#each scimSamlSetting as setting}
+									<InstanceSetting
+										on:closeDrawer={() => closeDrawer?.()}
+										{loading}
+										{setting}
+										{values}
+										{version}
+										{oauths}
+									/>
+								{/each}
+							</div>
+						{/snippet}
+					</AuthSettings>
+				{/if}
+
+				<div class="flex-col flex gap-6 pb-4">
+					{#each settings[category] as setting}
+						<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
+						{#if setting.fieldType != 'slack_connect'}
+							<InstanceSetting
+								{openSmtpSettings}
+								on:closeDrawer={() => closeDrawer?.()}
+								{loading}
+								{setting}
+								{values}
+								{version}
+								{oauths}
+							/>
+						{/if}
+					{/each}
+				</div>
+			</TabContent>
+		{/each}
+	{/snippet}
 </div>
 
 {#if !hideSave}

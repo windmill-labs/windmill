@@ -233,6 +233,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teams_team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
@@ -532,6 +534,7 @@ async fn get_settings(
             slack_team_id,
             teams_team_id,
             teams_team_name,
+            teams_team_guid,
             slack_name,
             slack_command_script,
             teams_command_script,
@@ -3327,10 +3330,72 @@ async fn archive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Step 1: Disable all schedules and clear their queued jobs
+    let mut tx = db.begin().await?;
+    let disabled_schedules = sqlx::query_scalar!(
+        "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let schedules_count = disabled_schedules.len();
+    tracing::info!(
+        "Disabled {} schedules in workspace {}",
+        schedules_count,
+        w_id
+    );
+
+    // Clear all schedule-related jobs using the existing clear_schedule function
+    for schedule_path in &disabled_schedules {
+        crate::schedule::clear_schedule(&mut tx, schedule_path, &w_id).await?;
+    }
+
+    tx.commit().await?;
+
+    // Step 2: Get all remaining queued jobs for this workspace (non-schedule jobs)
+    let jobs_to_cancel =
+        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", &w_id)
+            .fetch_all(&db)
+            .await?;
+
+    let jobs_count = jobs_to_cancel.len();
+    tracing::info!(
+        "Found {} remaining jobs to cancel in workspace {}",
+        jobs_count,
+        w_id
+    );
+
+    // Step 3: Cancel all remaining jobs using the existing cancel_jobs function
+    let canceled_count = if !jobs_to_cancel.is_empty() {
+        let axum::Json(canceled_jobs) = crate::jobs::cancel_jobs(
+            jobs_to_cancel,
+            &db,
+            &authed.username,
+            &w_id,
+            false, // force_cancel
+        )
+        .await?;
+
+        let count = canceled_jobs.len();
+        tracing::info!("Canceled {} jobs in workspace {}", count, w_id);
+        count
+    } else {
+        0
+    };
+
+    // Step 4: Archive the workspace
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    let mut audit_params = HashMap::new();
+    audit_params.insert("disabled_schedules", schedules_count.to_string());
+    audit_params.insert("canceled_jobs", canceled_count.to_string());
+    let audit_params_refs: HashMap<&str, &str> =
+        audit_params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
     audit_log(
         &mut *tx,
@@ -3339,12 +3404,15 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        None,
+        Some(audit_params_refs),
     )
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Archived workspace {}", &w_id))
+    Ok(format!(
+        "Archived workspace {}, disabled {} schedules and canceled {} jobs",
+        &w_id, schedules_count, canceled_count
+    ))
 }
 
 async fn leave_workspace(

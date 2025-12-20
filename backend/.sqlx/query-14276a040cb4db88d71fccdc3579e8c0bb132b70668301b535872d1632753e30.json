@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH inserted_job AS (\n            INSERT INTO v2_job (\n                id, -- 1\n                workspace_id, -- 2\n                raw_code, -- 3\n                raw_lock, -- 4\n                raw_flow, -- 5\n                tag, -- 6\n                parent_job, -- 7\n                created_by, -- 8\n                permissioned_as, -- 9\n                runnable_id, -- 10\n                runnable_path, -- 11\n                args, -- 12\n                kind, -- 13\n                trigger, -- 14\n                script_lang, -- 15\n                same_worker, -- 16\n                pre_run_error, -- 17 \n                permissioned_as_email, -- 18\n                visible_to_owner, -- 19\n                flow_innermost_root_job, -- 20\n                root_job, -- 38\n                concurrent_limit, -- 21\n                concurrency_time_window_s, -- 22\n                timeout, -- 23\n                flow_step_id, -- 24\n                cache_ttl, -- 25\n                priority, -- 26\n                trigger_kind, -- 39\n                script_entrypoint_override, -- 12\n                preprocessed -- 27,\n            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,\n            $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,\n            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)\n        ),\n        inserted_runtime AS (\n            INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)\n        ),\n        inserted_job_perms AS (\n            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) \n            values ($1, $32, $33, $34, $35, $36, $37, $2, $41) \n            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email\n        )\n        INSERT INTO v2_job_queue\n            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)\n            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42, $43)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Jsonb",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        },
+        "Bool",
+        "Text",
+        "Varchar",
+        "Bool",
+        "Uuid",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Varchar",
+        "Int4",
+        "Int2",
+        "Bool",
+        "Bool",
+        "Timestamptz",
+        "Varchar",
+        "Int2",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "JsonbArray",
+        "TextArray",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        },
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14276a040cb4db88d71fccdc3579e8c0bb132b70668301b535872d1632753e30"
+}
