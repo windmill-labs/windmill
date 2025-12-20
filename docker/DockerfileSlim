@@ -15,7 +15,7 @@ ENV PATH=/usr/local/bin:/root/.local/bin:$PATH
 
 # Install system dependencies
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && apt-get install -y ca-certificates wget curl git jq unzip unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Etc/UTC
