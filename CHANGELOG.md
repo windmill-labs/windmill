@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.596.0](https://github.com/windmill-labs/windmill/compare/v1.595.0...v1.596.0) (2025-12-20)
+
+
+### Features
+
+* type-checked data tables v0 ([#7381](https://github.com/windmill-labs/windmill/issues/7381)) ([3affbb3](https://github.com/windmill-labs/windmill/commit/3affbb33217bc303c1b96ec93fdd2d80444c8c9e))
+
+
+### Bug Fixes
+
+* improve error msg for unshare error ([#7421](https://github.com/windmill-labs/windmill/issues/7421)) ([cdd5d9f](https://github.com/windmill-labs/windmill/commit/cdd5d9fa9ac11d869da6c755df0e0306dbb33b84))
+* improve MS SQL Numeric rounding ([#7404](https://github.com/windmill-labs/windmill/issues/7404)) ([afe74f7](https://github.com/windmill-labs/windmill/commit/afe74f74fadf983a5e5d712716b636b578007250))
+* update to astral-tokio-tar for CVE ([#7423](https://github.com/windmill-labs/windmill/issues/7423)) ([d544da3](https://github.com/windmill-labs/windmill/commit/d544da342c9547be2b12d16fb4a4281c43d5ee73))
+
 ## [1.595.0](https://github.com/windmill-labs/windmill/compare/v1.594.0...v1.595.0) (2025-12-19)
 
 
