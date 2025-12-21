@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH deleted_key AS (\n                    DELETE FROM debounce_key WHERE job_id = $1 RETURNING key\n                ) SELECT\n                    (SELECT key FROM deleted_key) AS debounce_key,\n                    (SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1) AS needs_debounce\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "debounce_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "needs_debounce",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "be914a5537a2c89e3238a443177b2395d5c5e98d9b9ab8f2cedc1d86597943e4"
+}
