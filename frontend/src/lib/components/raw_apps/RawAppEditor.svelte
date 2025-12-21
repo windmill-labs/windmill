@@ -22,12 +22,13 @@
 	import { rawAppLintStore } from './lintStore'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import type { DataTableRef } from './RawAppDataTableList.svelte'
+	import { parseDataTableRef, formatDataTableRef } from './dataTableRefUtils'
 
 	interface Props {
 		initFiles: Record<string, string>
 		initRunnables: Record<string, Runnable>
-		initDataTableRefs: DataTableRef[] | undefined
+		/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
+		initDataTableRefs: string[] | undefined
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -63,7 +64,11 @@
 
 	let runnables = $state(initRunnables)
 
-	let dataTableRefs: DataTableRef[] = $state(initDataTableRefs ?? [])
+	// Internal storage uses string format
+	let dataTableRefs: string[] = $state(initDataTableRefs ?? [])
+
+	// Convert to object format for child components
+	let dataTableRefsObjects = $derived(dataTableRefs.map(parseDataTableRef))
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
 			if (isRunnableByName(runnable)) {
@@ -566,7 +571,10 @@
 				onSelectFile={handleSelectFile}
 				bind:selectedRunnable
 				bind:selectedDocument
-				bind:dataTableRefs
+				dataTableRefs={dataTableRefsObjects}
+				onDataTableRefsChange={(newRefs) => {
+					dataTableRefs = newRefs.map(formatDataTableRef)
+				}}
 				{runnables}
 				{modules}
 				{historyManager}

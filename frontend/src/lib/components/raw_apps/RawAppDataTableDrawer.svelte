@@ -6,7 +6,7 @@
 	import Button from '../common/button/Button.svelte'
 	import Select from '../select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import type { DataTableRef } from './RawAppDataTableList.svelte'
+	import type { DataTableRef } from './dataTableRefUtils'
 	import { resource } from 'runed'
 	import { ArrowLeft, Expand, LoaderCircle, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'

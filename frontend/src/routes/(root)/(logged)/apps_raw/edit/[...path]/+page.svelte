@@ -12,11 +12,10 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
-	import type { DataTableRef } from '$lib/components/raw_apps/RawAppDataTableList.svelte'
-
 	let files: Record<string, string> | undefined = $state(undefined)
 	let runnables = $state({})
-	let dataTableRefs: DataTableRef[] = []
+	/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
+	let dataTableRefs: string[] = $state([])
 	let newPath = $state('')
 	// let lastVersion = 0
 	let policy: any = $state({})
@@ -51,7 +50,7 @@
 
 	function extractRawApp(app: any) {
 		runnables = app.value.runnables
-		dataTableRefs = app.value.datatables
+		dataTableRefs = app.value.datatables ?? []
 		files = app.value.files
 		summary = app.summary
 		// lastVersion = app.version

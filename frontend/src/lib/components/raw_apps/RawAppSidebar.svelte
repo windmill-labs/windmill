@@ -10,7 +10,8 @@
 	import RawAppHistoryList from './RawAppHistoryList.svelte'
 	import type { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import Button from '../common/button/Button.svelte'
-	import RawAppDataTableList, { type DataTableRef } from './RawAppDataTableList.svelte'
+	import RawAppDataTableList from './RawAppDataTableList.svelte'
+	import type { DataTableRef } from './dataTableRefUtils'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 
 	interface Props {
@@ -25,6 +26,7 @@
 		onHistorySelect?: (id: number) => void
 		onManualSnapshot?: () => void
 		dataTableRefs?: DataTableRef[]
+		onDataTableRefsChange?: (refs: DataTableRef[]) => void
 	}
 
 	let {
@@ -38,18 +40,19 @@
 		historySelectedId,
 		onHistorySelect,
 		onManualSnapshot,
-		dataTableRefs = $bindable([])
+		dataTableRefs = [],
+		onDataTableRefsChange
 	}: Props = $props()
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 	let selectedDataTableIndex: number | undefined = $state(undefined)
 
 	function handleAddDataTable(ref: DataTableRef) {
-		dataTableRefs = [...dataTableRefs, ref]
+		onDataTableRefsChange?.([...dataTableRefs, ref])
 	}
 
 	function handleRemoveDataTable(index: number) {
-		dataTableRefs = dataTableRefs.filter((_, i) => i !== index)
+		onDataTableRefsChange?.(dataTableRefs.filter((_, i) => i !== index))
 		if (selectedDataTableIndex === index) {
 			selectedDataTableIndex = undefined
 		}
@@ -320,7 +323,7 @@
 
 <div class="py-4"></div>
 <RawAppDataTableList
-	bind:dataTableRefs
+	{dataTableRefs}
 	onAdd={() => dataTableDrawer?.openDrawer()}
 	onRemove={handleRemoveDataTable}
 	onSelect={handleSelectDataTable}

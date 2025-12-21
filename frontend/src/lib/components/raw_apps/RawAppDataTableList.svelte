@@ -1,15 +1,10 @@
 <script lang="ts">
 	import { Plus, Database, Trash2, Table2 } from 'lucide-svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import type { DataTableRef } from './dataTableRefUtils'
 
-	export interface DataTableRef {
-		/** The datatable name from workspace settings */
-		datatable: string
-		/** Optional schema filter */
-		schema?: string
-		/** Optional table filter */
-		table?: string
-	}
+	// Re-export for backwards compatibility
+	export type { DataTableRef } from './dataTableRefUtils'
 
 	interface Props {
 		dataTableRefs: DataTableRef[]
@@ -20,7 +15,7 @@
 	}
 
 	let {
-		dataTableRefs = $bindable([]),
+		dataTableRefs = [],
 		onAdd,
 		onRemove,
 		onSelect,

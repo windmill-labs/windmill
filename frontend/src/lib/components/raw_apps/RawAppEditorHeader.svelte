@@ -47,8 +47,7 @@
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
-	import type { DataTableRef } from './RawAppDataTableList.svelte'
-
+	
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -87,7 +86,8 @@
 		appPath: string
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
-		dataTableRefs: DataTableRef[]
+		/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
+		dataTableRefs: string[]
 		jobs: string[]
 		jobsById: Record<string, any>
 		getBundle: () => Promise<{
