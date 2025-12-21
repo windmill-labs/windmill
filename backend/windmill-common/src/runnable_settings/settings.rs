@@ -185,15 +185,6 @@ impl DebouncingSettings {
             && self.max_total_debounces_amount.is_none()
             && self.debounce_args_to_accumulate.is_none()
     }
-        if self.max_total_debouncing_time.is_some()
-            || self.max_total_debounces_amount.is_some()
-            || self.debounce_args_to_accumulate.is_some()
-        {
-            false
-        } else {
-            true
-        }
-    }
 }
 
 impl ConcurrencySettings {
