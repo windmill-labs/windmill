@@ -987,7 +987,6 @@ pub fn start_interactive_worker_shell(
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
 
-                        // TODO: should I preprocess here?
                         let job = pull(
                             &db,
                             false,

@@ -2615,9 +2615,8 @@ impl PulledJobResult {
         let no_runnable_settings = !*MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.read().await
             && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
-        // TODO: test nodes_to_relock. And especially overlaying ones.
         let (kind, j_id) = (j.kind, j.id);
-        if (no_runnable_settings || debounce_delay_s.is_some())
+        if (no_runnable_settings || debounce_delay_s.filter(|x| *x > 0).is_some())
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
         {
             if no_runnable_settings {
@@ -2732,7 +2731,6 @@ impl PulledJobResult {
                     "Accumulated arguments from debounced jobs in batch"
                 );
 
-                // TODO: test job without args.
                 j.args
                     .get_or_insert(Json(Default::default()))
                     .as_mut()

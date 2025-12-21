@@ -1452,8 +1452,6 @@ async fn lock_modules<'c>(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                // TODO: debouble check.
-                // TODO: same for apps.
                 if skip_creating_new_lock(&language, &content)
                     && *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
                 {
