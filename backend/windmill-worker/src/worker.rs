@@ -346,11 +346,13 @@ lazy_static::lazy_static! {
                         \n\
                         Solutions:\n\
                         • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • Check max user namespaces limit: 'cat /proc/sys/user/max_user_namespaces'\n\
+                          (Some AMIs like Bottlerocket have max_user_namespaces=0 which disables user namespaces entirely)\n\
                         • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
                         • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
                         • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
                         • Alternative: Use NSJAIL instead\n\
-                        • Disable: Set ENABLE_UNSHARE_PID=false",
+                        • Disable: Set ENABLE_UNSHARE_PID=false (or disableUnsharePid=true in Helm chart)",
                         stderr.trim(),
                         flags
                     );

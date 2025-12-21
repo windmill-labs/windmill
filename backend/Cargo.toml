@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.593.1"
+version = "1.596.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.593.1"
+version = "1.596.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -260,7 +260,7 @@ reqwest = { version = "=0.12.24", features = ["json", "stream", "gzip", "multipa
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
-tokio-tar = "^0"
+astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
 tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"

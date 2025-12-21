@@ -570,7 +570,7 @@
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
 						flow_jobs: mod.flow_jobs,
-						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
+						iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
 					})
 				}
 
@@ -892,7 +892,7 @@
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
-						iteration_total: mod.iterator?.itered?.length,
+						iteration_total: mod.iterator?.itered_len,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
 						agent_actions: mod.agent_actions,
@@ -1584,7 +1584,7 @@
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success ?? [],
 													flowJobsDuration: mod.flow_jobs_duration,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													length: mod.iterator?.itered_len ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
 											: undefined}

@@ -78,8 +78,9 @@
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
-	import { initWasmTs } from '$lib/infer'
+	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
+	import { updateSqlQueriesInWorker, waitForWorkerInitialization } from './sqlTypeService'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -103,7 +104,7 @@
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
-	import { resource, watch } from 'runed'
+	import { resource, useDebounce, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -137,6 +138,8 @@
 		enablePreprocessorSnippet?: boolean
 		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
 		rawAppRunnableKey?: string | undefined
+		// Used to provide typed queries in TypeScript when detecting assets
+		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 	}
 
 	let {
@@ -165,7 +168,8 @@
 		class: clazz = undefined,
 		moduleId = undefined,
 		enablePreprocessorSnippet = false,
-		rawAppRunnableKey = undefined
+		rawAppRunnableKey = undefined,
+		preparedAssetsSqlQueries
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -1530,9 +1534,9 @@
 		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
 			`export {};
 			declare module 'windmill-client' {
-				import { type SqlTemplateFunction } from 'windmill-client';
+				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
 				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
-				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): SqlTemplateFunction;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): DatatableSqlTemplateFunction;
 			}`,
 			'file:///custom_wmill_types.d.ts'
 		)
@@ -1848,6 +1852,46 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+
+	let isTsWorkerInitialized = resource(
+		[() => lang, () => initialized, () => filePath],
+		async () => {
+			if (lang !== 'typescript' || !initialized) return false
+			console.log('[Editor.isTsWorkerInitialized] Waiting for TS Worker...')
+			await waitForWorkerInitialization(filePath)
+			console.log('[Editor.isTsWorkerInitialized] TS Worker initialized successfully')
+			return true
+		}
+	)
+
+	// Update SQL query type information in the TypeScript worker
+	// This enables TypeScript to show proper types for SQL template literals
+	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
+		if (lang !== 'typescript' || !isTsWorkerInitialized.current) return
+		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
+			// Clear SQL queries if none exist
+			updateSqlQueriesInWorker(filePath, [])
+			return
+		}
+
+		// Send SQL query information to the custom TypeScript worker
+		// The worker will inject type parameters into the code that TypeScript analyzes
+
+		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
+		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
+	}, 250)
+
+	watch(
+		[
+			() => preparedAssetsSqlQueries,
+			() => lang,
+			() => filePath,
+			() => isTsWorkerInitialized.current
+		],
+		() => {
+			handleSqlTypingInTs()
+		}
+	)
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>

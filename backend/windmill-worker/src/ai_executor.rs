@@ -397,38 +397,70 @@ pub async fn run_agent(
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
-    // Load previous messages from memory for text output mode (only if context length is set)
+    // Determine if we're using manual messages (which bypasses memory)
+    let use_manual_messages = matches!(args.memory, Some(Memory::Manual { .. }));
+
+    // Check if user_message is provided and non-empty
+    let has_user_message = args
+        .user_message
+        .as_ref()
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+
+    // Validate: at least one of memory with manual messages or user_message must be provided
+    if !use_manual_messages && !has_user_message {
+        return Err(Error::internal_err(
+            "Either 'memory' with manual messages or 'user_message' must be provided".to_string(),
+        ));
+    }
+
+    // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
-        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
-                if let Some(memory_id) = flow_context
-                    .flow_status
-                    .as_ref()
-                    .and_then(|fs| fs.memory_id)
-                {
-                    // Read messages from memory
-                    match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
-                        Ok(Some(loaded_messages)) => {
-                            // Take the last n messages
-                            let start_idx = loaded_messages.len().saturating_sub(context_length);
-                            let mut messages_to_load = loaded_messages[start_idx..].to_vec();
-                            let first_non_tool_message_index =
-                                messages_to_load.iter().position(|m| m.role != "tool");
+        match &args.memory {
+            Some(Memory::Manual { messages: manual_messages }) => {
+                // Use explicitly provided messages (bypass memory)
+                if !manual_messages.is_empty() {
+                    messages.extend(manual_messages.clone());
+                }
+            }
+            Some(Memory::Auto { context_length }) if *context_length > 0 => {
+                // Auto mode: load from memory
+                if let Some(step_id) = job.flow_step_id.as_deref() {
+                    if let Some(memory_id) = flow_context
+                        .flow_status
+                        .as_ref()
+                        .and_then(|fs| fs.memory_id)
+                    {
+                        // Read messages from memory
+                        match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
+                            Ok(Some(loaded_messages)) => {
+                                // Take the last n messages
+                                let start_idx =
+                                    loaded_messages.len().saturating_sub(*context_length);
+                                let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+                                let first_non_tool_message_index =
+                                    messages_to_load.iter().position(|m| m.role != "tool");
 
-                            // Remove the first messages if their role is "tool" to avoid OpenAI API error
-                            if let Some(index) = first_non_tool_message_index {
-                                messages_to_load = messages_to_load[index..].to_vec();
+                                // Remove the first messages if their role is "tool" to avoid OpenAI API error
+                                if let Some(index) = first_non_tool_message_index {
+                                    messages_to_load = messages_to_load[index..].to_vec();
+                                }
+
+                                messages.extend(messages_to_load);
                             }
-
-                            messages.extend(messages_to_load);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to read memory for step {}: {}",
+                                    step_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
             }
+            _ => {}
         }
     }
 
@@ -463,22 +495,33 @@ pub async fn run_agent(
         }
     };
 
-    // Create user message with optional images
-    let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
-    if let Some(images) = &args.user_images {
-        for image in images.iter() {
-            if !image.s3.is_empty() {
-                parts.push(ContentPart::S3Object { s3_object: image.clone() });
-            }
+    // Add user message if provided and non-empty
+    if let Some(ref user_message) = args.user_message {
+        if !user_message.is_empty() {
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Text(user_message.clone())),
+                ..Default::default()
+            });
         }
     }
-    let user_content = OpenAIContent::Parts(parts);
 
-    messages.push(OpenAIMessage {
-        role: "user".to_string(),
-        content: Some(user_content),
-        ..Default::default()
-    });
+    // Add user images if provided
+    if let Some(ref user_images) = args.user_images {
+        if !user_images.is_empty() {
+            let mut parts = vec![];
+            for image in user_images.iter() {
+                if !image.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: image.clone() });
+                }
+            }
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Parts(parts)),
+                ..Default::default()
+            });
+        }
+    }
 
     let mut actions = vec![];
     let mut content = None;
@@ -596,7 +639,7 @@ pub async fn run_agent(
                 output_schema: args.output_schema.as_ref(),
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
-                user_message: &args.user_message,
+                user_message: args.user_message.as_deref().unwrap_or(""),
                 images: args.user_images.as_deref(),
             };
 
@@ -882,36 +925,41 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if context length is set)
+    // Persist complete conversation to memory at the end (only if in auto mode with context length)
+    // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) {
-        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Extract OpenAIMessages from final_messages
-                let all_messages: Vec<OpenAIMessage> =
-                    final_messages.iter().map(|m| m.message.clone()).collect();
+    if matches!(output_type, OutputType::Text) && !use_manual_messages {
+        if let Some(Memory::Auto { context_length }) = &args.memory {
+            if *context_length > 0 {
+                if let Some(step_id) = job.flow_step_id.as_deref() {
+                    // Extract OpenAIMessages from final_messages
+                    let all_messages: Vec<OpenAIMessage> =
+                        final_messages.iter().map(|m| m.message.clone()).collect();
 
-                if !all_messages.is_empty() {
-                    // Keep only the last n messages
-                    let start_idx = all_messages.len().saturating_sub(context_length);
-                    let messages_to_persist = all_messages[start_idx..].to_vec();
+                    if !all_messages.is_empty() {
+                        // Keep only the last n messages
+                        let start_idx = all_messages.len().saturating_sub(*context_length);
+                        let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
-                        if let Err(e) = write_to_memory(
-                            db,
-                            &job.workspace_id,
-                            memory_id,
-                            step_id,
-                            &messages_to_persist,
-                        )
-                        .await
+                        if let Some(memory_id) =
+                            flow_context.flow_status.and_then(|fs| fs.memory_id)
                         {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
+                            if let Err(e) = write_to_memory(
+                                db,
+                                &job.workspace_id,
+                                memory_id,
                                 step_id,
-                                e
-                            );
+                                &messages_to_persist,
+                            )
+                            .await
+                            {
+                                tracing::error!(
+                                    "Failed to persist {} messages to memory for step {}: {}",
+                                    messages_to_persist.len(),
+                                    step_id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
