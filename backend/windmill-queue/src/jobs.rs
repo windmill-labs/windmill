@@ -47,7 +47,7 @@ use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{
     Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-    SCRIPT_TOKEN_EXPIRY,
+    MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0, SCRIPT_TOKEN_EXPIRY,
 };
 
 use windmill_common::{
