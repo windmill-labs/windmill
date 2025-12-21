@@ -14,13 +14,7 @@
 		selectedIndex?: number | undefined
 	}
 
-	let {
-		dataTableRefs = [],
-		onAdd,
-		onRemove,
-		onSelect,
-		selectedIndex = undefined
-	}: Props = $props()
+	let { dataTableRefs = [], onAdd, onRemove, onSelect, selectedIndex = undefined }: Props = $props()
 
 	// Group refs by datatable, then by schema
 	type GroupedRefs = Map<string, Map<string, { ref: DataTableRef; index: number }[]>>
@@ -44,7 +38,13 @@
 	})
 </script>
 
-<PanelSection fullHeight={false} size="lg" title="data" id="app-editor-data-panel">
+<PanelSection
+	fullHeight={false}
+	size="lg"
+	title="data"
+	id="app-editor-data-panel"
+	tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."
+>
 	{#snippet action()}
 		<button
 			onclick={() => onAdd?.()}
