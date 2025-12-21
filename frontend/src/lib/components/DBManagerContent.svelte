@@ -21,6 +21,8 @@
 		loadTableMetaData
 	} from './apps/components/display/dbtable/metadata'
 
+	import type { SelectedTable } from './DBManager.svelte'
+
 	interface Props {
 		input: DbInput
 		showRepl?: boolean
@@ -29,6 +31,12 @@
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
 		dbSelector?: Snippet<[]>
+		/** Enable multi-select mode with checkboxes in sidebar */
+		multiSelectMode?: boolean
+		/** Selected tables in multi-select mode */
+		selectedTables?: SelectedTable[]
+		/** Tables that are already added and should show as disabled */
+		disabledTables?: SelectedTable[]
 	}
 
 	let {
@@ -38,7 +46,10 @@
 		isRefreshing = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector
+		dbSelector,
+		multiSelectMode = false,
+		selectedTables = $bindable([]),
+		disabledTables = []
 	}: Props = $props()
 
 	let dbSchema: DBSchema | undefined = $derived($dbSchemas[getDbSchemasPath(input)])
@@ -201,6 +212,9 @@
 				{dbSelector}
 				bind:selectedSchemaKey
 				bind:selectedTableKey
+				{multiSelectMode}
+				bind:selectedTables
+				{disabledTables}
 			/>
 		</Pane>
 		{#if showRepl}

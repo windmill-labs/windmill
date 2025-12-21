@@ -17,6 +17,12 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
 
+	/** Represents a selected table with its schema */
+	export interface SelectedTable {
+		schema: string
+		table: string
+	}
+
 	type Props = {
 		dbType: DbType
 		dbSchema: DBSchema
@@ -30,6 +36,12 @@
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
 		dbSelector?: Snippet<[]>
+		/** Enable multi-select mode with checkboxes in sidebar */
+		multiSelectMode?: boolean
+		/** Selected tables in multi-select mode */
+		selectedTables?: SelectedTable[]
+		/** Tables that are already added and should show as disabled */
+		disabledTables?: SelectedTable[]
 	}
 	let {
 		dbType,
@@ -43,8 +55,33 @@
 		initialTableKey,
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector
+		dbSelector,
+		multiSelectMode = false,
+		selectedTables = $bindable([]),
+		disabledTables = []
 	}: Props = $props()
+
+	// Helper to check if a table is selected in multi-select mode
+	function isTableSelected(schema: string, table: string): boolean {
+		return selectedTables.some((t) => t.schema === schema && t.table === table)
+	}
+
+	// Helper to check if a table is disabled (already added)
+	function isTableDisabled(schema: string, table: string): boolean {
+		return disabledTables.some((t) => t.schema === schema && t.table === table)
+	}
+
+	// Toggle table selection in multi-select mode
+	function toggleTableSelection(schema: string, table: string) {
+		if (isTableDisabled(schema, table)) return
+
+		const idx = selectedTables.findIndex((t) => t.schema === schema && t.table === table)
+		if (idx >= 0) {
+			selectedTables = selectedTables.filter((_, i) => i !== idx)
+		} else {
+			selectedTables = [...selectedTables, { schema, table }]
+		}
+	}
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
 	let search = $state('')
@@ -152,48 +189,71 @@
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
 			{#each filteredTableKeys as tableKey}
+				{@const isDisabled = multiSelectMode && isTableDisabled(selected.schemaKey ?? '', tableKey)}
+				{@const isChecked =
+					multiSelectMode && (isTableSelected(selected.schemaKey ?? '', tableKey) || isDisabled)}
 				<button
 					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
-						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
-					onclick={() => (selected.tableKey = tableKey)}
+						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
+						(isDisabled ? ' opacity-50' : '')}
+					onclick={() => {
+						selected.tableKey = tableKey
+						if (multiSelectMode) {
+							toggleTableSelection(selected.schemaKey ?? '', tableKey)
+						}
+					}}
 				>
+					{#if multiSelectMode}
+						<div class="shrink-0">
+							<input
+								type="checkbox"
+								checked={isChecked}
+								disabled={isDisabled}
+								class="w-4 h-4 cursor-pointer"
+								onclick={(e) => e.stopPropagation()}
+								onchange={() => toggleTableSelection(selected.schemaKey ?? '', tableKey)}
+							/>
+						</div>
+					{/if}
 					<Table2 class="text-primary shrink-0" size={16} />
 					<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
-					<DropdownV2
-						items={() => [
-							{
-								displayName: 'Delete table',
-								icon: Trash2Icon,
-								action: () =>
-									(askingForConfirmation = {
-										title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
-										confirmationText: 'Delete permanently',
-										open: true,
-										onConfirm: async () => {
-											askingForConfirmation && (askingForConfirmation.loading = true)
-											try {
-												await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
-												refresh?.()
-												sendUserToast(`Table '${tableKey}' deleted successfully`)
-											} catch (e) {
-												let msg: string | undefined = (e as Error).message
-												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-												sendUserToast(msg ?? 'Action failed!', true)
+					{#if !multiSelectMode}
+						<DropdownV2
+							items={() => [
+								{
+									displayName: 'Delete table',
+									icon: Trash2Icon,
+									action: () =>
+										(askingForConfirmation = {
+											title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
+											confirmationText: 'Delete permanently',
+											open: true,
+											onConfirm: async () => {
+												askingForConfirmation && (askingForConfirmation.loading = true)
+												try {
+													await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
+													refresh?.()
+													sendUserToast(`Table '${tableKey}' deleted successfully`)
+												} catch (e) {
+													let msg: string | undefined = (e as Error).message
+													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+													sendUserToast(msg ?? 'Action failed!', true)
+												}
+												askingForConfirmation = undefined
 											}
-											askingForConfirmation = undefined
-										}
-									})
-							}
-						]}
-						class="w-fit"
-					>
-						<svelte:fragment slot="buttonReplacement">
-							<MoreVertical
-								size={8}
-								class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-							/>
-						</svelte:fragment>
-					</DropdownV2>
+										})
+								}
+							]}
+							class="w-fit"
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<MoreVertical
+									size={8}
+									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+								/>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</button>
 			{/each}
 		</div>

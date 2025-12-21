@@ -11,6 +11,7 @@
 	import { ArrowLeft, Expand, LoaderCircle, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
+	import type { SelectedTable } from '../DBManager.svelte'
 
 	interface Props {
 		onAdd?: (ref: DataTableRef) => void
@@ -29,7 +30,10 @@
 	let windowWidth = $state(window.innerWidth)
 	let expand = $state(false)
 
-	// Selected schema/table from DBManager
+	// Multi-select mode: selected tables
+	let selectedTables = $state<SelectedTable[]>([])
+
+	// Selected schema/table from DBManager (for preview)
 	let selectedSchemaKey = $state<string | undefined>(undefined)
 	let selectedTableKey = $state<string | undefined>(undefined)
 
@@ -55,6 +59,7 @@
 		}
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
+		selectedTables = []
 		expand = false
 		open = true
 	}
@@ -68,6 +73,7 @@
 		selectedTableKey = ref.table
 		initialTableKey = ref.table
 		initialSchemaKey = ref.schema
+		selectedTables = []
 		expand = false
 		open = true
 	}
@@ -77,20 +83,30 @@
 		dbManagerContent?.clearReplResult()
 	}
 
-	function handleAddTable() {
+	function handleAddTables() {
 		if (!selectedDatatable) {
 			sendUserToast('Please select a data table first', true)
 			return
 		}
 
-		const ref: DataTableRef = {
-			datatable: selectedDatatable,
-			...(selectedSchemaKey && { schema: selectedSchemaKey }),
-			...(selectedTableKey && { table: selectedTableKey })
+		if (selectedTables.length === 0) {
+			sendUserToast('Please select at least one table', true)
+			return
 		}
 
-		onAdd?.(ref)
-		sendUserToast(`Added ${selectedTableKey ?? selectedSchemaKey ?? selectedDatatable} to app`)
+		// Add all selected tables
+		for (const table of selectedTables) {
+			const ref: DataTableRef = {
+				datatable: selectedDatatable,
+				schema: table.schema,
+				table: table.table
+			}
+			onAdd?.(ref)
+		}
+
+		const count = selectedTables.length
+		sendUserToast(`Added ${count} table${count > 1 ? 's' : ''} to app`)
+		selectedTables = []
 	}
 
 	const datatableItems = $derived(
@@ -118,19 +134,15 @@
 		}
 	})
 
-	// Check if current selection is already in the list
-	const isCurrentSelectionInList = $derived.by(() => {
-		if (!selectedDatatable) return false
-		return existingRefs.some(
-			(ref) =>
-				ref.datatable === selectedDatatable &&
-				ref.schema === selectedSchemaKey &&
-				ref.table === selectedTableKey
-		)
-	})
+	// Convert existingRefs to disabledTables format for the current datatable
+	const disabledTables = $derived(
+		existingRefs
+			.filter((ref) => ref.datatable === selectedDatatable && ref.schema && ref.table)
+			.map((ref) => ({ schema: ref.schema!, table: ref.table! }))
+	)
 
-	// Can add: has a table selected and it's not already in the list
-	const canAdd = $derived(selectedDatatable && selectedTableKey && !isCurrentSelectionInList)
+	// Can add: has tables selected
+	const canAdd = $derived(selectedDatatable && selectedTables.length > 0)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -157,6 +169,9 @@
 					bind:isRefreshing
 					bind:selectedSchemaKey
 					bind:selectedTableKey
+					multiSelectMode={true}
+					bind:selectedTables
+					{disabledTables}
 				>
 					{#snippet dbSelector()}
 						{#if datatables.loading}
@@ -183,18 +198,20 @@
 		{/if}
 
 		{#snippet actions()}
-			{#if selectedTableKey}
-				<Button
-					variant="contained"
-					color="blue"
-					disabled={!canAdd}
-					on:click={handleAddTable}
-					startIcon={{ icon: Plus }}
-					size="xs"
-				>
-					{isCurrentSelectionInList ? 'Already added' : 'Add to app'}
-				</Button>
-			{/if}
+			<Button
+				variant="contained"
+				color="blue"
+				disabled={!canAdd}
+				on:click={handleAddTables}
+				startIcon={{ icon: Plus }}
+				size="xs"
+			>
+				{#if selectedTables.length > 0}
+					Add {selectedTables.length} table{selectedTables.length > 1 ? 's' : ''}
+				{:else}
+					Add to app
+				{/if}
+			</Button>
 
 			<Button
 				loading={isRefreshing}
