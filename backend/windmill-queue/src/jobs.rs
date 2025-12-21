@@ -2694,7 +2694,7 @@ impl PulledJobResult {
                     args.remove(field_name);
                 }
             } else if let Some(arg_name_to_accumulate) =
-                // TODO: Maybe support multipe arguments in future
+                // TODO: Maybe support multiple arguments in future
                 debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
             {
                 tracing::debug!(
