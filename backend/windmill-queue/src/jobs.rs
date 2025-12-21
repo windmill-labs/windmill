@@ -2611,21 +2611,29 @@ impl PulledJobResult {
             RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
                 .await?
                 .0;
+        let no_runnable_settings = !*MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.read().await
+            && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
         // TODO: test nodes_to_relock. And especially overlaying ones.
         let (kind, j_id) = (j.kind, j.id);
-        if debounce_delay_s.is_some() && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+        if (no_runnable_settings || debounce_delay_s.is_some())
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        {
+            if no_runnable_settings {
+                tracing::warn!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    "Workers behind minimum version for runnable settings v0: debouncing preprocessor running for all jobs, causing performance degradation. Please update workers to latest version."
+                );
+            }
+
             let r = sqlx::query!(
                 "
                 WITH deleted_key AS (
                     DELETE FROM debounce_key WHERE job_id = $1 RETURNING key
                 ) SELECT
-                    debounce_batch,
                     (SELECT key FROM deleted_key) AS debounce_key,
-                    (status = 'skipped') AS needs_debounce
-                FROM v2_job_debounce_batch jb
-                    LEFT JOIN v2_job_completed j ON j.id = jb.id
-                WHERE jb.id = $1
+                    (SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1) AS needs_debounce
                 ",
                 j_id,
             )
@@ -2669,20 +2677,34 @@ impl PulledJobResult {
                 && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
                 // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
-                if let Some(args) = &mut j.args {
-                    args.remove(match kind {
-                        JobKind::FlowDependencies => "nodes_to_relock",
-                        JobKind::AppDependencies => "components_to_relock",
-                        _ => unreachable!(),
-                    });
-                }
-            }
+                let field_name = match kind {
+                    JobKind::FlowDependencies => "nodes_to_relock",
+                    JobKind::AppDependencies => "components_to_relock",
+                    _ => unreachable!(),
+                };
 
-            if let Some(arg_name_to_accumulate) =
+                tracing::debug!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    field_removed = field_name,
+                    "Removing optimization field: workers behind v2 debouncing version, disabling relock optimization"
+                );
+
+                if let Some(args) = &mut j.args {
+                    args.remove(field_name);
+                }
+            } else if let Some(arg_name_to_accumulate) =
                 // TODO: Maybe support multipe arguments in future
                 debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
             {
+                tracing::debug!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    arg_name = arg_name_to_accumulate,
+                    "Accumulating debounced arguments from batch"
+                );
                 let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
+                // TODO: use debounce_batch we queried earlier.
                 for str_o in sqlx::query_scalar!(
                     "WITH ids AS (
                         SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
@@ -2701,6 +2723,13 @@ impl PulledJobResult {
                         accumulated_arg.append(&mut serde_json::from_str(s)?);
                     }
                 }
+
+                tracing::debug!(
+                    job_id = %j_id,
+                    arg_name = arg_name_to_accumulate,
+                    accumulated_count = accumulated_arg.len(),
+                    "Accumulated arguments from debounced jobs in batch"
+                );
 
                 // TODO: test job without args.
                 j.args

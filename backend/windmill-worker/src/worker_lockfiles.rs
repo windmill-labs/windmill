@@ -26,7 +26,9 @@ use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
+use windmill_common::worker::{
+    to_raw_value, to_raw_value_owned, write_file, Connection, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
@@ -1450,8 +1452,11 @@ async fn lock_modules<'c>(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
-                if skip_creating_new_lock {
+                // TODO: debouble check.
+                // TODO: same for apps.
+                if skip_creating_new_lock(&language, &content)
+                    && *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                {
                     tx = dependency_map
                         .patch(get_references(), e.id.clone(), tx)
                         .await?;
@@ -1971,7 +1976,9 @@ async fn lock_modules_app(
                                 .get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                if skip_creating_new_lock(&language, &content) {
+                                if skip_creating_new_lock(&language, &content)
+                                    && *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                {
                                     dependency_map
                                         .patch(
                                             referenced_paths.clone(),
