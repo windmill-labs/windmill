@@ -144,7 +144,7 @@
 						count is reached, the job will run regardless of ongoing debouncing.</Tooltip
 					>
 				{/snippet}
-				<SecondsInput disabled={!$enterpriseLicense} bind:seconds={max_total_debounces_amount} />
+				<input type="number" disabled={!$enterpriseLicense} bind:value={max_total_debounces_amount} min="0" />
 			</Label>
 		</div>
 	{/if}
