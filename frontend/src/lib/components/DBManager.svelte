@@ -83,6 +83,49 @@
 		}
 	}
 
+	// Get tables for a schema (filtered by search)
+	function getTablesForSchema(schema: string): string[] {
+		const tables = Object.keys(dbSchema.schema[schema] ?? {})
+		if (search) {
+			return tables.filter((t) => t.toLowerCase().includes(search.toLowerCase())).sort()
+		}
+		return tables.sort()
+	}
+
+	// Check if all selectable tables in a schema are selected
+	function isSchemaFullySelected(schema: string): boolean {
+		const tables = getTablesForSchema(schema)
+		if (tables.length === 0) return false
+		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
+		if (selectableTables.length === 0) return true // All disabled means "fully selected"
+		return selectableTables.every((t) => isTableSelected(schema, t))
+	}
+
+	// Check if some (but not all) tables in a schema are selected
+	function isSchemaPartiallySelected(schema: string): boolean {
+		const tables = getTablesForSchema(schema)
+		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
+		const selectedCount = selectableTables.filter((t) => isTableSelected(schema, t)).length
+		return selectedCount > 0 && selectedCount < selectableTables.length
+	}
+
+	// Toggle all tables in a schema
+	function toggleSchemaSelection(schema: string) {
+		const tables = getTablesForSchema(schema)
+		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
+
+		if (isSchemaFullySelected(schema)) {
+			// Deselect all selectable tables in this schema
+			selectedTables = selectedTables.filter((t) => t.schema !== schema)
+		} else {
+			// Select all selectable tables in this schema
+			const newSelections = selectableTables
+				.filter((t) => !isTableSelected(schema, t))
+				.map((t) => ({ schema, table: t }))
+			selectedTables = [...selectedTables, ...newSelections]
+		}
+	}
+
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
 	let search = $state('')
 	let selected: {
@@ -153,7 +196,7 @@
 			{#if dbSelector}
 				{@render dbSelector()}
 			{/if}
-			{#if dbSupportsSchemas}
+			{#if dbSupportsSchemas && !multiSelectMode}
 				<Select
 					bind:value={selected.schemaKey}
 					items={safeSelectItems(schemaKeys)}
@@ -188,36 +231,86 @@
 			<ClearableInput bind:value={search} placeholder="Search table..." />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
-			{#each filteredTableKeys as tableKey}
-				{@const isDisabled = multiSelectMode && isTableDisabled(selected.schemaKey ?? '', tableKey)}
-				{@const isChecked =
-					multiSelectMode && (isTableSelected(selected.schemaKey ?? '', tableKey) || isDisabled)}
-				<button
-					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
-						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
-						(isDisabled ? ' opacity-50' : '')}
-					onclick={() => {
-						selected.tableKey = tableKey
-						if (multiSelectMode) {
-							toggleTableSelection(selected.schemaKey ?? '', tableKey)
-						}
-					}}
-				>
-					{#if multiSelectMode}
-						<div class="shrink-0">
-							<input
-								type="checkbox"
-								checked={isChecked}
-								disabled={isDisabled}
-								class="w-4 h-4 cursor-pointer"
-								onclick={(e) => e.stopPropagation()}
-								onchange={() => toggleTableSelection(selected.schemaKey ?? '', tableKey)}
-							/>
-						</div>
+			{#if multiSelectMode}
+				<!-- Multi-select mode: show all schemas with their tables -->
+				{#each schemaKeys as schemaKey}
+					{@const schemaTables = getTablesForSchema(schemaKey)}
+					{@const isFullySelected = isSchemaFullySelected(schemaKey)}
+					{@const isPartiallySelected = isSchemaPartiallySelected(schemaKey)}
+					{#if schemaTables.length > 0}
+						<!-- Schema header with checkbox -->
+						<button
+							class="w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary"
+							onclick={() => toggleSchemaSelection(schemaKey)}
+						>
+							<span class="shrink-0">
+								<input
+									type="checkbox"
+									checked={isFullySelected}
+									indeterminate={isPartiallySelected}
+									class="w-4 h-4 cursor-pointer"
+									onclick={(e) => e.stopPropagation()}
+									onchange={() => toggleSchemaSelection(schemaKey)}
+								/>
+							</span>
+							<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
+								>{schemaKey}</span
+							>
+							<span class="text-2xs text-tertiary mr-2">{schemaTables.length}</span>
+						</button>
+						<!-- Tables under this schema -->
+						{#each schemaTables as tableKey}
+							{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
+							{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
+							{@const isCurrentPreview = selected.schemaKey === schemaKey && selected.tableKey === tableKey}
+							<button
+								class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
+									(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
+									(isDisabled ? ' opacity-50' : '')}
+								onclick={() => {
+									selected.schemaKey = schemaKey
+									selected.tableKey = tableKey
+									toggleTableSelection(schemaKey, tableKey)
+								}}
+							>
+								<span class="shrink-0">
+									<input
+										type="checkbox"
+										checked={isChecked}
+										disabled={isDisabled}
+										class="w-4 h-4 cursor-pointer"
+										onclick={(e) => e.stopPropagation()}
+										onchange={() => toggleTableSelection(schemaKey, tableKey)}
+									/>
+								</span>
+								<Table2 class="text-primary shrink-0" size={14} />
+								<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p
+								>
+							</button>
+						{/each}
+						<!-- New table button for this schema -->
+						<button
+							class="w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 hover:bg-gray-500/10 text-tertiary"
+							onclick={() => {
+								selected.schemaKey = schemaKey
+								dbTableEditorState = { open: true }
+							}}
+						>
+							<Plus class="shrink-0" size={14} />
+							<span class="text-xs">New table</span>
+						</button>
 					{/if}
-					<Table2 class="text-primary shrink-0" size={16} />
-					<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
-					{#if !multiSelectMode}
+				{/each}
+			{:else}
+				<!-- Normal mode: show tables for selected schema -->
+				{#each filteredTableKeys as tableKey}
+					<button
+						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
+							(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
+						onclick={() => (selected.tableKey = tableKey)}
+					>
+						<Table2 class="text-primary shrink-0" size={16} />
+						<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
 						<DropdownV2
 							items={() => [
 								{
@@ -253,18 +346,20 @@
 								/>
 							</svelte:fragment>
 						</DropdownV2>
-					{/if}
-				</button>
-			{/each}
+					</button>
+				{/each}
+			{/if}
 		</div>
-		<Button
-			on:click={() => (dbTableEditorState = { open: true })}
-			wrapperClasses="mx-2 my-2 text-sm"
-			startIcon={{ icon: Plus }}
-			variant={tableKeys.length === 0 ? 'accent' : 'default'}
-		>
-			New table
-		</Button>
+		{#if !multiSelectMode}
+			<Button
+				on:click={() => (dbTableEditorState = { open: true })}
+				wrapperClasses="mx-2 my-2 text-sm"
+				startIcon={{ icon: Plus }}
+				variant={tableKeys.length === 0 ? 'accent' : 'default'}
+			>
+				New table
+			</Button>
+		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#if tableKey}
