@@ -57,6 +57,10 @@
 
 	function handleSelectDataTable(ref: DataTableRef, index: number) {
 		selectedDataTableIndex = selectedDataTableIndex === index ? undefined : index
+		// Open the drawer in manage mode when selecting a data table
+		if (selectedDataTableIndex === index) {
+			dataTableDrawer?.openDrawerWithRef(ref)
+		}
 	}
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
@@ -322,7 +326,11 @@
 	onSelect={handleSelectDataTable}
 	selectedIndex={selectedDataTableIndex}
 />
-<RawAppDataTableDrawer bind:this={dataTableDrawer} onAdd={handleAddDataTable} />
+<RawAppDataTableDrawer
+	bind:this={dataTableDrawer}
+	onAdd={handleAddDataTable}
+	existingRefs={dataTableRefs}
+/>
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>

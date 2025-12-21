@@ -15,6 +15,7 @@
 	import Portal from './Portal.svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import type { Snippet } from 'svelte'
 
 	type Props = {
 		dbType: DbType
@@ -26,6 +27,9 @@
 		refresh?: () => void
 		initialSchemaKey?: string
 		initialTableKey?: string
+		selectedSchemaKey?: string | undefined
+		selectedTableKey?: string | undefined
+		dbSelector?: Snippet<[]>
 	}
 	let {
 		dbType,
@@ -36,7 +40,10 @@
 		dbSupportsSchemas,
 		refresh,
 		initialSchemaKey,
-		initialTableKey
+		initialTableKey,
+		selectedSchemaKey = $bindable(undefined),
+		selectedTableKey = $bindable(undefined),
+		dbSelector
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
@@ -56,6 +63,16 @@
 					? initialTableKey
 					: undefined
 			selected = { schemaKey, tableKey }
+		}
+	})
+
+	// Sync selected state with bindable props
+	$effect(() => {
+		if (selected.schemaKey) {
+			selectedSchemaKey = selected.schemaKey
+		}
+		if (selected.tableKey) {
+			selectedTableKey = selected.tableKey
 		}
 	})
 
@@ -96,6 +113,9 @@
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
+			{#if dbSelector}
+				{@render dbSelector()}
+			{/if}
 			{#if dbSupportsSchemas}
 				<Select
 					bind:value={selected.schemaKey}
