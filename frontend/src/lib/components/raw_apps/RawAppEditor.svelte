@@ -85,7 +85,7 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
-	historyManager.manualSnapshot(files ?? {}, runnables, summary)
+	historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -96,7 +96,8 @@
 					path != '' ? `rawapp-${path}` : 'rawapp',
 					encodeState({
 						files,
-						runnables: runnables
+						runnables: runnables,
+						dataTableRefs: dataTableRefs
 					})
 				)
 			} catch (err) {
@@ -200,7 +201,8 @@
 		historyManager.startAutoSnapshot(() => ({
 			files: files ?? {},
 			runnables,
-			summary
+			summary,
+			dataTableRefs
 		}))
 
 		return () => {
@@ -382,7 +384,7 @@
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point
 				return (
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)?.id ??
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs, true)?.id ??
 					historyManager.getId()
 				)
 			},
@@ -457,7 +459,7 @@
 	function handleUndo() {
 		// Create a snapshot if we're at the latest position with pending changes
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
 		}
 
 		const entry = historyManager.undo()
@@ -476,7 +478,7 @@
 	function handleHistorySelect(id: number) {
 		// Create a snapshot if we have pending changes before navigating
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
 		}
 
 		const entry = historyManager.selectEntry(id)
@@ -489,11 +491,13 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		summary: string
+		dataTableRefs: string[]
 	}) {
 		try {
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
+			dataTableRefs = structuredClone($state.snapshot(entry.dataTableRefs))
 
 			setFilesInIframe(entry.files)
 			populateRunnables()
@@ -518,7 +522,7 @@
 		// Ctrl/Cmd + Shift + H for manual snapshot
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
 		}
 	}
 </script>
@@ -574,6 +578,7 @@
 				dataTableRefs={dataTableRefsObjects}
 				onDataTableRefsChange={(newRefs) => {
 					dataTableRefs = newRefs.map(formatDataTableRef)
+					saveFrontendDraft()
 				}}
 				{runnables}
 				{modules}
@@ -581,7 +586,7 @@
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
 				onManualSnapshot={() => {
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs, true)
 				}}
 			></RawAppSidebar>
 		</Pane>

@@ -1788,7 +1788,11 @@ export function getQueryStmtCountHeuristic(query: string): number {
 	const trimmedQuery = query.trimEnd()
 	if (currState === 'normal' && trimmedQuery !== '' && !trimmedQuery.endsWith(';')) {
 		count++
-	} else if (currState === 'single-quote' || currState === 'double-quote' || currState === 'block-comment') {
+	} else if (
+		currState === 'single-quote' ||
+		currState === 'double-quote' ||
+		currState === 'block-comment'
+	) {
 		// Unclosed quote or unclosed block comment means there's an implicit statement
 		count++
 	} else if (currState === 'line-comment' && hasContentAfterLastSemicolon) {
