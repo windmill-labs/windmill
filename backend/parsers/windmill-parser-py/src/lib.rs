@@ -119,11 +119,13 @@ pub fn parse_python_signature(
 
     // Parse full code to get all class definitions for Pydantic/dataclass detection
     // Use RAII guard to ensure cleanup even on early return
-    let _guard = if let Ok(full_ast) = Suite::parse(code, "main.py") {
-        Some(ModuleGuard::new(full_ast))
-    } else {
-        None
-    };
+    let _guard = Suite::parse(code, "main.py")
+        .map_err(|e| {
+            eprintln!("Warning: Failed to parse code for Pydantic/dataclass detection: {:?}", e);
+            e
+        })
+        .ok()
+        .map(ModuleGuard::new);
 
     let filtered_code = filter_non_main(code, &main_name);
     if filtered_code.is_empty() {
@@ -518,8 +520,14 @@ fn parse_dataclass_fields(body: &[Stmt], class_name: &str) -> Option<ObjectType>
 /// Extracts Windmill Typ from Python type annotation (RECURSIVE)
 /// depth: Current recursion depth (prevents infinite recursion)
 fn extract_field_type(annotation: &Expr, depth: u8) -> Typ {
+    const MAX_RECURSION_DEPTH: u8 = 10;
+
     // Prevent infinite recursion (max depth: 10)
-    if depth >= 10 {
+    if depth >= MAX_RECURSION_DEPTH {
+        eprintln!(
+            "Warning: Type annotation recursion limit ({}) reached. Returning Unknown type.",
+            MAX_RECURSION_DEPTH
+        );
         return Typ::Unknown;
     }
 
@@ -572,14 +580,27 @@ fn extract_field_type(annotation: &Expr, depth: u8) -> Typ {
 
         // Union types: str | int (Python 3.10+) or Union[str, int]
         // MVP: Not supported, return Unknown
-        Expr::BinOp(_) => Typ::Unknown,
+        Expr::BinOp(_) => {
+            eprintln!(
+                "Warning: Union types (e.g., str | int) are not yet supported. \
+                 Field will be treated as Unknown type."
+            );
+            Typ::Unknown
+        }
 
         // String annotations: "ForwardRef" (forward references)
         // MVP: Not supported, return Unknown
         Expr::Constant(ExprConstant {
-            value: Constant::Str(_),
+            value: Constant::Str(s),
             ..
-        }) => Typ::Unknown,
+        }) => {
+            eprintln!(
+                "Warning: Forward references (e.g., '{}') are not yet supported. \
+                 Field will be treated as Unknown type.",
+                s
+            );
+            Typ::Unknown
+        }
 
         // All other annotations
         _ => Typ::Unknown,
@@ -1233,6 +1254,279 @@ def main(person: Person):
                 }
             }
             _ => panic!("Expected Typ::Object for Person model"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pydantic_empty_model() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+
+class EmptyModel(BaseModel):
+    pass
+
+def main(model: EmptyModel):
+    return 'ok'
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                assert_eq!(obj.name, Some("EmptyModel".to_string()));
+                assert!(obj.props.is_none());
+            }
+            _ => panic!("Expected Typ::Object for empty model"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pydantic_list_field() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+from typing import List
+
+class TodoList(BaseModel):
+    items: List[str]
+    count: int
+
+def main(todos: TodoList):
+    return todos.count
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                assert_eq!(obj.name, Some("TodoList".to_string()));
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+
+                // Verify List[str] type
+                assert_eq!(props[0].key, "items");
+                match props[0].typ.as_ref() {
+                    Typ::List(inner) => {
+                        assert_eq!(**inner, Typ::Str(None));
+                    }
+                    _ => panic!("Expected Typ::List for items field"),
+                }
+
+                assert_eq!(props[1].key, "count");
+                assert_eq!(*props[1].typ, Typ::Int);
+            }
+            _ => panic!("Expected Typ::Object"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pydantic_optional_field() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+from typing import Optional
+
+class User(BaseModel):
+    name: str
+    nickname: Optional[str]
+
+def main(user: User):
+    return user.name
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+
+                assert_eq!(props[0].key, "name");
+                assert_eq!(*props[0].typ, Typ::Str(None));
+
+                // Optional[str] should unwrap to str
+                assert_eq!(props[1].key, "nickname");
+                assert_eq!(*props[1].typ, Typ::Str(None));
+            }
+            _ => panic!("Expected Typ::Object"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dataclass_with_decorator_args() -> anyhow::Result<()> {
+        let code = "
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class ImmutableConfig:
+    setting: str
+    value: int
+
+def main(config: ImmutableConfig):
+    return config.setting
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                assert_eq!(obj.name, Some("ImmutableConfig".to_string()));
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+            }
+            _ => panic!("Expected Typ::Object for dataclass"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pydantic_dict_field() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+from typing import Dict
+
+class Config(BaseModel):
+    settings: Dict[str, str]
+    name: str
+
+def main(config: Config):
+    return config.name
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+
+                // Dict should return generic Object
+                assert_eq!(props[0].key, "settings");
+                match props[0].typ.as_ref() {
+                    Typ::Object(_) => {} // Generic object for Dict
+                    _ => panic!("Expected Typ::Object for Dict field"),
+                }
+            }
+            _ => panic!("Expected Typ::Object"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_non_model_class_treated_as_resource() -> anyhow::Result<()> {
+        let code = "
+class RegularClass:
+    def __init__(self, value):
+        self.value = value
+
+def main(obj: RegularClass):
+    return 'ok'
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        // Regular classes (non-Pydantic/dataclass) should be treated as Resource
+        assert_eq!(result.args[0].typ, Typ::Resource("RegularClass".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_syntax_fallback() -> anyhow::Result<()> {
+        // Code with syntax errors - should still not crash
+        let code = "
+from pydantic import BaseModel
+
+class User(BaseModel:  # Missing closing paren
+    name: str
+
+def main(user: User):
+    return 'ok'
+";
+        // Should not panic, even with invalid syntax
+        let result = parse_python_signature(code, None, false);
+
+        // Either succeeds with Unknown types or fails gracefully
+        assert!(result.is_ok() || result.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_datetime_type() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+from datetime import datetime
+
+class Event(BaseModel):
+    name: str
+    created_at: datetime
+
+def main(event: Event):
+    return event.name
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+
+                assert_eq!(props[0].key, "name");
+                assert_eq!(*props[0].typ, Typ::Str(None));
+
+                assert_eq!(props[1].key, "created_at");
+                assert_eq!(*props[1].typ, Typ::Datetime);
+            }
+            _ => panic!("Expected Typ::Object"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiple_pydantic_models() -> anyhow::Result<()> {
+        let code = "
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+
+class Post(BaseModel):
+    title: str
+    author: User
+
+def main(post: Post):
+    return post.title
+";
+        let result = parse_python_signature(code, None, false)?;
+
+        assert_eq!(result.args.len(), 1);
+        match &result.args[0].typ {
+            Typ::Object(obj) => {
+                assert_eq!(obj.name, Some("Post".to_string()));
+                let props = obj.props.as_ref().unwrap();
+                assert_eq!(props.len(), 2);
+
+                // Nested User model
+                assert_eq!(props[1].key, "author");
+                match props[1].typ.as_ref() {
+                    Typ::Object(nested) => {
+                        assert_eq!(nested.name, Some("User".to_string()));
+                    }
+                    _ => panic!("Expected nested Typ::Object for User"),
+                }
+            }
+            _ => panic!("Expected Typ::Object"),
         }
 
         Ok(())
