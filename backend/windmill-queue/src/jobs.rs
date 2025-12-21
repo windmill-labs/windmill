@@ -2611,6 +2611,7 @@ impl PulledJobResult {
             RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
                 .await?
                 .0;
+
         let no_runnable_settings = !*MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.read().await
             && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
