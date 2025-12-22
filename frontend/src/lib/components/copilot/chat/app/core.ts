@@ -836,11 +836,13 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`get_datatables()\`: Get all datatables configured in the app with their schemas (tables, columns, types)
 - \`exec_datatable_sql(datatable_name, sql, new_table?)\`: Execute SQL query on a datatable. Use for data exploration or modifications. When creating a new table, pass \`new_table: { schema, name }\` to register it in the app.
 
-## Data Storage Best Practices
+## Data Storage with Data Tables
 
-**When the app needs to store or persist data, you should use datatables.** Datatables provide a managed PostgreSQL database that integrates seamlessly with Windmill apps.
+**When the app needs to store or persist data, you MUST use datatables.** Datatables provide a managed PostgreSQL database that integrates seamlessly with Windmill apps, with near-zero setup and workspace-scoped access.
 
-1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, reuse it rather than creating a new one.
+### Key Principles
+
+1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one.
 
 2. **Create new tables when needed**: If no existing table fits your needs, create one using \`exec_datatable_sql\` with a CREATE TABLE statement and the \`new_table\` parameter:
    \`\`\`
@@ -851,13 +853,54 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
    })
    \`\`\`
 
-3. **Use datatables for**:
+3. **Use schemas to organize data**: Use PostgreSQL schemas to organize tables logically. Reference schemas with \`schema.table\` syntax.
+
+4. **Use datatables for**:
    - User data, settings, preferences
    - Application state that needs to persist
-   - Lists, records, logs
+   - Lists, records, logs, history
    - Any data the app needs to store and retrieve
 
-4. **Access data from backend runnables**: Create inline scripts that query the datatable to fetch or modify data, then call them from the frontend.
+### Accessing Data Tables from Backend Runnables
+
+Create inline scripts that use the Windmill SDK to query datatables:
+
+**TypeScript (Bun)**:
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  // Use default 'main' datatable
+  let sql = wmill.datatable();
+  // Or specify a named datatable: wmill.datatable('named_datatable')
+
+  // Safe string interpolation (parameterized query)
+  let user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  return user;
+}
+\`\`\`
+
+**Python**:
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()  # or wmill.datatable('named_datatable')
+
+    # Use positional arguments ($1, $2, etc.)
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    return user
+\`\`\`
+
+### Common Operations
+
+- **Fetch all**: \`sql\`SELECT * FROM table\`.fetch()\` or \`db.query('SELECT * FROM table').fetch()\`
+- **Fetch one**: \`.fetchOne()\` or \`.fetch_one()\`
+- **Insert**: \`sql\`INSERT INTO table (col) VALUES (\${value})\`\`
+- **Update**: \`sql\`UPDATE table SET col = \${value} WHERE id = \${id}\`\`
+- **Delete**: \`sql\`DELETE FROM table WHERE id = \${id}\`\`
+
+The "main" datatable is the default and can be accessed without specifying a name.
 
 ## Backend Runnable Configuration
 
