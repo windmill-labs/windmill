@@ -47,7 +47,7 @@ use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{
     Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-    MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0, SCRIPT_TOKEN_EXPIRY,
+    SCRIPT_TOKEN_EXPIRY,
 };
 
 use windmill_common::{
@@ -2612,64 +2612,33 @@ impl PulledJobResult {
                 .await?
                 .0;
 
-        let no_runnable_settings = !*MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.read().await
-            && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
-
         let (kind, j_id) = (j.kind, j.id);
-        if (no_runnable_settings || debounce_delay_s.filter(|x| *x > 0).is_some())
+        let is_djob_to_debounce = kind.is_dependency()
+            && j.args
+                .as_ref()
+                .and_then(|x| x.get("triggered_by_relative_import"))
+                .is_some()
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+
+        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
         {
-            if no_runnable_settings {
-                tracing::warn!(
-                    job_id = %j_id,
-                    job_kind = ?kind,
-                    "Workers behind minimum version for runnable settings v0: debouncing preprocessor running for all jobs, causing performance degradation. Please update workers to latest version."
-                );
-            }
-
-            let r = sqlx::query!(
-                "
-                WITH deleted_key AS (
-                    DELETE FROM debounce_key WHERE job_id = $1 RETURNING key
-                ) SELECT
-                    (SELECT key FROM deleted_key) AS debounce_key,
-                    (SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1) AS needs_debounce
-                ",
+            let needs_debounce = sqlx::query_scalar!(
+                "SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
                 j_id,
             )
-            .fetch_one(db)
-            .await?;
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            .unwrap_or_default();
 
-            // debounce_key isn't owned by this job, so this either means:
-            // 1. it wasn't debounced because of exceeding limits
-            // 2. or job being pulled while someone tried to debounce it.
-            if let Some(resolved_key) = r.debounce_key {
-                tracing::debug!(
+            if needs_debounce {
+                tracing::info!(
                     job_id = %j_id,
-                    debounce_key = %resolved_key,
-                    "Successfully deleted debounce_key"
+                    "Late debounce: job was already debounced by another job, skipping execution"
                 );
-            } else {
-                // Relatively rare, so we can afford extra db call.
-                tracing::debug!(
-                    job_id = %j_id,
-                    "Debounce key wasn't deleted"
-                );
-
-                if r.needs_debounce.unwrap_or_default() {
-                    tracing::info!(
-                        job_id = %j_id,
-                        "Late debounce: job was already debounced by another job, skipping execution"
-                    );
-                    self.job = None;
-                    return Ok(());
-                } else {
-                    // Limits exceeded, execute job
-                    tracing::info!(
-                        job_id = %j_id,
-                        "Debouncing limits exceeded: proceeding with job execution"
-                    );
-                }
+                self.job = None;
+                return Ok(());
             }
 
             if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
@@ -2745,13 +2714,7 @@ impl PulledJobResult {
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
-            if kind.is_dependency()
-                && j.args
-                    .as_ref()
-                    .and_then(|x| x.get("triggered_by_relative_import"))
-                    .is_some()
-                && !*WMDEBUG_NO_DJOB_DEBOUNCING
-            {
+            if is_djob_to_debounce {
                 clone_runnable(j, db).await?;
             }
         }
