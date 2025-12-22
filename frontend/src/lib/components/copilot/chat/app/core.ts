@@ -1009,8 +1009,27 @@ When creating a new app, use \`list_workspace_runnables\` or \`search_hub_script
 
 `
 
+	// Add datatable creation policy context
+	const policy = aiChatManager.datatableCreationPolicy
+	if (policy.enabled && policy.datatable) {
+		content += `## Datatable Creation Policy
+
+**Table creation is ENABLED.** You can create new tables using \`exec_datatable_sql\` with the \`new_table\` parameter.
+- **Default datatable**: ${policy.datatable}${policy.schema ? `\n- **Default schema**: ${policy.schema}` : ''}
+
+When creating new tables, you MUST use the default datatable${policy.schema ? ` and schema` : ''} specified above. Do not create tables in other datatables or schemas.
+
+`
+	} else {
+		content += `## Datatable Creation Policy
+
+**Table creation is DISABLED.** You must NOT create new datatable tables. If you need to create a table to complete the task, inform the user that table creation is disabled and ask them to enable it in the Data panel settings.
+
+`
+	}
+
 	if (customPrompt?.trim()) {
-		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+		content = `${content}\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
 
 	return {

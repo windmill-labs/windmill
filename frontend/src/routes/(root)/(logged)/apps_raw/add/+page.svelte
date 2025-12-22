@@ -167,7 +167,8 @@
 </script>
 
 {#if templatePicker}
-	<Modal kind="X" open title="Templates">
+	<Modal kind="X" open title="New App setup">
+		<h2 class="text-lg font-medium text-primary">Template</h2>
 		<div class="flex flex-wrap gap-4 pb-4">
 			{#each templates as t}
 				<button
