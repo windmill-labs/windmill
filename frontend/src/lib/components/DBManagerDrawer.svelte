@@ -10,6 +10,13 @@
 	import DBManagerContent from './DBManagerContent.svelte'
 	import { resource } from 'runed'
 
+	interface Props {
+		/** Z-index offset for the drawer, useful when opening from within modals */
+		offset?: number
+	}
+
+	let { offset = 0 }: Props = $props()
+
 	let input: DbInput | undefined = $state()
 	let open = $derived(!!input)
 
@@ -87,6 +94,7 @@
 	bind:open
 	size={expand ? `${windowWidth}px` : '1200px'}
 	preventEscape
+	{offset}
 	on:close={closeDrawer}
 >
 	<DrawerContent

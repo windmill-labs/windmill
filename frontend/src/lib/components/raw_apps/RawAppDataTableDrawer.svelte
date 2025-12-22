@@ -16,9 +16,11 @@
 	interface Props {
 		onAdd?: (ref: DataTableRef) => void
 		existingRefs?: DataTableRef[]
+		/** Z-index offset for the drawer, useful when opening from within modals */
+		offset?: number
 	}
 
-	let { onAdd, existingRefs = [] }: Props = $props()
+	let { onAdd, existingRefs = [], offset = 0 }: Props = $props()
 
 	let open = $state(false)
 	let selectedDatatable = $state<string | undefined>(undefined)
@@ -147,7 +149,7 @@
 
 <svelte:window bind:innerWidth={windowWidth} />
 
-<Drawer bind:open size={expand ? `${windowWidth}px` : '1200px'}>
+<Drawer bind:open size={expand ? `${windowWidth}px` : '1200px'} {offset}>
 	<DrawerContent
 		title="Data"
 		on:close={() => {

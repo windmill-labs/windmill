@@ -2,6 +2,7 @@
 	import { Settings } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		createDatatablesResource,
 		createSchemasResource,
@@ -28,7 +29,7 @@
 	}: Props = $props()
 
 	// Load available datatables and schemas using shared utilities
-	const datatables = createDatatablesResource()
+	const datatables = createDatatablesResource(() => $workspaceStore)
 	const schemas = createSchemasResource(() => datatable)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))

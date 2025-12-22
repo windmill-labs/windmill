@@ -24,7 +24,12 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AlertTriangle, Sparkles, ArrowRight } from 'lucide-svelte'
+	import { AlertTriangle, Sparkles, ArrowRight, Plus, List } from 'lucide-svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
+	import RawAppDataTableDrawer from '$lib/components/raw_apps/RawAppDataTableDrawer.svelte'
+	import { type DataTableRef, formatDataTableRef } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -177,17 +182,52 @@
 	let selectedTemplateIndex = $state(0)
 	let tableCreationEnabled = $state(true)
 	let selectedDatatable = $state<string | undefined>(undefined)
+	let schemaMode = $state<'new' | 'existing'>('new')
 	let selectedSchema = $state<string | undefined>(undefined)
+	let newSchemaName = $state('')
+	let appSummary = $state('')
 	let initialPrompt = $state('')
+	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
+
+	// Pre-whitelisted tables for the app
+	let preWhitelistedTables = $state<DataTableRef[]>([])
 
 	// Load available datatables and schemas using shared utilities
-	const datatables = createDatatablesResource()
+	const datatables = createDatatablesResource(() => $workspaceStore)
 	const schemas = createSchemasResource(() => selectedDatatable)
 
-	// Auto-select first datatable when datatables load
+	// Derived value to force reactivity on datatables.current
+	const availableDatatables = $derived(datatables.current)
+	const availableSchemas = $derived(schemas.current)
+
+	// Auto-select datatable: prefer "main" if available, otherwise first one
+	// Only runs once when datatables first load (selectedDatatable is undefined)
+	let hasAutoSelected = false
 	$effect(() => {
-		if (datatables.current.length > 0 && !selectedDatatable) {
-			selectedDatatable = datatables.current[0]
+		if (availableDatatables?.length > 0 && !hasAutoSelected) {
+			hasAutoSelected = true
+			if (availableDatatables.includes('main')) {
+				selectedDatatable = 'main'
+			} else {
+				selectedDatatable = availableDatatables[0]
+			}
+		}
+	})
+
+	// Generate default new schema name (appX where X is first unused number)
+	const defaultNewSchemaName = $derived.by(() => {
+		const existingSchemas = availableSchemas ?? []
+		let num = 1
+		while (existingSchemas.includes(`app${num}`)) {
+			num++
+		}
+		return `app${num}`
+	})
+
+	// Set default new schema name when schemas load or when switching to new mode
+	$effect(() => {
+		if (schemaMode === 'new' && !newSchemaName) {
+			newSchemaName = defaultNewSchemaName
 		}
 	})
 
@@ -196,33 +236,67 @@
 	$effect(() => {
 		if (previousDatatable !== undefined && selectedDatatable !== previousDatatable) {
 			selectedSchema = undefined
+			newSchemaName = ''
 		}
 		previousDatatable = selectedDatatable
 	})
 
-	const datatableItems = $derived(toDatatableItems(datatables.current))
-	const schemaItems = $derived(toSchemaItems(schemas.current))
+	// Update AI prompt when summary changes
+	$effect(() => {
+		if (appSummary.trim() && isAiEnabled) {
+			initialPrompt = `Build ${appSummary.trim()}`
+		}
+	})
 
-	const hasNoDatatables = $derived((datatables.current?.length ?? 0) === 0)
+	const datatableItems = $derived(toDatatableItems(availableDatatables))
+	const schemaItems = $derived(toSchemaItems(availableSchemas))
+
+	// The effective schema to use (either selected existing or new schema name)
+	const effectiveSchema = $derived(schemaMode === 'new' ? newSchemaName : selectedSchema)
+
+	const hasNoDatatables = $derived(availableDatatables?.length === 0)
 	const isAiEnabled = $derived($copilotInfo.enabled)
 
-	function startApp(withPrompt: boolean) {
+	async function startApp(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
 		if (template.files) {
 			files = template.files
 			reloadCounter += 1
 		}
 
-		// Set the data configuration
+		// Set summary
+		summary = appSummary.trim()
+
+		// Create new schema if needed
+		if (schemaMode === 'new' && newSchemaName && selectedDatatable && $workspaceStore) {
+			try {
+				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
+				const dbOps = dbSchemaOpsWithPreviewScripts({
+					workspace: $workspaceStore,
+					input: {
+						type: 'database',
+						resourceType: 'postgresql',
+						resourcePath: `datatable://${selectedDatatable}`
+					}
+				})
+				await dbOps.onCreateSchema({ schema: newSchemaName })
+			} catch (e) {
+				console.error('Failed to create schema:', e)
+				sendUserToast(`Failed to create schema: ${e}`, true)
+			}
+		}
+
+		// Set the data configuration including pre-whitelisted tables
+		const formattedTables = preWhitelistedTables.map(formatDataTableRef)
 		if (tableCreationEnabled && selectedDatatable) {
 			data = {
-				...data,
+				tables: formattedTables,
 				datatable: selectedDatatable,
-				schema: selectedSchema
+				schema: effectiveSchema
 			}
 		} else {
 			data = {
-				...data,
+				tables: formattedTables,
 				datatable: undefined,
 				schema: undefined
 			}
@@ -232,7 +306,7 @@
 		aiChatManager.datatableCreationPolicy = {
 			enabled: tableCreationEnabled && !!selectedDatatable,
 			datatable: tableCreationEnabled ? selectedDatatable : undefined,
-			schema: tableCreationEnabled ? selectedSchema : undefined
+			schema: tableCreationEnabled ? effectiveSchema : undefined
 		}
 
 		templatePicker = false
@@ -261,8 +335,19 @@
 {#if templatePicker}
 	<Modal kind="X" open title="New App setup">
 		<div class="flex flex-col gap-6 min-w-[500px]">
-			<!-- Template Selection -->
+			<!-- Summary -->
 			<div>
+				<h2 class="text-sm font-medium text-primary mb-2">Summary</h2>
+				<TextInput
+					bind:value={appSummary}
+					inputProps={{
+						placeholder: "Brief description of the app (e.g., 'Todo list with authentication')"
+					}}
+				/>
+			</div>
+
+			<!-- Template Selection -->
+			<div class="border-t pt-4">
 				<h2 class="text-sm font-medium text-primary mb-2">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
@@ -298,37 +383,83 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-4">
-						<div class="flex gap-4">
-							<!-- Datatable Selector -->
-							<div class="flex-1">
-								<span class="text-xs text-tertiary mb-1 block">Default Database</span>
-								<Select
-									disablePortal
-									items={datatableItems}
-									bind:value={selectedDatatable}
-									placeholder="Select database"
-									size="sm"
-								/>
-							</div>
+						<!-- Database Selector -->
+						<div>
+							<span class="text-xs text-tertiary mb-1 block">Default Database</span>
+							<Select
+								disablePortal
+								items={datatableItems}
+								bind:value={selectedDatatable}
+								placeholder="Select database"
+								size="sm"
+							/>
+						</div>
 
-							<!-- Schema Selector -->
-							<div class="flex-1">
-								<span class="text-xs text-tertiary mb-1 block">Default Schema</span>
-								<Select
-									disablePortal
-									items={schemaItems}
-									bind:value={selectedSchema}
-									placeholder="public"
-									size="sm"
-								/>
+						<!-- Schema Selection: New or Existing -->
+						<div>
+							<span class="text-xs text-tertiary mb-1 block">Default Schema</span>
+							<div class="flex gap-2 items-center">
+								<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+									{#snippet children({ item })}
+										<ToggleButton
+											value="new"
+											label="New"
+											icon={Plus}
+											{item}
+											size="sm"
+										/>
+										<ToggleButton
+											value="existing"
+											label="Existing"
+											icon={List}
+											{item}
+											size="sm"
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+
+								{#if schemaMode === 'new'}
+									<TextInput
+										bind:value={newSchemaName}
+										inputProps={{ placeholder: 'Schema name' }}
+										class="flex-1"
+									/>
+								{:else}
+									<div class="flex-1">
+										<Select
+											disablePortal
+											items={schemaItems}
+											bind:value={selectedSchema}
+											placeholder="Select schema"
+											size="sm"
+										/>
+									</div>
+								{/if}
 							</div>
 						</div>
+
 						<!-- Table Creation Toggle -->
-						<div class="flex items-center justify-between">
-							<div>
-								<span class="text-sm text-secondary">Allow AI to create new tables</span>
-							</div>
-							<Toggle size="sm" bind:checked={tableCreationEnabled} />
+						<div class="flex items-center">
+							<Toggle
+								size="sm"
+								bind:checked={tableCreationEnabled}
+								options={{ right: 'Allow AI to create new tables' }}
+							/>
+						</div>
+
+						<!-- Pre-whitelisted Tables -->
+						<div class="border-t pt-3">
+							<RawAppDataTableList
+								dataTableRefs={preWhitelistedTables}
+								defaultDatatable={selectedDatatable}
+								defaultSchema={effectiveSchema}
+								standalone
+								hideDefaultSelector
+								onAdd={() => dataTableDrawer?.openDrawer()}
+								onRemove={(index) => {
+									preWhitelistedTables = preWhitelistedTables.filter((_, i) => i !== index)
+								}}
+							/>
 						</div>
 					</div>
 				{/if}
@@ -410,3 +541,12 @@
 		newApp
 	/>
 {/key}
+
+<RawAppDataTableDrawer
+	bind:this={dataTableDrawer}
+	offset={10000}
+	existingRefs={preWhitelistedTables}
+	onAdd={(ref) => {
+		preWhitelistedTables = [...preWhitelistedTables, ref]
+	}}
+/>

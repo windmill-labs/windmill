@@ -3,10 +3,11 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
+	import { workspaceStore } from '$lib/stores'
 	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'
 
 	// Load available datatables from workspace using shared utility
-	const datatables = createDatatablesResource()
+	const datatables = createDatatablesResource(() => $workspaceStore)
 
 	const hasNoDatatables = $derived((datatables.current?.length ?? 0) === 0)
 

@@ -5,11 +5,12 @@ import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/me
 import { get } from 'svelte/store'
 
 /**
- * Creates a resource that loads available datatables from the workspace
+ * Creates a resource that loads available datatables from the workspace.
+ * Pass a getter function that returns the workspace to create a reactive dependency.
  */
-export function createDatatablesResource() {
-	return resource<string[]>([], async () => {
-		const workspace = get(workspaceStore)
+export function createDatatablesResource(getWorkspace: () => string | undefined) {
+	return resource.pre<string[]>([() => getWorkspace() ?? ''], async () => {
+		const workspace = getWorkspace()
 		if (!workspace) return []
 		try {
 			return await WorkspaceService.listDataTables({ workspace })
@@ -21,10 +22,11 @@ export function createDatatablesResource() {
 }
 
 /**
- * Creates a resource that loads schemas for a given datatable
+ * Creates a resource that loads schemas for a given datatable.
+ * The getDatatable getter is used as a reactive dependency - when it changes, schemas are refetched.
  */
 export function createSchemasResource(getDatatable: () => string | undefined) {
-	return resource<string[]>([], async () => {
+	return resource<string[]>([() => getDatatable() ?? ''], async () => {
 		const datatable = getDatatable()
 		const workspace = get(workspaceStore)
 		if (!datatable || !workspace) return []
@@ -66,8 +68,10 @@ export function toDatatableItems(datatables: string[]) {
  * Converts schemas array to Select items format
  */
 export function toSchemaItems(schemas: string[]) {
-	return schemas.map((s) => ({
-		value: s,
-		label: s
-	}))
+	return (
+		schemas?.map((s) => ({
+			value: s,
+			label: s
+		})) ?? []
+	)
 }

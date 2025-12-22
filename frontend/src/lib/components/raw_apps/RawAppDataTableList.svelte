@@ -18,6 +18,10 @@
 		onSelect?: (ref: DataTableRef, index: number) => void
 		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 		selectedIndex?: number | undefined
+		/** When true, renders without PanelSection wrapper (for use in modals) */
+		standalone?: boolean
+		/** Hide the default database selector */
+		hideDefaultSelector?: boolean
 	}
 
 	let {
@@ -28,7 +32,9 @@
 		onRemove,
 		onSelect,
 		onDefaultChange,
-		selectedIndex = undefined
+		selectedIndex = undefined,
+		standalone = false,
+		hideDefaultSelector = false
 	}: Props = $props()
 
 	// Group refs by datatable, then by schema
@@ -79,34 +85,30 @@
 	}
 </script>
 
-<PanelSection
-	fullHeight={false}
-	size="lg"
-	title="data"
-	id="app-editor-data-panel"
-	tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."
->
-	{#snippet action()}
-		<div class="flex items-center">
-			<!-- Settings popover for default database/schema -->
+{#snippet actionButtons()}
+	<div class="flex items-center">
+		<!-- Settings popover for default database/schema -->
+		{#if !hideDefaultSelector}
 			<DefaultDatabaseSelector
 				datatable={defaultDatatable}
 				schema={defaultSchema}
 				onChange={onDefaultChange}
 			/>
+		{/if}
 
-			<!-- Add datatable button -->
-			<button
-				onclick={() => onAdd?.()}
-				class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
-				title="Add datatable reference"
-			>
-				<Plus size={12} class="text-secondary" />
-				<Database size={12} class="text-tertiary" />
-			</button>
-		</div>
-	{/snippet}
+		<!-- Add datatable button -->
+		<button
+			onclick={() => onAdd?.()}
+			class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
+			title="Add datatable reference"
+		>
+			<Plus size={12} class="text-secondary" />
+			<Database size={12} class="text-tertiary" />
+		</button>
+	</div>
+{/snippet}
 
+{#snippet tableList()}
 	{#if dataTableRefs.length === 0}
 		<span class="text-2xs text-tertiary">No data tables configured</span>
 	{:else}
@@ -173,4 +175,28 @@
 			{/each}
 		</div>
 	{/if}
-</PanelSection>
+{/snippet}
+
+{#if standalone}
+	<div class="flex flex-col gap-2">
+		<div class="flex items-center justify-between">
+			<span class="text-xs text-tertiary">Existing tables to use</span>
+			{@render actionButtons()}
+		</div>
+		{@render tableList()}
+	</div>
+{:else}
+	<PanelSection
+		fullHeight={false}
+		size="lg"
+		title="data"
+		id="app-editor-data-panel"
+		tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."
+	>
+		{#snippet action()}
+			{@render actionButtons()}
+		{/snippet}
+
+		{@render tableList()}
+	</PanelSection>
+{/if}
