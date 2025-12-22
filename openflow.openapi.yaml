@@ -1,4 +1,4 @@
-openapi: "3.0.3"
+openapi: '3.0.3'
 
 info:
   version: 1.596.0
@@ -31,7 +31,7 @@ components:
           type: string
           description: Detailed documentation for this flow
         value:
-          $ref: "#/components/schemas/FlowValue"
+          $ref: '#/components/schemas/FlowValue'
         schema:
           type: object
           description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
@@ -47,13 +47,13 @@ components:
           type: array
           description: Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: '#/components/schemas/FlowModule'
         failure_module:
           description: Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types
-          $ref: "#/components/schemas/FlowModule"
+          $ref: '#/components/schemas/FlowModule'
         preprocessor_module:
           description: Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results
-          $ref: "#/components/schemas/FlowModule"
+          $ref: '#/components/schemas/FlowModule'
         same_worker:
           type: boolean
           description: If true, all steps run on the same worker for better performance
@@ -98,7 +98,7 @@ components:
           type: array
           description: Sticky notes attached to the flow
           items:
-            $ref: "#/components/schemas/FlowNote"
+            $ref: '#/components/schemas/FlowNote'
       required:
         - modules
 
@@ -136,7 +136,7 @@ components:
               maximum: 100
               description: Random jitter percentage (0-100) to avoid thundering herd
         retry_if:
-          $ref: "#/components/schemas/RetryIf"
+          $ref: '#/components/schemas/RetryIf'
 
     FlowNote:
       type: object
@@ -230,13 +230,13 @@ components:
           type: string
           description: Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)
         value:
-          $ref: "#/components/schemas/FlowModuleValue"
+          $ref: '#/components/schemas/FlowModuleValue'
         stop_after_if:
           description: Early termination condition evaluated after this step completes
-          $ref: "#/components/schemas/StopAfterIf"
+          $ref: '#/components/schemas/StopAfterIf'
         stop_after_all_iters_if:
           description: For loops only - early termination condition evaluated after all iterations complete
-          $ref: "#/components/schemas/StopAfterIf"
+          $ref: '#/components/schemas/StopAfterIf'
         skip_if:
           type: object
           description: Conditionally skip this step based on previous results or flow inputs
@@ -248,7 +248,7 @@ components:
             - expr
         sleep:
           description: Delay before executing this step (in seconds or as expression)
-          $ref: "#/components/schemas/InputTransform"
+          $ref: '#/components/schemas/InputTransform'
         cache_ttl:
           type: number
           description: Cache duration in seconds for this step's results
@@ -256,7 +256,7 @@ components:
           type: boolean
         timeout:
           description: Maximum execution time in seconds (static value or expression)
-          $ref: "#/components/schemas/InputTransform"
+          $ref: '#/components/schemas/InputTransform'
         delete_after_use:
           type: boolean
           description: If true, this step's result is deleted after use to save memory
@@ -294,7 +294,7 @@ components:
               description: If true, only authenticated users can approve
             user_groups_required:
               description: Expression or list of groups that can approve
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             self_approval_disabled:
               type: boolean
               description: If true, the user who started the flow cannot approve
@@ -312,7 +312,7 @@ components:
           description: If true, flow continues even if this step fails
         retry:
           description: Retry configuration if this step fails
-          $ref: "#/components/schemas/Retry"
+          $ref: '#/components/schemas/Retry'
       required:
         - value
         - id
@@ -320,13 +320,13 @@ components:
     InputTransform:
       description: Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs
       oneOf:
-        - $ref: "#/components/schemas/StaticTransform"
-        - $ref: "#/components/schemas/JavascriptTransform"
+        - $ref: '#/components/schemas/StaticTransform'
+        - $ref: '#/components/schemas/JavascriptTransform'
       discriminator:
         propertyName: type
         mapping:
-          static: "#/components/schemas/StaticTransform"
-          javascript: "#/components/schemas/JavascriptTransform"
+          static: '#/components/schemas/StaticTransform'
+          javascript: '#/components/schemas/JavascriptTransform'
 
     StaticTransform:
       type: object
@@ -359,27 +359,27 @@ components:
     FlowModuleValue:
       description: The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type
       oneOf:
-        - $ref: "#/components/schemas/RawScript"
-        - $ref: "#/components/schemas/PathScript"
-        - $ref: "#/components/schemas/PathFlow"
-        - $ref: "#/components/schemas/ForloopFlow"
-        - $ref: "#/components/schemas/WhileloopFlow"
-        - $ref: "#/components/schemas/BranchOne"
-        - $ref: "#/components/schemas/BranchAll"
-        - $ref: "#/components/schemas/Identity"
-        - $ref: "#/components/schemas/AiAgent"
+        - $ref: '#/components/schemas/RawScript'
+        - $ref: '#/components/schemas/PathScript'
+        - $ref: '#/components/schemas/PathFlow'
+        - $ref: '#/components/schemas/ForloopFlow'
+        - $ref: '#/components/schemas/WhileloopFlow'
+        - $ref: '#/components/schemas/BranchOne'
+        - $ref: '#/components/schemas/BranchAll'
+        - $ref: '#/components/schemas/Identity'
+        - $ref: '#/components/schemas/AiAgent'
       discriminator:
         propertyName: type
         mapping:
-          rawscript: "#/components/schemas/RawScript"
-          script: "#/components/schemas/PathScript"
-          flow: "#/components/schemas/PathFlow"
-          forloopflow: "#/components/schemas/ForloopFlow"
-          whileloopflow: "#/components/schemas/WhileloopFlow"
-          branchone: "#/components/schemas/BranchOne"
-          branchall: "#/components/schemas/BranchAll"
-          identity: "#/components/schemas/Identity"
-          aiagent: "#/components/schemas/AiAgent"
+          rawscript: '#/components/schemas/RawScript'
+          script: '#/components/schemas/PathScript'
+          flow: '#/components/schemas/PathFlow'
+          forloopflow: '#/components/schemas/ForloopFlow'
+          whileloopflow: '#/components/schemas/WhileloopFlow'
+          branchone: '#/components/schemas/BranchOne'
+          branchall: '#/components/schemas/BranchAll'
+          identity: '#/components/schemas/Identity'
+          aiagent: '#/components/schemas/AiAgent'
 
     RawScript:
       type: object
@@ -390,7 +390,7 @@ components:
           type: object
           description: Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
           additionalProperties:
-            $ref: "#/components/schemas/InputTransform"
+            $ref: '#/components/schemas/InputTransform'
         content:
           type: string
           description: The script source code. Should export a 'main' function
@@ -481,7 +481,7 @@ components:
           type: object
           description: Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments
           additionalProperties:
-            $ref: "#/components/schemas/InputTransform"
+            $ref: '#/components/schemas/InputTransform'
         path:
           type: string
           description: Path to the script in the workspace (e.g., 'f/scripts/send_email')
@@ -511,7 +511,7 @@ components:
           type: object
           description: Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments
           additionalProperties:
-            $ref: "#/components/schemas/InputTransform"
+            $ref: '#/components/schemas/InputTransform'
         path:
           type: string
           description: Path to the flow in the workspace (e.g., 'f/flows/process_user')
@@ -532,10 +532,10 @@ components:
           type: array
           description: Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: '#/components/schemas/FlowModule'
         iterator:
           description: JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'
-          $ref: "#/components/schemas/InputTransform"
+          $ref: '#/components/schemas/InputTransform'
         skip_failures:
           type: boolean
           description: If true, iteration failures don't stop the loop. Failed iterations return null
@@ -548,7 +548,7 @@ components:
           description: If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency
         parallelism:
           description: Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression
-          $ref: "#/components/schemas/InputTransform"
+          $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
       required:
@@ -565,7 +565,7 @@ components:
           type: array
           description: Steps to execute in each iteration. Use stop_after_if to control when the loop ends
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: '#/components/schemas/FlowModule'
         skip_failures:
           type: boolean
           description: If true, iteration failures don't stop the loop. Failed iterations return null
@@ -578,7 +578,7 @@ components:
           description: If true, iterations run concurrently (use with caution in while loops)
         parallelism:
           description: Maximum number of concurrent iterations when parallel=true
-          $ref: "#/components/schemas/InputTransform"
+          $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
       required:
@@ -606,7 +606,7 @@ components:
                 type: array
                 description: Steps to execute if this branch's expr is true
                 items:
-                  $ref: "#/components/schemas/FlowModule"
+                  $ref: '#/components/schemas/FlowModule'
             required:
               - modules
               - expr
@@ -614,7 +614,7 @@ components:
           type: array
           description: Steps to execute if no branch expressions match
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: '#/components/schemas/FlowModule'
         type:
           type: string
           enum:
@@ -644,7 +644,7 @@ components:
                 type: array
                 description: Steps to execute in this branch
                 items:
-                  $ref: "#/components/schemas/FlowModule"
+                  $ref: '#/components/schemas/FlowModule'
             required:
               - modules
         type:
@@ -669,7 +669,7 @@ components:
           type: string
           description: Short description of what this tool does (shown to the AI)
         value:
-          $ref: "#/components/schemas/ToolValue"
+          $ref: '#/components/schemas/ToolValue'
       required:
         - id
         - value
@@ -677,13 +677,15 @@ components:
     ToolValue:
       description: The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference
       oneOf:
-        - $ref: "#/components/schemas/FlowModuleTool"
-        - $ref: "#/components/schemas/McpToolValue"
+        - $ref: '#/components/schemas/FlowModuleTool'
+        - $ref: '#/components/schemas/McpToolValue'
+        - $ref: '#/components/schemas/WebsearchToolValue'
       discriminator:
         propertyName: tool_type
         mapping:
-          flowmodule: "#/components/schemas/FlowModuleTool"
-          mcp: "#/components/schemas/McpToolValue"
+          flowmodule: '#/components/schemas/FlowModuleTool'
+          mcp: '#/components/schemas/McpToolValue'
+          websearch: '#/components/schemas/WebsearchToolValue'
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -696,7 +698,18 @@ components:
                 - flowmodule
           required:
             - tool_type
-        - $ref: "#/components/schemas/FlowModuleValue"
+        - $ref: '#/components/schemas/FlowModuleValue'
+
+    WebsearchToolValue:
+      type: object
+      description: A tool implemented as a websearch tool. The AI can call this like any other websearch tool
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - websearch
+      required:
+        - tool_type
 
     McpToolValue:
       type: object
@@ -732,25 +745,25 @@ components:
           description: Input parameters for the AI agent mapped to their values
           properties:
             provider:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             output_type:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             user_message:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             system_prompt:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             streaming:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             memory:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             output_schema:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             user_images:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             max_completion_tokens:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
             temperature:
-              $ref: "#/components/schemas/InputTransform"
+              $ref: '#/components/schemas/InputTransform'
           required:
             - provider
             - user_message
@@ -759,7 +772,7 @@ components:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
           items:
-            $ref: "#/components/schemas/AgentTool"
+            $ref: '#/components/schemas/AgentTool'
         type:
           type: string
           enum:
@@ -795,15 +808,15 @@ components:
         modules:
           type: array
           items:
-            $ref: "#/components/schemas/FlowStatusModule"
+            $ref: '#/components/schemas/FlowStatusModule'
         user_states:
           additionalProperties: true
         preprocessor_module:
           allOf:
-            - $ref: "#/components/schemas/FlowStatusModule"
+            - $ref: '#/components/schemas/FlowStatusModule'
         failure_module:
           allOf:
-            - $ref: "#/components/schemas/FlowStatusModule"
+            - $ref: '#/components/schemas/FlowStatusModule'
             - type: object
               properties:
                 parent_module:
@@ -953,6 +966,13 @@ components:
                   - call_id
                   - function_name
                   - resource_path
+                  - type
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [web_search]
+                required:
                   - type
               - type: object
                 properties:

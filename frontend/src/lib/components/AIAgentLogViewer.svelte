@@ -39,6 +39,9 @@
 						}),
 						z.object({
 							type: z.literal('message')
+						}),
+						z.object({
+							type: z.literal('web_search')
 						})
 					])
 					.optional()
@@ -81,6 +84,13 @@
 				fakeModuleStates[idx.toString()] = {
 					type: 'Success',
 					args: toolCall.arguments ?? {},
+					logs: '',
+					result: toolCall.content
+				}
+			} else if (toolCall.type === 'web_search') {
+				fakeModuleStates[idx.toString()] = {
+					type: 'Success',
+					args: {},
 					logs: '',
 					result: toolCall.content
 				}
@@ -127,7 +137,12 @@
 										function_name: m.agent_action.function_name,
 										arguments: m.agent_action.arguments
 									}
-								: undefined) as AgentActionWithContent | undefined
+								: m.agent_action?.type === 'web_search'
+									? {
+											type: 'web_search',
+											content: m.content
+										}
+									: undefined) as AgentActionWithContent | undefined
 			)
 			.filter((m) => m !== undefined)
 
@@ -153,6 +168,14 @@
 								},
 								summary: toolCall.function_name,
 								arguments: toolCall.arguments
+							}
+						} else if (toolCall.type === 'web_search') {
+							return {
+								id: idx.toString(),
+								value: {
+									type: 'identity' as const
+								},
+								summary: 'Web Search'
 							}
 						} else {
 							const module = tools.find((m) => m.summary === toolCall.function_name)
