@@ -53,6 +53,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 							description:
 								'Number of most recent messages to store and load. Set to 0 to disable memory.',
 							default: 0
+						},
+						memory_id: {
+							type: 'string',
+							format: 'uuid',
+							description:
+								'Custom memory identifier. Each unique ID maintains separate conversation history. Auto-generated if not specified.',
+							hideWhenChatEnabled: true
 						}
 					},
 					required: ['kind'],
@@ -191,6 +198,7 @@ function migrateAiAgentInputTransforms(
 			delete inputTransforms.messages_context_length
 		}
 	}
+
 
 	return inputTransforms
 }

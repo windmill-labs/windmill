@@ -122,6 +122,7 @@
 			| undefined
 		workspace?: string | undefined
 		s3StorageConfigured?: boolean
+		chatInputEnabled?: boolean
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -182,6 +183,7 @@
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		s3StorageConfigured = true,
+		chatInputEnabled = false,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -255,7 +257,12 @@
 			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					nvalue = nullable ? null : ''
+					// Auto-generate UUID for uuid format fields
+					if (format === 'uuid') {
+						nvalue = crypto.randomUUID()
+					} else {
+						nvalue = nullable ? null : ''
+					}
 				} else if (inputCat == 'enum' && required) {
 					let firstV = enum_?.[0]
 					if (typeof firstV === 'string') {
@@ -1143,6 +1150,7 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
+											{chatInputEnabled}
 											hiddenArgs={['label', 'kind']}
 											schema={{
 												properties: obj.properties,

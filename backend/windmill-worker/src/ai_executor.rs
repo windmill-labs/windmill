@@ -433,7 +433,7 @@ pub async fn run_agent(
                     messages.extend(manual_messages.clone());
                 }
             }
-            Some(Memory::Auto { context_length }) if *context_length > 0 => {
+            Some(Memory::Auto { context_length, .. }) if *context_length > 0 => {
                 // Auto mode: load from memory
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     if let Some(memory_id) = flow_context
@@ -608,10 +608,20 @@ pub async fn run_agent(
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
 
+    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
     let memory_id = flow_context
         .flow_status
         .as_ref()
-        .and_then(|fs| fs.memory_id);
+        .and_then(|fs| fs.memory_id)
+        .or_else(|| {
+            // Extract memory_id from Memory::Auto if present
+            match &args.memory {
+                Some(Memory::Auto { memory_id, .. }) => *memory_id,
+                _ => None,
+            }
+        });
+
+    tracing::info!("[HERE] memory_id: {:?}", memory_id);
 
     let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
 
@@ -978,7 +988,7 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length }) = &args.memory {
+        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
             if *context_length > 0 {
                 if let Some(step_id) = job.flow_step_id.as_deref() {
                     // Extract OpenAIMessages from final_messages

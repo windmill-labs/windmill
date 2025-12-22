@@ -70,6 +70,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
+		chatInputEnabled?: boolean
 		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
 	}
 
@@ -112,6 +113,7 @@
 		lightHeaderFont = false,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
+		chatInputEnabled = false,
 		actions: actions_render = undefined
 	}: Props = $props()
 
@@ -206,8 +208,17 @@
 
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
-			if (schema?.properties?.[x.value]?.showExpr) {
-				if (computeShow(x.value, schema.properties?.[x.value]?.showExpr, args)) {
+			const prop = schema?.properties?.[x.value]
+			// Hide fields with hideWhenChatEnabled when chat mode is active
+			if (prop?.hideWhenChatEnabled && chatInputEnabled) {
+				if (!hidden[x.value]) {
+					hidden[x.value] = true
+					inputCheck[x.value] = true
+				}
+				continue
+			}
+			if (prop?.showExpr) {
+				if (computeShow(x.value, prop.showExpr, args)) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true
@@ -235,13 +246,18 @@
 		;[schema, args]
 
 		if (args && typeof args == 'object') {
-			let oneShowExpr = false
+			let hasShowExpr = false
+			let hasHideWhenChatEnabled = false
 			for (const key of fields) {
-				if (schema?.properties?.[key.value]?.showExpr) {
-					oneShowExpr = true
+				const prop = schema?.properties?.[key.value]
+				if (prop?.showExpr) {
+					hasShowExpr = true
+				}
+				if (prop?.hideWhenChatEnabled && chatInputEnabled) {
+					hasHideWhenChatEnabled = true
 				}
 			}
-			if (!oneShowExpr) {
+			if (!hasShowExpr && !hasHideWhenChatEnabled) {
 				return
 			}
 			for (const key in args) {

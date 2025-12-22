@@ -42,6 +42,7 @@ export interface SchemaProperty {
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 	showExpr?: string
+	hideWhenChatEnabled?: boolean
 	password?: boolean
 	order?: string[]
 	nullable?: boolean
