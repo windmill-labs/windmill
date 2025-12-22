@@ -123,6 +123,10 @@
 				{outputs}
 				doOnSuccess={resolvedConfig.onSuccess}
 				doOnError={resolvedConfig.onError}
+				clearFormInputs={{
+					selected: resolvedConfig.clearFormInputs.selected,
+					onClear: () => runnableComponent?.setArgs({})
+				}}
 				{errorHandledByComponent}
 			>
 				{#if noInputs}
