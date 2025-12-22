@@ -4,7 +4,7 @@
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
-	import type { FlowAIChatHelpers } from './core'
+	import type { FlowAIChatHelpers, FlowLintResult } from './core'
 	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
@@ -168,6 +168,29 @@
 			}
 			// Call the UI test function which opens preview panel
 			return await onTestFlow?.(conversationId)
+		},
+
+		getLintErrors: (): FlowLintResult => {
+			// Get lint errors from the currently open editor
+			// In flow mode, we check the current module's editor if it's open
+			const result: FlowLintResult = {
+				errorCount: 0,
+				warningCount: 0,
+				modules: {}
+			}
+
+			if ($currentEditor && $currentEditor.type === 'script') {
+				const moduleId = $currentEditor.stepId
+				const lintResult = $currentEditor.editor.getLintErrors()
+
+				if (lintResult.errorCount > 0 || lintResult.warningCount > 0) {
+					result.modules[moduleId] = lintResult
+					result.errorCount += lintResult.errorCount
+					result.warningCount += lintResult.warningCount
+				}
+			}
+
+			return result
 		},
 
 		setFlowJson: async (

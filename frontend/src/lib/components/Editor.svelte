@@ -92,7 +92,7 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/script/core'
+	import { formatResourceTypes, type ScriptLintResult, type ScriptLintError } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
@@ -462,6 +462,41 @@
 
 	export function getScriptLang(): string | undefined {
 		return scriptLang
+	}
+
+	/** Get lint errors and warnings from the Monaco editor */
+	export function getLintErrors(): ScriptLintResult {
+		if (!model) {
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+		}
+
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const errors: ScriptLintError[] = []
+		const warnings: ScriptLintError[] = []
+
+		for (const marker of markers) {
+			const lintError: ScriptLintError = {
+				message: marker.message,
+				severity: marker.severity === MarkerSeverity.Error ? 'error' : 'warning',
+				startLineNumber: marker.startLineNumber,
+				startColumn: marker.startColumn,
+				endLineNumber: marker.endLineNumber,
+				endColumn: marker.endColumn
+			}
+
+			if (marker.severity === MarkerSeverity.Error) {
+				errors.push(lintError)
+			} else if (marker.severity === MarkerSeverity.Warning) {
+				warnings.push(lintError)
+			}
+		}
+
+		return {
+			errorCount: errors.length,
+			warningCount: warnings.length,
+			errors,
+			warnings
+		}
 	}
 
 	let command: IDisposable | undefined = undefined

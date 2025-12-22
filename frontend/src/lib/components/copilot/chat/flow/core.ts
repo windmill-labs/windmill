@@ -17,7 +17,8 @@ import {
 	createDbSchemaTool,
 	getFormattedResourceTypes,
 	getLangContext,
-	SUPPORTED_CHAT_SCRIPT_LANGUAGES
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
+	type ScriptLintResult
 } from '../script/core'
 import {
 	createSearchHubScriptsTool,
@@ -77,6 +78,19 @@ export interface FlowAIChatHelpers {
 
 	/** Run a test of the current flow using the UI's preview mechanism */
 	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
+
+	/** Get lint errors from all rawscript modules in the flow */
+	getLintErrors?: () => FlowLintResult
+}
+
+/** Lint result for a flow containing errors from all rawscript modules */
+export interface FlowLintResult {
+	/** Total count of errors across all modules */
+	errorCount: number
+	/** Total count of warnings across all modules */
+	warningCount: number
+	/** Lint results per module (keyed by module ID) */
+	modules: Record<string, ScriptLintResult>
 }
 
 const searchScriptsSchema = z.object({
@@ -224,7 +238,49 @@ const setModuleCodeToolDef = createToolDef(
 	'Set or modify the code for an existing inline script module. Use this for quick code-only changes. The module must already exist in the flow.'
 )
 
+const getLintErrorsSchema = z.object({})
+
+const getLintErrorsToolDef = createToolDef(
+	getLintErrorsSchema,
+	'get_lint_errors',
+	'Get lint errors and warnings from all rawscript modules in the flow. Use this after making code changes to check for issues.'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
+
+/** Format flow lint result for display */
+function formatFlowLintResult(lintResult: FlowLintResult): string {
+	let response = ''
+	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
+
+	if (hasIssues) {
+		if (lintResult.errorCount > 0) {
+			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
+		}
+		if (lintResult.warningCount > 0) {
+			response += `⚠️ **${lintResult.warningCount} warning(s)** found:\n`
+		}
+
+		response += '\n'
+
+		for (const [moduleId, moduleResult] of Object.entries(lintResult.modules)) {
+			if (moduleResult.errorCount > 0 || moduleResult.warningCount > 0) {
+				response += `### Module: ${moduleId}\n`
+				for (const error of moduleResult.errors) {
+					response += `- ❌ Line ${error.startLineNumber}: ${error.message}\n`
+				}
+				for (const warning of moduleResult.warnings) {
+					response += `- ⚠️ Line ${warning.startLineNumber}: ${warning.message}\n`
+				}
+				response += '\n'
+			}
+		}
+	} else {
+		response = '✅ No lint issues found in any module.'
+	}
+
+	return response
+}
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
@@ -580,6 +636,33 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			return `Flow updated`
 		}
+	},
+	{
+		def: getLintErrorsToolDef,
+		fn: async ({ helpers, toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors from all modules...' })
+
+			if (!helpers.getLintErrors) {
+				toolCallbacks.setToolStatus(toolId, {
+					content: 'Lint errors not available',
+					error: 'getLintErrors helper is not available in this context'
+				})
+				return 'Lint errors are not available in this context. The editor may not support lint error reporting.'
+			}
+
+			const lintResult = helpers.getLintErrors()
+
+			const status =
+				lintResult.errorCount > 0
+					? `Found ${lintResult.errorCount} error(s)`
+					: lintResult.warningCount > 0
+						? `Found ${lintResult.warningCount} warning(s)`
+						: 'No issues found'
+
+			toolCallbacks.setToolStatus(toolId, { content: status })
+
+			return formatFlowLintResult(lintResult)
+		}
 	}
 ]
 
@@ -602,7 +685,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **Find workspace scripts** → \`search_scripts\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
-**Testing:**
+**Testing & Linting:**
+- **Check for lint errors after code changes** → \`get_lint_errors\` (ALWAYS call after modifying code)
 - **Test entire flow** → \`test_run_flow\`
 - **Test single step** → \`test_run_step\`
 
@@ -811,6 +895,8 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
    - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
    - **First call \`get_instructions_for_code_generation\` to get the correct code format**
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
+
+3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
 
 ### AI Agent Modules
 
